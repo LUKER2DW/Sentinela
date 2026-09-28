@@ -323,11 +323,23 @@ func (s *Store) Stats(ctx context.Context) ([]SegmentStats, error) {
 	return out, rows.Err()
 }
 
-// BytesSince returns bytes recorded by a camera for segments starting after t.
-func (s *Store) BytesSince(ctx context.Context, cameraID string, t time.Time) (int64, error) {
-	var b int64
-	err := s.db.QueryRowContext(ctx, `SELECT coalesce(sum(bytes),0) FROM segments WHERE camera_id=? AND start_utc>=?`, cameraID, FormatTime(t)).Scan(&b)
-	return b, err
+// RateSince returns bytes and recorded seconds for segments starting after t.
+func (s *Store) RateSince(ctx context.Context, cameraID string, t time.Time) (bytes int64, seconds float64, err error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT start_utc,end_utc,bytes FROM segments WHERE camera_id=? AND start_utc>=?`, cameraID, FormatTime(t))
+	if err != nil {
+		return 0, 0, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var st, en string
+		var b int64
+		if err := rows.Scan(&st, &en, &b); err != nil {
+			return 0, 0, err
+		}
+		bytes += b
+		seconds += mustTime(en).Sub(mustTime(st)).Seconds()
+	}
+	return bytes, seconds, rows.Err()
 }
 
 // ---------- events ----------

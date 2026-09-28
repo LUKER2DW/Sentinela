@@ -174,11 +174,14 @@ func (s *Server) system(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		recs = []store.RecorderStatus{}
 	}
-	// Daily bytes per camera over the last 24 h for the storage forecast.
+	// Bytes per day per camera, from the real rate of the last 24 h. Needs
+	// at least 10 min of recording to be meaningful.
 	daily := map[string]int64{}
 	for _, c := range s.Cfg.Cameras {
-		b, _ := s.Store.BytesSince(ctx, c.ID, time.Now().Add(-24*time.Hour))
-		daily[c.ID] = b
+		b, secs, err := s.Store.RateSince(ctx, c.ID, time.Now().Add(-24*time.Hour))
+		if err == nil && secs >= 600 {
+			daily[c.ID] = int64(float64(b) / secs * 86400)
+		}
 	}
 	g2r, gerr := s.go2rtcStatus(ctx)
 	g2rErr := ""
