@@ -1,0 +1,88 @@
+package store
+
+import (
+	"context"
+	"path/filepath"
+	"testing"
+	"time"
+)
+
+func openTest(t *testing.T) *Store {
+	t.Helper()
+	s, err := Open(context.Background(), filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+	return s
+}
+
+func TestMigrateIdempotent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "t.db")
+	for i := 0; i < 2; i++ {
+		s, err := Open(context.Background(), path)
+		if err != nil {
+			t.Fatalf("open %d: %v", i, err)
+		}
+		s.Close()
+	}
+}
+
+func TestFirstUserOnlyOnce(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	if _, err := s.CreateFirstUser(ctx, "admin", "h"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateFirstUser(ctx, "evil", "h"); err == nil {
+		t.Fatal("second setup must fail")
+	}
+	u, err := s.UserByName(ctx, "ADMIN")
+	if err != nil || u.Role != "admin" {
+		t.Fatalf("user=%v err=%v", u, err)
+	}
+}
+
+func TestSegmentsOverlap(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	base := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
+	for i := 0; i < 3; i++ {
+		st := base.Add(time.Duration(i) * 5 * time.Minute)
+		if err := s.UpsertSegment(ctx, Segment{CameraID: "cam1", Start: st, End: st.Add(5 * time.Minute), Path: st.Format("150405") + ".mp4", Bytes: 100}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := s.SegmentsBetween(ctx, "cam1", base.Add(4*time.Minute), base.Add(6*time.Minute))
+	if err != nil || len(got) != 2 {
+		t.Fatalf("got %d segments, err=%v", len(got), err)
+	}
+	// Upsert updates, not duplicates.
+	if err := s.UpsertSegment(ctx, Segment{CameraID: "cam1", Start: base, End: base.Add(6 * time.Minute), Path: base.Format("150405") + ".mp4", Bytes: 200}); err != nil {
+		t.Fatal(err)
+	}
+	st, err := s.Stats(ctx)
+	if err != nil || len(st) != 1 || st[0].Count != 3 || st[0].Bytes != 400 {
+		t.Fatalf("stats=%+v err=%v", st, err)
+	}
+}
+
+func TestEventsLifecycle(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	id, err := s.OpenEvent(ctx, "cam1", "motion", now.Add(-time.Hour), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CloseDanglingEvents(ctx, "cam1", time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	ev, err := s.EventsBetween(ctx, "", now.Add(-2*time.Hour), now, 10)
+	if err != nil || len(ev) != 1 || ev[0].ID != id || ev[0].End == nil {
+		t.Fatalf("events=%+v err=%v", ev, err)
+	}
+	if got := ev[0].End.Sub(ev[0].Start); got != time.Minute {
+		t.Fatalf("dangling close length %v", got)
+	}
+}
