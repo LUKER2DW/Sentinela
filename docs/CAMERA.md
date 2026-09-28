@@ -146,7 +146,8 @@ Other findings:
 - [ ] Create a separate low-privilege user for Sentinela if firmware allows.
 - [ ] Disable cloud/P2P ("Cloud"/"XMEye" in network settings).
 - [ ] Disable UPnP.
-- [ ] Set NTP to the server's IP (run chrony on the server) and correct TZ.
+- [ ] Set NTP to the server's IP `192.168.1.10` (chrony already serves the
+      LAN) and keep TZ `BRT3`.
 - [ ] Router: block all WAN traffic from the camera's IP/MAC.
 - [ ] If telnet/9527 is open: note it; do not use; rely on network isolation.
 

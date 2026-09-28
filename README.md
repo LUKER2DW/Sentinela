@@ -21,38 +21,50 @@ Phases 1–4 (live view, recording, API, web UI) are built and were verified on
 a dev PC against the real camera. Next: install on the server and run the
 acceptance checks. See [`docs/PLAN.md`](docs/PLAN.md).
 
-## Install on the server (Ubuntu 22.04)
+## The server today
 
-Before you start: the camera password must not contain `& ? / # %` or spaces
-(the camera reads it literally from the RTSP URL), and nothing else (VLC,
-vendor apps) should pull RTSP from the camera: it accepts only 3 sessions.
+`ana@192.168.1.10` (Ubuntu 22.04, old CPU, three disks): web panel on
+`http://192.168.1.10:8080`, LAN share `\\192.168.1.10\Nuvem`
+(~670 GB) and read-only `\\192.168.1.10\Gravacoes`. Disk layout and
+health notes: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §6.
+
+## Deploy an update (from the dev PC)
 
 ```bash
-sudo apt-get update && sudo apt-get install -y git
-sudo git clone https://github.com/LUKER2DW/Sentinela.git /opt/sentinela
-cd /opt/sentinela
-sudo ./scripts/install-server.sh
+./scripts/deploy.sh
 ```
 
-The script installs Docker, asks for the camera user and password (typed
-silently, stored only in `/etc/sentinela/secrets.env`, mode 0600), creates
-`/etc/sentinela/config.yaml` and `/data`, builds the image and starts three
-containers: `go2rtc` (live video), `recorder` (24/7 recording) and
-`sentinela` (web + API on port 8080).
+Builds the image on the PC, streams it to the server over SSH (key
+`~/.ssh/id_ed25519_sentinela`), ships `deploy/` + `scripts/`, restarts the
+three containers and waits for the health check (~1–2 min). Override the
+target with `SENTINELA_HOST=user@host`.
 
-Then open `http://<server-ip>:8080` in the browser. The first visit creates
-the admin account.
+## Install on a fresh server (Ubuntu 22.04)
 
-| Task | Command |
+1. Mount the recordings disk at `/data` (and the NAS disk at `/srv/nas` if
+   you want the LAN share). The installer refuses to put recordings on `/`.
+2. Copy the repo to `/opt/sentinela` and run `sudo ./scripts/install-server.sh`.
+   It installs Docker, asks for the camera user/password (typed silently,
+   stored only in `/etc/sentinela/secrets.env`, 0600), writes
+   `/etc/sentinela/config.yaml`, applies the LAN-only firewall, sets up Samba,
+   chrony (camera NTP) and the SMART timer, then starts the stack.
+3. Set the share password once: `sudo smbpasswd -a ana`.
+4. Open `http://<server-ip>:8080`; the first visit creates the admin account.
+
+The camera password must not contain `& ? / # %` or spaces (the camera reads
+it literally from the RTSP URL). Nothing else (VLC, vendor apps) should pull
+RTSP from the camera: it accepts only 3 sessions.
+
+| Task | Command (on the server) |
 |---|---|
 | Logs | `cd /opt/sentinela/deploy && sudo docker compose logs -f --tail=50` |
-| Update | `cd /opt/sentinela && sudo git pull && sudo ./scripts/install-server.sh` |
-| Reset a password | `cd /opt/sentinela/deploy && sudo docker compose exec -T sentinela sentinela user passwd <user>` |
+| Reset a web password | `cd /opt/sentinela/deploy && sudo docker compose exec -T sentinela sentinela user passwd <user>` |
+| Share password | `sudo smbpasswd -a ana` |
 | Stop / start | `cd /opt/sentinela/deploy && sudo docker compose stop` / `start` |
 
 Recordings go to `/data/recordings/<camera>/<YYYY>/<MM>/<DD>/<HH-MM-SS>.mp4`
-(UTC), 5 minutes each. Oldest files are deleted after `retention_days` or when
-the disk passes 90 %. Put `/data` on its own disk if you can.
+(UTC), 5 minutes each (~24 GB/day). The oldest are deleted after
+`retention_days` or when the disk passes 90 % (≈ 18 days on -).
 
 ## Develop
 

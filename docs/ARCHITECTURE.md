@@ -104,8 +104,27 @@ CREATE TABLE audit(id INTEGER PRIMARY KEY, at TEXT NOT NULL, user_id INTEGER,
   action TEXT NOT NULL, target TEXT, ok INTEGER NOT NULL);
 ```
 
-## 6. Disk recommendation
+## 6. Disk layout (server, 2026-09-28)
 
-Put `/data/recordings` on its own partition/disk (ext4, `noatime`,
-`commit=60`). If the OS disk and recording disk are the same physical HDD,
-set `vm.dirty_background_bytes=16M` to smooth writes.
+Three disks, one filesystem per role so neither can fill the other
+(ADR-0008). Mounted by UUID with `nofail`; empty mount points are
+`chattr +i`, so a missing disk makes writes fail instead of landing on `/`.
+
+| Device | Mount | Label | Use | Notes |
+|---|---|---|---|---|
+| `sda2` (system disk) | `/` | — | Ubuntu, Docker, images | - |
+| `sda3` | `/srv/nas/Extra` | `nuvem-extra` | LAN share "Nuvem" (subfolder Extra) | - |
+| `sdb1` (NAS disk) | `/srv/nas` | `nuvem` | LAN share "Nuvem" |  |
+| `sdc1` (data disk) | `/data` | `gravacoes` | recordings, SQLite, backups | -, `largefile4`, `commit=60`|
+
+`vm.dirty_background_bytes=16M` smooths the continuous video writes. The
+host timer `sentinela-disk-health.timer` snapshots SMART hourly into
+`/var/lib/sentinela/disks.json`, shown on the System page.
+
+## 7. Deploy
+
+From the dev PC: `./scripts/deploy.sh` builds the image locally, streams it
+over SSH (`docker save | docker load`), ships `deploy/` + `scripts/` to
+`/opt/sentinela` and restarts the stack with a health check. The server keeps
+no source tree and needs no Go/Node. First-time host setup (Docker, config,
+firewall, NAS, NTP, SMART timer): `sudo ./scripts/install-server.sh`.

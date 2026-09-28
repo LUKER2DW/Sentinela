@@ -30,6 +30,12 @@
 6. Containers run as non-root, read-only root FS, `cap_drop: [ALL]`,
    no Docker socket, no host PID, no privileged mode.
 7. Dependencies pinned; containers pinned by digest; `govulncheck` in `make check`.
+8. Host: SSH is key-only; ufw allows only 192.168.1.0/24 (22, 8080, 8555,
+   SMB 139/445, discovery, NTP). Samba binds to `eno1`, one account, no guest.
+   The web container mounts the NAS read-only and gets SMART data as a file,
+   never device access. The owner granted `ana` passwordless sudo for
+   automated administration (`/etc/sudoers.d/90-ana-admin`); remove it
+   when not needed.
 
 ## Reporting
 
