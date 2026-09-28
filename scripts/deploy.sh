@@ -6,7 +6,8 @@
 #
 # Builds the image here (fast machine), streams it to the server with
 # `docker save | ssh docker load`, ships deploy/ + scripts/ to /opt/sentinela,
-# restarts the stack and waits for the health check. The server never needs
+# restarts the stack and waits for the health check. compose runs via sudo
+# because it reads the root-only /etc/sentinela/secrets.env. The server never needs
 # the source tree, Go or Node. First-time server setup: install-server.sh.
 set -euo pipefail
 
@@ -32,17 +33,17 @@ echo "==> ship image ($(docker image inspect sentinela:local --format '{{.Size}}
 docker save sentinela:local | gzip -1 | "${SSH[@]}" 'gunzip | docker load -q'
 
 echo "==> restart stack"
-"${SSH[@]}" "cd /opt/sentinela/deploy && docker compose pull -q go2rtc && SENTINELA_VERSION=${VERSION} docker compose up -d --no-build --remove-orphans && docker image prune -f >/dev/null"
+"${SSH[@]}" "cd /opt/sentinela/deploy && sudo docker compose pull -q go2rtc && sudo SENTINELA_VERSION=${VERSION} docker compose up -d --no-build --remove-orphans && docker image prune -f >/dev/null"
 
 echo "==> health"
 for _ in $(seq 1 30); do
-  if "${SSH[@]}" 'cd /opt/sentinela/deploy && docker compose exec -T sentinela /usr/local/bin/sentinela healthcheck' >/dev/null 2>&1; then
-    "${SSH[@]}" 'cd /opt/sentinela/deploy && docker compose ps --format "table {{.Service}}\t{{.Status}}"'
+  if "${SSH[@]}" 'cd /opt/sentinela/deploy && sudo docker compose exec -T sentinela /usr/local/bin/sentinela healthcheck' >/dev/null 2>&1; then
+    "${SSH[@]}" 'cd /opt/sentinela/deploy && sudo docker compose ps --format "table {{.Service}}\t{{.Status}}"'
     echo "Deployed ${VERSION}: http://${HOST#*@}:8080"
     exit 0
   fi
   sleep 2
 done
 echo "!! health check failed; logs:" >&2
-"${SSH[@]}" 'cd /opt/sentinela/deploy && docker compose logs --tail=40' >&2
+"${SSH[@]}" 'cd /opt/sentinela/deploy && sudo docker compose logs --tail=40' >&2
 exit 1
