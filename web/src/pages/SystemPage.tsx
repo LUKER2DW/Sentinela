@@ -40,6 +40,7 @@ export function SystemPage() {
       {sys.isError && <p className="notice error">Não foi possível ler o estado do servidor.</p>}
       {s && (
         <div className="stack">
+          <DiskWarning s={s} />
           <div className="grid-3">
             <Storage s={s} />
             <Recorders s={s} />
@@ -157,11 +158,29 @@ function Disks({ s }: { s: SystemInfo }) {
       <div className="stack-sm">
         {(s.volumes ?? []).length === 0 && <p className="muted">Nenhum disco configurado.</p>}
         {(s.volumes ?? []).map((v) => (
-          <VolumeMeter key={v.id} v={v} />
+          <VolumeMeter key={v.id} v={v} health={s.disk_health?.mounts[volumeMount(v.id)]} />
         ))}
       </div>
       <p className="muted small card-foot">Gravações acima de {s.max_disk_pct}% do disco apagam as mais antigas.</p>
     </section>
+  );
+}
+
+// Volume id -> host mount point used by scripts/disk-health.sh.
+function volumeMount(id: string) {
+  return ({ recordings: "/data", nuvem: "/srv/nas", extra: "/srv/nas/Extra" } as Record<string, string>)[id] ?? "";
+}
+
+function DiskWarning({ s }: { s: SystemInfo }) {
+  const bad = Object.entries(s.disk_health?.mounts ?? {}).filter(([m, h]) => m !== "/" && h.state !== "ok");
+  if (!bad.length) return null;
+  const names: Record<string, string> = { "/data": "gravações", "/srv/nas": "Nuvem", "/srv/nas/Extra": "Nuvem Extra" };
+  return (
+    <div className="notice error" role="alert">
+      <strong>Disco com sinais de desgaste:</strong>{" "}
+      {bad.map(([m, h]) => `${names[m] ?? m} (${h.model}, ${h.uncorrectable} leituras com erro, ${h.pending} setores pendentes)`).join("; ")}.
+      {" "}Troque esse disco quando puder. As gravações continuam, mas podem perder trechos se ele piorar.
+    </div>
   );
 }
 

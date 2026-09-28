@@ -90,6 +90,19 @@ export interface SystemInfo {
   go2rtc_error: string;
   volumes: Volume[];
   nas_host: string;
+  disk_health: { updated: string; mounts: Record<string, DiskHealth> } | null;
+}
+
+export interface DiskHealth {
+  device: string;
+  model: string;
+  state: "ok" | "warn" | "fail";
+  reallocated: number;
+  pending: number;
+  uncorrectable: number;
+  temperature: number | null;
+  power_on_hours: number | null;
+  last_selftest: string;
 }
 
 export interface Volume {

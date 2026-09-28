@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { get, type SystemInfo, type Volume } from "../lib/api";
+import { get, type DiskHealth, type SystemInfo, type Volume } from "../lib/api";
 import { fmtBytes } from "../lib/time";
 import { Icon } from "../components/Icon";
 import { Whale } from "../components/Doodles";
@@ -46,12 +46,25 @@ function CopyField({ value, label }: { value: string; label: string }) {
   );
 }
 
-export function VolumeMeter({ v }: { v: Volume }) {
+const healthLabel = { ok: "Saudável", warn: "Atenção", fail: "Falhando" } as const;
+
+function healthTitle(h: DiskHealth) {
+  return `${h.model} (${h.device}): ${h.reallocated} setores realocados, ${h.pending} pendentes, ${h.uncorrectable} leituras com erro${
+    h.temperature != null ? `, ${h.temperature} °C` : ""
+  }. Último teste: ${h.last_selftest || "nenhum"}.`;
+}
+
+export function VolumeMeter({ v, health }: { v: Volume; health?: DiskHealth }) {
   return (
     <div className="vol">
       <div className="vol-head">
         <span className="vol-name">
           <Icon name="disk" /> {v.name}
+          {health && (
+            <span className={`health ${health.state}`} title={healthTitle(health)}>
+              {healthLabel[health.state]}
+            </span>
+          )}
         </span>
         <span className="muted num">{v.mounted ? `${fmtBytes(v.free)} livres de ${fmtBytes(v.total)}` : "não montado"}</span>
       </div>
@@ -140,7 +153,7 @@ export function NuvemPage() {
             )}
             <div className="stack-sm">
               {nas.map((v) => (
-                <VolumeMeter key={v.id} v={v} />
+                <VolumeMeter key={v.id} v={v} health={sys.data?.disk_health?.mounts[v.id === "extra" ? "/srv/nas/Extra" : "/srv/nas"]} />
               ))}
             </div>
             <p className="muted small">

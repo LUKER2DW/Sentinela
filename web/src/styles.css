@@ -416,6 +416,10 @@ button.list-row:hover { background: var(--surface-2); }
 .vol-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 0.92rem; }
 .vol-name { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; }
 .vol-name svg { width: 16px; height: 16px; color: var(--muted); }
+.health { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 999px; font-size: 0.72rem; font-weight: 600; cursor: help; }
+.health.ok { background: var(--sea-soft); color: var(--sea-strong); }
+.health.warn { background: var(--coral-soft); color: var(--coral); }
+.health.fail { background: var(--coral); color: #fff; }
 .copy-field { display: flex; align-items: center; gap: 8px; padding: 4px 4px 4px 12px; border-radius: var(--r-md); background: var(--surface-2); border: 1px solid var(--line); }
 .copy-field code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.95rem; }
 code { font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace; font-size: 0.9em; }
