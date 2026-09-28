@@ -6,6 +6,8 @@
 #
 # Secrets: /etc/sentinela/secrets.env (0600). Config: /etc/sentinela/config.yaml.
 
+name: sentinela
+
 x-sentinela: &sentinela
   build:
     context: ..
@@ -56,6 +58,11 @@ services:
   sentinela:
     <<: *sentinela
     command: ["serve"]
+    volumes:
+      - /etc/sentinela/config.yaml:/etc/sentinela/config.yaml:ro
+      - /data:/data
+      # Read-only, only to report free space of the LAN shares (ADR-0008).
+      - /srv/nas:/srv/nas:ro
     restart: unless-stopped
     mem_limit: 384m
     healthcheck:

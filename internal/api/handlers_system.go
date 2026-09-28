@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/LUKER2DW/sentinela/internal/config"
 	"github.com/LUKER2DW/sentinela/internal/store"
 	"github.com/LUKER2DW/sentinela/internal/sysinfo"
 )
@@ -183,6 +184,16 @@ func (s *Server) system(w http.ResponseWriter, r *http.Request) {
 			daily[c.ID] = int64(float64(b) / secs * 86400)
 		}
 	}
+	type volumeDTO struct {
+		config.Volume
+		sysinfo.Disk
+		Mounted bool `json:"mounted"`
+	}
+	volumes := []volumeDTO{}
+	for _, v := range s.Cfg.Volumes {
+		d, err := sysinfo.DiskUsage(v.Path)
+		volumes = append(volumes, volumeDTO{Volume: v, Disk: d, Mounted: err == nil && d.Total > 0})
+	}
 	g2r, gerr := s.go2rtcStatus(ctx)
 	g2rErr := ""
 	if gerr != nil {
@@ -201,5 +212,7 @@ func (s *Server) system(w http.ResponseWriter, r *http.Request) {
 		"recorders":    recs,
 		"go2rtc":       g2r,
 		"go2rtc_error": g2rErr,
+		"volumes":      volumes,
+		"nas_host":     s.Cfg.NASHost,
 	})
 }

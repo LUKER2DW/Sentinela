@@ -23,6 +23,19 @@ type Config struct {
 	SecureCookies bool      `yaml:"secure_cookies"`
 	Recording     Recording `yaml:"recording"`
 	Cameras       []Camera  `yaml:"cameras"`
+	// Volumes are shown on the System and Nuvem pages (usage only).
+	Volumes []Volume `yaml:"volumes"`
+	// NASHost is the LAN name of the file server (ADR-0008), e.g. SENTINELA.
+	NASHost string `yaml:"nas_host"`
+}
+
+// Volume is a filesystem shown in the UI. Share is the SMB share name, if any.
+type Volume struct {
+	ID    string `yaml:"id" json:"id"`
+	Name  string `yaml:"name" json:"name"`
+	Path  string `yaml:"path" json:"-"`
+	Share string `yaml:"share" json:"share,omitempty"`
+	Kind  string `yaml:"kind" json:"kind"` // recordings | nas
 }
 
 // Recording holds recorder, indexer and retention settings.
