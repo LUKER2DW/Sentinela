@@ -1,7 +1,7 @@
 # Sentinela v2 — Phase 1 stack. Pin images by digest before production.
 services:
   go2rtc:
-    image: alexxit/go2rtc:1.9.10   # TODO: pin @sha256 digest
+    image: alexxit/go2rtc:1.9.10@sha256:95ce2ab22f2c7d8eb4dae42e0856b8480daf22c7c632f4a0489d442caf2df158
     network_mode: host             # simplest for WebRTC ICE; ports bound per go2rtc.yaml
     restart: unless-stopped
     read_only: true
