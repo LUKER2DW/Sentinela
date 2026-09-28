@@ -16,7 +16,9 @@ added a lot of code and failure modes.
   fill the NAS and vice versa. Mount points are `chattr +i` so nothing writes
   to the root disk if a data disk is missing.
 - Plain **Samba from Ubuntu packages on the host** (not a container) plus
-  **wsdd** so Windows lists the server under Network. No web file manager.
+  **wsdd** (Windows "Network") and **Avahi** (`sentinela.local` for macOS,
+  iOS, Android). One name everywhere: hostname `sentinela`, NetBIOS
+  `SENTINELA`. No web file manager.
 - Shares: `Nuvem` (read-write, `/srv/nas`) and `Gravacoes` (read-only,
   `/data/recordings`). Only the `ana` account, LAN interface only,
   firewall limited to 192.168.1.0/24.

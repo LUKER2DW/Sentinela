@@ -10,7 +10,7 @@ for m in /srv/nas /data; do
   mountpoint -q "$m" || { echo "$m is not mounted; refusing to share the root disk" >&2; exit 1; }
 done
 
-DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 install -y -qq samba wsdd >/dev/null
+DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 install -y -qq samba wsdd avahi-daemon >/dev/null
 
 install -m 0644 "${REPO_DIR}/deploy/nas/smb.conf" /etc/samba/smb.conf
 rm -rf /etc/samba/smb.conf.d
@@ -21,8 +21,18 @@ if [[ -f /etc/default/wsdd ]]; then
   sed -i 's/^WSDD_PARAMS=.*/WSDD_PARAMS="-i eno1 -n SENTINELA"/' /etc/default/wsdd
 fi
 
-systemctl enable -q --now smbd nmbd wsdd
-systemctl restart smbd nmbd wsdd
+# One name everywhere: hostname, NetBIOS (smb.conf), WS-Discovery and mDNS.
+if [[ "$(hostname)" != "sentinela" ]]; then
+  old="$(hostname)"
+  hostnamectl set-hostname sentinela
+  sed -i "s/${old}/sentinela/g" /etc/hosts
+  grep -q "sentinela" /etc/hosts || echo "127.0.1.1 sentinela" >> /etc/hosts
+fi
+install -m 0644 "${REPO_DIR}/deploy/nas/avahi-smb.service" /etc/avahi/services/smb.service
+rm -f /etc/avahi/services/sentinela*.service
+
+systemctl enable -q --now smbd nmbd wsdd avahi-daemon
+systemctl restart smbd nmbd wsdd avahi-daemon
 
 if command -v ufw >/dev/null && ufw status | grep -q active; then
   LAN=192.168.1.0/24

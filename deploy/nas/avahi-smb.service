@@ -1,0 +1,16 @@
+<?xml version="1.0" standalone='no'?>
+<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+<!-- mDNS announcement of the LAN file server (ADR-0008): Finder, iOS Files
+     and Android SMB apps list it as "Sentinela" with a file-server icon. -->
+<service-group>
+  <name replace-wildcards="no">Sentinela</name>
+  <service>
+    <type>_smb._tcp</type>
+    <port>445</port>
+  </service>
+  <service>
+    <type>_device-info._tcp</type>
+    <port>0</port>
+    <txt-record>model=RackMac</txt-record>
+  </service>
+</service-group>
