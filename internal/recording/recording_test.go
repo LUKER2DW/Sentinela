@@ -136,3 +136,18 @@ func TestIndexerAndRetention(t *testing.T) {
 		t.Fatalf("disk retention deleted %d err=%v", n, err)
 	}
 }
+
+func TestNewestFileByName(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Now().UTC()
+	day := filepath.Join(dir, now.Format("2006/01/02"))
+	os.MkdirAll(day, 0o755)
+	older := filepath.Join(day, "00-00-00.mp4")
+	newer := filepath.Join(day, "00-05-00.mp4")
+	os.WriteFile(newer, make([]byte, 10), 0o644)
+	os.WriteFile(older, make([]byte, 99), 0o644) // written later, but older name
+	got, size := newestFile(dir)
+	if got != newer || size != 10 {
+		t.Fatalf("newestFile = %s (%d), want %s", got, size, newer)
+	}
+}

@@ -247,33 +247,32 @@ func (r *Recorder) readStderr(rd io.Reader, t *tail) {
 	}
 }
 
-// newestFile returns the most recently modified .mp4 under dir.
+// newestFile returns the live segment (latest timestamped name) and its size.
+// Names sort chronologically, and os.Stat is used for the size because on
+// some filesystems (NTFS) directory listings lag behind a file being written.
 func newestFile(dir string) (string, int64) {
-	var best string
-	var bestT time.Time
-	var size int64
-	// Only today's and yesterday's directories can hold the live file.
 	now := time.Now().UTC()
-	for _, d := range []time.Time{now, now.Add(-24 * time.Hour), now.Add(time.Hour)} {
+	for _, d := range []time.Time{now.Add(time.Hour), now, now.Add(-24 * time.Hour)} {
 		p := filepath.Join(dir, d.Format("2006/01/02"))
 		entries, err := os.ReadDir(p)
 		if err != nil {
 			continue
 		}
+		best := ""
 		for _, e := range entries {
-			if e.IsDir() || !strings.HasSuffix(e.Name(), ".mp4") {
-				continue
-			}
-			info, err := e.Info()
-			if err != nil {
-				continue
-			}
-			if info.ModTime().After(bestT) {
-				best, bestT, size = filepath.Join(p, e.Name()), info.ModTime(), info.Size()
+			if !e.IsDir() && strings.HasSuffix(e.Name(), ".mp4") && e.Name() > best {
+				best = e.Name()
 			}
 		}
+		if best == "" {
+			continue
+		}
+		full := filepath.Join(p, best)
+		if info, err := os.Stat(full); err == nil {
+			return full, info.Size()
+		}
 	}
-	return best, size
+	return "", 0
 }
 
 type tail struct {

@@ -122,7 +122,7 @@ func (ix *Indexer) scanCamera(ctx context.Context, cam string) error {
 		if !ok {
 			return nil
 		}
-		info, err := d.Info()
+		info, err := os.Stat(p) // not d.Info(): listings can lag for open files
 		if err != nil {
 			return nil
 		}
