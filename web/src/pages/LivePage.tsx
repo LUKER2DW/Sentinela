@@ -9,6 +9,7 @@ import { LiveView } from "../components/LiveView";
 import { CameraSettings, PtzPanel } from "../components/CameraControls";
 import { DayRibbon, RibbonLegend } from "../components/DayRibbon";
 import { Boat } from "../components/Doodles";
+import { recordingDays } from "./SystemPage";
 
 export function useCameras() {
   return useQuery({ queryKey: ["cameras"], queryFn: () => get<Camera[]>("/api/cameras"), staleTime: 60_000 });
@@ -145,6 +146,7 @@ function Single({ cam, now, multi }: { cam: Camera; now: number; multi: boolean 
             />
             <RibbonLegend />
           </section>
+          <TodayStats timeline={timeline.data} motion={motionToday} />
         </div>
         <aside className="stack">
           <PtzPanel cameraId={cam.id} canControl={can("operator")} />
@@ -152,5 +154,27 @@ function Single({ cam, now, multi }: { cam: Camera; now: number; multi: boolean 
         </aside>
       </div>
     </>
+  );
+}
+
+function TodayStats({ timeline, motion }: { timeline?: Timeline; motion: number }) {
+  const sys = useQuery({ queryKey: ["system"], queryFn: () => get<SystemInfo>("/api/system"), refetchInterval: 15_000 });
+  const hours = (timeline?.segments ?? []).reduce((a, x) => a + (new Date(x.end).getTime() - new Date(x.start).getTime()), 0) / 3_600_000;
+  const days = sys.data ? recordingDays(sys.data) : null;
+  return (
+    <section className="card stat-row" aria-label="Resumo de hoje">
+      <div className="stat">
+        <b>{hours.toFixed(1).replace(".", ",")} h</b>
+        <span>gravadas hoje</span>
+      </div>
+      <div className="stat">
+        <b>{motion}</b>
+        <span>{motion === 1 ? "movimento hoje" : "movimentos hoje"}</span>
+      </div>
+      <div className="stat">
+        <b>{days === null ? "–" : days}</b>
+        <span>{days === 1 ? "dia cabe no disco" : "dias cabem no disco"}</span>
+      </div>
+    </section>
   );
 }

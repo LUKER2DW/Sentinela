@@ -4,6 +4,7 @@ import { api, get, type AuditEntry, type Role, type SystemInfo, type User } from
 import { useSession, useToast } from "../lib/session";
 import { fmtBytes, fmtDuration, fmtTime, relative } from "../lib/time";
 import { useCameras } from "./LivePage";
+import { VolumeMeter } from "./NuvemPage";
 
 const roleLabel: Record<Role, string> = { admin: "Administrador", operator: "Operador", viewer: "Visualizador" };
 const stateLabel: Record<string, string> = {
@@ -13,10 +14,18 @@ const stateLabel: Record<string, string> = {
   stopped: "Parado",
 };
 
+/** Days of recording that fit, from the real rate; null while unknown. */
+export function recordingDays(s: SystemInfo): number | null {
+  const recBytes = s.storage.reduce((a, x) => a + x.bytes, 0);
+  const daily = Object.values(s.daily_bytes).reduce((a, x) => a + x, 0);
+  // Space recordings may use: the retention limit minus everything else on the disk.
+  const budget = s.disk.total * (s.max_disk_pct / 100) - (s.disk.used - recBytes);
+  return daily > 0 && s.disk.total > 0 ? Math.max(0, Math.floor(budget / daily)) : null;
+}
+
 export function SystemPage() {
   const { can } = useSession();
   const sys = useQuery({ queryKey: ["system"], queryFn: () => get<SystemInfo>("/api/system"), refetchInterval: 10_000 });
-  const cams = useCameras();
   const s = sys.data;
 
   return (
@@ -24,83 +33,21 @@ export function SystemPage() {
       <header className="page-head">
         <div className="title">
           <h1>Sistema</h1>
-          <span className="sub">Gravação, disco, servidor e acessos.</span>
+          <span className="sub">Gravação, discos, servidor e acessos.</span>
         </div>
         {s && <span className="pill">Versão {s.version}</span>}
       </header>
       {sys.isError && <p className="notice error">Não foi possível ler o estado do servidor.</p>}
       {s && (
-        <div className="sys-grid">
-          <Storage s={s} />
-          <section className="card">
-            <h2>Gravadores</h2>
-            {(cams.data ?? []).map((c) => {
-              const r = s.recorders.find((x) => x.camera_id === c.id);
-              const stale = !r || new Date(s.now).getTime() - new Date(r.heartbeat).getTime() > 60_000;
-              const ok = r?.state === "recording" && !stale;
-              return (
-                <div key={c.id} style={{ marginBottom: 16 }}>
-                  <div className="toggle-row" style={{ minHeight: 32 }}>
-                    <strong>{c.name}</strong>
-                    <span className="pill">
-                      <span className={`dot ${ok ? "rec" : "bad"}`} />
-                      {stale ? "Sem sinal do gravador" : stateLabel[r!.state] ?? r!.state}
-                    </span>
-                  </div>
-                  {r && (
-                    <p className="muted" style={{ fontSize: "0.9rem" }}>
-                      Desde {fmtTime(r.since)}, {r.restarts} {r.restarts === 1 ? "reinício" : "reinícios"}
-                      {c.record_audio ? ", com áudio" : ", sem áudio"}, guarda {c.retention_days} dias
-                    </p>
-                  )}
-                  {r?.last_error && !ok && (
-                    <p className="notice error" style={{ marginTop: 6, fontSize: "0.88rem" }}>
-                      {r.last_error}
-                    </p>
-                  )}
-                </div>
-              );
-            })}
-          </section>
-          <section className="card">
-            <h2>Vídeo ao vivo</h2>
-            {s.go2rtc_error ? (
-              <p className="notice error">Serviço de vídeo ao vivo (go2rtc) fora do ar.</p>
-            ) : (
-              <dl className="kv">
-                {Object.entries(s.go2rtc ?? {}).map(([name, st]) => (
-                  <div key={name} style={{ display: "contents" }}>
-                    <dt>{name.endsWith("_sub") ? `${name.replace(/_sub$/, "")} (SD)` : `${name} (HD)`}</dt>
-                    <dd>{st.online ? `${st.consumers} assistindo` : "Em espera"}</dd>
-                  </div>
-                ))}
-              </dl>
-            )}
-          </section>
-          <section className="card">
-            <h2>Servidor</h2>
-            <dl className="kv">
-              {s.host.supported && (
-                <>
-                  <dt>Processador</dt>
-                  <dd>
-                    {s.host.cpu_pct.toFixed(0)}% de {s.host.num_cpu} núcleos
-                  </dd>
-                  <dt>Memória livre</dt>
-                  <dd>
-                    {fmtBytes(s.host.mem_available)} de {fmtBytes(s.host.mem_total)}
-                  </dd>
-                  <dt>Ligado há</dt>
-                  <dd>{fmtDuration(s.host.uptime_ns / 1e6)}</dd>
-                </>
-              )}
-              <dt>Memória do Sentinela</dt>
-              <dd>{fmtBytes(s.host.proc_rss)}</dd>
-              <dt>Serviço iniciado</dt>
-              <dd>{relative(s.started)}</dd>
-            </dl>
-          </section>
-          <Account />
+        <div className="stack">
+          <div className="grid-3">
+            <Storage s={s} />
+            <Recorders s={s} />
+            <LiveService s={s} />
+            <Disks s={s} />
+            <Server s={s} />
+            <Account />
+          </div>
           {can("admin") && <Users />}
           {can("admin") && <Audit />}
         </div>
@@ -112,9 +59,7 @@ export function SystemPage() {
 function Storage({ s }: { s: SystemInfo }) {
   const recBytes = s.storage.reduce((a, x) => a + x.bytes, 0);
   const daily = Object.values(s.daily_bytes).reduce((a, x) => a + x, 0);
-  // Space recordings may use: the retention limit minus everything else on the disk.
-  const budget = s.disk.total * (s.max_disk_pct / 100) - (s.disk.used - recBytes);
-  const days = daily > 0 && s.disk.total > 0 ? Math.max(0, Math.floor(budget / daily)) : null;
+  const days = recordingDays(s);
   const oldest = s.storage.map((x) => x.oldest).sort()[0];
   return (
     <section className="card">
@@ -125,30 +70,124 @@ function Storage({ s }: { s: SystemInfo }) {
           <span className="muted">{days === 1 ? "dia de gravação cabe" : "dias de gravação cabem"} no disco</span>
         </p>
       ) : (
-        <p className="muted" style={{ marginBottom: 16 }}>
-          {s.disk.total === 0
-            ? "O uso do disco só é medido no servidor Linux."
-            : "A previsão de dias aparece depois de 10 minutos gravando."}
+        <p className="big">
+          <b>–</b>
+          <span className="muted">{s.disk.total === 0 ? "disco medido só no servidor" : "calculando o ritmo…"}</span>
         </p>
       )}
-      {s.disk.total > 0 && (
-        <>
-          <div className="meter" role="meter" aria-valuenow={s.disk.pct} aria-valuemin={0} aria-valuemax={100} aria-label="Uso do disco">
-            <span style={{ width: `${s.disk.pct}%` }} />
-            <i style={{ left: `${s.max_disk_pct}%` }} title="Limite: acima disso as gravações mais antigas são apagadas" />
-          </div>
-          <p className="muted" style={{ fontSize: "0.9rem", marginTop: 6 }}>
-            {fmtBytes(s.disk.used)} usados de {fmtBytes(s.disk.total)}. Acima de {s.max_disk_pct}% as gravações mais antigas são apagadas.
-          </p>
-        </>
-      )}
-      <dl className="kv" style={{ marginTop: 16 }}>
+      <dl className="kv card-foot">
         <dt>Gravações</dt>
         <dd>{fmtBytes(recBytes)}</dd>
-        <dt>Por dia (ritmo atual)</dt>
+        <dt>Por dia</dt>
         <dd>{daily > 0 ? fmtBytes(daily) : "calculando"}</dd>
         <dt>Mais antiga</dt>
         <dd>{oldest ? relative(oldest) : "nenhuma"}</dd>
+      </dl>
+    </section>
+  );
+}
+
+function Recorders({ s }: { s: SystemInfo }) {
+  const cams = useCameras();
+  return (
+    <section className="card">
+      <h2>Gravadores</h2>
+      <div className="rows">
+        {(cams.data ?? []).map((c) => {
+          const r = s.recorders.find((x) => x.camera_id === c.id);
+          const stale = !r || new Date(s.now).getTime() - new Date(r.heartbeat).getTime() > 60_000;
+          const ok = r?.state === "recording" && !stale;
+          return (
+            <div key={c.id} className="status-row">
+              <div>
+                <strong>{c.name}</strong>
+                <p className="muted small">
+                  {r ? `Desde ${fmtTime(r.since)}, ${r.restarts} ${r.restarts === 1 ? "reinício" : "reinícios"}` : "Aguardando o gravador"}
+                </p>
+                {r?.last_error && !ok && <p className="notice error small">{r.last_error}</p>}
+              </div>
+              <span className="pill">
+                <span className={`dot ${ok ? "rec" : "bad"}`} />
+                {stale ? "Sem sinal" : stateLabel[r!.state] ?? r!.state}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+      <dl className="kv card-foot">
+        <dt>Áudio</dt>
+        <dd>{cams.data?.every((c) => c.record_audio) ? "gravado" : "desligado"}</dd>
+        <dt>Guardar por</dt>
+        <dd>até {Math.max(...(cams.data ?? [{ retention_days: 0 }]).map((c) => c.retention_days))} dias</dd>
+      </dl>
+    </section>
+  );
+}
+
+function LiveService({ s }: { s: SystemInfo }) {
+  return (
+    <section className="card">
+      <h2>Vídeo ao vivo</h2>
+      {s.go2rtc_error ? (
+        <p className="notice error">Serviço de vídeo ao vivo (go2rtc) fora do ar.</p>
+      ) : (
+        <div className="rows">
+          {Object.entries(s.go2rtc ?? {})
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([name, st]) => (
+              <div key={name} className="status-row">
+                <strong>{name.endsWith("_sub") ? `${name.replace(/_sub$/, "")} (SD)` : `${name} (HD)`}</strong>
+                <span className="pill">
+                  <span className={`dot ${st.online ? "ok" : ""}`} />
+                  {st.online ? `${st.consumers} assistindo` : "Em espera"}
+                </span>
+              </div>
+            ))}
+        </div>
+      )}
+      <p className="muted small card-foot">O vídeo só é puxado da câmera enquanto alguém assiste.</p>
+    </section>
+  );
+}
+
+function Disks({ s }: { s: SystemInfo }) {
+  return (
+    <section className="card">
+      <h2>Discos</h2>
+      <div className="stack-sm">
+        {(s.volumes ?? []).length === 0 && <p className="muted">Nenhum disco configurado.</p>}
+        {(s.volumes ?? []).map((v) => (
+          <VolumeMeter key={v.id} v={v} />
+        ))}
+      </div>
+      <p className="muted small card-foot">Gravações acima de {s.max_disk_pct}% do disco apagam as mais antigas.</p>
+    </section>
+  );
+}
+
+function Server({ s }: { s: SystemInfo }) {
+  return (
+    <section className="card">
+      <h2>Servidor</h2>
+      <dl className="kv">
+        {s.host.supported && (
+          <>
+            <dt>Processador</dt>
+            <dd>
+              {s.host.cpu_pct.toFixed(0)}% de {s.host.num_cpu} núcleos
+            </dd>
+            <dt>Memória livre</dt>
+            <dd>
+              {fmtBytes(s.host.mem_available)} de {fmtBytes(s.host.mem_total)}
+            </dd>
+            <dt>Ligado há</dt>
+            <dd>{fmtDuration(s.host.uptime_ns / 1e6)}</dd>
+          </>
+        )}
+        <dt>Memória do Sentinela</dt>
+        <dd>{fmtBytes(s.host.proc_rss)}</dd>
+        <dt>Serviço iniciado</dt>
+        <dd>{relative(s.started)}</dd>
       </dl>
     </section>
   );

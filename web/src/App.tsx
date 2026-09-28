@@ -1,17 +1,20 @@
 import { useCallback, useEffect, useState } from "react";
-import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
-import { api, get, onUnauthorized, setCsrf, type User } from "./lib/api";
+import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
+import { api, get, onUnauthorized, setCsrf, type CamEvent, type User } from "./lib/api";
 import { href, useRoute } from "./lib/router";
 import { SessionProvider, ToastProvider, useSession } from "./lib/session";
-import { LiveEventsProvider } from "./lib/liveEvents";
+import { LiveEventsProvider, useActiveEvents } from "./lib/liveEvents";
+import { toggleSidebar, useSidebarCollapsed } from "./lib/sidebar";
+import { startOfDay, useNow } from "./lib/time";
 import { Icon } from "./components/Icon";
-import { Mark, Waves } from "./components/Doodles";
+import { LighthouseMark, OceanScene } from "./components/Doodles";
 import { ThemeToggle } from "./components/ThemeToggle";
 import { AuthPage } from "./pages/AuthPage";
 import { LivePage } from "./pages/LivePage";
 import { RecordingsPage } from "./pages/RecordingsPage";
 import { EventsPage } from "./pages/EventsPage";
 import { SystemPage } from "./pages/SystemPage";
+import { NuvemPage } from "./pages/NuvemPage";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { refetchOnWindowFocus: true, retry: 1, staleTime: 5_000 } },
@@ -83,42 +86,81 @@ const NAV = [
   { page: "live", label: "Ao vivo", icon: "live" },
   { page: "recordings", label: "Gravações", icon: "recordings" },
   { page: "events", label: "Eventos", icon: "events" },
+  { page: "nuvem", label: "Nuvem", icon: "cloud" },
   { page: "system", label: "Sistema", icon: "system" },
 ];
 
 const roleLabel = { admin: "Administrador", operator: "Operador", viewer: "Visualizador" } as const;
 
+/** Today's motion count, for the Eventos badge. */
+function useTodayEvents(): number {
+  const today = startOfDay(useNow()).toISOString();
+  const q = useQuery({
+    queryKey: ["events", "badge", today],
+    queryFn: () => get<CamEvent[]>(`/api/events?from=${today}`),
+    refetchInterval: 60_000,
+  });
+  return q.data?.length ?? 0;
+}
+
 function Shell() {
   const route = useRoute();
   const { user, logout } = useSession();
   const qc = useQueryClient();
+  const collapsed = useSidebarCollapsed();
+  const eventsToday = useTodayEvents();
+  const active = useActiveEvents();
+  const motionNow = Object.values(active).some((t) => t.length > 0);
   useEffect(() => {
     document.title = `${NAV.find((n) => n.page === route.page)?.label ?? "Sentinela"} – Sentinela`;
   }, [route.page]);
 
+  const badge = (page: string) => {
+    if (page === "events" && eventsToday > 0) return <span className="nav-badge">{eventsToday > 99 ? "99+" : eventsToday}</span>;
+    if (page === "live" && motionNow) return <span className="nav-dot" title="Movimento agora" />;
+    return null;
+  };
+
   return (
-    <div className="shell">
+    <div className={`shell${collapsed ? " collapsed" : ""}`}>
       <nav className="side-nav" aria-label="Principal">
-        <a className="brand" href={href("live")}>
-          <Mark />
-          <span>Sentinela</span>
-        </a>
-        {NAV.map((n) => (
-          <a
-            key={n.page}
-            className="nav-item"
-            href={href(n.page)}
-            aria-current={route.page === n.page ? "page" : undefined}
-            onClick={() => void qc.invalidateQueries()}
-          >
-            <Icon name={n.icon} />
-            {n.label}
+        <div className="side-top">
+          <a className="brand" href={href("live")} title="Sentinela">
+            <LighthouseMark />
+            <span className="brand-text">
+              <span className="brand-name">Sentinela</span>
+              <span className="brand-sub">Câmeras e nuvem</span>
+            </span>
           </a>
-        ))}
+          <button className="btn ghost icon small collapse-btn" onClick={toggleSidebar} aria-label={collapsed ? "Expandir menu" : "Recolher menu"} title={collapsed ? "Expandir menu" : "Recolher menu"} aria-expanded={!collapsed}>
+            <Icon name="sidebar" />
+          </button>
+        </div>
+        <div className="nav-list">
+          {NAV.map((n) => (
+            <a
+              key={n.page}
+              className="nav-item"
+              href={href(n.page)}
+              title={collapsed ? n.label : undefined}
+              aria-current={route.page === n.page ? "page" : undefined}
+              onClick={() => void qc.invalidateQueries()}
+            >
+              <span className="nav-icon">
+                <Icon name={n.icon} />
+                {badge(n.page)}
+              </span>
+              <span className="nav-label">{n.label}</span>
+            </a>
+          ))}
+        </div>
         <span className="side-spacer" />
         <div className="side-foot">
           <ThemeToggle />
           <div className="who">
+            <span className="avatar" aria-hidden="true">
+              {user.username.slice(0, 1).toUpperCase()}
+            </span>
             <div className="who-text">
               <div className="who-name">{user.username}</div>
               <div className="who-role">{roleLabel[user.role]}</div>
@@ -128,7 +170,7 @@ function Shell() {
             </button>
           </div>
         </div>
-        <Waves className="side-waves" />
+        <OceanScene className="side-ocean" />
       </nav>
       <main className="main">
         <div className="page">
@@ -136,6 +178,8 @@ function Shell() {
             <RecordingsPage params={route.params} />
           ) : route.page === "events" ? (
             <EventsPage />
+          ) : route.page === "nuvem" ? (
+            <NuvemPage />
           ) : route.page === "system" ? (
             <SystemPage />
           ) : (

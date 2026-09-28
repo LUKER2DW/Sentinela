@@ -88,6 +88,20 @@ export interface SystemInfo {
   recorders: RecorderStatus[];
   go2rtc: Record<string, { online: boolean; consumers: number }> | null;
   go2rtc_error: string;
+  volumes: Volume[];
+  nas_host: string;
+}
+
+export interface Volume {
+  id: string;
+  name: string;
+  share?: string;
+  kind: "recordings" | "nas" | string;
+  total: number;
+  free: number;
+  used: number;
+  pct: number;
+  mounted: boolean;
 }
 
 export interface AuditEntry {

@@ -31,6 +31,11 @@ const paths: Record<string, string> = {
   x: "M6 6l12 12M18 6L6 18",
   refresh: "M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6",
   shield: "M12 3l8 3v6c0 4.5-3.4 8.4-8 9-4.6-.6-8-4.5-8-9V6z",
+  cloud: "M7 18.5h10.5a4 4 0 0 0 .6-7.95A6 6 0 0 0 6.5 9.2 4.7 4.7 0 0 0 7 18.5z",
+  sidebar: "M4 5h16v14H4zM9 5v14",
+  copy: "M9 9h10v10H9zM5 15V5h10",
+  check: "M5 12.5l4.5 4.5L19 7.5",
+  disk: "M4 7c0-1.7 3.6-3 8-3s8 1.3 8 3v10c0 1.7-3.6 3-8 3s-8-1.3-8-3zM4 7c0 1.7 3.6 3 8 3s8-1.3 8-3M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3",
 };
 
 export function Icon({ name, title }: { name: keyof typeof paths | string; title?: string }) {

@@ -1,3 +1,5 @@
+import { useId } from "react";
+
 // Hand-drawn line doodles (ocean theme). Stroke-only, currentColor, slightly
 // wobbly paths so they read as sketches. Motion lives in CSS (.dd-*) and is
 // disabled under prefers-reduced-motion.
@@ -133,6 +135,90 @@ export function Mark({ className = "" }: { className?: string }) {
         <path d="M4 27.5 q3 -2.2 6 0 t6 0 t6 0 t6 0" />
       </g>
       <circle className="dd-lamp" cx="16" cy="9.6" r="1.4" fill="currentColor" />
+    </svg>
+  );
+}
+
+/**
+ * Detailed brand lighthouse: striped tower, gallery, lantern and a beam that
+ * sweeps around (a cone whose width flips through zero, like a turning lamp).
+ */
+export function LighthouseMark({ className = "" }: { className?: string }) {
+  const clip = `lh-clip-${useId().replace(/:/g, "")}`;
+  return (
+    <svg className={`lh-mark ${className}`} viewBox="0 0 48 48" aria-hidden="true">
+      <defs>
+        <clipPath id={clip}>
+          <path d="M19.6 18.2 H28.4 L31.2 40 H16.8 Z" />
+        </clipPath>
+      </defs>
+      {/* beam: drawn first so the tower sits on top of it */}
+      <path className="lh-beam" d="M24 13.4 L47 6.5 Q48.5 13.4 47 20.3 Z" />
+      {/* tower body + stripes */}
+      <path d="M19.6 18.2 H28.4 L31.2 40 H16.8 Z" className="lh-body" />
+      <g clipPath={`url(#${clip})`} className="lh-stripe">
+        <rect x="10" y="23" width="28" height="4.2" />
+        <rect x="10" y="31.4" width="28" height="4.2" />
+      </g>
+      <path d="M19.6 18.2 H28.4 L31.2 40 H16.8 Z" className="lh-line" />
+      <path d="M22.4 40 V36.4 Q24 34.6 25.6 36.4 V40" className="lh-line" />
+      {/* gallery + railing */}
+      <rect x="16.8" y="16.4" width="14.4" height="1.9" rx="0.6" className="lh-roof" />
+      <path d="M17.6 16.4 V14.6 M20.4 16.4 V14.6 M27.6 16.4 V14.6 M30.4 16.4 V14.6 M17.2 14.6 H30.8" className="lh-line thin" />
+      {/* lantern room with glass and lamp */}
+      <rect x="20.6" y="10.6" width="6.8" height="5.8" rx="0.8" className="lh-glass" />
+      <circle cx="24" cy="13.4" r="1.9" className="lh-lamp" />
+      <path d="M20.6 10.6 H27.4 M24 10.6 V16.4" className="lh-line thin" />
+      {/* dome + finial */}
+      <path d="M19.8 10.8 Q24 4.6 28.2 10.8 Z" className="lh-roof" />
+      <path d="M24 6.2 V3.8" className="lh-line" />
+      {/* rock + sea */}
+      <path d="M12.5 41.5 Q17 39 24 40 Q31 39 35.5 41.6 Z" className="lh-rock" />
+      <path d="M4 44.6 q3.3 -2.2 6.6 0 t6.6 0 t6.6 0 t6.6 0 t6.6 0 t6.6 0" className="lh-line lh-sea" />
+    </svg>
+  );
+}
+
+function wavePath(y: number, amp: number, period: number, width = 480, height = 120) {
+  let d = `M0 ${y}`;
+  for (let x = 0; x < width; x += period / 2) {
+    const dir = (x / (period / 2)) % 2 === 0 ? -1 : 1;
+    d += ` q${period / 4} ${dir * amp} ${period / 2} 0`;
+  }
+  return `${d} L${width} ${height} L0 ${height} Z`;
+}
+
+/** Layered pastel sea for the sidebar foot: three drifting wave bands, a boat, a fish. */
+export function OceanScene({ className = "" }: { className?: string }) {
+  return (
+    <svg className={`ocean ${className}`} viewBox="0 0 240 120" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
+      <path className="o-wave o-back" d={wavePath(46, 5, 60)} />
+      <g className="o-boat">
+        <path d="M150 44 Q162 49 175 44 L171 50 Q162 52.5 154 50 Z" />
+        <path d="M162.4 44.6 V28.5 L172 42.4 Z M161.6 31 L154.5 42.6 H161.6 Z" />
+      </g>
+      <path className="o-wave o-mid" d={wavePath(62, 6, 80)} />
+      <g className="o-fish">
+        <path d="M60 86 Q66 81 73 85.5 Q66 90 60 86 Z M73 85.5 L77 82.5 L76.6 88.6 Z" />
+      </g>
+      <path className="o-wave o-front" d={wavePath(80, 7, 120)} />
+    </svg>
+  );
+}
+
+/** A small whale, for the Nuvem page. */
+export function Whale({ className = "" }: { className?: string }) {
+  return (
+    <svg className={`dd-whale ${className}`} viewBox="0 0 160 100" aria-hidden="true">
+      <g className="dd-bob" {...stroke}>
+        <path d="M22 58 Q26 34 58 32 Q96 30 112 52 Q120 62 132 54 L140 44 Q142 58 134 64 Q140 70 141 80 L130 70 Q116 76 98 76 Q56 80 36 72 Q22 67 22 58 Z" />
+        <path d="M38 64 Q58 70 84 67" opacity={0.6} />
+        <circle cx="44" cy="50" r="2" fill="currentColor" stroke="none" />
+        <path d="M60 30 Q57 20 50 16 M60 30 Q62 18 70 14 M60 30 V16" className="dd-spout" />
+      </g>
+      <g {...stroke} strokeWidth={1.8}>
+        <path className="dd-sway" d="M8 88 q10 -5 20 0 t20 0 t20 0 t20 0 t20 0 t20 0 t20 0" />
+      </g>
     </svg>
   );
 }
