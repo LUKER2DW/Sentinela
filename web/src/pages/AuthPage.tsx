@@ -36,8 +36,8 @@ export function AuthPage({ mode, onDone, downMessage, onRetry }: Props) {
           ? "Usuário ou senha incorretos."
           : msg.includes("too many")
             ? "Muitas tentativas. Espere um minuto e tente de novo."
-            : msg.includes("at least 10")
-              ? "A senha precisa ter pelo menos 10 caracteres."
+            : msg.includes("at least 8")
+              ? "A senha precisa ter pelo menos 8 caracteres."
               : msg,
       );
     } finally {
@@ -87,7 +87,7 @@ export function AuthPage({ mode, onDone, downMessage, onRetry }: Props) {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
-                  minLength={setup ? 10 : undefined}
+                  minLength={setup ? 8 : undefined}
                   autoFocus={setup}
                 />
               </div>

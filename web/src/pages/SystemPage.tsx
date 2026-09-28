@@ -224,7 +224,7 @@ function Account() {
       setCur("");
       setNext("");
     },
-    onError: (e: Error) => toast(e.message.includes("at least") ? "A nova senha precisa de 10 caracteres ou mais." : "Senha atual incorreta.", true),
+    onError: (e: Error) => toast(e.message.includes("at least") ? "A nova senha precisa de 8 caracteres ou mais." : "Senha atual incorreta.", true),
   });
   return (
     <section className="card">
@@ -240,7 +240,7 @@ function Account() {
         }}
       >
         <input className="input" type="password" autoComplete="current-password" placeholder="Senha atual" aria-label="Senha atual" value={cur} onChange={(e) => setCur(e.target.value)} required />
-        <input className="input" type="password" autoComplete="new-password" placeholder="Nova senha" aria-label="Nova senha" minLength={10} value={next} onChange={(e) => setNext(e.target.value)} required />
+        <input className="input" type="password" autoComplete="new-password" placeholder="Nova senha" aria-label="Nova senha" minLength={8} value={next} onChange={(e) => setNext(e.target.value)} required />
         <div style={{ display: "flex", gap: 8 }}>
           <button className="btn" disabled={change.isPending}>
             Alterar senha
@@ -313,7 +313,7 @@ function Users() {
                   <button
                     className="btn small ghost"
                     onClick={() => {
-                      const p = window.prompt(`Nova senha para ${u.username} (mínimo 10 caracteres):`);
+                      const p = window.prompt(`Nova senha para ${u.username} (mínimo 8 caracteres):`);
                       if (p) update.mutate({ id: u.id, body: { password: p } });
                     }}
                   >
@@ -338,7 +338,7 @@ function Users() {
         }}
       >
         <input className="input" placeholder="Novo usuário" aria-label="Novo usuário" value={name} onChange={(e) => setName(e.target.value)} required pattern="[A-Za-z0-9._\-]{3,32}" />
-        <input className="input" type="password" autoComplete="new-password" placeholder="Senha (10+ caracteres)" aria-label="Senha" minLength={10} value={pw} onChange={(e) => setPw(e.target.value)} required />
+        <input className="input" type="password" autoComplete="new-password" placeholder="Senha (8+ caracteres)" aria-label="Senha" minLength={8} value={pw} onChange={(e) => setPw(e.target.value)} required />
         <select className="input" value={role} onChange={(e) => setRole(e.target.value as Role)} aria-label="Perfil">
           {Object.entries(roleLabel).map(([v, l]) => (
             <option key={v} value={v}>

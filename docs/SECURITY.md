@@ -22,7 +22,7 @@
 3. go2rtc API is loopback-only; the browser gets stream access only through a
    ticket (random 256-bit, stored hashed in memory, 60 s TTL, single use,
    bound to user+camera, plus a valid session cookie).
-4. Passwords: argon2id (m=64 MB, t=3, p=1), min 10 chars. Login rate limit
+4. Passwords: argon2id (m=64 MB, t=3, p=1), min 8 chars (owner's choice). Login rate limit
    5/min/IP. Sessions: 30 days, HttpOnly, SameSite=Strict, `Secure` when
    `secure_cookies: true`; CSRF header on unsafe methods; Origin checked.
    The first-run setup page only works while no user exists.

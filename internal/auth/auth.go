@@ -96,10 +96,14 @@ var dummyHash = sync.OnceValue(func() string {
 // VerifyDummy burns the same time as a real verification.
 func VerifyDummy(pw string) { VerifyPassword(dummyHash(), pw) }
 
+// MinPasswordLen is the shortest accepted password.
+const MinPasswordLen = 8
+
 // CheckPasswordPolicy enforces a minimum length.
 func CheckPasswordPolicy(pw string) error {
-	if len(pw) < 10 {
-		return errors.New("password must have at least 10 characters")
+	// Owner's choice (2026-09-28): 8 is the floor for this LAN-only system.
+	if len(pw) < MinPasswordLen {
+		return errors.New("password must have at least 8 characters")
 	}
 	if len(pw) > 256 {
 		return errors.New("password too long")

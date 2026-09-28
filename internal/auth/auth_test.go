@@ -78,3 +78,12 @@ func TestTicketsSingleUseAndExpiry(t *testing.T) {
 		t.Fatal("expired ticket accepted")
 	}
 }
+
+func TestPasswordPolicyMinimum(t *testing.T) {
+	if err := CheckPasswordPolicy("admin123"); err != nil {
+		t.Fatalf("8 chars must be accepted: %v", err)
+	}
+	if err := CheckPasswordPolicy("admin12"); err == nil {
+		t.Fatal("7 chars must be refused")
+	}
+}
