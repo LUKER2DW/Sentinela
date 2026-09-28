@@ -67,23 +67,45 @@ numbers/MACs, then paste the summary into §3.
 
 Tools needed: `curl`, `ffprobe` (ffmpeg), `nmap` (optional), `python3`.
 
-## 3. Audit results (fill in after Phase 0 audit)
+## 3. Audit results (2026-09-28, `scripts/camera-audit.sh` from Windows/Git Bash)
+
+Serial number, HardwareId and MAC redacted. All probes were read-only.
 
 | Check | Result |
 |---|---|
-| Firmware version / build date | |
-| Open TCP ports | |
-| Telnet (23) / debug (9527) open? | |
-| Web UI (80) auth type | |
-| ONVIF version / profiles | |
-| Main stream codec / res / fps / bitrate / GOP | |
-| Sub stream codec / res / fps / bitrate | |
-| Audio codec in RTSP | |
-| ONVIF events (motion/human) available | |
-| ONVIF PTZ service present | |
-| Camera NTP / timezone | |
-| Cloud (XMEye P2P) enabled | |
-| Two concurrent RTSP pulls stable (10 min) | |
+| Firmware version / build date | `V5.00.R02.000639N0.10010.140017.0000000` (ONVIF reports `…S.ONVIF 21.06`), built 2023-07-13 |
+| Open TCP ports | 80 (HTTP), 554 (RTSP, `H264DVR rtspd 1.0`), 8899 (ONVIF), 34567 (DVRIP). Filtered/closed: 23, 443, 8000, 8080, 9527, 9530, 34568, 34599 |
+| Telnet (23) / debug (9527) open? | **No**, both filtered |
+| Web UI (80) auth type | No HTTP auth on `/` (`HTTP/1.0 200`, no `WWW-Authenticate`); login happens in the page/plugin |
+| ONVIF version / profiles | Port **8899**, service version 16.12 (imaging 17.12), media1 + media2. Profiles `000` (main), `001` (sub), `002` |
+| Main stream codec / res / fps / bitrate / GOP | H.265 Main 2560×1440. Configured: 15 fps, VBR 1920 kbit/s, GOP 2 s, quality 6. Measured over 10 s (daytime): **12 fps, ~1550 kbit/s** video, keyframe every **2.00 s** |
+| Sub stream codec / res / fps / bitrate | H.265 Main **800×448** (config says "D1"). Configured: 10 fps, VBR 320 kbit/s. Measured: 10 fps, ~495 kbit/s, keyframe every 2.00 s |
+| Audio codec in RTSP | PCMA (G.711 A-law) 8 kHz mono, 64 kbit/s, on both streams |
+| ONVIF events (motion/human) available | Yes: PullPoint + subscription. Topics include `RuleEngine/CellMotionDetector/Motion`, `VideoSource/MotionAlarm`, `RuleEngine/TamperDetector/Tamper`, `RuleEngine/LineDetector/Crossed`, `RuleEngine/FieldDetector/ObjectsInside`. Human detection only through DVRIP (`AlarmFunction.HumanDection`), not a dedicated ONVIF topic |
+| ONVIF PTZ service present | Yes (`ptz_service`, ver20). Not used, PTZ stays on DVRIP (§1.3) |
+| Camera NTP / timezone | NTP enabled, TZ `BRT3` (UTC−3, no DST); clock correct at audit time |
+| Cloud (XMEye P2P) enabled | **Yes**: `NetWork.Nat.NatEnable=true`, server `secu100.net:8765` |
+| Two concurrent RTSP pulls stable (10 min) | **Yes**: 2× `ffmpeg -c copy` on main for 600 s, 7201 video frames each (12.0 fps), no drops, no reconnects |
+
+Other findings:
+- ONVIF `GetStreamUri` returns the XMEye form
+  `rtsp://<host>:554/user=<u>_password=<p>_channel=0_stream=<0|1>&onvif=0.sdp?real_stream`.
+  The §1.1 form (`&`-separated, `channel=1`) also works and is what go2rtc uses.
+- The DVRIP `EncryptType: "MD5"` Sofia hash login works (`Ret=100`).
+- `NetWork.NetCommon` holds a wired static config `192.168.1.10/24`, gateway
+  `192.168.1.1`, which does not match the address the camera answers on
+  (`192.168.1.20`). The camera is probably on Wi-Fi/DHCP; confirm, and set a
+  DHCP reservation on the router.
+- The PCMA audio track occasionally repeats a DTS (`non monotonically increasing
+  dts`, ~70 warnings per 10 min). Harmless for the null muxer; the Phase 2
+  recorder must check that the mp4 segment muxer tolerates it (copy-only).
+- `NetWork.NetCommon.TCPMaxConn = 10` is the upper bound for concurrent DVRIP/RTSP clients.
+- `Camera.Param.DayNightColor = 0x00000000` in the current (auto) mode; the
+  remaining int ↔ mode mapping is still to be done in Phase 3.
+- `SupportCloudUpgrade`/`SupportCfgCloudupgrade` = true: the firmware can
+  self-update from the cloud. Blocking WAN also blocks this, which is intended.
+- UPnP is supported (`NetUPNP`); its state was not read (not in the audit's
+  read list), so check it in the web UI.
 
 ## 4. Hardening checklist for the camera
 
