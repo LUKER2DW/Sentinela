@@ -1,17 +1,26 @@
+# /etc/sentinela/config.yaml — non-secret settings. Camera passwords live in
+# /etc/sentinela/secrets.env and are referenced by env var name.
 listen: ":8080"
-data_dir: /data
-db_path: /data/db/sentinela.db
+data_dir: /data                     # recordings/, db/, backup/
 go2rtc_api: http://127.0.0.1:1984
+# Set to true once the UI is served over HTTPS (e.g. `tailscale serve`).
+secure_cookies: false
+
 recording:
-  segment_seconds: 300
-  max_disk_percent: 90
-  default_retention_days: 30
-  stall_seconds: 20
+  segment_seconds: 300              # 5-minute MP4 files
+  max_disk_percent: 90              # above this, oldest recordings are deleted
+  default_retention_days: 60        # ~21 GB/day at the audited bitrate
+  stall_seconds: 20                 # restart ffmpeg if no data for this long
+
 cameras:
-  - id: cam1
+  - id: cam1                        # also the go2rtc stream name (cam1, cam1_sub)
     name: Frente
     host: 192.168.1.20
     user_env: CAM1_USER
     password_env: CAM1_PASS
+    rtsp_port: 554
     dvrip_port: 34567
-    onvif_port: 80
+    onvif_port: 8899                # audited: ONVIF is on 8899, not 80
+    retention_days: 60
+    record_audio: true              # audio is AAC-encoded (ADR-0006); false = pure copy
+    invert_pan_tilt: true           # this unit is mounted flipped + mirrored

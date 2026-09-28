@@ -1,8 +1,37 @@
-# Sentinela v2 — Phase 1 stack. Pin images by digest before production.
+# Sentinela v2 stack: go2rtc (live), recorder (sentinela record), API/UI
+# (sentinela serve). Host networking: WebRTC ICE and camera access need no
+# NAT juggling; every listener is bound explicitly (docs/ARCHITECTURE.md §4).
+#
+#   sudo docker compose -f deploy/docker-compose.yml up -d --build
+#
+# Secrets: /etc/sentinela/secrets.env (0600). Config: /etc/sentinela/config.yaml.
+
+x-sentinela: &sentinela
+  build:
+    context: ..
+    args:
+      VERSION: ${SENTINELA_VERSION:-dev}
+  image: sentinela:local
+  network_mode: host
+  user: "1000:1000"
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  env_file: /etc/sentinela/secrets.env
+  environment:
+    TZ: UTC
+  volumes:
+    - /etc/sentinela/config.yaml:/etc/sentinela/config.yaml:ro
+    - /data:/data
+  tmpfs: [/tmp]
+  logging:
+    driver: json-file
+    options: { max-size: "10m", max-file: "3" }
+
 services:
   go2rtc:
     image: alexxit/go2rtc:1.9.10@sha256:95ce2ab22f2c7d8eb4dae42e0856b8480daf22c7c632f4a0489d442caf2df158
-    network_mode: host             # simplest for WebRTC ICE; ports bound per go2rtc.yaml
+    network_mode: host
     restart: unless-stopped
     read_only: true
     cap_drop: [ALL]
@@ -12,19 +41,26 @@ services:
       - ./go2rtc.yaml:/config/go2rtc.yaml:ro
     tmpfs: [/tmp]
     mem_limit: 256m
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
 
-  # Phase 2+: uncomment once the Go binary exists.
-  # sentinela:
-  #   build: ..
-  #   network_mode: host
-  #   restart: unless-stopped
-  #   user: "1000:1000"
-  #   read_only: true
-  #   cap_drop: [ALL]
-  #   security_opt: [no-new-privileges:true]
-  #   env_file: /etc/sentinela/secrets.env
-  #   volumes:
-  #     - /etc/sentinela/config.yaml:/etc/sentinela/config.yaml:ro
-  #     - /data:/data
-  #   tmpfs: [/tmp]
-  #   mem_limit: 512m
+  # Independent of the API and go2rtc (ADR-0007): pulls RTSP from the camera.
+  recorder:
+    <<: *sentinela
+    command: ["record"]
+    restart: unless-stopped
+    stop_grace_period: 15s
+    mem_limit: 256m
+
+  sentinela:
+    <<: *sentinela
+    command: ["serve"]
+    restart: unless-stopped
+    mem_limit: 384m
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/sentinela", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
