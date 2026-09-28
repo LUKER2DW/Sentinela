@@ -43,8 +43,31 @@ The ONVIF `GetStreamUri` result is authoritative; prefer it when it works.
 | Zoom/focus/iris | `ZoomWide/ZoomTile`, `FocusFar/FocusNear`, `IrisLarge/IrisSmall` | same start/stop pattern |
 | Presets | `SetPreset`, `ClearPreset`, `GotoPreset` (1–255) | set/clear need confirmation |
 | White light | `Camera.Param.[0].WhiteLight` (0/1) | read full object → modify → read back → restore on failure |
-| Day/night | `Camera.Param.[0].DayNightColor` | map firmware ints ↔ `auto/color/black_white/intelligent` after audit |
-| Talk | `OPTalk` claim → start → PCMA frames → close | one owner per camera, 60 s hard limit |
+| Day/night | `Camera.Param.[0].DayNightColor` | `"0x00000000"`=auto, `"0x00000001"`=color, `"0x00000002"`=black_white, `"0x00000003"`=intelligent (v1 physical canary, 2026-07) |
+| Talk | go2rtc `dvrip://…?backchannel=1` | Phase 3 uses go2rtc's backchannel; the browser mic needs a secure context (HTTPS) |
+
+Message ids used by the driver: `1000` login, `1006` keepalive, `1020`
+SystemInfo, `1042` get config, `1040` set config, `1400` PTZ. Reads used:
+`SystemInfo`, `Camera.Param.[0]`, `Uart.PTZPreset` (list of `{Id, Name}`).
+
+PTZ request envelope (message `1400`), verified by v1 on this model:
+
+```json
+{"Name": "OPPTZControl", "SessionID": "0x0000000A",
+ "OPPTZControl": {"Command": "DirectionLeft", "Parameter": {
+   "AUX": {"Number": 0, "Status": "On"}, "Channel": 0, "MenuOpts": "Enter",
+   "POINT": {"bottom": 0, "left": 0, "right": 0, "top": 0},
+   "Pattern": "SetBegin", "Preset": 65535, "Step": 4, "Tour": 0}}}
+```
+
+- Held movement: repeat the start command every ≤ 400 ms; stop with the same
+  command and speed and `Preset: -1`. The driver stops automatically if no
+  keepalive arrives for 1 s.
+- Presets: `SetPreset`/`ClearPreset`/`GotoPreset` with `Preset: <id>`, `Step: 0`.
+- **This unit's image is flipped + mirrored** (`PictureFlip=1`,
+  `PictureMirror=1`), so pan and tilt are inverted: a UI "left" sends
+  `DirectionRight`, "up" sends `DirectionDown`. Zoom/focus/iris are not inverted.
+- `Ret` 100 = OK; 515 = OK (upgrade-available variant) for login.
 
 **Forbidden:** firmware upgrade, `Alarm.AlarmOut`, network config, user
 management, factory reset, native tour writes, `OPMachine` (reboot) unless an
