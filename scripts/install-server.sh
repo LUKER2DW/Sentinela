@@ -78,6 +78,12 @@ say "4/6 Kernel, firewall and LAN file server"
 printf '%s\n' '# Smooth continuous video writes on a spinning disk (docs/ARCHITECTURE.md §6).' \
   'vm.dirty_background_bytes = 16777216' 'vm.dirty_bytes = 67108864' > /etc/sysctl.d/90-sentinela.conf
 sysctl -q --system || true
+# LAN time server: the camera loses internet NTP once its WAN is blocked
+# (docs/CAMERA.md §4); point its NTP at this server.
+apt-get -o DPkg::Lock::Timeout=600 install -y -qq chrony >/dev/null
+printf '%s
+' '# Serve time to the LAN (camera NTP -> this server).' 'allow 192.168.1.0/24' > /etc/chrony/conf.d/lan.conf
+systemctl restart chrony
 "${REPO_DIR}/scripts/firewall.sh" >/dev/null && echo "firewall: LAN-only rules applied"
 if mountpoint -q /srv/nas; then "${REPO_DIR}/scripts/setup-nas.sh"; else echo "no /srv/nas mount: skipping the LAN file server"; fi
 

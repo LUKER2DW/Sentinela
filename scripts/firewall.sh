@@ -21,6 +21,7 @@ ufw allow from "$LAN" to any port 137,138 proto udp comment 'netbios' >/dev/null
 ufw allow from "$LAN" to any port 3702 proto udp comment 'ws-discovery' >/dev/null
 ufw allow from "$LAN" to any port 5357 proto tcp comment 'ws-discovery' >/dev/null
 ufw allow from "$LAN" to any port 5353 proto udp comment 'mdns' >/dev/null
+ufw allow from "$LAN" to any port 123 proto udp comment 'ntp for the camera' >/dev/null
 # Tailscale (later): its interface is trusted as a whole.
 ip link show tailscale0 >/dev/null 2>&1 && ufw allow in on tailscale0 >/dev/null
 ufw --force enable >/dev/null
