@@ -1,0 +1,30 @@
+# Sentinela v2 — Phase 1 stack. Pin images by digest before production.
+services:
+  go2rtc:
+    image: alexxit/go2rtc:1.9.10   # TODO: pin @sha256 digest
+    network_mode: host             # simplest for WebRTC ICE; ports bound per go2rtc.yaml
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    env_file: /etc/sentinela/secrets.env
+    volumes:
+      - ./go2rtc.yaml:/config/go2rtc.yaml:ro
+    tmpfs: [/tmp]
+    mem_limit: 256m
+
+  # Phase 2+: uncomment once the Go binary exists.
+  # sentinela:
+  #   build: ..
+  #   network_mode: host
+  #   restart: unless-stopped
+  #   user: "1000:1000"
+  #   read_only: true
+  #   cap_drop: [ALL]
+  #   security_opt: [no-new-privileges:true]
+  #   env_file: /etc/sentinela/secrets.env
+  #   volumes:
+  #     - /etc/sentinela/config.yaml:/etc/sentinela/config.yaml:ro
+  #     - /data:/data
+  #   tmpfs: [/tmp]
+  #   mem_limit: 512m

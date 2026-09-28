@@ -1,0 +1,17 @@
+listen: ":8080"
+data_dir: /data
+db_path: /data/db/sentinela.db
+go2rtc_api: http://127.0.0.1:1984
+recording:
+  segment_seconds: 300
+  max_disk_percent: 90
+  default_retention_days: 30
+  stall_seconds: 20
+cameras:
+  - id: cam1
+    name: Frente
+    host: 192.168.1.20
+    user_env: CAM1_USER
+    password_env: CAM1_PASS
+    dvrip_port: 34567
+    onvif_port: 80

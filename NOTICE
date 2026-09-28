@@ -1,0 +1,5 @@
+Sentinela v2
+Third-party code adapted into this repository is listed here with its licence.
+(none yet)
+
+Runtime dependencies (not bundled): go2rtc (MIT, AlexxIT), FFmpeg (LGPL/GPL).

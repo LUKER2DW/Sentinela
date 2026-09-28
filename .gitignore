@@ -1,0 +1,10 @@
+bin/
+audit-out/
+*.env
+!*.env.example
+/data/
+web/node_modules/
+web/dist/
+*.mp4
+*.jpg
+.DS_Store
