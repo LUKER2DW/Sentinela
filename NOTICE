@@ -1,5 +1,11 @@
 Sentinela v2
 Third-party code adapted into this repository is listed here with its licence.
-(none yet)
+- web/src/lib/player.ts implements the go2rtc WebSocket signalling / MSE
+  protocol, following the behaviour of go2rtc's www/video-rtc.js.
+  go2rtc: MIT License, Copyright (c) 2022 Alexey Khit (AlexxIT).
+  https://github.com/AlexxIT/go2rtc
 
-Runtime dependencies (not bundled): go2rtc (MIT, AlexxIT), FFmpeg (LGPL/GPL).
+Runtime dependencies (not bundled in the binary): go2rtc (MIT, AlexxIT),
+FFmpeg (LGPL/GPL, Debian package inside the container image).
+Bundled web fonts: Barlow and Barlow Semi Condensed (SIL Open Font License 1.1,
+Jeremy Tribby), via @fontsource.
