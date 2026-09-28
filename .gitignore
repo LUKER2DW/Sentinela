@@ -4,7 +4,8 @@ audit-out/
 !*.env.example
 /data/
 web/node_modules/
-web/dist/
+web/dist/*
+!web/dist/.gitkeep
 *.mp4
 *.jpg
 .DS_Store
