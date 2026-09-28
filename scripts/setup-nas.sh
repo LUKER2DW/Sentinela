@@ -10,7 +10,7 @@ for m in /srv/nas /data; do
   mountpoint -q "$m" || { echo "$m is not mounted; refusing to share the root disk" >&2; exit 1; }
 done
 
-DEBIAN_FRONTEND=noninteractive apt-get install -y -qq samba wsdd >/dev/null
+DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 install -y -qq samba wsdd >/dev/null
 
 install -m 0644 "${REPO_DIR}/deploy/nas/smb.conf" /etc/samba/smb.conf
 rm -rf /etc/samba/smb.conf.d

@@ -12,7 +12,6 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ETC=/etc/sentinela
 DATA="${SENTINELA_DATA:-/data}"
-UID_GID=1000:1000
 
 say()  { printf '\n\033[1;33m==> %s\033[0m\n' "$*"; }
 warn() { printf '\033[1;31m!! %s\033[0m\n' "$*" >&2; }
@@ -23,16 +22,17 @@ warn() { printf '\033[1;31m!! %s\033[0m\n' "$*" >&2; }
 case "${ID}" in ubuntu|debian) ;; *) warn "untested distro ${ID}; continuing" ;; esac
 
 say "1/6 Docker Engine + compose plugin"
+export DEBIAN_FRONTEND=noninteractive
 if ! command -v docker >/dev/null || ! docker compose version >/dev/null 2>&1; then
-  apt-get update -qq
-  apt-get install -y -qq ca-certificates curl gnupg
+  apt-get -o DPkg::Lock::Timeout=600 update -qq
+  apt-get -o DPkg::Lock::Timeout=600 install -y -qq ca-certificates curl gnupg
   install -m 0755 -d /etc/apt/keyrings
   curl -fsSL "https://download.docker.com/linux/${ID}/gpg" -o /etc/apt/keyrings/docker.asc
   chmod a+r /etc/apt/keyrings/docker.asc
   echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/${ID} ${VERSION_CODENAME} stable" \
     > /etc/apt/sources.list.d/docker.list
-  apt-get update -qq
-  apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+  apt-get -o DPkg::Lock::Timeout=600 update -qq
+  apt-get -o DPkg::Lock::Timeout=600 install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
   systemctl enable --now docker
 else
   echo "docker $(docker --version | awk '{print $3}') already installed"
@@ -65,27 +65,33 @@ else
 fi
 
 say "3/6 Data directory ${DATA}"
-install -d -m 0750 "${DATA}" "${DATA}/recordings" "${DATA}/db" "${DATA}/backup"
-chown -R "${UID_GID}" "${DATA}"
-if [[ "$(df --output=source "${DATA}" | tail -1)" == "$(df --output=source / | tail -1)" ]]; then
-  warn "${DATA} is on the same filesystem as / . Recommended: a dedicated disk/partition mounted at ${DATA} (ext4, noatime)."
+if ! mountpoint -q "${DATA}"; then
+  warn "${DATA} is not a mount point: recordings would land on the system disk."
+  warn "Mount the recordings disk at ${DATA} first (docs/ARCHITECTURE.md §6), or set SENTINELA_ALLOW_ROOT_DATA=1."
+  [[ "${SENTINELA_ALLOW_ROOT_DATA:-0}" == 1 ]] || exit 1
 fi
+install -d -m 0750 -o 1000 -g 1000 "${DATA}/recordings" "${DATA}/db" "${DATA}/backup"
+chown 1000:1000 "${DATA}"   # top level only: never walk every recording
 df -h "${DATA}" | tail -1
 
-say "4/6 Kernel write-back tuning for a single HDD"
-cat > /etc/sysctl.d/90-sentinela.conf <<'EOF'
-# Smooth continuous video writes on a spinning disk (docs/ARCHITECTURE.md §6).
-vm.dirty_background_bytes = 16777216
-vm.dirty_bytes = 67108864
-EOF
+say "4/6 Kernel, firewall and LAN file server"
+printf '%s\n' '# Smooth continuous video writes on a spinning disk (docs/ARCHITECTURE.md §6).' \
+  'vm.dirty_background_bytes = 16777216' 'vm.dirty_bytes = 67108864' > /etc/sysctl.d/90-sentinela.conf
 sysctl -q --system || true
+"${REPO_DIR}/scripts/firewall.sh" >/dev/null && echo "firewall: LAN-only rules applied"
+if mountpoint -q /srv/nas; then "${REPO_DIR}/scripts/setup-nas.sh"; else echo "no /srv/nas mount: skipping the LAN file server"; fi
 
-say "5/6 Build and start containers"
+say "5/6 Start containers"
 cd "${REPO_DIR}/deploy"
 SENTINELA_VERSION="$(git -C "${REPO_DIR}" describe --always --dirty 2>/dev/null || echo dev)"
 export SENTINELA_VERSION
-docker compose build --pull
-docker compose up -d --remove-orphans
+docker compose pull -q go2rtc
+if docker image inspect sentinela:local >/dev/null 2>&1 && [[ "${SENTINELA_BUILD:-0}" != 1 ]]; then
+  echo "using existing image sentinela:local (SENTINELA_BUILD=1 rebuilds here)"
+  docker compose up -d --no-build --remove-orphans
+else
+  docker compose up -d --build --remove-orphans
+fi
 docker image prune -f >/dev/null
 
 say "6/6 Health"
@@ -95,18 +101,11 @@ for _ in $(seq 1 30); do
 done
 docker compose ps
 IP="$(hostname -I | awk '{print $1}')"
-cat <<EOF
-
-Sentinela is running.
-  Open        http://${IP}:8080  (first visit creates the admin account)
-  Logs        cd ${REPO_DIR}/deploy && sudo docker compose logs -f --tail=50
-  Update      cd ${REPO_DIR} && git pull && sudo ./scripts/install-server.sh
-  Reset pw    cd ${REPO_DIR}/deploy && sudo docker compose exec -T sentinela sentinela user passwd <user>
-
-Firewall (recommended, keep ssh open first!):
-  sudo ufw allow from 192.168.0.0/16 to any port 22 proto tcp
-  sudo ufw allow from 192.168.0.0/16 to any port 8080 proto tcp
-  sudo ufw allow from 192.168.0.0/16 to any port 8555
-  sudo ufw enable
-Do NOT forward any router port to this server (docs/SECURITY.md).
-EOF
+echo
+echo "Sentinela is running."
+echo "  Open        http://${IP}:8080  (first visit creates the admin account)"
+printf '  Nuvem       \\\\%s\\Nuvem  (set its password once: sudo smbpasswd -a ana)\n' "${IP}"
+echo "  Logs        cd ${REPO_DIR}/deploy && sudo docker compose logs -f --tail=50"
+echo "  Update      from the dev PC: ./scripts/deploy.sh"
+echo "  Reset pw    cd ${REPO_DIR}/deploy && sudo docker compose exec -T sentinela sentinela user passwd <user>"
+echo "Do NOT forward any router port to this server (docs/SECURITY.md)."
