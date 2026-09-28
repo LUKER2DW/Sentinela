@@ -3,9 +3,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, get, type Segment, type Timeline } from "../lib/api";
 import { navigate } from "../lib/router";
 import { useSession, useToast } from "../lib/session";
-import { DAY_MS, addDays, fmtDay, fmtHM, fmtTime, sameDay, startOfDay, useNow } from "../lib/time";
+import { DAY_MS, addDays, eventLabel, fmtDay, fmtHM, fmtTime, sameDay, startOfDay, useNow } from "../lib/time";
 import { DayRibbon, RibbonLegend } from "../components/DayRibbon";
 import { Icon } from "../components/Icon";
+import { Boat, Fish } from "../components/Doodles";
 import { useCameras } from "./LivePage";
 import { findSegment } from "../lib/segments";
 
@@ -44,8 +45,11 @@ export function RecordingsPage({ params }: { params: URLSearchParams }) {
 
   return (
     <>
-      <div className="page-head">
-        <h1>Gravações</h1>
+      <header className="page-head">
+        <div className="title">
+          <h1>Gravações</h1>
+          <span className="sub">Escolha um horário na faixa para assistir.</span>
+        </div>
         {cams.data && cams.data.length > 1 && (
           <select className="input" value={camId} onChange={(e) => navigate("recordings", { cam: e.target.value })} aria-label="Câmera">
             {cams.data.map((c) => (
@@ -55,46 +59,47 @@ export function RecordingsPage({ params }: { params: URLSearchParams }) {
             ))}
           </select>
         )}
-      </div>
+        <div className="day-nav">
+          <button className="btn icon" aria-label="Dia anterior" onClick={() => go(null, addDays(dayStart, -1))}>
+            <Icon name="chevronLeft" />
+          </button>
+          <span className="day-title">{fmtDay(dayStart)}</span>
+          <button className="btn icon" aria-label="Próximo dia" disabled={sameDay(dayStart, new Date(now))} onClick={() => go(null, addDays(dayStart, 1))}>
+            <Icon name="chevronRight" />
+          </button>
+          <input
+            type="date"
+            className="input"
+            aria-label="Escolher dia"
+            max={toDateInput(new Date(now))}
+            value={toDateInput(dayStart)}
+            onChange={(e) => {
+              const [y, m, d] = e.target.value.split("-").map(Number);
+              if (y) go(null, new Date(y, m - 1, d));
+            }}
+          />
+        </div>
+      </header>
 
-      <div className="rec-toolbar">
-        <button className="btn icon" aria-label="Dia anterior" onClick={() => go(null, addDays(dayStart, -1))}>
-          <Icon name="chevronLeft" />
-        </button>
-        <span className="day-title">{fmtDay(dayStart)}</span>
-        <button className="btn icon" aria-label="Próximo dia" disabled={sameDay(dayStart, new Date(now))} onClick={() => go(null, addDays(dayStart, 1))}>
-          <Icon name="chevronRight" />
-        </button>
-        <input
-          type="date"
-          className="input"
-          aria-label="Escolher dia"
-          max={toDateInput(new Date(now))}
-          value={toDateInput(dayStart)}
-          onChange={(e) => {
-            const [y, m, d] = e.target.value.split("-").map(Number);
-            if (y) go(null, new Date(y, m - 1, d));
-          }}
+      <section className="card" style={{ marginBottom: 24 }}>
+        <DayRibbon
+          dayStart={dayStart}
+          data={timeline.data}
+          cursor={requested}
+          now={now}
+          onPick={(ms) => go(ms)}
+          label="Linha do tempo do dia. Clique para assistir a partir desse horário."
         />
-      </div>
+        <RibbonLegend />
+      </section>
 
-      <DayRibbon
-        dayStart={dayStart}
-        data={timeline.data}
-        cursor={requested}
-        now={now}
-        onPick={(ms) => go(ms)}
-        label="Linha do tempo do dia. Clique para assistir a partir desse horário."
-      />
-      <RibbonLegend />
-
-      <div className="rec-layout" style={{ marginTop: 18 }}>
+      <div className="two-col">
         {camId && timeline.data ? (
           <Playback key={`${camId}-${requested}`} camId={camId} camName={cam?.name ?? camId} segments={timeline.data.segments} requested={requested} onJump={go} />
         ) : (
           <div className="player" />
         )}
-        <aside className="side">
+        <aside className="stack">
           <DayEvents timeline={timeline.data} onPick={(ms) => go(ms)} />
         </aside>
       </div>
@@ -153,6 +158,7 @@ function Playback({
     return (
       <div className="player">
         <div className="player-overlay">
+          <Boat />
           <p>Clique na faixa acima para assistir a partir de um horário.</p>
         </div>
       </div>
@@ -161,6 +167,7 @@ function Playback({
     return (
       <div className="player">
         <div className="player-overlay">
+          <Boat />
           <p>Não há gravação a partir de {fmtHM(requested)} neste dia.</p>
         </div>
       </div>
@@ -203,7 +210,7 @@ function Playback({
             <p>{error}</p>
           </div>
         )}
-        <div className="player-bar" style={{ opacity: 1 }}>
+        <div className="player-bar always">
           <button
             className="btn icon"
             aria-label={playing ? "Pausar" : "Reproduzir"}
@@ -233,10 +240,10 @@ function Playback({
         </div>
       </div>
 
-      <div className="page-head" style={{ marginTop: 12 }}>
+      <div className="under-player">
         <span className="playhead">{pos ? fmtTime(pos) : "--:--:--"}</span>
         {gapNote && <span className="muted">{gapNote}</span>}
-        <span style={{ flex: 1 }} />
+        <span className="grow" />
         {can("operator") && (
           <button className={`btn${current.seg.protected ? " on" : ""}`} onClick={() => protect.mutate(!current.seg.protected)} title="Trechos protegidos não são apagados pela limpeza automática">
             <Icon name="shield" /> {current.seg.protected ? "Protegido" : "Proteger trecho"}
@@ -305,20 +312,27 @@ function DayEvents({ timeline, onPick }: { timeline?: Timeline; onPick: (ms: num
     return total / 3600_000;
   }, [timeline]);
   return (
-    <section className="panel">
+    <section className="card">
       <h2>Neste dia</h2>
-      <p className="muted" style={{ marginBottom: 10 }}>
+      <p className="muted" style={{ marginBottom: 8 }}>
         {hours.toFixed(1).replace(".", ",")} h gravadas
-        {events.length ? `, ${events.length} ${events.length === 1 ? "evento" : "eventos"}` : ", nenhum evento"}
+        {events.length ? `, ${events.length} ${events.length === 1 ? "evento" : "eventos"}` : ""}
       </p>
-      <div className="list" style={{ maxHeight: 420, overflowY: "auto" }}>
-        {events.map((e) => (
-          <button key={e.id} className="list-row btn ghost" style={{ gridTemplateColumns: "80px 1fr", textAlign: "left", justifyContent: "stretch" }} onClick={() => onPick(new Date(e.start).getTime() - 5000)}>
-            <span className="when">{fmtHM(e.start)}</span>
-            <span className={`tag ${e.type}`}>{e.type === "motion" ? "Movimento" : e.type}</span>
-          </button>
-        ))}
-      </div>
+      {events.length === 0 ? (
+        <div className="empty" style={{ padding: "16px 0 0" }}>
+          <Fish />
+          <p>Nenhum movimento neste dia.</p>
+        </div>
+      ) : (
+        <div className="scroll">
+          {events.map((e) => (
+            <button key={e.id} className="list-row" onClick={() => onPick(new Date(e.start).getTime() - 5000)}>
+              <span className="when">{fmtHM(e.start)}</span>
+              <span className="tag">{eventLabel[e.type] ?? e.type}</span>
+            </button>
+          ))}
+        </div>
+      )}
     </section>
   );
 }

@@ -4,6 +4,7 @@ import { api, get, type ControlState, type DayNight } from "../lib/api";
 import { useToast } from "../lib/session";
 import { dayNightLabel } from "../lib/time";
 import { Icon } from "./Icon";
+import { Mark } from "./Doodles";
 
 type Op = "move" | "zoom" | "focus";
 
@@ -90,7 +91,7 @@ export function PtzPanel({ cameraId, canControl }: { cameraId: string; canContro
   const bind = useHold(cameraId, speed, (m) => toast(`PTZ: ${m}`, true));
 
   return (
-    <section className="panel ptz" aria-label="Controle de movimento">
+    <section className="card ptz" aria-label="Controle de movimento">
       <div
         className="dial"
         role="group"
@@ -111,14 +112,15 @@ export function PtzPanel({ cameraId, canControl }: { cameraId: string; canContro
             </button>
           );
         })}
-        <div className="hub num" aria-hidden="true">
-          {speed}
+        <div className="hub" aria-hidden="true">
+          <Mark />
         </div>
       </div>
 
       <label className="speed">
         <span className="muted">Velocidade</span>
         <input type="range" min={1} max={8} value={speed} onChange={(e) => setSpeed(Number(e.target.value))} disabled={!canControl} />
+        <span className="num">{speed}</span>
       </label>
 
       <div className="ptz-lens">
@@ -195,7 +197,7 @@ export function CameraSettings({ cameraId, canControl, isAdmin }: { cameraId: st
 
   return (
     <>
-      <section className="panel" aria-label="Posições salvas">
+      <section className="card" aria-label="Posições salvas">
         <h2>Posições salvas</h2>
         {state.isLoading && <p className="muted">Lendo a câmera…</p>}
         {state.isError && <p className="notice error">Câmera não respondeu. {(state.error as Error).message}</p>}
@@ -214,7 +216,7 @@ export function CameraSettings({ cameraId, canControl, isAdmin }: { cameraId: st
         )}
       </section>
 
-      <section className="panel" aria-label="Imagem e luz">
+      <section className="card" aria-label="Imagem e luz">
         <h2>Imagem</h2>
         <div className="toggle-row">
           <span>

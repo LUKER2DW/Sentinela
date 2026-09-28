@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fmtBytes, fmtDuration, mergeRanges, skyAt } from "./time";
+import { fmtBytes, fmtDuration, mergeRanges } from "./time";
 import { supportedMseCodecs } from "./player";
 import { findSegment } from "./segments";
 import type { Segment } from "./api";
@@ -25,10 +25,6 @@ describe("formatting", () => {
     expect(fmtDuration(2 * 3600_000 + 5 * 60_000)).toBe("2 h 05 min");
     expect(fmtBytes(21_400_000_000)).toBe("21 GB");
     expect(fmtBytes(1_500_000)).toBe("1,5 MB");
-  });
-  it("sky is darker at midnight than at noon", () => {
-    const lum = (c: string) => c.match(/\d+/g)!.map(Number).reduce((a, b) => a + b);
-    expect(lum(skyAt(0))).toBeLessThan(lum(skyAt(12)));
   });
 });
 

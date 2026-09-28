@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import type { Timeline } from "../lib/api";
-import { DAY_MS, fmtHM, fmtTime, mergeRanges, skyAt } from "../lib/time";
+import { DAY_MS, fmtHM, fmtTime, mergeRanges } from "../lib/time";
+import { Moon, Sun } from "./Doodles";
 
 interface Props {
   /** Local midnight of the day shown. */
@@ -12,14 +13,6 @@ interface Props {
   onPick?: (ms: number) => void;
   label: string;
 }
-
-/** Sky gradient across the day: night, dawn, day, dusk. */
-function skyGradient(): string {
-  const stops: string[] = [];
-  for (let h = 0; h <= 24; h += 1) stops.push(`${skyAt(h)} ${((h / 24) * 100).toFixed(2)}%`);
-  return `linear-gradient(90deg, ${stops.join(", ")})`;
-}
-const SKY = skyGradient();
 
 export function DayRibbon({ dayStart, data, cursor, now, onPick, label }: Props) {
   const ref = useRef<HTMLDivElement>(null);
@@ -82,7 +75,10 @@ export function DayRibbon({ dayStart, data, cursor, now, onPick, label }: Props)
           }
         }}
       >
-        <div className="sky" style={{ background: SKY }} />
+        {/* The sky gradient itself comes from the theme (CSS --sky-*). */}
+        <Moon className="sky-doodle" style={{ left: "4%" }} />
+        <Sun className="sky-doodle" style={{ left: "50%" }} />
+        <Moon className="sky-doodle" style={{ left: "96%" }} />
         <div className="gap-hatch" style={{ width: pct(limit) }} />
         {coverage.map(([a, b]) => (
           <div key={a} className="cov" style={{ left: pct(a), width: width(a, b) }} />
@@ -108,7 +104,7 @@ export function DayRibbon({ dayStart, data, cursor, now, onPick, label }: Props)
       </div>
       <div className="ribbon-scale" aria-hidden="true">
         {[0, 3, 6, 9, 12, 15, 18, 21, 24].map((h) => (
-          <span key={h} style={{ left: `clamp(8px, ${(h / 24) * 100}%, calc(100% - 10px))` }}>
+          <span key={h} className={h % 6 ? "minor" : undefined} style={{ left: `clamp(8px, ${(h / 24) * 100}%, calc(100% - 10px))` }}>
             {String(h).padStart(2, "0")}h
           </span>
         ))}
@@ -121,11 +117,11 @@ export function RibbonLegend() {
   return (
     <div className="ribbon-legend">
       <span>
-        <i style={{ background: "rgb(230 238 242 / 0.55)" }} />
+        <i style={{ background: "var(--sea)" }} />
         Gravado
       </span>
       <span>
-        <i style={{ background: "repeating-linear-gradient(135deg, #0a1924 0 3px, #28495b 3px 6px)" }} />
+        <i style={{ background: "repeating-linear-gradient(135deg, var(--line-strong) 0 2px, transparent 2px 5px)" }} />
         Sem gravação
       </span>
       <span>

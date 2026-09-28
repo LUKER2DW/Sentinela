@@ -21,22 +21,25 @@ export function SystemPage() {
 
   return (
     <>
-      <div className="page-head">
-        <h1>Sistema</h1>
-        {s && <span className="muted">Versão {s.version}</span>}
-      </div>
+      <header className="page-head">
+        <div className="title">
+          <h1>Sistema</h1>
+          <span className="sub">Gravação, disco, servidor e acessos.</span>
+        </div>
+        {s && <span className="pill">Versão {s.version}</span>}
+      </header>
       {sys.isError && <p className="notice error">Não foi possível ler o estado do servidor.</p>}
       {s && (
         <div className="sys-grid">
           <Storage s={s} />
-          <section className="panel">
+          <section className="card">
             <h2>Gravadores</h2>
             {(cams.data ?? []).map((c) => {
               const r = s.recorders.find((x) => x.camera_id === c.id);
               const stale = !r || new Date(s.now).getTime() - new Date(r.heartbeat).getTime() > 60_000;
               const ok = r?.state === "recording" && !stale;
               return (
-                <div key={c.id} style={{ marginBottom: 12 }}>
+                <div key={c.id} style={{ marginBottom: 16 }}>
                   <div className="toggle-row" style={{ minHeight: 32 }}>
                     <strong>{c.name}</strong>
                     <span className="pill">
@@ -59,7 +62,7 @@ export function SystemPage() {
               );
             })}
           </section>
-          <section className="panel">
+          <section className="card">
             <h2>Vídeo ao vivo</h2>
             {s.go2rtc_error ? (
               <p className="notice error">Serviço de vídeo ao vivo (go2rtc) fora do ar.</p>
@@ -74,7 +77,7 @@ export function SystemPage() {
               </dl>
             )}
           </section>
-          <section className="panel">
+          <section className="card">
             <h2>Servidor</h2>
             <dl className="kv">
               {s.host.supported && (
@@ -111,17 +114,22 @@ function Storage({ s }: { s: SystemInfo }) {
   const daily = Object.values(s.daily_bytes).reduce((a, x) => a + x, 0);
   // Space recordings may use: the retention limit minus everything else on the disk.
   const budget = s.disk.total * (s.max_disk_pct / 100) - (s.disk.used - recBytes);
-  const days = daily > 0 ? Math.floor(budget / daily) : null;
+  const days = daily > 0 && s.disk.total > 0 ? Math.max(0, Math.floor(budget / daily)) : null;
   const oldest = s.storage.map((x) => x.oldest).sort()[0];
   return (
-    <section className="panel">
+    <section className="card">
       <h2>Armazenamento</h2>
       {days !== null ? (
-        <p style={{ marginBottom: 14 }}>
-          <span className="big-figure">{days}</span> <span className="muted">dias de gravação cabem no disco</span>
+        <p className="big">
+          <b>{days}</b>
+          <span className="muted">{days === 1 ? "dia de gravação cabe" : "dias de gravação cabem"} no disco</span>
         </p>
       ) : (
-        <p className="muted" style={{ marginBottom: 14 }}>A previsão aparece depois de algumas horas gravando.</p>
+        <p className="muted" style={{ marginBottom: 16 }}>
+          {s.disk.total === 0
+            ? "O uso do disco só é medido no servidor Linux."
+            : "A previsão de dias aparece depois de 10 minutos gravando."}
+        </p>
       )}
       {s.disk.total > 0 && (
         <>
@@ -134,11 +142,11 @@ function Storage({ s }: { s: SystemInfo }) {
           </p>
         </>
       )}
-      <dl className="kv" style={{ marginTop: 12 }}>
+      <dl className="kv" style={{ marginTop: 16 }}>
         <dt>Gravações</dt>
         <dd>{fmtBytes(recBytes)}</dd>
-        <dt>Últimas 24 h</dt>
-        <dd>{fmtBytes(daily)}</dd>
+        <dt>Por dia (ritmo atual)</dt>
+        <dd>{daily > 0 ? fmtBytes(daily) : "calculando"}</dd>
         <dt>Mais antiga</dt>
         <dd>{oldest ? relative(oldest) : "nenhuma"}</dd>
       </dl>
@@ -161,9 +169,9 @@ function Account() {
     onError: (e: Error) => toast(e.message.includes("at least") ? "A nova senha precisa de 10 caracteres ou mais." : "Senha atual incorreta.", true),
   });
   return (
-    <section className="panel">
+    <section className="card">
       <h2>Sua conta</h2>
-      <p className="muted" style={{ marginBottom: 12 }}>
+      <p className="muted" style={{ marginBottom: 16 }}>
         {user.username}, {roleLabel[user.role].toLowerCase()}
       </p>
       <form
@@ -219,7 +227,7 @@ function Users() {
   });
 
   return (
-    <section className="panel" style={{ gridColumn: "1 / -1" }}>
+    <section className="card span-all">
       <h2>Usuários</h2>
       <div className="table-wrap">
         <table className="table">
@@ -265,7 +273,7 @@ function Users() {
         </table>
       </div>
       <form
-        style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 14 }}
+        className="inline-form"
         onSubmit={(e) => {
           e.preventDefault();
           create.mutate();
@@ -309,7 +317,7 @@ const actionLabel: Record<string, string> = {
 function Audit() {
   const audit = useQuery({ queryKey: ["audit"], queryFn: () => get<AuditEntry[]>("/api/audit"), refetchInterval: 30_000 });
   return (
-    <section className="panel" style={{ gridColumn: "1 / -1" }}>
+    <section className="card span-all">
       <h2>Histórico de ações</h2>
       <div className="table-wrap" style={{ maxHeight: 360, overflowY: "auto" }}>
         <table className="table">

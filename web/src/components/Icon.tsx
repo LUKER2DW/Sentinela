@@ -41,13 +41,3 @@ export function Icon({ name, title }: { name: keyof typeof paths | string; title
     </svg>
   );
 }
-
-/** The Sentinela mark: a lamp post head casting light, drawn as an eye. */
-export function Mark() {
-  return (
-    <svg viewBox="0 0 48 48" fill="none" aria-hidden="true">
-      <path d="M6 24c5-8 11-12 18-12s13 4 18 12c-5 8-11 12-18 12S11 32 6 24z" stroke="currentColor" strokeWidth="3" strokeLinejoin="round" />
-      <circle cx="24" cy="24" r="6" fill="currentColor" />
-    </svg>
-  );
-}

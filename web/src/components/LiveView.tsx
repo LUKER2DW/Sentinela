@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { LivePlayer, canTalk, type PlayerStatus } from "../lib/player";
 import { Icon } from "./Icon";
+import { Boat } from "./Doodles";
 
 interface Props {
   cameraId: string;
@@ -79,8 +80,8 @@ export function LiveView({ cameraId, cameraName, motion, allowTalk, compact, def
 
       {status.state !== "playing" && (
         <div className="player-overlay">
-          <div>
-            {status.state !== "error" && <div className="spinner" />}
+          <div className="stack-sm" style={{ justifyItems: "center" }}>
+            {status.state === "error" ? <Boat /> : <div className="spinner" />}
             <p>
               {status.state === "error"
                 ? status.message

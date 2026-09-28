@@ -61,35 +61,6 @@ export function relative(d: Date | string, now = Date.now()): string {
   return `há ${Math.floor(diff / DAY_MS)} dias`;
 }
 
-/**
- * Sky colour for an hour of the day (0..24), used by the day ribbon: night,
- * dawn, day and dusk. Returns a CSS colour.
- */
-export function skyAt(hour: number): string {
-  const stops: [number, [number, number, number]][] = [
-    [0, [9, 22, 33]],
-    [5, [12, 28, 42]],
-    [6.5, [70, 70, 92]],
-    [8, [44, 86, 112]],
-    [12, [52, 100, 128]],
-    [16.5, [44, 86, 112]],
-    [18, [96, 70, 72]],
-    [19.5, [16, 34, 50]],
-    [24, [9, 22, 33]],
-  ];
-  const h = ((hour % 24) + 24) % 24;
-  for (let i = 1; i < stops.length; i++) {
-    const [h1, c1] = stops[i];
-    const [h0, c0] = stops[i - 1];
-    if (h <= h1) {
-      const t = (h - h0) / (h1 - h0);
-      const c = c0.map((v, k) => Math.round(v + (c1[k] - v) * t));
-      return `rgb(${c[0]} ${c[1]} ${c[2]})`;
-    }
-  }
-  return "rgb(9 22 33)";
-}
-
 /** Merge touching/overlapping [start,end] ranges (ms), gap tolerance in ms. */
 export function mergeRanges(ranges: [number, number][], tolerance = 15_000): [number, number][] {
   const sorted = [...ranges].sort((a, b) => a[0] - b[0]);

@@ -4,7 +4,9 @@ import { api, get, onUnauthorized, setCsrf, type User } from "./lib/api";
 import { href, useRoute } from "./lib/router";
 import { SessionProvider, ToastProvider, useSession } from "./lib/session";
 import { LiveEventsProvider } from "./lib/liveEvents";
-import { Icon, Mark } from "./components/Icon";
+import { Icon } from "./components/Icon";
+import { Mark, Waves } from "./components/Doodles";
+import { ThemeToggle } from "./components/ThemeToggle";
 import { AuthPage } from "./pages/AuthPage";
 import { LivePage } from "./pages/LivePage";
 import { RecordingsPage } from "./pages/RecordingsPage";
@@ -53,17 +55,9 @@ export function App() {
   if (boot.kind === "loading") return null;
   if (boot.kind === "down")
     return (
-      <div className="auth">
-        <div className="auth-card">
-          <p className="notice error">O servidor não respondeu ({boot.message}).</p>
-          <button className="btn" onClick={load}>
-            Tentar de novo
-          </button>
-        </div>
-      </div>
+      <AuthPage mode="login" onDone={() => {}} downMessage={boot.message} onRetry={load} />
     );
-  if (boot.kind !== "ready")
-    return <AuthPage mode={boot.kind} onDone={(user) => setBoot({ kind: "ready", user })} />;
+  if (boot.kind !== "ready") return <AuthPage mode={boot.kind} onDone={(user) => setBoot({ kind: "ready", user })} />;
 
   const logout = () => {
     void api("POST", "/api/logout").finally(() => {
@@ -92,42 +86,62 @@ const NAV = [
   { page: "system", label: "Sistema", icon: "system" },
 ];
 
+const roleLabel = { admin: "Administrador", operator: "Operador", viewer: "Visualizador" } as const;
+
 function Shell() {
   const route = useRoute();
-  const { logout } = useSession();
+  const { user, logout } = useSession();
   const qc = useQueryClient();
   useEffect(() => {
-    document.title = `${NAV.find((n) => n.page === route.page)?.label ?? "Sentinela"} · Sentinela`;
+    document.title = `${NAV.find((n) => n.page === route.page)?.label ?? "Sentinela"} – Sentinela`;
   }, [route.page]);
 
   return (
     <div className="shell">
-      <nav className="rail" aria-label="Principal">
-        <a className="brand-mark" href={href("live")} aria-label="Sentinela">
+      <nav className="side-nav" aria-label="Principal">
+        <a className="brand" href={href("live")}>
           <Mark />
+          <span>Sentinela</span>
         </a>
         {NAV.map((n) => (
-          <a key={n.page} className="nav-item" href={href(n.page)} aria-current={route.page === n.page ? "page" : undefined} onClick={() => void qc.invalidateQueries()}>
+          <a
+            key={n.page}
+            className="nav-item"
+            href={href(n.page)}
+            aria-current={route.page === n.page ? "page" : undefined}
+            onClick={() => void qc.invalidateQueries()}
+          >
             <Icon name={n.icon} />
             {n.label}
           </a>
         ))}
-        <span className="rail-spacer" />
-        <button className="nav-item btn ghost" style={{ border: 0, minHeight: 0 }} onClick={logout} title="Sair">
-          <Icon name="logout" />
-          Sair
-        </button>
+        <span className="side-spacer" />
+        <div className="side-foot">
+          <ThemeToggle />
+          <div className="who">
+            <div className="who-text">
+              <div className="who-name">{user.username}</div>
+              <div className="who-role">{roleLabel[user.role]}</div>
+            </div>
+            <button className="btn ghost icon small" onClick={logout} title="Sair" aria-label="Sair">
+              <Icon name="logout" />
+            </button>
+          </div>
+        </div>
+        <Waves className="side-waves" />
       </nav>
       <main className="main">
-        {route.page === "recordings" ? (
-          <RecordingsPage params={route.params} />
-        ) : route.page === "events" ? (
-          <EventsPage />
-        ) : route.page === "system" ? (
-          <SystemPage />
-        ) : (
-          <LivePage params={route.params} />
-        )}
+        <div className="page">
+          {route.page === "recordings" ? (
+            <RecordingsPage params={route.params} />
+          ) : route.page === "events" ? (
+            <EventsPage />
+          ) : route.page === "system" ? (
+            <SystemPage />
+          ) : (
+            <LivePage params={route.params} />
+          )}
+        </div>
       </main>
     </div>
   );

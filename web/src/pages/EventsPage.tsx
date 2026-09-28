@@ -4,6 +4,7 @@ import { get, type CamEvent } from "../lib/api";
 import { navigate } from "../lib/router";
 import { eventLabel, fmtDay, fmtDuration, fmtTime, startOfDay, useNow } from "../lib/time";
 import { useCameras } from "./LivePage";
+import { Fish } from "../components/Doodles";
 
 export function EventsPage() {
   const cams = useCameras();
@@ -29,8 +30,11 @@ export function EventsPage() {
 
   return (
     <>
-      <div className="page-head">
-        <h1>Eventos</h1>
+      <header className="page-head">
+        <div className="title">
+          <h1>Eventos</h1>
+          <span className="sub">Movimentos detectados pela câmera.</span>
+        </div>
         {cams.data && cams.data.length > 1 && (
           <select className="input" value={cam} onChange={(e) => setCam(e.target.value)} aria-label="Câmera">
             <option value="">Todas as câmeras</option>
@@ -48,26 +52,28 @@ export function EventsPage() {
             </button>
           ))}
         </div>
-      </div>
+      </header>
 
       {events.isLoading && <p className="muted">Carregando…</p>}
       {events.isError && <p className="notice error">Não foi possível carregar os eventos.</p>}
       {events.data && events.data.length === 0 && (
-        <p className="notice">
-          Nenhum movimento detectado neste período. A detecção de movimento é feita pela câmera; ajuste a sensibilidade no painel dela se
-          nada aparecer.
-        </p>
+        <div className="card empty">
+          <Fish />
+          <strong>Tudo calmo por aqui</strong>
+          <p>Nenhum movimento neste período. Quem detecta é a própria câmera: se nada aparecer, ajuste a área e a sensibilidade no painel dela.</p>
+        </div>
       )}
 
+      <div className="stack">
       {groups.map(([day, list]) => (
-        <section key={day} className="day-group panel">
-          <h2>{fmtDay(day)}</h2>
-          <div className="list">
+        <section key={day} className="card">
+          <h2 style={{ textTransform: "capitalize" }}>{fmtDay(day)}</h2>
+          <div>
             {list.map((e) => (
               <div key={e.id} className="list-row">
                 <span className="when">{fmtTime(e.start)}</span>
                 <span>
-                  <span className={`tag ${e.type}`}>{eventLabel[e.type] ?? e.type}</span>
+                  <span className="tag">{eventLabel[e.type] ?? e.type}</span>
                   <span className="muted">
                     {" "}
                     {e.end ? `por ${fmtDuration(new Date(e.end).getTime() - new Date(e.start).getTime())}` : "em andamento"}
@@ -85,6 +91,7 @@ export function EventsPage() {
           </div>
         </section>
       ))}
+      </div>
     </>
   );
 }

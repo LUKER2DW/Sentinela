@@ -1,12 +1,14 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { get, type Camera, type SystemInfo, type Timeline } from "../lib/api";
 import { href, navigate } from "../lib/router";
 import { useSession } from "../lib/session";
 import { useActiveEvents } from "../lib/liveEvents";
-import { DAY_MS, fmtTime, startOfDay, useNow } from "../lib/time";
+import { DAY_MS, fmtDay, fmtTime, startOfDay, useNow } from "../lib/time";
 import { LiveView } from "../components/LiveView";
 import { CameraSettings, PtzPanel } from "../components/CameraControls";
 import { DayRibbon, RibbonLegend } from "../components/DayRibbon";
+import { Boat } from "../components/Doodles";
 
 export function useCameras() {
   return useQuery({ queryKey: ["cameras"], queryFn: () => get<Camera[]>("/api/cameras"), staleTime: 60_000 });
@@ -31,7 +33,7 @@ function RecordingPill({ cameraId }: { cameraId: string }) {
     );
   return (
     <a className="pill" href={href("system")} title={rec?.last_error || "Gravador sem sinal"}>
-      <span className="dot bad" /> Gravação parada
+      <span className="dot warn" /> Gravação parada
     </a>
   );
 }
@@ -45,7 +47,13 @@ export function LivePage({ params }: { params: URLSearchParams }) {
   if (cams.isLoading) return null;
   if (cams.isError) return <p className="notice error">Não foi possível carregar as câmeras.</p>;
   if (!list.length)
-    return <p className="notice">Nenhuma câmera configurada. Adicione uma em /etc/sentinela/config.yaml e reinicie.</p>;
+    return (
+      <div className="empty">
+        <Boat />
+        <strong>Nenhuma câmera ainda</strong>
+        <p>Adicione uma câmera em /etc/sentinela/config.yaml e reinicie o Sentinela.</p>
+      </div>
+    );
 
   if (!selected) return <Grid cams={list} now={now} />;
   return <Single cam={selected} now={now} multi={list.length > 1} />;
@@ -55,10 +63,13 @@ function Grid({ cams, now }: { cams: Camera[]; now: number }) {
   const active = useActiveEvents();
   return (
     <>
-      <div className="page-head">
-        <h1>Ao vivo</h1>
+      <header className="page-head">
+        <div className="title">
+          <h1>Ao vivo</h1>
+          <span className="sub">{fmtDay(now)}</span>
+        </div>
         <span className="clock">{fmtTime(now)}</span>
-      </div>
+      </header>
       <div className="grid-cams">
         {cams.map((c) => (
           <section key={c.id}>
@@ -90,25 +101,36 @@ function Single({ cam, now, multi }: { cam: Camera; now: number; multi: boolean 
     refetchInterval: 60_000,
   });
   const motionToday = timeline.data?.events.filter((e) => e.type === "motion").length ?? 0;
+  // Phones start on the substream (SD) to save mobile data; HD is one tap away.
+  const [phone] = useState(() => window.matchMedia("(max-width: 760px)").matches);
 
   return (
     <>
-      <div className="page-head">
-        {multi && (
-          <a className="btn ghost small" href={href("live")}>
-            Todas as câmeras
-          </a>
-        )}
-        <h1>{cam.name}</h1>
+      <header className="page-head">
+        <div className="title">
+          {multi && (
+            <a className="sub" href={href("live")}>
+              Todas as câmeras
+            </a>
+          )}
+          <h1>{cam.name}</h1>
+          <span className="sub">{fmtDay(now)}</span>
+        </div>
         <RecordingPill cameraId={cam.id} />
         <span className="clock">{fmtTime(now)}</span>
-      </div>
+      </header>
 
-      <div className="live-layout">
-        <div>
-          <LiveView cameraId={cam.id} cameraName={cam.name} allowTalk={can("operator")} motion={(active[cam.id] ?? []).length > 0} />
-          <section className="ribbon-wrap" aria-label="Hoje">
-            <div className="ribbon-head">
+      <div className="two-col">
+        <div className="stack">
+          <LiveView
+            cameraId={cam.id}
+            cameraName={cam.name}
+            allowTalk={can("operator")}
+            motion={(active[cam.id] ?? []).length > 0}
+            defaultStream={phone ? "sub" : "main"}
+          />
+          <section className="card" aria-label="Hoje">
+            <div className="card-head">
               <h2>Hoje</h2>
               <span className="muted">
                 {motionToday === 0 ? "Nenhum movimento" : motionToday === 1 ? "1 movimento" : `${motionToday} movimentos`}
@@ -124,7 +146,7 @@ function Single({ cam, now, multi }: { cam: Camera; now: number; multi: boolean 
             <RibbonLegend />
           </section>
         </div>
-        <aside className="side">
+        <aside className="stack">
           <PtzPanel cameraId={cam.id} canControl={can("operator")} />
           <CameraSettings cameraId={cam.id} canControl={can("operator")} isAdmin={can("admin")} />
         </aside>
