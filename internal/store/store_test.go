@@ -86,3 +86,22 @@ func TestEventsLifecycle(t *testing.T) {
 		t.Fatalf("dangling close length %v", got)
 	}
 }
+
+func TestConcurrentOpenOfFreshDB(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "race.db")
+	errs := make(chan error, 4)
+	for i := 0; i < 4; i++ {
+		go func() {
+			s, err := Open(context.Background(), path)
+			if err == nil {
+				s.Close()
+			}
+			errs <- err
+		}()
+	}
+	for i := 0; i < 4; i++ {
+		if err := <-errs; err != nil {
+			t.Fatalf("concurrent open: %v", err)
+		}
+	}
+}

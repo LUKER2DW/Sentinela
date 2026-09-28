@@ -8,6 +8,7 @@ import (
 	"embed"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"sort"
@@ -35,18 +36,39 @@ func Open(ctx context.Context, path string) (*Store, error) {
 		return nil, fmt.Errorf("create db dir: %w", err)
 	}
 	dsn := "file:" + filepath.ToSlash(path) +
-		"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_pragma=synchronous(NORMAL)"
-	db, err := sql.Open("sqlite", dsn)
-	if err != nil {
-		return nil, fmt.Errorf("open db: %w", err)
+		"?_pragma=busy_timeout(10000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_pragma=synchronous(NORMAL)&_txlock=immediate"
+	// The recorder and API processes may open a fresh DB at the same moment
+	// (ADR-0007). Switching to WAL and the first schema write can fail with
+	// SQLITE_BUSY without consulting busy_timeout, so retry with jitter.
+	var lastErr error
+	for attempt := 0; attempt < 40; attempt++ {
+		db, err := sql.Open("sqlite", dsn)
+		if err != nil {
+			return nil, fmt.Errorf("open db: %w", err)
+		}
+		db.SetMaxOpenConns(4)
+		s := &Store{db: db}
+		if err := s.migrate(ctx); err != nil {
+			db.Close()
+			if !isBusy(err) {
+				return nil, err
+			}
+			lastErr = err
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(time.Duration(50+rand.IntN(200)) * time.Millisecond):
+			}
+			continue
+		}
+		return s, nil
 	}
-	db.SetMaxOpenConns(4)
-	s := &Store{db: db}
-	if err := s.migrate(ctx); err != nil {
-		db.Close()
-		return nil, err
-	}
-	return s, nil
+	return nil, fmt.Errorf("database stayed locked: %w", lastErr)
+}
+
+func isBusy(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "SQLITE_BUSY") || strings.Contains(msg, "database is locked")
 }
 
 // Close closes the database.
@@ -70,20 +92,24 @@ func (s *Store) migrate(ctx context.Context) error {
 	sort.Strings(names)
 	for _, name := range names {
 		version := strings.TrimSuffix(name, ".sql")
-		var n int
-		if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM schema_migrations WHERE version=?`, version).Scan(&n); err != nil {
-			return err
-		}
-		if n > 0 {
-			continue
-		}
 		body, err := migrations.ReadFile("migrations/" + name)
 		if err != nil {
 			return err
 		}
+		// _txlock=immediate: the check and the apply happen under one write
+		// lock, so two processes can never both apply the same migration.
 		tx, err := s.db.BeginTx(ctx, nil)
 		if err != nil {
 			return err
+		}
+		var n int
+		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM schema_migrations WHERE version=?`, version).Scan(&n); err != nil {
+			tx.Rollback()
+			return err
+		}
+		if n > 0 {
+			tx.Rollback()
+			continue
 		}
 		if _, err := tx.ExecContext(ctx, string(body)); err != nil {
 			tx.Rollback()
