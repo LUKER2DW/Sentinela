@@ -31,13 +31,15 @@ func Args(cam *config.Camera, rec config.Recording, camDir string) []string {
 		"-nostdin", "-hide_banner", "-loglevel", "warning",
 		"-rtsp_transport", "tcp",
 		"-timeout", "10000000", // RTSP socket I/O timeout, µs
-		"-fflags", "+genpts+discardcorrupt",
+		"-fflags", "+discardcorrupt",
 		"-i", cam.RTSPURL(0),
 		"-map", "0:v:0",
 		"-c:v", "copy",
 	}
 	if cam.AudioRecording() {
-		a = append(a, "-map", "0:a:0?", "-c:a", "aac", "-b:a", "32k")
+		// aresample=async smooths the camera's repeated/backward PCMA
+		// timestamps; audio is re-encoded anyway (ADR-0006).
+		a = append(a, "-map", "0:a:0?", "-c:a", "aac", "-b:a", "32k", "-af", "aresample=async=1")
 	} else {
 		a = append(a, "-an")
 	}

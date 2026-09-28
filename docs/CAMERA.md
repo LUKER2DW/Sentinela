@@ -122,6 +122,16 @@ Other findings:
 - The PCMA audio track occasionally repeats a DTS (`non monotonically increasing
   dts`, ~70 warnings per 10 min). Harmless for the null muxer; the Phase 2
   recorder must check that the mp4 segment muxer tolerates it (copy-only).
+- **RTSP session limit: 3.** A 4th concurrent RTSP client is refused with
+  `Operation not permitted` (seen 2026-09-28). Budget: recorder + go2rtc main +
+  go2rtc sub. Never point other tools (VLC, NVR apps) at the camera while
+  Sentinela runs; use go2rtc's restream instead.
+- Timestamps: besides repeated PCMA DTS, the video DTS occasionally jumps
+  back ~1 s. ffmpeg corrects it; the recorder uses `-af aresample=async=1`
+  on the (already re-encoded) audio to keep A/V sync.
+- Motion/human detection regions (read 2026-09-28): motion is enabled, human
+  detection is enabled with one region around the gate only, so people on
+  the street do not raise events. Adjust regions in the camera's own UI.
 - `NetWork.NetCommon.TCPMaxConn = 10` is the upper bound for concurrent DVRIP/RTSP clients.
 - `Camera.Param.DayNightColor = 0x00000000` in the current (auto) mode; the
   remaining int ↔ mode mapping is still to be done in Phase 3.
