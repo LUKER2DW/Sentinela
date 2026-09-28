@@ -10,7 +10,7 @@ Sentinela v2 is a home NVR for XMEye/Xiongmai cameras. A single Go binary
 recording supervision, retention and the SQLite index. **go2rtc** handles all
 live media (RTSP ingest, WebRTC/MSE/HLS out, two-way audio). **ffmpeg** writes
 recordings with `-c copy`. A React + Vite SPA is served by the Go binary.
-Target host: old CPU, 4 GB RAM, a dedicated recordings disk, Debian.
+Target host: old CPU, 4 GB RAM, a dedicated recordings disk, Ubuntu 22.04.
 
 ## 2. Hard constraints (never violate)
 
@@ -48,7 +48,7 @@ Target host: old CPU, 4 GB RAM, a dedicated recordings disk, Debian.
 | Media | go2rtc (sidecar container), ffmpeg (recorder) |
 | Frontend | React 19 + Vite + TypeScript, TanStack Query, plain CSS tokens |
 | Mobile | PWA first; Flutter later (Phase 6) |
-| Deploy | Docker Compose, Debian 12/13 host |
+| Deploy | Docker Compose, Ubuntu 22.04 host (Debian 12/13 also fine) |
 | Remote | Tailscale |
 
 Dependencies must be justified. Prefer stdlib. No ORMs. No web frameworks
