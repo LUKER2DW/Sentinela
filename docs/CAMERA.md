@@ -121,7 +121,21 @@ Other findings:
 
 | Metric | Value |
 |---|---|
-| Live latency LAN, WebRTC (Chrome) | |
-| Live latency 4G via Tailscale | |
-| go2rtc CPU / RSS | |
-| Recorder CPU / RSS | |
+| Live latency LAN, WebRTC (Chrome) | not measured yet (stopwatch method needs an operator); WebRTC jitter buffer ≈ 560 ms |
+| Live latency 4G via Tailscale | not measured (no Tailscale / server yet) |
+| go2rtc CPU / RSS | Dev PC (Ryzen 5 5600G, Docker Desktop), 1 viewer on `cam1` WebRTC: 4–6 % CPU, 24 MiB. Idle/sub only: 1–2 %, 19 MiB. **Re-measure on the i5 server.** |
+| Recorder CPU / RSS | Phase 2 |
+
+### 5.1 Browser transports (go2rtc 1.9.10, 2026-09-28, dev PC on LAN)
+
+| Browser | Stream | Transport | Codecs negotiated | Result |
+|---|---|---|---|---|
+| Chromium 152 (Claude desktop pane, Windows) | `cam1` | WebRTC | H265 (profile 1, level 180) + PCMA | OK, 2560×1440, 12 fps, 0 dropped |
+| Chromium 152 | `cam1_sub` | WebRTC | H265 + PCMA | OK, 800×448, 10 fps |
+| Chromium 152 | `cam1` | MSE | `hvc1.1.6.L153.B0` + **flac** | OK, ~0.9 s behind buffer end |
+| Chromium 152 | `cam1_sub` | MSE | `hvc1` + flac | OK, ~1.0 s behind buffer end |
+| Edge / Chrome desktop, Firefox, Safari, Android Chrome | — | — | — | to test |
+
+MSE audio: go2rtc converts PCMA → FLAC in-process for MSE (browsers cannot
+play PCMA in MP4). Video is untouched. This is a tiny audio re-encode inside
+go2rtc, not a video transcode, but it is not copy-only; see PLAN Phase 1.
