@@ -27,6 +27,9 @@ type Config struct {
 	Volumes []Volume `yaml:"volumes"`
 	// NASHost is the LAN name of the file server (ADR-0008), e.g. SENTINELA.
 	NASHost string `yaml:"nas_host"`
+	// DiskHealthFile is the SMART snapshot written by the host timer
+	// (scripts/disk-health.sh), mounted read-only into the container.
+	DiskHealthFile string `yaml:"disk_health_file"`
 }
 
 // Volume is a filesystem shown in the UI. Share is the SMB share name, if any.
@@ -110,6 +113,7 @@ func (c *Config) applyDefaults() {
 	def(&c.DataDir, "/data")
 	def(&c.DBPath, c.DataDir+"/db/sentinela.db")
 	def(&c.Go2RTCAPI, "http://127.0.0.1:1984")
+	def(&c.DiskHealthFile, "/host/disks.json")
 	defInt(&c.Recording.SegmentSeconds, 300)
 	defInt(&c.Recording.MaxDiskPercent, 90)
 	defInt(&c.Recording.DefaultRetentionDays, 60)

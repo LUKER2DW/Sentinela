@@ -71,6 +71,8 @@ services:
       - /data:/data
       # Read-only, only to report free space of the LAN shares (ADR-0008).
       - /srv/nas:/srv/nas:ro
+      # SMART snapshot written hourly by the host (scripts/disk-health.sh).
+      - /var/lib/sentinela:/host:ro
     restart: unless-stopped
     mem_limit: 384m
     healthcheck:

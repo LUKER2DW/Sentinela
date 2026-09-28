@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"path/filepath"
 	"sync"
 	"time"
@@ -194,6 +195,11 @@ func (s *Server) system(w http.ResponseWriter, r *http.Request) {
 		d, err := sysinfo.DiskUsage(v.Path)
 		volumes = append(volumes, volumeDTO{Volume: v, Disk: d, Mounted: err == nil && d.Total > 0})
 	}
+	// Optional SMART snapshot from the host (absent on dev machines).
+	var health json.RawMessage
+	if b, err := os.ReadFile(s.Cfg.DiskHealthFile); err == nil && json.Valid(b) && len(b) < 64<<10 {
+		health = b
+	}
 	g2r, gerr := s.go2rtcStatus(ctx)
 	g2rErr := ""
 	if gerr != nil {
@@ -214,5 +220,6 @@ func (s *Server) system(w http.ResponseWriter, r *http.Request) {
 		"go2rtc_error": g2rErr,
 		"volumes":      volumes,
 		"nas_host":     s.Cfg.NASHost,
+		"disk_health":  health,
 	})
 }

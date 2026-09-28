@@ -84,6 +84,12 @@ apt-get -o DPkg::Lock::Timeout=600 install -y -qq chrony >/dev/null
 printf '%s
 ' '# Serve time to the LAN (camera NTP -> this server).' 'allow 192.168.1.0/24' > /etc/chrony/conf.d/lan.conf
 systemctl restart chrony
+# Hourly SMART snapshot shown on the System page.
+install -d -m 0755 /var/lib/sentinela
+install -m 0644 "${REPO_DIR}/deploy/host/sentinela-disk-health.service" "${REPO_DIR}/deploy/host/sentinela-disk-health.timer" /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable -q --now sentinela-disk-health.timer
+systemctl start sentinela-disk-health.service || true
 "${REPO_DIR}/scripts/firewall.sh" >/dev/null && echo "firewall: LAN-only rules applied"
 if mountpoint -q /srv/nas; then "${REPO_DIR}/scripts/setup-nas.sh"; else echo "no /srv/nas mount: skipping the LAN file server"; fi
 
