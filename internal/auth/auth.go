@@ -85,11 +85,16 @@ func VerifyPassword(hash, pw string) bool {
 	return subtle.ConstantTimeCompare(got, want) == 1
 }
 
-// dummyHash is verified against when the user does not exist, to keep timing uniform.
-var dummyHash, _ = HashPassword("timing-equalizer-not-a-password")
+// dummyHash is verified against when the user does not exist, to keep timing
+// uniform. Computed on first use: an argon2id hash costs 64 MB, which would
+// otherwise sit in RSS from process start (budget: 80 MB, AGENTS.md §2.3).
+var dummyHash = sync.OnceValue(func() string {
+	h, _ := HashPassword("timing-equalizer-not-a-password")
+	return h
+})
 
 // VerifyDummy burns the same time as a real verification.
-func VerifyDummy(pw string) { VerifyPassword(dummyHash, pw) }
+func VerifyDummy(pw string) { VerifyPassword(dummyHash(), pw) }
 
 // CheckPasswordPolicy enforces a minimum length.
 func CheckPasswordPolicy(pw string) error {

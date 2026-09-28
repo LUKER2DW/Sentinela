@@ -51,6 +51,9 @@ services:
   recorder:
     <<: *sentinela
     command: ["record"]
+    environment:
+      TZ: UTC
+      GOMEMLIMIT: 48MiB
     restart: unless-stopped
     stop_grace_period: 15s
     mem_limit: 256m
@@ -58,6 +61,11 @@ services:
   sentinela:
     <<: *sentinela
     command: ["serve"]
+    environment:
+      TZ: UTC
+      # Soft limit: after a login (argon2id, 64 MB) the heap is returned to
+      # the OS promptly, keeping steady-state RSS inside the 80 MB budget.
+      GOMEMLIMIT: 72MiB
     volumes:
       - /etc/sentinela/config.yaml:/etc/sentinela/config.yaml:ro
       - /data:/data
