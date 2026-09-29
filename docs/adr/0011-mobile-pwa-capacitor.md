@@ -58,3 +58,8 @@ decoder, so the MSE fallback and a per-device capability probe stay.
   git; losing them means uninstalling the app to install a newer build.
 - Device sessions are listed on the Mais page ("Aparelhos conectados") and
   can be signed out one by one.
+- 2026-09-29 (ADR-0019 trial): `server.url` is no longer fixed at build
+  time. A bundled start screen picks the path (Tailscale app, Tailscale
+  embedded in the APK, the home's domain, or Funnel) and `MainActivity`
+  puts it in Capacitor's config at launch; build defaults come from
+  `SENTINELA_TAILNET_HOST`, `SENTINELA_LAN_URL`, `SENTINELA_DOMAIN_URL`.

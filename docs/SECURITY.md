@@ -5,7 +5,7 @@
 | Threat | Likelihood | Control |
 |---|---|---|
 | Internet scan hits camera (XMEye firmware has a long CVE/botnet history) | High if exposed | Camera has **no WAN egress/ingress**; cloud/P2P disabled |
-| Internet scan hits server | High if exposed | No port forwarding; access only over Tailscale |
+| Internet scan hits server | High if exposed | No port forwarding; access only over Tailscale. **ADR-0019 trial:** the P1/P3 listeners are public, behind mandatory 2FA and the closed door (rule 14) |
 | Stolen phone | Medium | Tailscale device revocation; session expiry 30 d; per-device sessions revocable |
 | LAN guest/IoT device attacks camera | Medium | Separate VLAN/SSID for cameras if router supports; strong camera password |
 | Credential leak via logs/git | Medium | Redaction helper; `.env` git-ignored; secret scanning pre-commit (gitleaks) |
@@ -91,6 +91,28 @@
     created by `serve`); the detector reads video only from go2rtc's
     loopback restream and never sees camera credentials. Model weights are
     pinned by sha256 at image build.
+
+14. Remote access trial (ADR-0019). Requests are zoned **by listener**
+    (`lan`, `tailnet`, `funnel`, `public`), never by header. In `funnel`
+    (`127.0.0.1:8081`, Tailscale Funnel on :10000) and `public` (`:7443`,
+    Let's Encrypt via TLS-ALPN-01, router WAN 443 → 7443):
+    - login needs password **and** a TOTP code (RFC 6238, a code works
+      once); accounts without 2FA cannot log in from outside, and 2FA is
+      enrolled/disabled only from `lan`/`tailnet`;
+    - without a 2FA session only the SPA shell, `GET /api/setup`,
+      `POST /api/login|logout` answer; everything else is 404
+      (`/healthz` and `POST /api/setup` included); sessions created at
+      home are ignored there;
+    - 10 login attempts per account per hour on top of 5/min/IP; every
+      outside login is audited with its zone and pushed to the user and
+      the admins;
+    - users, 2FA and app keys are managed only from `lan`/`tailnet`.
+    P2 (Tailscale in the APK): the server mints single-use, pre-approved,
+    10-minute auth keys tagged `tag:sentinela-app` only for signed-in `lan`
+    or `tailnet` requests, with an OAuth client (`auth_keys` scope) kept in
+    `secrets.env`. ACL: `tag:sentinela-app` → `tag:nvr:443,8555` only. The
+    app's local proxy on 127.0.0.1 answers only requests with a per-process
+    random cookie. The losing paths are removed after the trial.
 
 ## Reporting
 

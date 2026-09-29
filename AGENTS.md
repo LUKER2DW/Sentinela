@@ -29,7 +29,10 @@ Target host: old CPU, 4 GB RAM, a dedicated recordings disk, Ubuntu 22.04.
    userinfo, session tokens: never in logs, API responses, frontend bundles,
    git, or error messages. Use `internal/auth/redact` helpers.
 5. **No public exposure.** Nothing binds to the WAN. Remote access = Tailscale.
-   Do not add port-forwarding, DDNS or Cloudflare tunnels.
+   Do not add port-forwarding, DDNS or Cloudflare tunnels. **Exception
+   during the ADR-0019 trial:** the port-forwarded TLS listener and the
+   Tailscale Funnel listener it describes, both behind mandatory 2FA and
+   the closed-door rule. Nothing else may be exposed.
 6. **Camera writes are allow-listed.** The DVRIP driver may only send commands
    documented in `docs/CAMERA.md`. Any persistent config write must read the
    full object first, change one allow-listed field, read back, and restore
