@@ -79,12 +79,37 @@ func TestTicketsSingleUseAndExpiry(t *testing.T) {
 	}
 }
 
-func TestPasswordPolicyMinimum(t *testing.T) {
-	if err := CheckPasswordPolicy("admin123"); err != nil {
-		t.Fatalf("8 chars must be accepted: %v", err)
+func TestInviteCode(t *testing.T) {
+	c := NewInviteCode()
+	if len(c) != 11 || c[5] != '-' || NewInviteCode() == c {
+		t.Fatalf("code %q", c)
 	}
-	if err := CheckPasswordPolicy("admin12"); err == nil {
-		t.Fatal("7 chars must be refused")
+	if NormalizeInviteCode(" abcde-fg hjk ") != "ABCDEFGHJK" {
+		t.Fatal("normalize")
+	}
+}
+
+func TestLimiterOver(t *testing.T) {
+	l := NewLimiter(2, time.Minute)
+	if l.Over("k") || !l.Allow("k") || l.Over("k") || !l.Allow("k") || !l.Over("k") {
+		t.Fatal("Over must turn true only once max is reached")
+	}
+}
+
+func TestPasswordPolicy(t *testing.T) {
+	for pw, ok := range map[string]bool{
+		"casa2026!x":             true,  // 10, mixed
+		"long enough pw":         true,  // letters + spaces
+		"cavalo bateria certo":   true,  // passphrase
+		"umapalavrasolongalonga": true,  // 16+ letters only
+		"admin1234":              false, // 9
+		"abcdefghijkl":           false, // one kind, short
+		"1234567890":             false, // common
+		"aaaaaaaaaaaaaaaaaa":     false, // one repeated character
+	} {
+		if err := CheckPasswordPolicy(pw); (err == nil) != ok {
+			t.Errorf("%q: err=%v, want ok=%v", pw, err, ok)
+		}
 	}
 }
 

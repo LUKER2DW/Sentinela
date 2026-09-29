@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"golang.org/x/crypto/argon2"
 )
@@ -96,17 +98,52 @@ var dummyHash = sync.OnceValue(func() string {
 // VerifyDummy burns the same time as a real verification.
 func VerifyDummy(pw string) { VerifyPassword(dummyHash(), pw) }
 
-// MinPasswordLen is the shortest accepted password.
-const MinPasswordLen = 8
+// MinPasswordLen is the shortest accepted password. The system is reachable
+// from the internet (ADR-0019 P1), so 8 is no longer enough.
+const MinPasswordLen = 10
 
-// CheckPasswordPolicy enforces a minimum length.
+// PassphraseLen: at this length one kind of character is enough.
+const PassphraseLen = 16
+
+// commonPasswords are refused whatever their length (lower case).
+var commonPasswords = map[string]bool{
+	"1234567890": true, "12345678910": true, "123456789012": true, "0123456789": true, "qwertyuiop": true,
+	"password123": true, "senha12345": true, "senha123456": true, "sentinela123": true, "iloveyou123": true,
+	"administrador": true, "admin12345": true, "abcdefghij": true, "1q2w3e4r5t": true, "qwerty12345": true,
+}
+
+// CheckPasswordPolicy: at least 10 characters mixing two kinds (letters,
+// digits, symbols/spaces), or a 16+ character passphrase; no common
+// passwords and no single repeated character.
 func CheckPasswordPolicy(pw string) error {
-	// Owner's choice (2026-09-28): 8 is the floor for this LAN-only system.
-	if len(pw) < MinPasswordLen {
-		return errors.New("password must have at least 8 characters")
+	if utf8.RuneCountInString(pw) < MinPasswordLen {
+		return fmt.Errorf("password must have at least %d characters", MinPasswordLen)
 	}
 	if len(pw) > 256 {
 		return errors.New("password too long")
+	}
+	if commonPasswords[strings.ToLower(pw)] || strings.Count(pw, string([]rune(pw)[0])) == utf8.RuneCountInString(pw) {
+		return errors.New("password too common")
+	}
+	var letters, digits, others bool
+	for _, r := range pw {
+		switch {
+		case unicode.IsLetter(r):
+			letters = true
+		case unicode.IsDigit(r):
+			digits = true
+		default:
+			others = true
+		}
+	}
+	kinds := 0
+	for _, k := range []bool{letters, digits, others} {
+		if k {
+			kinds++
+		}
+	}
+	if kinds < 2 && utf8.RuneCountInString(pw) < PassphraseLen {
+		return errors.New("password too weak: mix letters with numbers or symbols, or use 16+ characters")
 	}
 	return nil
 }
@@ -169,6 +206,48 @@ func (l *Limiter) Allow(key string) bool {
 	}
 	w.n++
 	return w.n <= l.max
+}
+
+// Over reports whether key already used up its window, without counting.
+func (l *Limiter) Over(key string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	w, ok := l.hits[key]
+	return ok && l.now().Sub(w.start) <= l.window && w.n >= l.max
+}
+
+// ---------- invites ----------
+
+// inviteAlphabet has no look-alikes (0/O, 1/I/L) so a code read aloud or
+// typed from a message works.
+const inviteAlphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+
+// NewInviteCode returns a random 10-character code as "XXXXX-XXXXX"
+// (about 50 bits; redeeming it is rate limited).
+func NewInviteCode() string {
+	b := make([]byte, 10)
+	if _, err := rand.Read(b); err != nil {
+		panic(err) // crypto/rand failure is unrecoverable
+	}
+	out := make([]byte, 0, 11)
+	for i, x := range b {
+		if i == 5 {
+			out = append(out, '-')
+		}
+		out = append(out, inviteAlphabet[int(x)%len(inviteAlphabet)])
+	}
+	return string(out)
+}
+
+// NormalizeInviteCode upper-cases a typed code and drops spaces and dashes.
+func NormalizeInviteCode(code string) string {
+	var b strings.Builder
+	for _, r := range strings.ToUpper(code) {
+		if r != ' ' && r != '-' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 // ---------- stream tickets ----------

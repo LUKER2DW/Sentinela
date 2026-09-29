@@ -22,11 +22,23 @@ type User struct {
 	// TOTP reports whether two-step login is on (ADR-0019).
 	TOTP bool `json:"totp"`
 	// Disabled accounts cannot sign in (sessions are dropped when set).
-	Disabled   bool   `json:"disabled"`
-	PWHash     string `json:"-"`
-	TOTPSecret string `json:"-"`
-	TOTPStep   int64  `json:"-"`
+	Disabled bool `json:"disabled"`
+	// Email is an optional second sign-in name ("" = none).
+	Email string `json:"email"`
+	// Pending: authorized but no password yet (invite outstanding).
+	Pending bool `json:"pending"`
+	// InviteExpires is when the outstanding invite code stops working.
+	InviteExpires string `json:"invite_expires,omitempty"`
+	PWHash        string `json:"-"`
+	TOTPSecret    string `json:"-"`
+	TOTPStep      int64  `json:"-"`
+	InviteHash    []byte `json:"-"`
+	// Notify is the JSON of the user's notification choices ("" = defaults).
+	Notify string `json:"-"`
 }
+
+// userCols is the column list scanUser reads, in order.
+const userCols = `id,username,pw_hash,role,created_at,cameras,totp_secret,totp_step,disabled,email,invite_hash,invite_expires,notify`
 
 // CanSee reports whether the user may see a camera (live, recordings,
 // events, control). Admins see every camera.
@@ -76,7 +88,8 @@ func (s *Store) CreateFirstUser(ctx context.Context, username, pwHash string) (i
 func scanUser(row interface{ Scan(...any) error }) (*User, error) {
 	var u User
 	var cams string
-	if err := row.Scan(&u.ID, &u.Username, &u.PWHash, &u.Role, &u.CreatedAt, &cams, &u.TOTPSecret, &u.TOTPStep, &u.Disabled); err != nil {
+	if err := row.Scan(&u.ID, &u.Username, &u.PWHash, &u.Role, &u.CreatedAt, &cams, &u.TOTPSecret, &u.TOTPStep, &u.Disabled,
+		&u.Email, &u.InviteHash, &u.InviteExpires, &u.Notify); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
@@ -84,22 +97,32 @@ func scanUser(row interface{ Scan(...any) error }) (*User, error) {
 	}
 	u.Cameras = splitCameras(cams)
 	u.TOTP = u.TOTPSecret != ""
+	u.Pending = u.PWHash == ""
+	if !u.Pending {
+		u.InviteExpires = ""
+	}
 	return &u, nil
+}
+
+// UserByLogin looks a user up by username or e-mail (case-insensitive).
+func (s *Store) UserByLogin(ctx context.Context, login string) (*User, error) {
+	return scanUser(s.db.QueryRowContext(ctx, `SELECT `+userCols+` FROM users WHERE username=? OR (email<>'' AND email=? COLLATE NOCASE)
+		ORDER BY username=? DESC LIMIT 1`, login, login, login))
 }
 
 // UserByName looks a user up by username (case-insensitive).
 func (s *Store) UserByName(ctx context.Context, username string) (*User, error) {
-	return scanUser(s.db.QueryRowContext(ctx, `SELECT id,username,pw_hash,role,created_at,cameras,totp_secret,totp_step,disabled FROM users WHERE username=?`, username))
+	return scanUser(s.db.QueryRowContext(ctx, `SELECT `+userCols+` FROM users WHERE username=?`, username))
 }
 
 // UserByID looks a user up by id.
 func (s *Store) UserByID(ctx context.Context, id int64) (*User, error) {
-	return scanUser(s.db.QueryRowContext(ctx, `SELECT id,username,pw_hash,role,created_at,cameras,totp_secret,totp_step,disabled FROM users WHERE id=?`, id))
+	return scanUser(s.db.QueryRowContext(ctx, `SELECT `+userCols+` FROM users WHERE id=?`, id))
 }
 
 // ListUsers returns all users.
 func (s *Store) ListUsers(ctx context.Context) ([]User, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id,username,pw_hash,role,created_at,cameras,totp_secret,totp_step,disabled FROM users ORDER BY username`)
+	rows, err := s.db.QueryContext(ctx, `SELECT `+userCols+` FROM users ORDER BY username`)
 	if err != nil {
 		return nil, err
 	}
@@ -127,7 +150,7 @@ func (s *Store) UpdateUserCameras(ctx context.Context, id int64, cameras []strin
 
 // UpdateUserPassword changes a user's password hash and drops their sessions.
 func (s *Store) UpdateUserPassword(ctx context.Context, id int64, pwHash string) error {
-	if err := s.execOne(ctx, `UPDATE users SET pw_hash=? WHERE id=?`, pwHash, id); err != nil {
+	if err := s.execOne(ctx, `UPDATE users SET pw_hash=?, invite_hash=NULL, invite_expires='' WHERE id=?`, pwHash, id); err != nil {
 		return err
 	}
 	_, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE user_id=?`, id)
@@ -163,6 +186,45 @@ func (s *Store) SetUserDisabled(ctx context.Context, id int64, disabled bool) er
 		return err
 	}
 	return nil
+}
+
+// CreateInvitedUser inserts an account without a password: it signs in
+// only after redeeming the invite (inviteHash) before expires.
+func (s *Store) CreateInvitedUser(ctx context.Context, username, email, role string, inviteHash []byte, expires time.Time) (int64, error) {
+	res, err := s.db.ExecContext(ctx, `INSERT INTO users(username,pw_hash,role,created_at,email,invite_hash,invite_expires) VALUES(?,?,?,?,?,?,?)`,
+		username, "", role, Now(), email, inviteHash, FormatTime(expires))
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+// SetInvite issues a new invite: the password, two-step login and every
+// session are dropped until the person redeems it (lost password).
+func (s *Store) SetInvite(ctx context.Context, id int64, inviteHash []byte, expires time.Time) error {
+	if err := s.execOne(ctx, `UPDATE users SET pw_hash='', totp_secret='', totp_step=0, invite_hash=?, invite_expires=? WHERE id=?`,
+		inviteHash, FormatTime(expires), id); err != nil {
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE user_id=?`, id)
+	return err
+}
+
+// RedeemInvite sets the password (and 2FA secret, may be "") of a pending
+// account whose invite matches; it fails if the invite changed meanwhile.
+func (s *Store) RedeemInvite(ctx context.Context, id int64, inviteHash []byte, pwHash, totpSecret string, totpStep int64) error {
+	return s.execOne(ctx, `UPDATE users SET pw_hash=?, totp_secret=?, totp_step=?, invite_hash=NULL, invite_expires=''
+		WHERE id=? AND pw_hash='' AND invite_hash=?`, pwHash, totpSecret, totpStep, id, inviteHash)
+}
+
+// UpdateUserEmail changes a user's e-mail ("" = none).
+func (s *Store) UpdateUserEmail(ctx context.Context, id int64, email string) error {
+	return s.execOne(ctx, `UPDATE users SET email=? WHERE id=?`, email, id)
+}
+
+// SetUserNotify stores the user's notification choices (JSON).
+func (s *Store) SetUserNotify(ctx context.Context, id int64, prefs string) error {
+	return s.execOne(ctx, `UPDATE users SET notify=? WHERE id=?`, prefs, id)
 }
 
 // LastLogin returns the time of a user's last successful sign-in ("" = never).
@@ -205,12 +267,14 @@ type Session struct {
 	ExpiresAt time.Time
 	// MFA: created with two-step login; required in public zones (ADR-0019).
 	MFA bool
+	// Remember: "keep me signed in" (long session, persistent cookie).
+	Remember bool
 }
 
 // CreateSession stores a session keyed by the token hash.
-func (s *Store) CreateSession(ctx context.Context, idHash []byte, userID int64, csrf string, expires time.Time, ua string, mfa bool) error {
-	_, err := s.db.ExecContext(ctx, `INSERT INTO sessions(id_hash,user_id,csrf,created_at,expires_at,user_agent,mfa) VALUES(?,?,?,?,?,?,?)`,
-		idHash, userID, csrf, Now(), FormatTime(expires), ua, mfa)
+func (s *Store) CreateSession(ctx context.Context, idHash []byte, userID int64, csrf string, expires time.Time, ua string, mfa, remember bool) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO sessions(id_hash,user_id,csrf,created_at,expires_at,user_agent,mfa,remember) VALUES(?,?,?,?,?,?,?,?)`,
+		idHash, userID, csrf, Now(), FormatTime(expires), ua, mfa, remember)
 	return err
 }
 
@@ -218,21 +282,21 @@ func (s *Store) CreateSession(ctx context.Context, idHash []byte, userID int64, 
 func (s *Store) SessionByHash(ctx context.Context, idHash []byte) (*Session, *User, error) {
 	var sess Session
 	var exp string
-	var u User
-	var cams string
-	err := s.db.QueryRowContext(ctx, `SELECT s.id_hash,s.user_id,s.csrf,s.expires_at,s.mfa,u.id,u.username,u.pw_hash,u.role,u.created_at,u.cameras,u.totp_secret,u.totp_step
-		FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.id_hash=? AND s.expires_at>? AND u.disabled=0`, idHash, Now()).
-		Scan(&sess.IDHash, &sess.UserID, &sess.CSRF, &exp, &sess.MFA, &u.ID, &u.Username, &u.PWHash, &u.Role, &u.CreatedAt, &cams, &u.TOTPSecret, &u.TOTPStep)
+	err := s.db.QueryRowContext(ctx, `SELECT s.id_hash,s.user_id,s.csrf,s.expires_at,s.mfa,s.remember
+		FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.id_hash=? AND s.expires_at>? AND u.disabled=0 AND u.pw_hash<>''`, idHash, Now()).
+		Scan(&sess.IDHash, &sess.UserID, &sess.CSRF, &exp, &sess.MFA, &sess.Remember)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil, ErrNotFound
 	}
 	if err != nil {
 		return nil, nil, err
 	}
+	u, err := s.UserByID(ctx, sess.UserID)
+	if err != nil {
+		return nil, nil, err
+	}
 	sess.ExpiresAt = mustTime(exp)
-	u.Cameras = splitCameras(cams)
-	u.TOTP = u.TOTPSecret != ""
-	return &sess, &u, nil
+	return &sess, u, nil
 }
 
 // DeleteSession removes one session.

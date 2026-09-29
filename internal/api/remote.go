@@ -60,7 +60,7 @@ func (s *Server) closedDoor(next http.Handler) http.Handler {
 		}
 		p := r.URL.Path
 		open := r.Method == http.MethodGet && p == "/api/setup" ||
-			r.Method == http.MethodPost && (p == "/api/login" || p == "/api/logout") ||
+			r.Method == http.MethodPost && (p == "/api/login" || p == "/api/logout" || p == "/api/invite/accept") ||
 			(r.Method == http.MethodGet || r.Method == http.MethodHead) && p != "/healthz" &&
 				!strings.HasPrefix(p, "/api/") && !strings.HasPrefix(p, "/stream/") && !strings.HasPrefix(p, "/internal/")
 		if !open {
@@ -240,9 +240,6 @@ func qrSVG(text string) (string, error) {
 // alertOutsideLogin tells the user and every admin about a login from a
 // public zone (ADR-0019), so an unexpected one is noticed at once.
 func (s *Server) alertOutsideLogin(u *store.User, ip, zone string) {
-	if s.push.sender == nil {
-		return
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	how := "pelo domínio"
@@ -251,12 +248,12 @@ func (s *Server) alertOutsideLogin(u *store.User, ip, zone string) {
 	}
 	msg := map[string]any{
 		"title": "Novo acesso de fora de casa",
-		"body":  fmt.Sprintf("%s entrou %s (IP %s). Não foi você? Desconecte em Mais → Aparelhos.", u.Username, how, ip),
+		"body":  fmt.Sprintf("%s entrou %s (IP %s). Não foi você? Desconecte em Minha conta → Aparelhos.", u.Username, how, ip),
 		"tag":   "sentinela-login",
 		"url":   "/#/system",
 	}
 	sent := map[int64]bool{u.ID: true}
-	s.sendAll(ctx, u.ID, "", msg)
+	s.sendAll(ctx, u.ID, msg)
 	users, err := s.Store.ListUsers(ctx)
 	if err != nil {
 		return
@@ -264,7 +261,7 @@ func (s *Server) alertOutsideLogin(u *store.User, ip, zone string) {
 	for _, a := range users {
 		if a.Role == auth.RoleAdmin && !sent[a.ID] {
 			sent[a.ID] = true
-			s.sendAll(ctx, a.ID, "", msg)
+			s.sendAll(ctx, a.ID, msg)
 		}
 	}
 }

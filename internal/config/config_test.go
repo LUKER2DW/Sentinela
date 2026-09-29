@@ -34,7 +34,6 @@ func TestValidate(t *testing.T) {
 		"ntfy path":     "ntfy: {public_url: 'https://s.ts.net:8443/ntfy'}",
 		"funnel on lan": "remote: {funnel_listen: '0.0.0.0:8081'}",
 		"public lan ip": "remote: {public: {domain: '192.168.1.10'}}",
-		"public tag":    "remote: {app_tag: 'sentinela-app'}",
 	}
 	for name, y := range cases {
 		if _, err := Parse([]byte(y), env(map[string]string{"U": "admin", "P": "pw"})); err == nil {

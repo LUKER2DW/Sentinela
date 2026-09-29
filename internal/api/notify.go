@@ -6,6 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
+	"slices"
+	"strconv"
 	"sync"
 	"time"
 
@@ -80,10 +83,94 @@ func Notifies(mode, typ string) bool {
 	return false
 }
 
+// EventTypes are the event types a user can turn notifications on or off for.
+var EventTypes = []string{"human", "vehicle", "animal", "line", "intrusion", "tamper", "motion"}
+
+// NotifyPrefs are one user's notification choices (Minha conta).
+type NotifyPrefs struct {
+	// FollowMode: also apply the house mode (Casa / Noite / Fora).
+	FollowMode bool `json:"follow_mode"`
+	// Types that notify this user (subset of EventTypes).
+	Types []string `json:"types"`
+}
+
+func defaultPrefs() NotifyPrefs {
+	return NotifyPrefs{FollowMode: true, Types: slices.Clone(EventTypes)}
+}
+
+// prefsOf returns the user's choices, or the defaults.
+func prefsOf(u *store.User) NotifyPrefs {
+	p := defaultPrefs()
+	if u.Notify != "" {
+		var got NotifyPrefs
+		if json.Unmarshal([]byte(u.Notify), &got) == nil {
+			p = got
+		}
+	}
+	return p
+}
+
+// Wants reports whether the user asked to be told about typ in mode.
+func (p NotifyPrefs) Wants(mode, typ string) bool {
+	return slices.Contains(p.Types, typ) && (!p.FollowMode || Notifies(mode, typ))
+}
+
 type notifier struct {
 	sender *push.Sender
 	mu     sync.Mutex
 	last   map[string]time.Time
+	// streams are the Android app's open notification streams, by user.
+	streams map[chan []byte]int64
+}
+
+// subscribe opens a notification stream for userID.
+func (n *notifier) subscribe(userID int64) chan []byte {
+	c := make(chan []byte, 8)
+	n.mu.Lock()
+	if n.streams == nil {
+		n.streams = map[chan []byte]int64{}
+	}
+	n.streams[c] = userID
+	n.mu.Unlock()
+	return c
+}
+
+func (n *notifier) unsubscribe(c chan []byte) {
+	n.mu.Lock()
+	delete(n.streams, c)
+	n.mu.Unlock()
+}
+
+// stream sends payload to userID's open streams; it reports how many.
+func (n *notifier) stream(userID int64, payload []byte) int {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	sent := 0
+	for c, uid := range n.streams {
+		if uid != userID {
+			continue
+		}
+		select {
+		case c <- payload:
+			sent++
+		default: // slow client: drop
+		}
+	}
+	return sent
+}
+
+// recent reports whether key notified within pushGap, and marks it now.
+func (n *notifier) recent(key string) bool {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if n.last == nil {
+		n.last = map[string]time.Time{}
+	}
+	if time.Since(n.last[key]) < pushGap {
+		return true
+	}
+	n.last[key] = time.Now()
+	return false
 }
 
 func (s *Server) modeSettings(ctx context.Context) ModeSettings {
@@ -101,28 +188,17 @@ func (s *Server) localNow() time.Time {
 	return time.Now()
 }
 
-// notify sends a Web Push for a new event when the mode asks for it.
+// notify tells every user who wants it about a new event: Web Push to
+// their browsers and the stream of the Android app. Each user gets one
+// notification per camera per burst (pushGap).
 func (s *Server) notify(ctx context.Context, cameraID, typ string, eventID int64, at time.Time) {
-	if s.push.sender == nil || !Notifies(s.modeSettings(ctx).Effective(s.localNow()), typ) {
-		return
-	}
 	// With the object detector running, plain motion (trees, shadows, cars
 	// on the street) stays on the timeline; people and objects in the
 	// zones notify instead (ADR-0016).
 	if typ == "motion" && s.detectorHealthy() && s.detection(ctx, cameraID).Enabled {
 		return
 	}
-	s.push.mu.Lock()
-	if s.push.last == nil {
-		s.push.last = map[string]time.Time{}
-	}
-	if time.Since(s.push.last[cameraID]) < pushGap {
-		s.push.mu.Unlock()
-		return
-	}
-	s.push.last[cameraID] = time.Now()
-	s.push.mu.Unlock()
-
+	mode := s.modeSettings(ctx).Effective(s.localNow())
 	name := cameraID
 	if c := s.Cfg.Camera(cameraID); c != nil {
 		name = c.Name
@@ -130,16 +206,36 @@ func (s *Server) notify(ctx context.Context, cameraID, typ string, eventID int64
 	loc := s.localNow().Location()
 	msg := map[string]any{
 		"title": fmt.Sprintf("%s · %s", eventTitle(typ), name),
-		"body":  fmt.Sprintf("%s. Toque para ver.", at.In(loc).Format("15:04:05")),
+		"body":  fmt.Sprintf("%s. Toque para ver a gravação.", at.In(loc).Format("15:04:05")),
 		"tag":   "sentinela-" + cameraID,
-		"url":   "/#/events",
+		"url":   eventURL(cameraID, eventID, at),
 	}
-	// The picture is fetched by the phone from the server, over the tailnet;
-	// it never travels through the push service (ADR-0013).
+	// The picture is fetched by the phone from the server itself; it never
+	// travels through the push service (ADR-0013).
 	if s.hasSnapshot(store.Event{ID: eventID, CameraID: cameraID}) {
 		msg["image"] = fmt.Sprintf("/api/events/%d/snapshot", eventID)
 	}
-	s.sendAll(ctx, 0, cameraID, msg)
+	users, err := s.Store.ListUsers(ctx)
+	if err != nil {
+		s.Log.Warn("notify: list users", "err", err)
+		return
+	}
+	for i := range users {
+		u := &users[i]
+		if u.Disabled || u.Pending || !u.CanSee(cameraID) || !prefsOf(u).Wants(mode, typ) {
+			continue
+		}
+		if s.push.recent(fmt.Sprintf("%d/%s", u.ID, cameraID)) {
+			continue
+		}
+		s.sendAll(ctx, u.ID, msg)
+	}
+}
+
+// eventURL opens the recording at the event (a few seconds before it).
+func eventURL(cameraID string, eventID int64, at time.Time) string {
+	q := url.Values{"cam": {cameraID}, "t": {at.UTC().Add(-5 * time.Second).Format(time.RFC3339)}, "ev": {strconv.FormatInt(eventID, 10)}}
+	return "/#/recordings?" + q.Encode()
 }
 
 func eventTitle(typ string) string {
@@ -162,31 +258,20 @@ func eventTitle(typ string) string {
 	return "Evento"
 }
 
-// sendAll pushes msg to every subscription (of userID, or everyone when 0).
-// With a cameraID, users who may not see that camera are skipped.
-func (s *Server) sendAll(ctx context.Context, userID int64, cameraID string, msg map[string]any) int {
+// sendAll sends msg to one user's devices: Web Push subscriptions and the
+// app's open notification streams. It returns how many got it.
+func (s *Server) sendAll(ctx context.Context, userID int64, msg map[string]any) int {
+	payload, _ := json.Marshal(msg)
+	sent := s.push.stream(userID, payload)
+	if s.push.sender == nil {
+		return sent
+	}
 	subs, err := s.Store.PushSubs(ctx, userID)
 	if err != nil {
 		s.Log.Warn("push: list subscriptions", "err", err)
-		return 0
+		return sent
 	}
-	allowed := map[int64]bool{}
-	if cameraID != "" {
-		users, err := s.Store.ListUsers(ctx)
-		if err != nil {
-			s.Log.Warn("push: list users", "err", err)
-			return 0
-		}
-		for _, u := range users {
-			allowed[u.ID] = u.CanSee(cameraID)
-		}
-	}
-	payload, _ := json.Marshal(msg)
-	sent := 0
 	for _, p := range subs {
-		if cameraID != "" && !allowed[p.UserID] {
-			continue
-		}
 		err := s.push.sender.Send(ctx, push.Subscription{Endpoint: p.Endpoint, P256dh: p.P256dh, Auth: p.Auth}, payload, 10*time.Minute)
 		switch {
 		case err == nil:
@@ -263,11 +348,7 @@ func (s *Server) pushUnsubscribe(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) pushTest(w http.ResponseWriter, r *http.Request) {
-	if s.push.sender == nil {
-		writeErr(w, http.StatusServiceUnavailable, "notifications not available")
-		return
-	}
-	n := s.sendAll(r.Context(), userFrom(r).ID, "", map[string]any{
+	n := s.sendAll(r.Context(), userFrom(r).ID, map[string]any{
 		"title": "Sentinela", "body": "Notificações funcionando neste aparelho.", "tag": "sentinela-test", "url": "/#/events",
 	})
 	writeJSON(w, http.StatusOK, map[string]int{"sent": n})
@@ -296,4 +377,65 @@ func (s *Server) putMode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"settings": m, "effective": m.Effective(s.localNow())})
+}
+
+// notifyStream is the Android app's notification channel: a long-lived
+// Server-Sent Events stream of this user's notifications, kept open by a
+// foreground service. No Google or ntfy service in between.
+func (s *Server) notifyStream(w http.ResponseWriter, r *http.Request) {
+	fl, ok := w.(http.Flusher)
+	if !ok {
+		writeErr(w, http.StatusInternalServerError, "streaming unsupported")
+		return
+	}
+	// The listener's write timeout would cut the stream: lift it here.
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Accel-Buffering", "no")
+	c := s.push.subscribe(userFrom(r).ID)
+	defer s.push.unsubscribe(c)
+	fmt.Fprint(w, "retry: 10000\n\n: ready\n\n")
+	fl.Flush()
+	ping := time.NewTicker(45 * time.Second)
+	defer ping.Stop()
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-ping.C:
+			fmt.Fprint(w, ": ping\n\n")
+			fl.Flush()
+		case b := <-c:
+			fmt.Fprintf(w, "event: notify\ndata: %s\n\n", b)
+			fl.Flush()
+		}
+	}
+}
+
+// getNotifyPrefs returns the caller's notification choices.
+func (s *Server) getNotifyPrefs(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"prefs": prefsOf(userFrom(r)), "types": EventTypes})
+}
+
+// putNotifyPrefs changes the caller's notification choices.
+func (s *Server) putNotifyPrefs(w http.ResponseWriter, r *http.Request) {
+	var p NotifyPrefs
+	if err := readJSON(r, &p); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	clean := []string{}
+	for _, t := range EventTypes {
+		if slices.Contains(p.Types, t) {
+			clean = append(clean, t)
+		}
+	}
+	p.Types = clean
+	raw, _ := json.Marshal(p)
+	if err := s.Store.SetUserNotify(r.Context(), userFrom(r).ID, string(raw)); err != nil {
+		writeErr(w, http.StatusInternalServerError, "database error")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"prefs": p, "types": EventTypes})
 }

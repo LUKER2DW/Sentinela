@@ -38,8 +38,6 @@ remote:
     # domain: casa.example.com.br     # or the fixed public IP, e.g. 203.0.113.7
     # listen: ":7443"
     # email: you@example.com
-  # P2 app keys: TS_OAUTH_CLIENT_ID / TS_OAUTH_CLIENT_SECRET in secrets.env.
-  # app_tag: tag:sentinela-app
 
 cameras:
   - id: cam1                      # also the go2rtc stream name (cam1, cam1_sub)

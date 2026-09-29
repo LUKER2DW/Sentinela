@@ -1,8 +1,6 @@
 package api
 
 import (
-	"io"
-	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -112,52 +110,5 @@ func TestPublicAccountLockout(t *testing.T) {
 	}
 	if code, _, _ := c.do("POST", "/api/login", `{"username":"Admin","password":"wrong password"}`); code != 429 {
 		t.Fatalf("11th attempt = %d, want 429", code)
-	}
-}
-
-func TestAppKey(t *testing.T) {
-	priv, srv := newTestServer(t)
-	var gotAuth, gotBody string
-	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/api/v2/oauth/token":
-			_ = r.ParseForm()
-			if r.Form.Get("client_secret") != "tskey-client-secret" {
-				http.Error(w, `{"message":"bad client"}`, http.StatusUnauthorized)
-				return
-			}
-			_, _ = w.Write([]byte(`{"access_token":"at-123"}`))
-		case "/api/v2/tailnet/-/keys":
-			gotAuth = r.Header.Get("Authorization")
-			b, _ := io.ReadAll(r.Body)
-			gotBody = string(b)
-			_, _ = w.Write([]byte(`{"key":"tskey-auth-abc"}`))
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer fake.Close()
-	srv.tsAPI = fake.URL
-
-	home := newClient(t, priv.URL)
-	home.do("POST", "/api/setup", `{"username":"mae.silva","password":"long enough pw"}`)
-	if code, _, _ := home.do("POST", "/api/remote/app-key", ""); code != 503 {
-		t.Fatalf("app key without OAuth client = %d", code)
-	}
-	srv.Cfg.Remote.OAuthClientID, srv.Cfg.Remote.OAuthClientSecret = "cid", "tskey-client-secret"
-	code, m, body := home.do("POST", "/api/remote/app-key", "")
-	if code != 200 || m["key"] != "tskey-auth-abc" || m["hostname"] != "sentinela-app-mae-silva" {
-		t.Fatalf("app key = %d %s", code, body)
-	}
-	if gotAuth != "Bearer at-123" || !strings.Contains(gotBody, `"tags":["tag:sentinela-app"]`) ||
-		!strings.Contains(gotBody, `"reusable":false`) || !strings.Contains(gotBody, `"preauthorized":true`) ||
-		// Tailscale rejects descriptions with anything but letters, digits, spaces and dashes.
-		!strings.Contains(gotBody, `"description":"sentinela-app-mae-silva"`) {
-		t.Fatalf("key request: auth=%q body=%s", gotAuth, gotBody)
-	}
-	// Never from outside.
-	pub := newPublicServer(t, srv, ZonePublic)
-	if code, _, _ := newClient(t, pub.URL).do("POST", "/api/remote/app-key", ""); code != 404 {
-		t.Fatalf("app key from outside without session = %d", code)
 	}
 }

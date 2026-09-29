@@ -52,12 +52,6 @@ type Remote struct {
 	// FunnelListen is where `tailscale funnel` proxies to (P3), loopback only.
 	FunnelListen string    `yaml:"funnel_listen"`
 	Public       PublicTLS `yaml:"public"`
-	// AppTag is the tag of the embedded app nodes (P2).
-	AppTag string `yaml:"app_tag"`
-	// Tailscale OAuth client (scope auth_keys) that mints app keys (P2).
-	// Read from TS_OAUTH_CLIENT_ID / TS_OAUTH_CLIENT_SECRET, never YAML.
-	OAuthClientID     string `yaml:"-"`
-	OAuthClientSecret string `yaml:"-"`
 }
 
 // PublicTLS is the port-forwarded HTTPS listener (P1). Empty Domain = off.
@@ -144,8 +138,6 @@ func Parse(raw []byte, getenv func(string) string) (*Config, error) {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
 	c.applyDefaults()
-	c.Remote.OAuthClientID = getenv("TS_OAUTH_CLIENT_ID")
-	c.Remote.OAuthClientSecret = getenv("TS_OAUTH_CLIENT_SECRET")
 	for i := range c.Cameras {
 		cam := &c.Cameras[i]
 		cam.User = getenv(cam.UserEnv)
@@ -177,7 +169,6 @@ func (c *Config) applyDefaults() {
 	def(&c.Timezone, "America/Sao_Paulo")
 	def(&c.PushSubject, "mailto:admin@sentinela.invalid")
 	def(&c.Ntfy.URL, "http://127.0.0.1:2586")
-	def(&c.Remote.AppTag, "tag:sentinela-app")
 	if c.Remote.Public.Domain != "" {
 		def(&c.Remote.Public.Listen, ":7443")
 	}
@@ -243,9 +234,6 @@ func (c *Config) validate() error {
 				errs = append(errs, errors.New("remote.public.http01_listen is only for an IP address (a domain uses autocert)"))
 			}
 		}
-	}
-	if !strings.HasPrefix(c.Remote.AppTag, "tag:") {
-		errs = append(errs, errors.New("remote.app_tag must be a Tailscale tag such as tag:sentinela-app"))
 	}
 	seen := map[string]bool{}
 	for _, cam := range c.Cameras {
