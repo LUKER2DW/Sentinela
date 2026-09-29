@@ -16,10 +16,37 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    // Release signing key lives OUTSIDE the repo in ~/.sentinela-android/
+    // (created by scripts/build-apk.sh; back it up). Android Studio and the
+    // script sign with the same key, so a release APK installs over the
+    // app already on the phone.
+    def ksDir = new File(System.getenv("SENTINELA_KEYSTORE_DIR") ?: new File(System.getProperty("user.home"), ".sentinela-android").path)
+    def ks = new File(ksDir, "release.jks")
+    def ksPass = new File(ksDir, "keystore.pass")
+    if (ks.exists() && ksPass.exists()) {
+        signingConfigs {
+            release {
+                storeFile ks
+                storePassword ksPass.text.trim()
+                keyAlias "sentinela"
+                keyPassword ksPass.text.trim()
+            }
+        }
+    }
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (ks.exists() && ksPass.exists()) {
+                signingConfig signingConfigs.release
+            }
+        }
+        // "Run" in Android Studio installs this one: its own app id and name
+        // ("Sentinela (dev)", src/debug/res), so it lives next to the real
+        // app, and its WebView can be inspected at chrome://inspect.
+        debug {
+            applicationIdSuffix ".dev"
+            versionNameSuffix "-dev"
         }
     }
 }

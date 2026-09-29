@@ -9,6 +9,11 @@
 # The signing key lives OUTSIDE the repo in ~/.sentinela-android/ (created
 # on first run with a random password in a 0600 file). Back that folder up:
 # without it, updates cannot be installed over the existing app.
+#
+# Android Studio: `cd mobile && npm run studio` syncs and opens the project;
+# "Run" installs the debug build "Sentinela (dev)" (own app id, WebView at
+# chrome://inspect); Build > Build APK(s) on the release variant signs with
+# the same key as this script (mobile/android/app/build.gradle).
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/../mobile"
 
@@ -21,7 +26,6 @@ export JAVA_HOME ANDROID_HOME
 [[ -d "$ANDROID_HOME/build-tools" ]] || { echo "Android SDK not found (ANDROID_HOME)" >&2; exit 1; }
 BT="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)"
 ext=""; [[ -f "$BT/apksigner.bat" ]] && ext=".bat"
-exe=""; [[ -f "$BT/zipalign.exe" ]] && exe=".exe"
 
 # Java tools on Windows need native paths (Git Bash gives /c/...).
 native() { if command -v cygpath >/dev/null; then cygpath -w "$1"; else echo "$1"; fi; }
@@ -42,15 +46,10 @@ echo "==> web wrapper (${SENTINELA_URL:-default tailnet URL})"
 npm ci --no-audit --no-fund --silent
 npx cap sync android >/dev/null
 
-echo "==> gradle assembleRelease"
+echo "==> gradle assembleRelease (signed by Gradle with the key above)"
 (cd android && ./gradlew assembleRelease --no-daemon -q)
 
-echo "==> sign"
 mkdir -p build
-"$BT/zipalign$exe" -f -p 4 android/app/build/outputs/apk/release/app-release-unsigned.apk build/aligned.apk
-"$BT/apksigner$ext" sign --ks "$(native "$KS")" --ks-key-alias sentinela \
-  --ks-pass "file:$(native "$PASS")" \
-  --out build/sentinela.apk build/aligned.apk
-rm -f build/aligned.apk build/sentinela.apk.idsig
+cp android/app/build/outputs/apk/release/app-release.apk build/sentinela.apk
 "$BT/apksigner$ext" verify build/sentinela.apk
 echo "APK: mobile/build/sentinela.apk ($(du -h build/sentinela.apk | cut -f1)). Copy it to the phone and open it to install."

@@ -19,7 +19,9 @@ const config: CapacitorConfig = {
   android: {
     appendUserAgent: "SentinelaApp/1",
     allowMixedContent: false,
-    webContentsDebuggingEnabled: false,
+    // Left unset: Capacitor enables WebView debugging only in debuggable
+    // (debug) builds, so "Sentinela (dev)" shows up in chrome://inspect and
+    // the release APK does not.
   },
 };
 

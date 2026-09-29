@@ -4,7 +4,8 @@
   "version": "1.0.0",
   "description": "Android wrapper of the Sentinela web app (ADR-0011).",
   "scripts": {
-    "sync": "cap sync android"
+    "sync": "cap sync android",
+    "studio": "cap sync android && cap open android"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.2",
