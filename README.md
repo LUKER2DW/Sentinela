@@ -39,19 +39,10 @@ Builds the image on the PC, streams it to the server over SSH (key
 three containers and waits for the health check (~1–2 min). Override the
 target with `SENTINELA_HOST=user@host`.
 
-## Auto deploy (push to GitHub)
-
-A push to `main` starts the `deploy` workflow on the server's self-hosted
-runner: it builds on the server, restarts, health-checks and rolls back if
-unhealthy ([ADR-0009](docs/adr/0009-pull-auto-deploy.md)). No port is
-opened; a 15-minute timer is the fallback. One-time setup on the server:
-
-1. `sudo /opt/sentinela/scripts/setup-autodeploy.sh` (prints a read-only
-   deploy key to add on GitHub).
-2. From the dev PC (the token goes straight through the pipe):
-   `gh api -X POST repos/LUKER2DW/Sentinela/actions/runners/registration-token --jq .token | ssh -i ~/.ssh/id_ed25519_sentinela ana@192.168.1.10 'sudo /opt/sentinela/scripts/setup-runner.sh'`
-
-Follow deploys in the repo's Actions tab or `journalctl -u sentinela-autodeploy -f`.
+Deploys are manual only ([ADR-0010](docs/adr/0010-manual-deploy.md)).
+GitHub Actions runs checks (`ci` workflow) on GitHub-hosted runners and never
+deploys. A server that still has the retired auto deployer:
+`sudo /opt/sentinela/scripts/uninstall-autodeploy.sh`.
 
 ## Install on a fresh server (Ubuntu 22.04)
 
