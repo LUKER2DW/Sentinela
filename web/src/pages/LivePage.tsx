@@ -165,12 +165,12 @@ function Single({ cam, now }: { cam: Camera; now: number }) {
             />
             <RibbonLegend />
           </section>
+          <TodayStats timeline={timeline.data} motion={motionToday} />
         </div>
         <aside className="stack live-right">
           {!narrow && <PtzPanel cameraId={cam.id} canControl={can("operator")} />}
           <CameraSettings cameraId={cam.id} canControl={can("operator")} isAdmin={can("admin")} />
         </aside>
-        <TodayStats timeline={timeline.data} motion={motionToday} />
       </div>
     </>
   );

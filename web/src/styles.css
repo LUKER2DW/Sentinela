@@ -1290,8 +1290,9 @@ table.table { width: 100%; border-collapse: collapse; }
 /* The last card of each column takes the slack, so both bottoms line up. */
 .live-left > :last-child, .live-right > :last-child { flex: 1; }
 @media (max-width: 1180px) { .live-left > :last-child, .live-right > :last-child { flex: none; } }
-/* Row 1: video + Hoje next to the controls (bottoms aligned); row 2: the numbers. */
-.live-cols > .today-stats { grid-column: 1; }
+/* The numbers card is compact and fills what is left down to Imagem's bottom. */
+.today-stats { padding: 12px 20px; align-content: center; }
+.today-stats .stat b { font-size: 1.45rem; }
 .grid-cams.n1 { grid-template-columns: minmax(0, 1fr); max-width: 1100px; }
 .grid-cams.n2, .grid-cams.n4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .grid-cams.n3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
