@@ -151,3 +151,48 @@ func TestNewestFileByName(t *testing.T) {
 		t.Fatalf("newestFile = %s (%d), want %s", got, size, newer)
 	}
 }
+
+func TestTieredRetention(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	root := filepath.Join(dir, "recordings")
+	st, err := store.Open(ctx, filepath.Join(dir, "db", "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	now := time.Now().UTC().Truncate(time.Second)
+	add := func(start time.Time) string {
+		rel := "cam1/" + start.Format("2006/01/02/15-04-05") + ".mp4"
+		writeSeg(t, root, rel, 4096, start.Add(5*time.Minute))
+		if err := st.UpsertSegment(ctx, store.Segment{CameraID: "cam1", Start: start, End: start.Add(5 * time.Minute), Path: rel, Bytes: 4096}); err != nil {
+			t.Fatal(err)
+		}
+		return rel
+	}
+	quietSeg := add(now.Add(-10 * 24 * time.Hour))
+	alertStart := now.Add(-10*24*time.Hour + time.Hour)
+	alertSeg := add(alertStart)
+	motionSeg := add(alertStart.Add(time.Hour))
+	id, _ := st.OpenEvent(ctx, "cam1", "line", alertStart.Add(time.Minute), "")
+	_ = st.CloseEvent(ctx, id, alertStart.Add(2*time.Minute))
+	m, _ := st.OpenEvent(ctx, "cam1", "motion", alertStart.Add(time.Hour+time.Minute), "")
+	_ = st.CloseEvent(ctx, m, alertStart.Add(time.Hour+2*time.Minute))
+
+	ret := NewRetention(root, st, testCfg(t), quiet) // 7 days, alerts 30 days
+	ret.Disk = func(string) (sysinfo.Disk, error) { return sysinfo.Disk{Total: 100, Pct: 50}, nil }
+	if n, err := ret.Enforce(ctx); err != nil || n != 2 {
+		t.Fatalf("deleted %d err=%v, want 2 (quiet + motion)", n, err)
+	}
+	for rel, want := range map[string]bool{quietSeg: false, motionSeg: false, alertSeg: true} {
+		_, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel)))
+		if (err == nil) != want {
+			t.Errorf("%s exists=%v, want %v", rel, err == nil, want)
+		}
+	}
+	// 25 days later the alert segment is 35 days old: gone too.
+	ret.now = func() time.Time { return now.Add(25 * 24 * time.Hour) }
+	if n, err := ret.Enforce(ctx); err != nil || n != 1 {
+		t.Fatalf("second pass deleted %d err=%v", n, err)
+	}
+}

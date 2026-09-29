@@ -23,6 +23,16 @@ const (
 // line or entering an area, or the camera being covered or moved.
 var alertTypes = map[string]bool{"intrusion": true, "line": true, "tamper": true, "human": true}
 
+// AlertTypes lists the event types that make an item an Alert.
+func AlertTypes() []string {
+	out := make([]string, 0, len(alertTypes))
+	for t := range alertTypes {
+		out = append(out, t)
+	}
+	slices.Sort(out)
+	return out
+}
+
 // Severity of one event type.
 func Severity(typ string) string {
 	if alertTypes[typ] {

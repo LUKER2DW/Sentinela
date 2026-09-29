@@ -55,7 +55,10 @@ type Recording struct {
 	SegmentSeconds       int `yaml:"segment_seconds"`
 	MaxDiskPercent       int `yaml:"max_disk_percent"`
 	DefaultRetentionDays int `yaml:"default_retention_days"`
-	StallSeconds         int `yaml:"stall_seconds"`
+	// AlertRetentionDays keeps segments that overlap an Alert event longer
+	// (tiered retention, PLAN Phase 9 Wave 2).
+	AlertRetentionDays int `yaml:"alert_retention_days"`
+	StallSeconds       int `yaml:"stall_seconds"`
 }
 
 // Camera is one XMEye camera. Password is never read from YAML.
@@ -130,6 +133,7 @@ func (c *Config) applyDefaults() {
 	defInt(&c.Recording.MaxDiskPercent, 90)
 	defInt(&c.Recording.DefaultRetentionDays, 15)
 	defInt(&c.Recording.StallSeconds, 20)
+	defInt(&c.Recording.AlertRetentionDays, 30)
 	for i := range c.Cameras {
 		cam := &c.Cameras[i]
 		def(&cam.Name, cam.ID)

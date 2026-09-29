@@ -11,6 +11,7 @@ recording:
   segment_seconds: 300              # 5-minute MP4 files
   max_disk_percent: 90              # above this, oldest recordings are deleted
   default_retention_days: 15        # owner decision (PLAN Phase 9 D1): ~18–24 GB/day, ≤ 360 GB of -
+  alert_retention_days: 30          # segments overlapping an Alert (line, area, person, tamper) stay longer
   stall_seconds: 20                 # restart ffmpeg if no data for this long
 
 # Shown on the System and Nuvem pages. Paths are as seen inside the container.

@@ -9,12 +9,15 @@ import (
 	"time"
 
 	"github.com/LUKER2DW/sentinela/internal/config"
+	"github.com/LUKER2DW/sentinela/internal/review"
 	"github.com/LUKER2DW/sentinela/internal/store"
 	"github.com/LUKER2DW/sentinela/internal/sysinfo"
 )
 
-// Retention deletes old segments: first by per-camera age, then oldest-first
-// while the disk is above MaxDiskPercent. Protected segments are never deleted.
+// Retention deletes old segments: first by per-camera age (segments that
+// overlap an Alert event are kept for AlertRetentionDays instead), then
+// oldest-first while the disk is above MaxDiskPercent, alert or not.
+// Protected segments are never deleted.
 type Retention struct {
 	Root  string
 	Store *store.Store
@@ -50,13 +53,16 @@ func (r *Retention) Run(ctx context.Context, interval time.Duration) {
 // Enforce runs one pass and returns how many segments were deleted.
 func (r *Retention) Enforce(ctx context.Context) (int, error) {
 	deleted := 0
-	maxDays := 0
+	alertDays := r.Cfg.Recording.AlertRetentionDays
+	maxDays := alertDays
+	alertCutoff := r.now().Add(-time.Duration(alertDays) * 24 * time.Hour)
+	alertTypes := review.AlertTypes()
 	for i := range r.Cfg.Cameras {
 		cam := &r.Cfg.Cameras[i]
 		maxDays = max(maxDays, cam.RetentionDays)
 		cutoff := r.now().Add(-time.Duration(cam.RetentionDays) * 24 * time.Hour)
 		for {
-			segs, err := r.Store.SegmentsOlderThan(ctx, cam.ID, cutoff, 200)
+			segs, err := r.Store.SegmentsForAgeRetention(ctx, cam.ID, cutoff, alertCutoff, alertTypes, 200)
 			if err != nil {
 				return deleted, err
 			}
@@ -96,6 +102,7 @@ func (r *Retention) Enforce(ctx context.Context) (int, error) {
 			deleted++
 		}
 	}
+	// Events (and their review state) live as long as the longest tier.
 	if maxDays > 0 {
 		_ = r.Store.PurgeEventsBefore(ctx, r.now().Add(-time.Duration(maxDays)*24*time.Hour))
 	}

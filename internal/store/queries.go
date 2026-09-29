@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -258,6 +259,29 @@ func (s *Store) SegmentByID(ctx context.Context, id int64) (*Segment, error) {
 // OldestSegments returns up to limit unprotected segments, oldest first.
 func (s *Store) OldestSegments(ctx context.Context, limit int) ([]Segment, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT `+segCols+` FROM segments WHERE protected=0 ORDER BY start_utc LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	return scanSegments(rows)
+}
+
+// SegmentsForAgeRetention returns unprotected segments of a camera that ended
+// before t, except those that overlap an event of one of alertTypes and ended
+// after alertCutoff (they are kept longer: tiered retention).
+func (s *Store) SegmentsForAgeRetention(ctx context.Context, cameraID string, t, alertCutoff time.Time, alertTypes []string, limit int) ([]Segment, error) {
+	if len(alertTypes) == 0 || !alertCutoff.Before(t) {
+		return s.SegmentsOlderThan(ctx, cameraID, t, limit)
+	}
+	in := strings.TrimSuffix(strings.Repeat("?,", len(alertTypes)), ",")
+	args := []any{cameraID, FormatTime(t), FormatTime(alertCutoff)}
+	for _, a := range alertTypes {
+		args = append(args, a)
+	}
+	args = append(args, limit)
+	rows, err := s.db.QueryContext(ctx, `SELECT `+segCols+` FROM segments sg WHERE camera_id=? AND protected=0 AND end_utc<?
+		AND NOT (end_utc>=? AND EXISTS (SELECT 1 FROM events e WHERE e.camera_id=sg.camera_id AND e.type IN (`+in+`)
+			AND e.start_utc<sg.end_utc AND coalesce(e.end_utc, e.start_utc)>=sg.start_utc))
+		ORDER BY start_utc LIMIT ?`, args...)
 	if err != nil {
 		return nil, err
 	}
