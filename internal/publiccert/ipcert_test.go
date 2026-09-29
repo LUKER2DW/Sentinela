@@ -10,6 +10,8 @@ import (
 	"log/slog"
 	"math/big"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -73,5 +75,31 @@ func TestGetCertificate(t *testing.T) {
 	other := &Manager{IP: "198.51.100.1", Dir: dir, Log: m.Log}
 	if other.load() != nil {
 		t.Fatal("loaded a certificate for another IP")
+	}
+}
+
+func TestHTTP01Handler(t *testing.T) {
+	m := &Manager{IP: "203.0.113.7", HTTP01: true}
+	h := m.HTTPHandler()
+	get := func(path string) (int, string) {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		return rec.Code, rec.Body.String()
+	}
+	if code, _ := get("/.well-known/acme-challenge/tok"); code != 404 {
+		t.Fatalf("no pending challenge = %d", code)
+	}
+	p := http01{m}
+	_ = p.Present("203.0.113.7", "tok", "tok.thumb")
+	if code, body := get("/.well-known/acme-challenge/tok"); code != 200 || body != "tok.thumb" {
+		t.Fatalf("challenge = %d %q", code, body)
+	}
+	// Anything else on this plain-HTTP port is a 404: it serves no app.
+	if code, _ := get("/"); code != 404 {
+		t.Fatalf("root = %d", code)
+	}
+	_ = p.CleanUp("203.0.113.7", "tok", "")
+	if code, _ := get("/.well-known/acme-challenge/tok"); code != 404 {
+		t.Fatalf("after cleanup = %d", code)
 	}
 }

@@ -4,7 +4,10 @@
 // Let's Encrypt signs IP addresses only with the "shortlived" profile
 // (about 6 days), which autocert cannot ask for, so this uses lego. The
 // TLS-ALPN-01 challenge is answered by the same listener (router WAN 443 →
-// remote.public.listen), so nothing else is opened.
+// remote.public.listen). Where the ISP blocks inbound 443, HTTP01 switches
+// to the HTTP-01 challenge, answered by HTTPHandler on its own listener
+// (router WAN 80 → remote.public.http01_listen); the site itself can then
+// use any router port.
 package publiccert
 
 import (
@@ -22,9 +25,11 @@ import (
 	"log"
 	"log/slog"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -44,10 +49,49 @@ type Manager struct {
 	Log   *slog.Logger
 	// CA is the ACME directory; empty = Let's Encrypt production.
 	CA string
+	// HTTP01: validate over plain HTTP (HTTPHandler) instead of TLS-ALPN-01.
+	HTTP01 bool
 
-	mu   sync.RWMutex
-	cert *tls.Certificate
-	chal *tls.Certificate // TLS-ALPN-01 answer while an order is pending
+	mu     sync.RWMutex
+	cert   *tls.Certificate
+	chal   *tls.Certificate  // TLS-ALPN-01 answer while an order is pending
+	tokens map[string]string // HTTP-01 token -> key authorization
+}
+
+// HTTPHandler answers HTTP-01 challenges and nothing else (404).
+func (m *Manager) HTTPHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		token, ok := strings.CutPrefix(r.URL.Path, "/.well-known/acme-challenge/")
+		m.mu.RLock()
+		ka := m.tokens[token]
+		m.mu.RUnlock()
+		if !ok || r.Method != http.MethodGet || ka == "" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = w.Write([]byte(ka))
+	})
+}
+
+// http01 is lego's HTTP-01 provider, backed by the Manager's token table.
+type http01 struct{ m *Manager }
+
+func (h http01) Present(_, token, keyAuth string) error {
+	h.m.mu.Lock()
+	defer h.m.mu.Unlock()
+	if h.m.tokens == nil {
+		h.m.tokens = map[string]string{}
+	}
+	h.m.tokens[token] = keyAuth
+	return nil
+}
+
+func (h http01) CleanUp(_, token, _ string) error {
+	h.m.mu.Lock()
+	defer h.m.mu.Unlock()
+	delete(h.m.tokens, token)
+	return nil
 }
 
 // TLSConfig for the public listener.
@@ -119,7 +163,11 @@ func (m *Manager) Run(ctx context.Context) {
 		if wait <= 0 {
 			l, err := m.obtain()
 			if err != nil {
-				m.Log.Warn("public certificate: order failed (is WAN 443 forwarded to the public listener?)", "ip", m.IP, "err", err, "retry_in", backoff)
+				hint := "is WAN 443 forwarded to the public listener?"
+				if m.HTTP01 {
+					hint = "is WAN 80 forwarded to the HTTP-01 listener?"
+				}
+				m.Log.Warn("public certificate: order failed ("+hint+")", "ip", m.IP, "err", err, "retry_in", backoff)
 				wait = backoff
 				backoff = min(backoff*2, time.Hour)
 			} else {
@@ -177,7 +225,12 @@ func (m *Manager) obtain() (*x509.Certificate, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := client.Challenge.SetTLSALPN01Provider(m); err != nil {
+	if m.HTTP01 {
+		err = client.Challenge.SetHTTP01Provider(http01{m})
+	} else {
+		err = client.Challenge.SetTLSALPN01Provider(m)
+	}
+	if err != nil {
 		return nil, err
 	}
 	if u.reg == nil {

@@ -69,6 +69,10 @@ type PublicTLS struct {
 	Listen string `yaml:"listen"`
 	// Email for Let's Encrypt expiry notices (optional).
 	Email string `yaml:"email"`
+	// HTTP01Listen, for an IP certificate: validate with HTTP-01 on this
+	// plain-HTTP listener (router WAN 80 -> here) instead of TLS-ALPN-01 on
+	// WAN 443, for ISPs that block inbound 443. It answers challenges only.
+	HTTP01Listen string `yaml:"http01_listen"`
 }
 
 // Ntfy: phones reach PublicURL over the tailnet; the server posts to URL.
@@ -224,6 +228,13 @@ func (c *Config) validate() error {
 		}
 		if _, _, err := net.SplitHostPort(c.Remote.Public.Listen); err != nil {
 			errs = append(errs, errors.New("remote.public.listen must be host:port"))
+		}
+		if l := c.Remote.Public.HTTP01Listen; l != "" {
+			if _, _, err := net.SplitHostPort(l); err != nil {
+				errs = append(errs, errors.New("remote.public.http01_listen must be host:port"))
+			} else if net.ParseIP(d) == nil {
+				errs = append(errs, errors.New("remote.public.http01_listen is only for an IP address (a domain uses autocert)"))
+			}
 		}
 	}
 	if !strings.HasPrefix(c.Remote.AppTag, "tag:") {

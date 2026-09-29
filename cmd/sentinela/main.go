@@ -150,7 +150,11 @@ func serve(ctx context.Context, log *slog.Logger, cfgPath string) error {
 		var tc *tls.Config
 		if ip := net.ParseIP(p.Domain); ip != nil {
 			// No domain: a short-lived Let's Encrypt certificate for the fixed IP.
-			m := &publiccert.Manager{IP: ip.String(), Email: p.Email, Dir: filepath.Join(cfg.DataDir, "acme", "ip"), Log: log}
+			m := &publiccert.Manager{IP: ip.String(), Email: p.Email, Dir: filepath.Join(cfg.DataDir, "acme", "ip"), Log: log, HTTP01: p.HTTP01Listen != ""}
+			if p.HTTP01Listen != "" {
+				// Plain HTTP that only answers Let's Encrypt (router WAN 80 -> here).
+				servers = append(servers, &http.Server{Addr: p.HTTP01Listen, Handler: m.HTTPHandler()})
+			}
 			wg.Add(1)
 			go func() { defer wg.Done(); m.Run(ctx) }()
 			tc = m.TLSConfig()
