@@ -46,7 +46,10 @@
    ≥ 12 characters and the owner's approval.
    The web container mounts the NAS read-write for the file API (ADR-0012:
    `os.Root` confinement, per-user folders, deletes go to the recycle bin,
-   user files served with a sandbox CSP and never inline unless media) and
+   user files served with a sandbox CSP and never inline unless media or
+   PDF; an inline PDF drops the sandbox, which browsers refuse to render
+   PDFs in, but keeps `default-src 'none'` and may only be framed by the
+   app itself) and
    gets SMART data as a file, never device access. The recorder cannot see
    the NAS. The owner granted `ana` passwordless sudo for
    automated administration (`/etc/sudoers.d/90-ana-admin`); remove it

@@ -314,6 +314,19 @@ func TestNuvemFileAPI(t *testing.T) {
 		!strings.Contains(resp.Header.Get("Content-Security-Policy"), "sandbox") {
 		t.Fatalf("download = %d %q %v", resp.StatusCode, got, resp.Header)
 	}
+	// A PDF shown inline may be framed by the app (no sandbox: browsers do
+	// not render PDFs in sandboxed documents), and loads nothing else.
+	admin.do("PUT", "/api/nas/upload?path=dono/d.pdf&offset=0&total=8", "%PDF-1.4")
+	resp, err = admin.hc.Get(ts.URL + "/api/nas/file?path=dono/d.pdf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if csp := resp.Header.Get("Content-Security-Policy"); resp.Header.Get("Content-Type") != "application/pdf" ||
+		!strings.HasPrefix(resp.Header.Get("Content-Disposition"), "inline") || csp != "default-src 'none'; frame-ancestors 'self'" ||
+		resp.Header.Get("X-Frame-Options") != "SAMEORIGIN" {
+		t.Fatalf("inline pdf headers = %v", resp.Header)
+	}
 	// Viewer: reads the shared folder, cannot write, cannot see the admin's folder.
 	viewer := newClient(t, ts.URL)
 	viewer.do("POST", "/api/login", `{"username":"view","password":"viewer password"}`)

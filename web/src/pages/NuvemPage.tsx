@@ -135,6 +135,11 @@ export function NuvemPage({ params }: { params: URLSearchParams }) {
     ),
   };
 
+  const [connect, setConnect] = useState(false);
+  const health = sys.data?.disk_health?.mounts["/srv/nas"];
+  const used = total - free;
+  const pct = total > 0 ? (100 * used) / total : 0;
+
   return (
     <>
       <header className="page-head">
@@ -148,76 +153,75 @@ export function NuvemPage({ params }: { params: URLSearchParams }) {
         </span>
       </header>
 
-      <FileBrowser path={folder} canWrite={can("operator")} onNavigate={(p) => navigate("nuvem", p ? { p } : undefined, { push: true })} />
+      <FileBrowser
+        path={folder}
+        canWrite={can("operator")}
+        onNavigate={(p) => navigate("nuvem", p ? { p } : undefined, { push: true })}
+        onConnect={compact ? undefined : () => setConnect(true)}
+        summary={
+          total > 0 ? (
+            <>
+              <div className="space-line">
+                <Whale className="space-whale" />
+                <div>
+                  <strong className="num">{fmtBytes(free)} livres</strong>
+                  <span className="muted small">
+                    {" "}
+                    de {fmtBytes(total)} · {fmtBytes(used)} usados
+                  </span>
+                  {health && (
+                    <span className={`health ${health.state}`} title={healthTitle(health)}>
+                      {healthLabel[health.state]}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="meter" role="meter" aria-label="Uso da Nuvem" aria-valuenow={Math.round(pct)} aria-valuemin={0} aria-valuemax={100}>
+                <span style={{ width: `${pct}%` }} />
+              </div>
+            </>
+          ) : (
+            <p className="muted small">O espaço aparece quando o Sentinela roda no servidor.</p>
+          )
+        }
+      />
 
-      <div className="grid-2" style={{ marginTop: 24 }}>
-        <section className="card hero-card">
-          <div className="hero-text">
-            <h2>Espaço</h2>
-            {total > 0 ? (
-              <p className="big">
-                <b>{fmtBytes(free)}</b>
-                <span className="muted">livres de {fmtBytes(total)}</span>
-              </p>
-            ) : (
-              <p className="muted">O espaço aparece quando o Sentinela roda no servidor.</p>
-            )}
-            <div className="stack-sm">
-              {nas.map((v) => (
-                <VolumeMeter key={v.id} v={v} health={sys.data?.disk_health?.mounts["/srv/nas"]} />
+      {connect && (
+        <div className="dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="smb-title" onMouseDown={(e) => e.target === e.currentTarget && setConnect(false)}>
+          <div className="dialog wide connect-dialog">
+            <div className="dialog-head">
+              <div>
+                <h2 id="smb-title">Acessar pelo computador</h2>
+                <p className="muted small">Pastas de rede (SMB): funcionam só na rede de casa.</p>
+              </div>
+              <button className="btn ghost icon small" aria-label="Fechar" onClick={() => setConnect(false)}>
+                <Icon name="x" />
+              </button>
+            </div>
+            <div className="segmented wrap" role="tablist" aria-label="Sistema do aparelho">
+              {(Object.keys(OS_LABEL) as OS[]).map((k) => (
+                <button key={k} role="tab" aria-selected={os === k} aria-pressed={os === k} onClick={() => setOs(k)}>
+                  {OS_LABEL[k]}
+                </button>
               ))}
             </div>
+            <div className="stack-sm connect-steps">{steps[os]}</div>
+            <p className="muted small">
+              Usuário: <strong>ana</strong>. A senha da Nuvem é definida no servidor com <code>sudo smbpasswd -a ana</code>.
+            </p>
+            <div className="stack-sm">
+              <h3 className="card-sub">Gravações pela rede (somente leitura)</h3>
+              <CopyField label="gravações" value={os === "windows" ? `\\\\${ip}\\Gravacoes` : `smb://${ip}/Gravacoes`} />
+            </div>
+            <ul className="tips">
+              <li>Use cabo no computador: a Wi-Fi costuma ser o gargalo, não o servidor.</li>
+              <li>A Nuvem não é backup. Guarde uma segunda cópia do que for importante.</li>
+              <li>Fora de casa, use esta página pelo Tailscale: as pastas de rede funcionam só em casa.</li>
+              <li>Apagar aqui ou pela rede manda para a Lixeira, que guarda tudo por 30 dias.</li>
+            </ul>
           </div>
-          <Whale className="hero-doodle" />
-        </section>
-
-        {/* Phones: files and space only (owner, 2026-09-29). Network shares
-            are for computers at home. */}
-        {!compact && (
-          <>
-        <section className="card">
-          <div className="card-head">
-            <h2>Pastas de rede</h2>
-            <span className="pill">Só em casa</span>
-          </div>
-          <div className="segmented wrap" role="tablist" aria-label="Sistema do aparelho">
-            {(Object.keys(OS_LABEL) as OS[]).map((k) => (
-              <button key={k} role="tab" aria-selected={os === k} aria-pressed={os === k} onClick={() => setOs(k)}>
-                {OS_LABEL[k]}
-              </button>
-            ))}
-          </div>
-          <div className="stack-sm connect-steps">{steps[os]}</div>
-          <p className="muted small">
-            Usuário: <strong>ana</strong>. A senha da Nuvem é definida no servidor com <code>sudo smbpasswd -a ana</code>.
-          </p>
-        </section>
-
-        <section className="card">
-          <div className="card-head">
-            <h2>Gravações pela rede</h2>
-            <span className="pill">Somente leitura</span>
-          </div>
-          <p className="muted">Os vídeos das câmeras também ficam acessíveis na rede, para copiar para o computador.</p>
-          <div style={{ marginTop: 16 }}>
-            <CopyField label="gravações" value={os === "windows" ? `\\\\${ip}\\Gravacoes` : `smb://${ip}/Gravacoes`} />
-          </div>
-        </section>
-
-        <section className="card">
-          <div className="card-head">
-            <h2>Boas práticas</h2>
-          </div>
-          <ul className="tips">
-            <li>Use cabo no computador: a Wi-Fi costuma ser o gargalo, não o servidor.</li>
-            <li>A Nuvem não é backup. Guarde uma segunda cópia do que for importante.</li>
-            <li>Fora de casa, use esta página pelo Tailscale: as pastas de rede (SMB) funcionam só na rede de casa.</li>
-            <li>Apagar aqui ou pela rede manda para a Lixeira, que guarda tudo por 30 dias.</li>
-          </ul>
-        </section>
-          </>
-        )}
-      </div>
+        </div>
+      )}
     </>
   );
 }

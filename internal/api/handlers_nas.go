@@ -25,6 +25,7 @@ var inlineTypes = map[string]string{
 	".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".gif": "image/gif", ".webp": "image/webp",
 	".mp4": "video/mp4", ".m4v": "video/mp4", ".webm": "video/webm", ".mov": "video/quicktime",
 	".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".ogg": "audio/ogg", ".opus": "audio/ogg", ".wav": "audio/wav",
+	".pdf": "application/pdf",
 }
 
 func (s *Server) nasAccess(r *http.Request) nas.Access {
@@ -100,7 +101,16 @@ func (s *Server) nasFile(w http.ResponseWriter, r *http.Request) {
 	}
 	h.Set("Content-Type", ctype)
 	h.Set("Content-Disposition", mime.FormatMediaType(disp, map[string]string{"filename": name}))
-	h.Set("Content-Security-Policy", "default-src 'none'; img-src 'self'; media-src 'self'; sandbox")
+	if ctype == "application/pdf" && disp == "inline" {
+		// The Nuvem preview shows PDFs in a frame of the app. Browsers refuse
+		// to render a PDF in a sandboxed document, so this one type drops the
+		// sandbox; the viewer runs PDF scripts isolated from the app's origin
+		// (Chrome/Edge PDFium, Firefox pdf.js), and nothing else may load.
+		h.Set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'self'")
+		h.Set("X-Frame-Options", "SAMEORIGIN")
+	} else {
+		h.Set("Content-Security-Policy", "default-src 'none'; img-src 'self'; media-src 'self'; sandbox")
+	}
 	h.Set("Cache-Control", "private, no-cache")
 	http.ServeContent(w, r, name, info.ModTime(), f)
 }
