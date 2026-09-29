@@ -13,6 +13,8 @@ export interface User {
   cameras: string[];
   /** Two-step login (TOTP) is on: required from outside (ADR-0019). */
   totp: boolean;
+  /** Switched off by an admin: cannot sign in. */
+  disabled?: boolean;
 }
 
 export interface Camera {

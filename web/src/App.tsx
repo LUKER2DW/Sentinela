@@ -17,6 +17,8 @@ import { RecordingsPage } from "./pages/RecordingsPage";
 import { EventsPage } from "./pages/EventsPage";
 import { SystemPage } from "./pages/SystemPage";
 import { NuvemPage } from "./pages/NuvemPage";
+import { AccountPage } from "./pages/AccountPage";
+import { NoticeBell } from "./components/Notices";
 import { ClockPage } from "./components/DelayMeter";
 import { setZone } from "./lib/access";
 
@@ -107,6 +109,7 @@ const NAV = [
 ];
 
 const roleLabel = { admin: "Administrador", operator: "Operador", viewer: "Visualizador" } as const;
+const pageTitle: Record<string, string> = { relogio: "Relógio", conta: "Minha conta" };
 
 /** True when the server runs a newer build than this page (auto deploy). */
 function useNewVersion(): boolean {
@@ -142,7 +145,7 @@ function Shell() {
   const active = useActiveEvents();
   const motionNow = Object.values(active).some((t) => t.length > 0);
   useEffect(() => {
-    const label = route.page === "relogio" ? "Relógio" : NAV.find((n) => n.page === route.page)?.label;
+    const label = pageTitle[route.page] ?? NAV.find((n) => n.page === route.page)?.label;
     document.title = label ? `${label} – Sentinela` : "Sentinela";
   }, [route.page]);
 
@@ -197,14 +200,16 @@ function Shell() {
         <span className="side-spacer" />
         <div className="side-sea">
           <OceanScene className="side-ocean" />
-          <div className="who">
-            <span className="avatar" aria-hidden="true">
-              {user.username.slice(0, 1).toUpperCase()}
-            </span>
-            <div className="who-text">
-              <div className="who-name">{user.username}</div>
-              <div className="who-role">{roleLabel[user.role]}</div>
-            </div>
+          <div className={`who${route.page === "conta" ? " on" : ""}`}>
+            <a className="who-link" href={href("conta")} title="Minha conta: senha, 2 etapas e aparelhos" aria-current={route.page === "conta" ? "page" : undefined}>
+              <span className="avatar" aria-hidden="true">
+                {user.username.slice(0, 1).toUpperCase()}
+              </span>
+              <div className="who-text">
+                <div className="who-name">{user.username}</div>
+                <div className="who-role">{roleLabel[user.role]}</div>
+              </div>
+            </a>
             <button className="btn ghost icon small" onClick={logout} title="Sair" aria-label="Sair">
               <Icon name="logout" />
             </button>
@@ -219,6 +224,7 @@ function Shell() {
           </button>
         )}
         <div className="topbar">
+          <NoticeBell />
           <ThemeToggle />
         </div>
         {/* Phone: brand bar with the turning lighthouse (the sidebar is a tab bar there). */}
@@ -240,7 +246,9 @@ function Shell() {
           ) : route.page === "nuvem" ? (
             <NuvemPage params={route.params} />
           ) : route.page === "system" ? (
-            <SystemPage />
+            <SystemPage params={route.params} />
+          ) : route.page === "conta" ? (
+            <AccountPage />
           ) : route.page === "relogio" ? (
             <ClockPage />
           ) : (
