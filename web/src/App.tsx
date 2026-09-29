@@ -18,23 +18,30 @@ import { EventsPage } from "./pages/EventsPage";
 import { SystemPage } from "./pages/SystemPage";
 import { NuvemPage } from "./pages/NuvemPage";
 import { ClockPage } from "./components/DelayMeter";
+import { setZone } from "./lib/access";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { refetchOnWindowFocus: true, retry: 1, staleTime: 5_000 } },
 });
 
-type Boot = { kind: "loading" } | { kind: "setup" } | { kind: "login" } | { kind: "ready"; user: User } | { kind: "down"; message: string };
+type Boot =
+  | { kind: "loading" }
+  | { kind: "setup" }
+  | { kind: "login"; mfa?: boolean }
+  | { kind: "ready"; user: User }
+  | { kind: "down"; message: string };
 
 // Version the page was loaded with; a later deploy shows an "update" notice.
 let loadedVersion = "";
 
 async function bootstrap(): Promise<Boot> {
   try {
-    const s = await get<{ needs_setup: boolean; version?: string }>("/api/setup");
+    const s = await get<{ needs_setup: boolean; version?: string; zone?: string; mfa?: boolean }>("/api/setup");
     loadedVersion ||= s.version ?? "";
+    setZone(s.zone);
     if (s.needs_setup) return { kind: "setup" };
     const me = await get<{ user: User; csrf: string }>("/api/me").catch(() => null);
-    if (!me) return { kind: "login" };
+    if (!me) return { kind: "login", mfa: s.mfa };
     setCsrf(me.csrf);
     return { kind: "ready", user: me.user };
   } catch (e) {
@@ -54,7 +61,8 @@ export function App() {
     void bootstrap().then((b) => live && setBoot(b));
     const off = onUnauthorized(() => {
       queryClient.clear();
-      setBoot({ kind: "login" });
+      setBoot((b) => ({ kind: "login", mfa: b.kind === "login" ? b.mfa : undefined }));
+      void bootstrap().then(setBoot);
     });
     return () => {
       live = false;
@@ -67,12 +75,13 @@ export function App() {
     return (
       <AuthPage mode="login" onDone={() => {}} downMessage={boot.message} onRetry={load} />
     );
-  if (boot.kind !== "ready") return <AuthPage mode={boot.kind} onDone={(user) => setBoot({ kind: "ready", user })} />;
+  if (boot.kind !== "ready")
+    return <AuthPage mode={boot.kind} mfa={boot.kind === "login" && !!boot.mfa} onDone={(user) => setBoot({ kind: "ready", user })} />;
 
   const logout = () => {
     void api("POST", "/api/logout").finally(() => {
       queryClient.clear();
-      setBoot({ kind: "login" });
+      void bootstrap().then(setBoot);
     });
   };
 

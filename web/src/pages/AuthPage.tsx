@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { api, type User } from "../lib/api";
+import { ApiError, api, type User } from "../lib/api";
+import { canChangeConnection, changeConnection, zoneLabel } from "../lib/access";
 import { LighthouseMark } from "../components/Lighthouse";
 import { Panorama } from "../components/Panorama";
 import { Anchor, Compass } from "../components/Decor";
@@ -8,14 +9,18 @@ import { ThemeToggle } from "../components/ThemeToggle";
 
 interface Props {
   mode: "setup" | "login";
+  /** Public path (Funnel/domain): ask for the two-step code (ADR-0019). */
+  mfa?: boolean;
   onDone: (u: User) => void;
   downMessage?: string;
   onRetry?: () => void;
 }
 
-export function AuthPage({ mode, onDone, downMessage, onRetry }: Props) {
+export function AuthPage({ mode, mfa = false, onDone, downMessage, onRetry }: Props) {
   const [username, setUsername] = useState(mode === "setup" ? "admin" : "");
   const [password, setPassword] = useState("");
+  const [code, setCode] = useState("");
+  const [askCode, setAskCode] = useState(mfa);
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -23,6 +28,7 @@ export function AuthPage({ mode, onDone, downMessage, onRetry }: Props) {
   // Opened through the tailnet name (away from home), or offline altogether.
   const remote = location.hostname.endsWith(".ts.net") || !navigator.onLine;
   const android = /Android/i.test(navigator.userAgent);
+  const inApp = canChangeConnection();
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -33,18 +39,30 @@ export function AuthPage({ mode, onDone, downMessage, onRetry }: Props) {
     }
     setBusy(true);
     try {
-      const r = await api<{ user: User }>("POST", setup ? "/api/setup" : "/api/login", { username, password });
+      const body = setup ? { username, password } : askCode ? { username, password, code: code.replace(/\s/g, "") } : { username, password };
+      const r = await api<{ user: User }>("POST", setup ? "/api/setup" : "/api/login", body);
       onDone(r.user);
     } catch (err) {
       const msg = (err as Error).message;
+      if (err instanceof ApiError && err.mfa) {
+        setAskCode(true);
+        setError(askCode ? "Digite o código de 6 dígitos do app autenticador." : "");
+        return;
+      }
       setError(
         msg.includes("invalid username")
           ? "Usuário ou senha incorretos."
-          : msg.includes("too many")
-            ? "Muitas tentativas. Espere um minuto e tente de novo."
-            : msg.includes("at least 8")
-              ? "A senha precisa ter pelo menos 8 caracteres."
-              : msg,
+          : msg.includes("invalid code")
+            ? "Código incorreto ou já usado. Espere o próximo código e tente de novo."
+            : msg.includes("not set up")
+              ? "Esta conta ainda não tem a verificação em 2 etapas. Ative-a em casa: Mais → Segurança."
+              : msg.includes("for this account")
+                ? "Muitas tentativas nesta conta. Espere uma hora."
+                : msg.includes("too many")
+                  ? "Muitas tentativas. Espere um minuto e tente de novo."
+                  : msg.includes("at least 8")
+                    ? "A senha precisa ter pelo menos 8 caracteres."
+                    : msg,
       );
     } finally {
       setBusy(false);
@@ -88,6 +106,11 @@ export function AuthPage({ mode, onDone, downMessage, onRetry }: Props) {
               <button className={`btn block${remote && android ? "" : " primary"}`} onClick={onRetry}>
                 Tentar de novo
               </button>
+              {inApp && (
+                <button className="btn block" onClick={changeConnection}>
+                  Trocar forma de conexão
+                </button>
+              )}
             </div>
           ) : (
             <form onSubmit={submit} className="auth-form">
@@ -105,6 +128,24 @@ export function AuthPage({ mode, onDone, downMessage, onRetry }: Props) {
                 autoFocus={setup}
               />
               {setup && <PasswordField label="Repita a senha" value={confirm} onChange={setConfirm} autoComplete="new-password" matches={password} />}
+              {!setup && askCode && (
+                <div className="field">
+                  <label htmlFor="otp">Código de verificação</label>
+                  <input
+                    id="otp"
+                    className="input otp"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    pattern="[0-9 ]{6,7}"
+                    maxLength={7}
+                    placeholder="000 000"
+                    value={code}
+                    onChange={(e) => setCode(e.target.value)}
+                    required
+                  />
+                  <p className="muted small">Fora de casa: abra o app autenticador e digite o código do Sentinela.</p>
+                </div>
+              )}
               {error && (
                 <p className="notice error" role="alert">
                   {error}
@@ -114,6 +155,19 @@ export function AuthPage({ mode, onDone, downMessage, onRetry }: Props) {
                 {busy ? <span className="spinner small" aria-hidden="true" /> : null}
                 {setup ? "Criar administrador" : "Entrar"}
               </button>
+              {!setup && (
+                <p className="muted small auth-via">
+                  Conectado por: {zoneLabel()}
+                  {inApp && (
+                    <>
+                      {" · "}
+                      <button type="button" className="linkish" onClick={changeConnection}>
+                        trocar
+                      </button>
+                    </>
+                  )}
+                </p>
+              )}
             </form>
           )}
         </div>

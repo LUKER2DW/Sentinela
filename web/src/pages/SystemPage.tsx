@@ -8,6 +8,7 @@ import { VolumeMeter } from "./NuvemPage";
 import { PasswordField } from "../components/PasswordField";
 import { NotificationsCard } from "../components/Notifications";
 import { DevicesCard } from "../components/Devices";
+import { SecurityCard } from "../components/Security";
 import { AddCameraCard } from "../components/AddCamera";
 import { DetectionCard } from "../components/Detection";
 
@@ -55,6 +56,7 @@ export function SystemPage() {
             <Disks s={s} />
             <Server s={s} />
             <Account />
+            <SecurityCard />
             <NotificationsCard />
             <DevicesCard />
             <DetectionCard s={s} />
@@ -429,6 +431,18 @@ function Users() {
                   >
                     Redefinir senha
                   </button>
+                  {u.totp && (
+                    <button
+                      className="btn small ghost"
+                      title="Celular perdido: desliga a verificação em 2 etapas desta conta"
+                      onClick={() =>
+                        window.confirm(`Desligar a verificação em 2 etapas de ${u.username}? Os acessos de fora dessa conta são encerrados.`) &&
+                        update.mutate({ id: u.id, body: { totp_off: true } })
+                      }
+                    >
+                      Desligar 2 etapas
+                    </button>
+                  )}
                   {u.id !== me.id && (
                     <button className="btn small ghost danger" onClick={() => window.confirm(`Remover ${u.username}?`) && remove.mutate(u.id)}>
                       Remover

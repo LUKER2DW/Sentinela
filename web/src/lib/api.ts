@@ -11,6 +11,8 @@ export interface User {
   created_at: string;
   /** Cameras a non-admin may see; empty = all. */
   cameras: string[];
+  /** Two-step login (TOTP) is on: required from outside (ADR-0019). */
+  totp: boolean;
 }
 
 export interface Camera {
@@ -176,9 +178,12 @@ export interface AuditEntry {
 
 export class ApiError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  /** The server wants the two-step code (public zones, ADR-0019). */
+  mfa: boolean;
+  constructor(status: number, message: string, mfa = false) {
     super(message);
     this.status = status;
+    this.mfa = mfa;
   }
 }
 
@@ -215,7 +220,7 @@ export async function api<T>(method: string, path: string, body?: unknown): Prom
   if (!res.ok) {
     if (res.status === 401 && !path.startsWith("/api/login")) unauthorizedListeners.forEach((l) => l());
     const msg = (data as { error?: string } | null)?.error ?? `HTTP ${res.status}`;
-    throw new ApiError(res.status, msg);
+    throw new ApiError(res.status, msg, (data as { mfa?: boolean } | null)?.mfa === true);
   }
   const maybe = data as { csrf?: string } | null;
   if (maybe && typeof maybe.csrf === "string") csrf = maybe.csrf;

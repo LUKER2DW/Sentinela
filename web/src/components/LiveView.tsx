@@ -274,7 +274,7 @@ export function LiveView({ cameraId, cameraName, motion, allowTalk, compact, def
             onKeyDown={(e) => talkKey(e, true)}
             onKeyUp={(e) => talkKey(e, false)}
             onContextMenu={(e) => e.preventDefault()}
-            title={talkAvailable ? "Segure para falar pelo alto-falante da câmera" : "Falar exige HTTPS (disponível com o Tailscale)"}
+            title={talkAvailable ? "Segure para falar pelo alto-falante da câmera" : "Falar exige HTTPS e WebRTC (indisponível pela rede de casa em HTTP e pelo Funnel)"}
           >
             <Icon name="mic" />{" "}
             {holding ? (

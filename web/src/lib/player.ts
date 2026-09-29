@@ -4,6 +4,7 @@
 // The socket URL comes from a single-use ticket issued by the Sentinela API.
 
 import { api } from "./api";
+import { getZone } from "./access";
 
 export type Transport = "webrtc" | "mse";
 export type PlayerState = "connecting" | "playing" | "reconnecting" | "error" | "stopped";
@@ -78,7 +79,8 @@ function rememberWebrtc(ok: boolean) {
 }
 
 export function canTalk(): boolean {
-  return window.isSecureContext && !!navigator.mediaDevices?.getUserMedia;
+  // Talk rides WebRTC, which Tailscale Funnel cannot carry (ADR-0019).
+  return window.isSecureContext && !!navigator.mediaDevices?.getUserMedia && getZone() !== "funnel";
 }
 
 export class LivePlayer {
@@ -137,6 +139,8 @@ export class LivePlayer {
   private pickTransport(): Transport {
     if (this.opts.talk) return "webrtc";
     if (this.opts.prefer) return this.opts.prefer;
+    // Tailscale Funnel carries TCP only: no path for WebRTC media (ADR-0019).
+    if (getZone() === "funnel") return "mse";
     if (!this.webrtcFailed && !webrtcRecentlyFailed() && webrtcSupportsH265()) return "webrtc";
     return "mse";
   }

@@ -9,6 +9,8 @@ interface DeviceSession {
   expires_at: string;
   user_agent: string;
   current: boolean;
+  /** Signed in from outside with two-step login (ADR-0019). */
+  mfa: boolean;
 }
 
 /** A readable name for a session's device, from its user agent. */
@@ -52,7 +54,8 @@ export function DevicesCard() {
             <div>
               <strong>{deviceName(s.user_agent)}</strong>
               <p className="muted small">
-                {s.current ? "Este aparelho · " : ""}entrou em {fmtDate(s.created_at)}, vale até {fmtDate(s.expires_at)}
+                {s.current ? "Este aparelho · " : ""}
+                {s.mfa ? "de fora de casa · " : ""}entrou em {fmtDate(s.created_at)}, vale até {fmtDate(s.expires_at)}
               </p>
             </div>
             {!s.current && (
@@ -67,7 +70,7 @@ export function DevicesCard() {
           </div>
         ))}
       </div>
-      <p className="muted small card-foot">Perdeu o celular? Desconecte-o aqui e remova-o também no painel do Tailscale.</p>
+      <p className="muted small card-foot">Perdeu o celular? Desconecte-o aqui, remova-o no painel do Tailscale e, se ele tinha o app autenticador, refaça a verificação em 2 etapas.</p>
     </section>
   );
 }
