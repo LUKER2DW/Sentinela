@@ -10,3 +10,10 @@ web/dist/*
 *.jpg
 .DS_Store
 web/*.tsbuildinfo
+# Android app (Stage B2): dependencies, build output, signing keys
+mobile/node_modules/
+mobile/build/
+*.apk
+*.aab
+*.jks
+*.keystore
