@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/LUKER2DW/sentinela/internal/config"
+	"github.com/LUKER2DW/sentinela/internal/recording"
 	"github.com/LUKER2DW/sentinela/internal/store"
 )
 
@@ -60,6 +61,28 @@ func timelapseList(segs []store.Segment, from, to time.Time, every time.Duration
 		n++
 	}
 	return b.String(), n
+}
+
+// timelapsePicks samples one instant every `every` in [from, to) like
+// timelapseList, as segment files and offsets for recording.WriteKeyframes.
+func timelapsePicks(segs []store.Segment, from, to time.Time, every time.Duration, path func(string) string) []recording.Pick {
+	var out []recording.Pick
+	i := 0
+	for t := from; t.Before(to) && len(out) < timelapseMaxFrames; t = t.Add(every) {
+		for i < len(segs) && !segs[i].End.After(t) {
+			i++
+		}
+		if i == len(segs) {
+			break
+		}
+		if segs[i].Start.After(t) {
+			continue
+		}
+		if p := path(segs[i].Path); p != "" {
+			out = append(out, recording.Pick{Path: p, At: t.Sub(segs[i].Start)})
+		}
+	}
+	return out
 }
 
 // tlParams is one timelapse request, validated.
@@ -287,6 +310,39 @@ func (s *Server) runTimelapse(p tlParams, key, dir string) {
 		fail("failed", ctx.Err())
 		return
 	}
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		fail("failed", err)
+		return
+	}
+	pruneTimelapses(dir, time.Now())
+	final := filepath.Join(dir, key+".mp4")
+	part := final + ".part"
+	// Fast path: read only the sampled keyframes (index at the end of each
+	// segment); ffmpeg just wraps them. Falls back to the concat recipe.
+	if segs, err := s.Store.SegmentsBetween(ctx, p.cam.ID, p.from, p.to); err == nil {
+		if picks := timelapsePicks(segs, p.from, p.to, p.every, s.segmentPath); len(picks) > 0 {
+			s.tl.update(key, func(j *tlJob) { j.State, j.Total = "running", len(picks) })
+			start := time.Now()
+			err := s.keyframeTimelapse(ctx, picks, p.fps, part, func(n int) { s.tl.update(key, func(j *tlJob) { j.Done = n }) })
+			if err == nil {
+				if err := os.Rename(part, final); err != nil {
+					fail("failed", err)
+					return
+				}
+				st, _ := os.Stat(final)
+				s.tl.update(key, func(j *tlJob) {
+					j.State, j.Done = "ready", j.Total
+					if st != nil {
+						j.Bytes = st.Size()
+					}
+				})
+				s.Log.Info("timelapse ready", "frames", len(picks), "took", time.Since(start).Round(time.Millisecond))
+				return
+			}
+			_ = os.Remove(part)
+			s.Log.Info("timelapse fast path unavailable, using ffmpeg concat", "err", err)
+		}
+	}
 	args, n, cleanup, err := s.timelapseArgs(ctx, p)
 	if err != nil {
 		fail("failed", err)
@@ -297,14 +353,7 @@ func (s *Server) runTimelapse(p tlParams, key, dir string) {
 		return
 	}
 	defer cleanup()
-	if err := os.MkdirAll(dir, 0o750); err != nil {
-		fail("failed", err)
-		return
-	}
-	pruneTimelapses(dir, time.Now())
-	final := filepath.Join(dir, key+".mp4")
-	part := final + ".part"
-	s.tl.update(key, func(j *tlJob) { j.State, j.Total = "running", n })
+	s.tl.update(key, func(j *tlJob) { j.State, j.Total, j.Done = "running", n, 0 })
 	args = append(args, "-movflags", "+faststart", "-progress", "pipe:1", "-nostats", "-f", "mp4", "-y", part)
 	cmd := exec.CommandContext(ctx, s.FFmpeg, args...)
 	var stderr strings.Builder
@@ -342,6 +391,33 @@ func (s *Server) runTimelapse(p tlParams, key, dir string) {
 			j.Bytes = st.Size()
 		}
 	})
+}
+
+// keyframeTimelapse writes the picked keyframes through ffmpeg (-c copy,
+// faststart) into out.
+func (s *Server) keyframeTimelapse(ctx context.Context, picks []recording.Pick, fps int, out string, progress func(int)) error {
+	cmd := exec.CommandContext(ctx, s.FFmpeg, "-nostdin", "-hide_banner", "-loglevel", "error",
+		"-f", "mp4", "-i", "pipe:0", "-map", "0:v:0", "-c", "copy", "-movflags", "+faststart", "-f", "mp4", "-y", out)
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return err
+	}
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	werr := recording.WriteKeyframes(stdin, picks, fps, progress)
+	_ = stdin.Close()
+	if werr != nil {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		return werr
+	}
+	if err := cmd.Wait(); err != nil {
+		return fmt.Errorf("%w: %s", err, stderr.String())
+	}
+	return nil
 }
 
 // pruneTimelapses drops prepared files older than timelapseKeep and keeps
