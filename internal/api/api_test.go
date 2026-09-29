@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -24,8 +25,13 @@ type client struct {
 }
 
 func newTestServer(t *testing.T) (*httptest.Server, *Server) {
+	return newTestServerWith(t, "")
+}
+
+// newTestServerWith adds YAML (e.g. volumes) to the test config.
+func newTestServerWith(t *testing.T, extra string) (*httptest.Server, *Server) {
 	t.Helper()
-	cfg, err := config.Parse([]byte(`
+	cfg, err := config.Parse([]byte(extra+`
 data_dir: `+filepath.ToSlash(t.TempDir())+`
 go2rtc_api: http://127.0.0.1:1
 cameras:
@@ -263,5 +269,68 @@ func TestSessionCookieSecureOnlyOverHTTPS(t *testing.T) {
 	}
 	if c := post("/api/login", "127.0.0.1:41000", "https"); !c.Secure {
 		t.Error("login through tailscale serve did not get a Secure cookie")
+	}
+}
+
+func TestNuvemFileAPI(t *testing.T) {
+	share := t.TempDir()
+	ts, _ := newTestServerWith(t, "volumes:\n  - {id: nuvem, name: Nuvem, path: "+filepath.ToSlash(share)+", kind: nas}\n")
+	admin := newClient(t, ts.URL)
+	if code, _, body := admin.do("POST", "/api/setup", `{"username":"dono","password":"long enough pw"}`); code != 200 {
+		t.Fatalf("setup = %d %s", code, body)
+	}
+	admin.do("POST", "/api/users", `{"username":"view","password":"viewer password","role":"viewer"}`)
+
+	code, m, body := admin.do("GET", "/api/nas/list?path=", "")
+	if code != 200 || !strings.Contains(body, `"dono"`) || !strings.Contains(body, `"Compartilhado"`) || m["can_write"] != true {
+		t.Fatalf("list root = %d %s", code, body)
+	}
+	// Resumable upload in two chunks.
+	if code, _, body := admin.do("PUT", "/api/nas/upload?path=dono/a.txt&offset=0&total=11", "hello "); code != 200 {
+		t.Fatalf("chunk 1 = %d %s", code, body)
+	}
+	if code, m, _ := admin.do("GET", "/api/nas/upload?path=dono/a.txt", ""); code != 200 || m["offset"] != float64(6) {
+		t.Fatalf("resume point = %d %v", code, m)
+	}
+	if code, m, _ := admin.do("PUT", "/api/nas/upload?path=dono/a.txt&offset=0&total=11", "x"); code != 409 || m["offset"] != float64(6) {
+		t.Fatalf("stale offset = %d %v", code, m)
+	}
+	if code, m, _ := admin.do("PUT", "/api/nas/upload?path=dono/a.txt&offset=6&total=11", "world"); code != 200 || m["done"] != true {
+		t.Fatalf("chunk 2 = %d %v", code, m)
+	}
+	// Range download, served as an attachment with a sandbox CSP.
+	req, _ := http.NewRequest("GET", ts.URL+"/api/nas/file?path=dono/a.txt", nil)
+	req.Header.Set("Range", "bytes=6-")
+	resp, err := admin.hc.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != 206 || string(got) != "world" || !strings.HasPrefix(resp.Header.Get("Content-Disposition"), "attachment") ||
+		!strings.Contains(resp.Header.Get("Content-Security-Policy"), "sandbox") {
+		t.Fatalf("download = %d %q %v", resp.StatusCode, got, resp.Header)
+	}
+	// Viewer: reads the shared folder, cannot write, cannot see the admin's folder.
+	viewer := newClient(t, ts.URL)
+	viewer.do("POST", "/api/login", `{"username":"view","password":"viewer password"}`)
+	if code, _, _ := viewer.do("PUT", "/api/nas/upload?path=Compartilhado/x&offset=0&total=1", "x"); code != 403 {
+		t.Fatalf("viewer upload = %d", code)
+	}
+	if code, _, _ := viewer.do("GET", "/api/nas/file?path=dono/a.txt", ""); code != 403 {
+		t.Fatalf("viewer reads admin file = %d", code)
+	}
+	if code, _, _ := viewer.do("GET", "/api/nas/file?path=../../etc/passwd", ""); code != 403 && code != 404 {
+		t.Fatalf("traversal = %d", code)
+	}
+	// Delete goes to the recycle bin and is audited.
+	if code, m, _ := admin.do("DELETE", "/api/nas/file?path=dono/a.txt", ""); code != 200 || m["trash"] != ".lixeira/dono/dono/a.txt" {
+		t.Fatalf("delete = %d %v", code, m)
+	}
+	if _, err := os.Stat(filepath.Join(share, ".lixeira", "dono", "dono", "a.txt")); err != nil {
+		t.Fatalf("not in the bin: %v", err)
+	}
+	if _, _, body := admin.do("GET", "/api/audit", ""); !strings.Contains(body, "nas.upload") || !strings.Contains(body, "nas.delete") {
+		t.Fatalf("audit = %s", body)
 	}
 }

@@ -43,8 +43,11 @@
    reachable over the tailnet: remote users always get HTTPS. Samba binds to
    `eno1`, no guest; it joins the tailnet only after per-user passwords of
    ≥ 12 characters and the owner's approval.
-   The web container mounts the NAS read-only and gets SMART data as a file,
-   never device access. The owner granted `ana` passwordless sudo for
+   The web container mounts the NAS read-write for the file API (ADR-0012:
+   `os.Root` confinement, per-user folders, deletes go to the recycle bin,
+   user files served with a sandbox CSP and never inline unless media) and
+   gets SMART data as a file, never device access. The recorder cannot see
+   the NAS. The owner granted `ana` passwordless sudo for
    automated administration (`/etc/sudoers.d/90-ana-admin`); remove it
    when not needed.
 

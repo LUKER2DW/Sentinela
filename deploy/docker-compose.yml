@@ -69,8 +69,9 @@ services:
     volumes:
       - /etc/sentinela/config.yaml:/etc/sentinela/config.yaml:ro
       - /data:/data
-      # Read-only, only to report free space of the LAN shares (ADR-0008).
-      - /srv/nas:/srv/nas:ro
+      # Nuvem file API (ADR-0012): read-write, confined with os.Root. UID 1000
+      # owns the share, as Samba's account does. The recorder has no access.
+      - /srv/nas:/srv/nas
       # Read-only, only to report free space of the backup disk (ADR-0014).
       - /srv/backup:/srv/backup:ro
       # SMART and backup status written by host timers (disk-health.sh, backup.sh).

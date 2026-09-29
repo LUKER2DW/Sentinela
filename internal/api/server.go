@@ -15,6 +15,7 @@ import (
 	"github.com/LUKER2DW/sentinela/internal/auth"
 	"github.com/LUKER2DW/sentinela/internal/camera/dvrip"
 	"github.com/LUKER2DW/sentinela/internal/config"
+	"github.com/LUKER2DW/sentinela/internal/nas"
 	"github.com/LUKER2DW/sentinela/internal/store"
 )
 
@@ -37,6 +38,11 @@ type Server struct {
 	hub      *Hub
 	stateMu  sync.Mutex
 	stateTTL map[string]cachedState
+
+	// Nuvem file API (ADR-0012); nil when the share is not mounted.
+	nas     *nas.Share
+	nasRoot string
+	thumbs  *nas.Thumbs
 }
 
 type cachedState struct {
@@ -58,6 +64,7 @@ func New(cfg *config.Config, st *store.Store, web fs.FS, log *slog.Logger) (*Ser
 		addr := hostPort(cam.Host, cam.DVRIPPort)
 		s.ctrl[cam.ID] = dvrip.NewController(addr, cam.User, cam.Password, cam.InvertPanTilt, log.With("camera", cam.ID))
 	}
+	s.openNAS()
 	return s, nil
 }
 
@@ -68,6 +75,9 @@ func (s *Server) Hub() *Hub { return s.hub }
 func (s *Server) Close() {
 	for _, c := range s.ctrl {
 		c.Close()
+	}
+	if s.nas != nil {
+		s.nas.Close()
 	}
 }
 
@@ -116,6 +126,16 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/events", viewer(s.listEvents))
 	mux.Handle("GET /api/events/stream", viewer(s.eventStream))
 	mux.Handle("GET /api/system", viewer(s.system))
+
+	// Nuvem file API (ADR-0012): viewers read, operators and admins write.
+	mux.Handle("GET /api/nas/list", viewer(s.nasList))
+	mux.Handle("GET /api/nas/file", viewer(s.nasFile))
+	mux.Handle("GET /api/nas/thumb", viewer(s.nasThumb))
+	mux.Handle("GET /api/nas/upload", operator(s.nasUploadStatus))
+	mux.Handle("PUT /api/nas/upload", operator(s.nasUpload))
+	mux.Handle("POST /api/nas/mkdir", operator(s.nasMkdir))
+	mux.Handle("POST /api/nas/move", operator(s.nasMove))
+	mux.Handle("DELETE /api/nas/file", operator(s.nasDelete))
 
 	mux.Handle("/api/", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		writeErr(w, http.StatusNotFound, "not found")

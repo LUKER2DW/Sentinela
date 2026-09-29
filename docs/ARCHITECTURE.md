@@ -4,7 +4,7 @@
 
 | Component | Runs as | Responsibility |
 |---|---|---|
-| `sentinela` | container, `sentinela serve` | API, auth, SPA hosting, stream proxy, camera control (DVRIP), ONVIF events, nightly DB backup |
+| `sentinela` | container, `sentinela serve` | API, auth, SPA hosting, stream proxy, camera control (DVRIP), ONVIF events, Nuvem file API (ADR-0012) |
 | `recorder` | container, `sentinela record` (same image, ADR-0007) | ffmpeg per camera, segment indexer, retention, heartbeat |
 | `go2rtc` | container (`alexxit/go2rtc`, pinned) | RTSP ingest, WebRTC/MSE/HLS/MJPEG out, two-way audio, snapshots |
 | Tailscale | host package (ADR-0004) | Private remote access; `tailscale serve` terminates HTTPS on :443 for `sentinela.<tailnet>.ts.net` and proxies to 127.0.0.1:8080 |
