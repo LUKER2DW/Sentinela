@@ -5,6 +5,7 @@ import { useSession, useToast } from "../lib/session";
 import { fmtBytes, fmtDuration, fmtTime, relative } from "../lib/time";
 import { useCameras } from "./LivePage";
 import { VolumeMeter } from "./NuvemPage";
+import { PasswordField } from "../components/PasswordField";
 
 const roleLabel: Record<Role, string> = { admin: "Administrador", operator: "Operador", viewer: "Visualizador" };
 const stateLabel: Record<string, string> = {
@@ -233,15 +234,15 @@ function Account() {
         {user.username}, {roleLabel[user.role].toLowerCase()}
       </p>
       <form
-        style={{ display: "grid", gap: 10 }}
+        className="form-stack"
         onSubmit={(e) => {
           e.preventDefault();
           change.mutate();
         }}
       >
-        <input className="input" type="password" autoComplete="current-password" placeholder="Senha atual" aria-label="Senha atual" value={cur} onChange={(e) => setCur(e.target.value)} required />
-        <input className="input" type="password" autoComplete="new-password" placeholder="Nova senha" aria-label="Nova senha" minLength={8} value={next} onChange={(e) => setNext(e.target.value)} required />
-        <div style={{ display: "flex", gap: 8 }}>
+        <PasswordField label="Senha atual" value={cur} onChange={setCur} autoComplete="current-password" />
+        <PasswordField label="Nova senha" value={next} onChange={setNext} autoComplete="new-password" meter minLength={8} />
+        <div className="card-foot row-gap">
           <button className="btn" disabled={change.isPending}>
             Alterar senha
           </button>
@@ -278,6 +279,8 @@ function Users() {
     onSuccess: refresh,
     onError: (e: Error) => toast(e.message, true),
   });
+  const [resetFor, setResetFor] = useState<User | null>(null);
+  const [resetPw, setResetPw] = useState("");
   const remove = useMutation({
     mutationFn: (id: number) => api("DELETE", `/api/users/${id}`),
     onSuccess: refresh,
@@ -313,8 +316,8 @@ function Users() {
                   <button
                     className="btn small ghost"
                     onClick={() => {
-                      const p = window.prompt(`Nova senha para ${u.username} (mínimo 8 caracteres):`);
-                      if (p) update.mutate({ id: u.id, body: { password: p } });
+                      setResetPw("");
+                      setResetFor(u);
                     }}
                   >
                     Redefinir senha
@@ -338,7 +341,7 @@ function Users() {
         }}
       >
         <input className="input" placeholder="Novo usuário" aria-label="Novo usuário" value={name} onChange={(e) => setName(e.target.value)} required pattern="[A-Za-z0-9._\-]{3,32}" />
-        <input className="input" type="password" autoComplete="new-password" placeholder="Senha (8+ caracteres)" aria-label="Senha" minLength={8} value={pw} onChange={(e) => setPw(e.target.value)} required />
+        <PasswordField label="Senha (8+ caracteres)" hideLabel value={pw} onChange={setPw} autoComplete="new-password" minLength={8} />
         <select className="input" value={role} onChange={(e) => setRole(e.target.value as Role)} aria-label="Perfil">
           {Object.entries(roleLabel).map(([v, l]) => (
             <option key={v} value={v}>
@@ -353,6 +356,37 @@ function Users() {
       <p className="faint" style={{ fontSize: "0.85rem", marginTop: 8 }}>
         Visualizador assiste. Operador também move a câmera, liga a luz e fala. Administrador também gerencia usuários.
       </p>
+      {resetFor && (
+        <div className="dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="reset-title" onClick={(e) => e.target === e.currentTarget && setResetFor(null)}>
+          <form
+            className="dialog"
+            onSubmit={(e) => {
+              e.preventDefault();
+              update.mutate(
+                { id: resetFor.id, body: { password: resetPw } },
+                {
+                  onSuccess: () => {
+                    toast(`Senha de ${resetFor.username} redefinida`);
+                    setResetFor(null);
+                  },
+                },
+              );
+            }}
+          >
+            <h2 id="reset-title">Nova senha para {resetFor.username}</h2>
+            <p className="muted">Os aparelhos conectados com essa conta saem e precisam entrar de novo.</p>
+            <PasswordField label="Nova senha" value={resetPw} onChange={setResetPw} autoComplete="new-password" meter minLength={8} autoFocus />
+            <div className="dialog-actions">
+              <button type="button" className="btn ghost" onClick={() => setResetFor(null)}>
+                Cancelar
+              </button>
+              <button className="btn primary" disabled={update.isPending}>
+                Redefinir senha
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </section>
   );
 }

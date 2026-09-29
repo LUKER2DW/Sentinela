@@ -7,7 +7,8 @@ import { LiveEventsProvider, useActiveEvents } from "./lib/liveEvents";
 import { toggleSidebar, useSidebarCollapsed } from "./lib/sidebar";
 import { startOfDay, useNow } from "./lib/time";
 import { Icon } from "./components/Icon";
-import { LighthouseMark, OceanScene } from "./components/Doodles";
+import { OceanScene } from "./components/Doodles";
+import { LighthouseMark } from "./components/Lighthouse";
 import { ThemeToggle } from "./components/ThemeToggle";
 import { AuthPage } from "./pages/AuthPage";
 import { LivePage } from "./pages/LivePage";
@@ -155,8 +156,8 @@ function Shell() {
           ))}
         </div>
         <span className="side-spacer" />
-        <div className="side-foot">
-          <ThemeToggle />
+        <div className="side-sea">
+          <OceanScene className="side-ocean" />
           <div className="who">
             <span className="avatar" aria-hidden="true">
               {user.username.slice(0, 1).toUpperCase()}
@@ -170,9 +171,11 @@ function Shell() {
             </button>
           </div>
         </div>
-        <OceanScene className="side-ocean" />
       </nav>
       <main className="main">
+        <div className="topbar">
+          <ThemeToggle />
+        </div>
         <div className="page">
           {route.page === "recordings" ? (
             <RecordingsPage params={route.params} />

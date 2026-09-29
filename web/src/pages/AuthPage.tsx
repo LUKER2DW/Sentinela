@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { api, type User } from "../lib/api";
-import { Gull, Lighthouse, Waves } from "../components/Doodles";
+import { LighthouseMark, LighthouseScene } from "../components/Lighthouse";
+import { PasswordField } from "../components/PasswordField";
 import { ThemeToggle } from "../components/ThemeToggle";
 
 interface Props {
@@ -48,17 +49,16 @@ export function AuthPage({ mode, onDone, downMessage, onRetry }: Props) {
   return (
     <div className="auth">
       <div className="auth-art" aria-hidden="true">
-        <Gull className="g1" />
-        <Gull className="g2" />
-        <Gull className="g3" />
-        <Lighthouse />
-        <Waves rows={3} />
+        <LighthouseScene />
       </div>
       <div className="auth-panel">
         <ThemeToggle className="auth-top" />
         <div className="auth-card">
-          <div className="stack-sm">
-            <h1>Sentinela</h1>
+          <div className="auth-head">
+            <div className="auth-brand">
+              <LighthouseMark />
+              <h1>Sentinela</h1>
+            </div>
             <p className="muted">
               {downMessage
                 ? "O servidor não respondeu. Confira se ele está ligado e tente de novo."
@@ -75,34 +75,25 @@ export function AuthPage({ mode, onDone, downMessage, onRetry }: Props) {
             <form onSubmit={submit}>
               <div className="field">
                 <label htmlFor="u">Usuário</label>
-                <input id="u" className="input" autoComplete="username" value={username} onChange={(e) => setUsername(e.target.value)} required autoFocus={!setup} />
+                <input id="u" className="input" autoComplete="username" autoCapitalize="none" spellCheck={false} value={username} onChange={(e) => setUsername(e.target.value)} required autoFocus={!setup} />
               </div>
-              <div className="field">
-                <label htmlFor="p">Senha</label>
-                <input
-                  id="p"
-                  className="input"
-                  type="password"
-                  autoComplete={setup ? "new-password" : "current-password"}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  minLength={setup ? 8 : undefined}
-                  autoFocus={setup}
-                />
-              </div>
-              {setup && (
-                <div className="field">
-                  <label htmlFor="c">Repita a senha</label>
-                  <input id="c" className="input" type="password" autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} required />
-                </div>
-              )}
+              <PasswordField
+                label="Senha"
+                value={password}
+                onChange={setPassword}
+                autoComplete={setup ? "new-password" : "current-password"}
+                meter={setup}
+                minLength={setup ? 8 : undefined}
+                autoFocus={setup}
+              />
+              {setup && <PasswordField label="Repita a senha" value={confirm} onChange={setConfirm} autoComplete="new-password" matches={password} />}
               {error && (
                 <p className="notice error" role="alert">
                   {error}
                 </p>
               )}
-              <button className="btn primary" disabled={busy}>
+              <button className="btn primary block" disabled={busy}>
+                {busy ? <span className="spinner small" aria-hidden="true" /> : null}
                 {setup ? "Criar administrador" : "Entrar"}
               </button>
             </form>

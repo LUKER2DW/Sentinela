@@ -1,5 +1,3 @@
-import { useId } from "react";
-
 // Hand-drawn line doodles (ocean theme). Stroke-only, currentColor, slightly
 // wobbly paths so they read as sketches. Motion lives in CSS (.dd-*) and is
 // disabled under prefers-reduced-motion.
@@ -11,63 +9,6 @@ const stroke = {
   strokeLinecap: "round" as const,
   strokeLinejoin: "round" as const,
 };
-
-/** Repeating wave line; drifts sideways when animated. */
-export function Waves({ className = "", rows = 2 }: { className?: string; rows?: number }) {
-  const line = (y: number) =>
-    // Period 50 units: the pattern repeats exactly, so a -200 unit drift loops seamlessly.
-    `M0 ${y} ` + Array.from({ length: 16 }, (_, i) => `q12.5 ${i % 2 ? 6 : -6} 25 0`).join(" ");
-  return (
-    <svg className={`dd-waves ${className}`} viewBox="0 0 200 40" preserveAspectRatio="none" aria-hidden="true">
-      <g className="dd-drift" {...stroke}>
-        {Array.from({ length: rows }, (_, r) => (
-          <path key={r} d={line(14 + r * 12)} opacity={1 - r * 0.35} transform={`translate(${-r * 9} 0)`} />
-        ))}
-      </g>
-    </svg>
-  );
-}
-
-/** The sentinel: a small lighthouse with a pulsing lamp. */
-export function Lighthouse({ className = "" }: { className?: string }) {
-  return (
-    <svg className={`dd-lighthouse ${className}`} viewBox="0 0 160 170" aria-hidden="true">
-      <g className="dd-beam" {...stroke} strokeWidth={1.6}>
-        <path d="M92 55 L154 36" />
-        <path d="M92 61 L156 78" />
-        <path d="M68 55 L8 38" />
-        <path d="M68 61 L5 80" />
-      </g>
-      <g {...stroke}>
-        {/* lamp room + roof */}
-        <path d="M69 64 L68.5 47 Q80 44.5 91.5 47.2 L91 64" />
-        <path d="M65 47.5 L80.5 34 L95.5 47.8" />
-        <path d="M80.5 34 L80.7 28.5" />
-        <circle className="dd-lamp" cx="80" cy="56" r="4.2" fill="currentColor" stroke="none" />
-        {/* railing */}
-        <path d="M63 64.5 Q80 62.5 97.5 64.8" />
-        {/* tower */}
-        <path d="M70.5 65 L64 146" />
-        <path d="M90 65 L96.5 146.5" />
-        <path d="M67.8 101 Q80.4 98.5 92.8 101.4" />
-        <path d="M66.3 121 Q80.6 118.3 94.6 121.6" />
-        <path d="M76.8 80.5 q3.3 -2.2 6.6 0.2 l0.1 7.8 q-3.4 1.1 -6.8 0 z" />
-        {/* rock + sea */}
-        <path d="M46 147 Q58 141 72 144.5 Q88 140 103 144 Q115 142 120 148" />
-        <path d="M18 157 q10 -6 20 0 t20 0 t20 0 t20 0 t20 0 t20 0" className="dd-sway" />
-        <path d="M34 166 q10 -5 20 0 t20 0 t20 0 t20 0" opacity={0.55} className="dd-sway dd-sway-slow" />
-      </g>
-    </svg>
-  );
-}
-
-export function Gull({ className = "" }: { className?: string }) {
-  return (
-    <svg className={`dd-gull ${className}`} viewBox="0 0 28 12" aria-hidden="true">
-      <path {...stroke} strokeWidth={1.8} d="M2 9 Q7.5 1.5 14 8 Q20 1 26 8.5" />
-    </svg>
-  );
-}
 
 export function Boat({ className = "" }: { className?: string }) {
   return (
@@ -119,62 +60,6 @@ export function Moon({ className = "", style }: { className?: string; style?: Re
   return (
     <svg className={className} style={style} viewBox="0 0 24 24" aria-hidden="true">
       <path {...stroke} strokeWidth={1.7} d="M19.5 14.6A7.8 7.8 0 0 1 9.4 4.5a7.8 7.8 0 1 0 10.1 10.1z" />
-    </svg>
-  );
-}
-
-/** Small lighthouse glyph used as the brand mark. */
-export function Mark({ className = "" }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 32 32" aria-hidden="true">
-      <g {...stroke} strokeWidth={1.9}>
-        <path d="M12.6 11.4 L12.5 7.6 Q16 6.8 19.5 7.7 L19.4 11.4" />
-        <path d="M11.4 7.8 L16 3.8 L20.6 7.9" />
-        <path d="M12.9 11.6 L10.8 25.6 M19.1 11.6 L21.3 25.7" />
-        <path d="M11.9 18.2 Q16 17.4 20.2 18.4" />
-        <path d="M4 27.5 q3 -2.2 6 0 t6 0 t6 0 t6 0" />
-      </g>
-      <circle className="dd-lamp" cx="16" cy="9.6" r="1.4" fill="currentColor" />
-    </svg>
-  );
-}
-
-/**
- * Detailed brand lighthouse: striped tower, gallery, lantern and a beam that
- * sweeps around (a cone whose width flips through zero, like a turning lamp).
- */
-export function LighthouseMark({ className = "" }: { className?: string }) {
-  const clip = `lh-clip-${useId().replace(/:/g, "")}`;
-  return (
-    <svg className={`lh-mark ${className}`} viewBox="0 0 48 48" aria-hidden="true">
-      <defs>
-        <clipPath id={clip}>
-          <path d="M19.6 18.2 H28.4 L31.2 40 H16.8 Z" />
-        </clipPath>
-      </defs>
-      {/* beam: drawn first so the tower sits on top of it */}
-      <path className="lh-beam" d="M24 13.4 L47 6.5 Q48.5 13.4 47 20.3 Z" />
-      {/* tower body + stripes */}
-      <path d="M19.6 18.2 H28.4 L31.2 40 H16.8 Z" className="lh-body" />
-      <g clipPath={`url(#${clip})`} className="lh-stripe">
-        <rect x="10" y="23" width="28" height="4.2" />
-        <rect x="10" y="31.4" width="28" height="4.2" />
-      </g>
-      <path d="M19.6 18.2 H28.4 L31.2 40 H16.8 Z" className="lh-line" />
-      <path d="M22.4 40 V36.4 Q24 34.6 25.6 36.4 V40" className="lh-line" />
-      {/* gallery + railing */}
-      <rect x="16.8" y="16.4" width="14.4" height="1.9" rx="0.6" className="lh-roof" />
-      <path d="M17.6 16.4 V14.6 M20.4 16.4 V14.6 M27.6 16.4 V14.6 M30.4 16.4 V14.6 M17.2 14.6 H30.8" className="lh-line thin" />
-      {/* lantern room with glass and lamp */}
-      <rect x="20.6" y="10.6" width="6.8" height="5.8" rx="0.8" className="lh-glass" />
-      <circle cx="24" cy="13.4" r="1.9" className="lh-lamp" />
-      <path d="M20.6 10.6 H27.4 M24 10.6 V16.4" className="lh-line thin" />
-      {/* dome + finial */}
-      <path d="M19.8 10.8 Q24 4.6 28.2 10.8 Z" className="lh-roof" />
-      <path d="M24 6.2 V3.8" className="lh-line" />
-      {/* rock + sea */}
-      <path d="M12.5 41.5 Q17 39 24 40 Q31 39 35.5 41.6 Z" className="lh-rock" />
-      <path d="M4 44.6 q3.3 -2.2 6.6 0 t6.6 0 t6.6 0 t6.6 0 t6.6 0 t6.6 0" className="lh-line lh-sea" />
     </svg>
   );
 }

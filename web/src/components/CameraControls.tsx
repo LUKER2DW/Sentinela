@@ -4,7 +4,7 @@ import { api, get, type ControlState, type DayNight } from "../lib/api";
 import { useToast } from "../lib/session";
 import { dayNightLabel } from "../lib/time";
 import { Icon } from "./Icon";
-import { Mark } from "./Doodles";
+import { LighthouseMark } from "./Lighthouse";
 
 type Op = "move" | "zoom" | "focus";
 
@@ -113,7 +113,7 @@ export function PtzPanel({ cameraId, canControl }: { cameraId: string; canContro
           );
         })}
         <div className="hub" aria-hidden="true">
-          <Mark />
+          <LighthouseMark />
         </div>
       </div>
 
