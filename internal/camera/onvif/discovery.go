@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -51,18 +52,37 @@ func Discover(ctx context.Context, wait time.Duration) ([]Device, error) {
 	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
 		deadline = d
 	}
-	_ = conn.SetReadDeadline(deadline)
-	found := map[string]Device{}
-	buf := make([]byte, 64<<10)
-	for {
-		n, _, err := conn.ReadFromUDP(buf)
-		if err != nil {
-			break // deadline reached
-		}
-		for _, d := range ParseProbeMatches(buf[:n]) {
-			found[fmt.Sprintf("%s:%d", d.Host, d.Port)] = d
-		}
+	// Answers come unicast to our port, but a host firewall drops those (no
+	// conntrack match: the source is the camera, not the group). XMEye
+	// cameras repeat the answer to the group on 3702, so listen there too.
+	conns := []*net.UDPConn{conn}
+	if mc, err := net.ListenMulticastUDP("udp4", nil, dst); err == nil {
+		defer mc.Close()
+		conns = append(conns, mc)
 	}
+	found := map[string]Device{}
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	for _, c := range conns {
+		_ = c.SetReadDeadline(deadline)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			buf := make([]byte, 64<<10)
+			for {
+				n, _, err := c.ReadFromUDP(buf)
+				if err != nil {
+					return // deadline reached
+				}
+				mu.Lock()
+				for _, d := range ParseProbeMatches(buf[:n]) {
+					found[fmt.Sprintf("%s:%d", d.Host, d.Port)] = d
+				}
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
 	out := make([]Device, 0, len(found))
 	for _, d := range found {
 		out = append(out, d)
