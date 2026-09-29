@@ -45,6 +45,15 @@ export function fmtDuration(ms: number): string {
   return `${Math.floor(h / 24)} dias`;
 }
 
+/** Stopwatch text: 0:07, 12:45, 1:02:03. */
+export function fmtClock(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  const p = (n: number) => String(n).padStart(2, "0");
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  return h ? `${h}:${p(m)}:${p(s % 60)}` : `${m}:${p(s % 60)}`;
+}
+
 export function fmtBytes(b: number): string {
   const units = ["B", "KB", "MB", "GB", "TB"];
   let i = 0;

@@ -21,14 +21,16 @@ function stampServiceWorker(): Plugin {
   };
 }
 
-// In dev, the Go API runs on :8080; Vite proxies API, stream WS and health.
+// In dev, the Go API runs on :8080 (SENTINELA_API overrides it); Vite
+// proxies API, stream WS and health.
+const API = process.env.SENTINELA_API ?? "http://127.0.0.1:8080";
 export default defineConfig({
   plugins: [react(), stampServiceWorker()],
   server: {
     proxy: {
-      "/api": { target: "http://127.0.0.1:8080" },
-      "/stream": { target: "ws://127.0.0.1:8080", ws: true },
-      "/healthz": { target: "http://127.0.0.1:8080" },
+      "/api": { target: API },
+      "/stream": { target: API.replace(/^http/, "ws"), ws: true },
+      "/healthz": { target: API },
     },
   },
   build: { outDir: "dist", emptyOutDir: true, sourcemap: false, target: "es2022" },

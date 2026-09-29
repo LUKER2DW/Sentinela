@@ -23,6 +23,9 @@ export interface PlayerOptions {
   /** Send the local microphone (two-way audio). Needs a secure context. */
   talk?: boolean;
   onStatus?: (s: PlayerStatus) => void;
+  /** Called just before the picture is dropped (reconnect, stop): the view
+   * keeps the last frame on screen instead of a black flash. */
+  onTeardown?: () => void;
 }
 
 const MSE_CODECS = [
@@ -404,6 +407,7 @@ export class LivePlayer {
 
   private teardown() {
     window.clearTimeout(this.fallbackTimer);
+    if (this.ws || this.pc || this.ms) this.opts.onTeardown?.();
     const ws = this.ws;
     this.ws = undefined;
     if (ws) {

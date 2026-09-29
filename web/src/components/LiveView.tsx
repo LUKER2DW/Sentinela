@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { LivePlayer, canTalk, type PlayerStatus } from "../lib/player";
 import { NO_ZOOM, clampZoom, haptic, saveStream, type Zoom } from "../lib/gestures";
+import { ClipRecorder, canRecord, grabFrame, paintFrame, saveBlob, stamp } from "../lib/capture";
+import { useToast } from "../lib/session";
+import { fmtClock } from "../lib/time";
 import { Icon } from "./Icon";
 import { Boat } from "./Doodles";
 import { DelayMeter } from "./DelayMeter";
@@ -15,6 +18,13 @@ interface Props {
 }
 
 const transportLabel = { webrtc: "WebRTC", mse: "MSE" } as const;
+export const streamLabel = { main: "Principal", sub: "Substream" } as const;
+
+// A hidden tab (or a window covered by another one) keeps the stream this
+// long before closing it: quick switches no longer drop and reopen the video.
+const HIDDEN_GRACE_MS = 3 * 60_000;
+// Local recordings stop by themselves after this long (memory on the viewer).
+const MAX_CLIP_MS = 15 * 60_000;
 
 // Push-to-talk keeps the audio session this long after the last press, so
 // quick replies do not reconnect the video each time.
@@ -35,25 +45,114 @@ export function LiveView({ cameraId, cameraName, motion, allowTalk, compact, def
   const [delay, setDelay] = useState<number | null>(null);
   const [meter, setMeter] = useState(false);
   const [zoom, setZoom] = useState<Zoom>(NO_ZOOM);
+  const freezeRef = useRef<HTMLCanvasElement>(null);
+  const [frozen, setFrozen] = useState(false);
+  const [clip, setClip] = useState<ClipRecorder | null>(null);
+  const [clipMs, setClipMs] = useState(0);
+  const toast = useToast();
 
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
-    const p = new LivePlayer(video, { cameraId, stream, talk, onStatus: setStatus });
+    // Keep the last picture while the stream reconnects (no black flash).
+    const freeze = () => {
+      if (freezeRef.current && paintFrame(video, freezeRef.current)) setFrozen(true);
+    };
+    const p = new LivePlayer(video, { cameraId, stream, talk, onStatus: setStatus, onTeardown: freeze });
     playerRef.current = p;
     p.start();
-    // Pause the stream while the tab is hidden: saves camera and CPU.
+    // A hidden tab closes the stream only after a grace period: saves camera
+    // and CPU without reconnecting on every quick switch.
+    let hiddenTimer: number | undefined;
+    let paused = false;
     const onVis = () => {
-      if (document.hidden) p.stop();
-      else p.start();
+      window.clearTimeout(hiddenTimer);
+      if (document.hidden) {
+        hiddenTimer = window.setTimeout(() => {
+          paused = true;
+          p.stop();
+        }, HIDDEN_GRACE_MS);
+      } else if (paused) {
+        paused = false;
+        p.start();
+      }
     };
     document.addEventListener("visibilitychange", onVis);
     return () => {
+      window.clearTimeout(hiddenTimer);
       document.removeEventListener("visibilitychange", onVis);
       p.stop();
       playerRef.current = null;
     };
   }, [cameraId, stream, talk]);
+
+  // The freeze-frame goes away once the new stream paints a picture.
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v || !frozen) return;
+    const clear = () => setFrozen(false);
+    const rv = v as HTMLVideoElement & {
+      requestVideoFrameCallback?: (cb: () => void) => number;
+      cancelVideoFrameCallback?: (h: number) => void;
+    };
+    if (rv.requestVideoFrameCallback) {
+      const h = rv.requestVideoFrameCallback(clear);
+      return () => rv.cancelVideoFrameCallback?.(h);
+    }
+    v.addEventListener("playing", clear, { once: true });
+    return () => v.removeEventListener("playing", clear);
+  }, [frozen, status.state]);
+
+  // Local recording: a running timer and an automatic stop at the cap.
+  const clipRef = useRef<ClipRecorder | null>(null);
+  const stopClip = async () => {
+    const c = clipRef.current;
+    if (!c) return;
+    clipRef.current = null;
+    setClip(null);
+    try {
+      const blob = await c.stop();
+      await saveBlob(blob, `sentinela-${cameraId}-${stamp(new Date(c.startedAt))}.${c.extension}`);
+      toast("Gravação salva no aparelho.");
+    } catch (e) {
+      if ((e as Error).name !== "AbortError") toast((e as Error).message, true);
+    }
+  };
+  useEffect(() => {
+    if (!clip) return;
+    const t = window.setInterval(() => {
+      const ms = Date.now() - clip.startedAt;
+      setClipMs(ms);
+      if (ms >= MAX_CLIP_MS) void stopClip();
+    }, 500);
+    return () => window.clearInterval(t);
+  }, [clip]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Changing camera or quality ends a local recording (its source goes away).
+  useEffect(() => () => void stopClip(), [cameraId, stream]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const startClip = () => {
+    const v = videoRef.current;
+    if (!v || status.state !== "playing") return;
+    try {
+      setClipMs(0);
+      const c = new ClipRecorder(v);
+      clipRef.current = c;
+      setClip(c);
+      haptic(20);
+    } catch (e) {
+      toast(`Não foi possível gravar: ${(e as Error).message}`, true);
+    }
+  };
+
+  const snapshot = () => {
+    const v = videoRef.current;
+    if (!v) return;
+    haptic();
+    grabFrame(v)
+      .then((b) => saveBlob(b, `sentinela-${cameraId}-${stamp()}.jpg`))
+      .then(() => toast("Imagem salva no aparelho."))
+      .catch((e: Error) => e.name !== "AbortError" && toast(e.message, true));
+  };
 
   useEffect(() => {
     if (videoRef.current) videoRef.current.muted = muted;
@@ -221,10 +320,17 @@ export function LiveView({ cameraId, cameraName, motion, allowTalk, compact, def
         aria-label={`Ao vivo: ${cameraName}`}
         style={zoom.scale > 1 ? { transform: `translate(${zoom.x}px, ${zoom.y}px) scale(${zoom.scale})` } : undefined}
       />
+      <canvas
+        ref={freezeRef}
+        className={`player-freeze${frozen ? " on" : ""}`}
+        aria-hidden="true"
+        style={zoom.scale > 1 ? { transform: `translate(${zoom.x}px, ${zoom.y}px) scale(${zoom.scale})` } : undefined}
+      />
 
       <div className="player-tag">
-        {status.state === "playing" ? <span className="dot rec" /> : <span className="dot warn" />}
-        <span>{status.state === "playing" ? "Ao vivo" : "Conectando"}</span>
+        {status.state === "playing" && !frozen ? <span className="dot rec" /> : <span className="dot warn" />}
+        <span>{status.state === "playing" && !frozen ? "Ao vivo" : frozen ? "Reconectando" : "Conectando"}</span>
+        {!compact && <span className="faint">{streamLabel[stream]}</span>}
         {status.transport && status.state === "playing" && (
           <span className="faint" title="Transporte e quanto vídeo o navegador segura antes de mostrar. Quanto menor, mais perto do tempo real.">
             {transportLabel[status.transport]}
@@ -238,10 +344,15 @@ export function LiveView({ cameraId, cameraName, motion, allowTalk, compact, def
           <span className="dot bad" /> Movimento
         </div>
       )}
+      {clip && (
+        <div className="player-tag rec-tag" role="status">
+          <span className="dot rec" /> Gravando no aparelho <span className="num">{fmtClock(clipMs)}</span>
+        </div>
+      )}
 
       {meter && status.state === "playing" && <DelayMeter cameraId={cameraId} onClose={() => setMeter(false)} />}
 
-      {status.state !== "playing" && (
+      {status.state !== "playing" && !(frozen && status.state !== "error") && (
         <div className="player-overlay">
           <div className="stack-sm" style={{ justifyItems: "center" }}>
             {status.state === "error" ? <Boat /> : <div className="spinner" />}
@@ -288,8 +399,23 @@ export function LiveView({ cameraId, cameraName, motion, allowTalk, compact, def
           </button>
         )}
         <span className="spacer" />
+        <button className="btn icon" onClick={snapshot} disabled={status.state !== "playing"} aria-label="Salvar imagem" title="Salvar a imagem atual no aparelho">
+          <Icon name="camera" />
+        </button>
+        {canRecord() && (
+          <button
+            className={`btn icon rec-btn${clip ? " on" : ""}`}
+            onClick={() => (clip ? void stopClip() : startClip())}
+            disabled={!clip && status.state !== "playing"}
+            aria-pressed={!!clip}
+            aria-label={clip ? "Parar e salvar a gravação" : "Gravar no aparelho"}
+            title={clip ? "Parar e salvar a gravação no aparelho" : "Gravar o que aparece aqui e salvar no aparelho"}
+          >
+            <Icon name={clip ? "stop" : "record"} />
+          </button>
+        )}
         <button
-          className={`btn icon${meter ? " on" : ""}`}
+          className={`btn icon hide-sm${meter ? " on" : ""}`}
           onClick={() => setMeter((m) => !m)}
           aria-pressed={meter}
           aria-label="Medir atraso"
@@ -298,11 +424,11 @@ export function LiveView({ cameraId, cameraName, motion, allowTalk, compact, def
           <Icon name="timer" />
         </button>
         {!compact && (
-          <div className="segmented" role="group" aria-label="Qualidade">
-            <button aria-pressed={stream === "main"} onClick={() => pickStream("main")}>
+          <div className="segmented" role="group" aria-label="Stream">
+            <button aria-pressed={stream === "main"} onClick={() => pickStream("main")} title="Stream principal: resolução máxima (2K)">
               HD
             </button>
-            <button aria-pressed={stream === "sub"} onClick={() => pickStream("sub")} title="SD gasta menos dados no celular">
+            <button aria-pressed={stream === "sub"} onClick={() => pickStream("sub")} title="Substream: imagem menor, abre mais rápido e gasta menos dados">
               SD
             </button>
           </div>
