@@ -3,7 +3,8 @@
 listen: ":8080"
 data_dir: /data                     # recordings/, db/, backup/
 go2rtc_api: http://127.0.0.1:1984
-# Set to true once the UI is served over HTTPS (e.g. `tailscale serve`).
+# HTTPS requests (TLS, or `tailscale serve` on loopback) always get Secure
+# session cookies. true forces them on plain HTTP too, which breaks LAN logins.
 secure_cookies: false
 
 recording:

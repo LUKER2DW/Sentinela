@@ -98,7 +98,11 @@ func sameOrigin(origin string, r *http.Request) bool {
 	if err != nil {
 		return false
 	}
-	return strings.EqualFold(u.Host, r.Host)
+	host := r.Host
+	if fh := r.Header.Get("X-Forwarded-Host"); fh != "" && fromLoopback(r) {
+		host = fh
+	}
+	return strings.EqualFold(u.Host, host)
 }
 
 func (s *Server) securityHeaders(next http.Handler) http.Handler {
@@ -111,7 +115,7 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 		h.Set("Referrer-Policy", "no-referrer")
 		h.Set("X-Frame-Options", "DENY")
 		h.Set("Permissions-Policy", "camera=(), geolocation=(), microphone=(self)")
-		if r.TLS != nil || s.Cfg.SecureCookies {
+		if isHTTPS(r) {
 			h.Set("Strict-Transport-Security", "max-age=31536000")
 		}
 		next.ServeHTTP(w, r)
@@ -169,14 +173,37 @@ func (s *Server) recoverer(next http.Handler) http.Handler {
 	})
 }
 
-// clientIP is the TCP peer address. X-Forwarded-For is ignored on purpose:
-// Sentinela is not behind a proxy (Tailscale serve preserves the peer).
+// fromLoopback reports whether the TCP peer is this host. The only local
+// client is `tailscale serve`, which proxies the tailnet's HTTPS to
+// 127.0.0.1:8080 (ARCHITECTURE §2.5); LAN clients never arrive from loopback.
+// Forwarded headers are trusted from this peer only (SECURITY.md rule 4).
+func fromLoopback(r *http.Request) bool {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	ip := net.ParseIP(host)
+	return err == nil && ip != nil && ip.IsLoopback()
+}
+
+// clientIP is the TCP peer address or, behind the loopback proxy, the hop
+// that proxy appended to X-Forwarded-For (earlier hops are client-supplied).
 func clientIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr
 	}
+	if xff := r.Header.Values("X-Forwarded-For"); len(xff) > 0 && fromLoopback(r) {
+		hops := strings.Split(xff[len(xff)-1], ",")
+		if last := strings.TrimSpace(hops[len(hops)-1]); net.ParseIP(last) != nil {
+			return last
+		}
+	}
 	return host
+}
+
+// isHTTPS reports whether the browser reached us over HTTPS: TLS here, or
+// `tailscale serve` on loopback saying so. Session cookies get Secure then,
+// while plain-HTTP LAN logins keep working (PLAN Phase 9 D6).
+func isHTTPS(r *http.Request) bool {
+	return r.TLS != nil || fromLoopback(r) && strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
 }
 
 func hostPort(host string, port int) string { return net.JoinHostPort(host, strconv.Itoa(port)) }

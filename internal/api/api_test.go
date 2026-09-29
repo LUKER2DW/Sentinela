@@ -201,3 +201,67 @@ func TestTimelineValidation(t *testing.T) {
 		t.Fatalf("unknown camera = %d", code)
 	}
 }
+
+func TestForwardedHeadersTrustedOnlyFromLoopback(t *testing.T) {
+	cases := []struct {
+		name, peer, xff, proto string
+		ip                     string
+		https                  bool
+	}{
+		{"lan client ignores forged headers", "192.168.1.52:5000", "100.64.0.9", "https", "192.168.1.52", false},
+		{"tailscale serve on loopback", "127.0.0.1:41000", "100.101.1.2", "https", "100.101.1.2", true},
+		{"client-supplied hops before the proxy hop", "127.0.0.1:41000", "1.2.3.4, 100.101.1.2", "https", "100.101.1.2", true},
+		{"loopback without headers", "[::1]:41000", "", "", "::1", false},
+		{"garbage forwarded ip", "127.0.0.1:41000", "not-an-ip", "http", "127.0.0.1", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodGet, "/", nil)
+			r.RemoteAddr = c.peer
+			if c.xff != "" {
+				r.Header.Set("X-Forwarded-For", c.xff)
+			}
+			if c.proto != "" {
+				r.Header.Set("X-Forwarded-Proto", c.proto)
+			}
+			if got := clientIP(r); got != c.ip {
+				t.Errorf("clientIP = %q, want %q", got, c.ip)
+			}
+			if got := isHTTPS(r); got != c.https {
+				t.Errorf("isHTTPS = %v, want %v", got, c.https)
+			}
+		})
+	}
+}
+
+func TestSessionCookieSecureOnlyOverHTTPS(t *testing.T) {
+	_, srv := newTestServer(t)
+	h := srv.Handler()
+	post := func(path, peer, proto string) *http.Cookie {
+		t.Helper()
+		r := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"username":"owner","password":"correct horse"}`))
+		r.RemoteAddr = peer
+		r.Header.Set("Content-Type", "application/json")
+		if proto != "" {
+			r.Header.Set("X-Forwarded-Proto", proto)
+		}
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s from %s: %d %s", path, peer, w.Code, w.Body.String())
+		}
+		for _, c := range w.Result().Cookies() {
+			if c.Name == sessionCookie {
+				return c
+			}
+		}
+		t.Fatalf("%s: no session cookie", path)
+		return nil
+	}
+	if c := post("/api/setup", "192.168.1.52:5000", "https"); c.Secure {
+		t.Error("LAN HTTP login got a Secure cookie (forged X-Forwarded-Proto trusted)")
+	}
+	if c := post("/api/login", "127.0.0.1:41000", "https"); !c.Secure {
+		t.Error("login through tailscale serve did not get a Secure cookie")
+	}
+}

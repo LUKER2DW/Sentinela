@@ -16,10 +16,12 @@ import (
 
 // Config is the whole runtime configuration.
 type Config struct {
-	Listen        string    `yaml:"listen"`
-	DataDir       string    `yaml:"data_dir"`
-	DBPath        string    `yaml:"db_path"`
-	Go2RTCAPI     string    `yaml:"go2rtc_api"`
+	Listen    string `yaml:"listen"`
+	DataDir   string `yaml:"data_dir"`
+	DBPath    string `yaml:"db_path"`
+	Go2RTCAPI string `yaml:"go2rtc_api"`
+	// SecureCookies forces Secure session cookies even on plain HTTP (which
+	// breaks LAN logins). Requests over HTTPS get them anyway.
 	SecureCookies bool      `yaml:"secure_cookies"`
 	Recording     Recording `yaml:"recording"`
 	Cameras       []Camera  `yaml:"cameras"`
