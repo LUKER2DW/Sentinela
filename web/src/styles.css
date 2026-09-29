@@ -155,7 +155,7 @@ p { margin: 0; }
 .nav-icon { position: relative; display: grid; place-items: center; width: 24px; height: 24px; flex: none; }
 .nav-icon svg { width: 20px; height: 20px; }
 .nav-item:hover { color: var(--text); background: var(--surface-2); }
-.nav-item[aria-current="page"] { color: var(--sea-strong); background: var(--surface); box-shadow: inset 3px 0 0 var(--sea), var(--shadow); }
+.nav-item[aria-current="page"] { color: var(--sea-strong); background: var(--sea-soft); font-weight: 600; }
 .nav-badge {
   position: absolute; top: -6px; right: -10px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px;
   background: var(--coral); color: #fff; font-size: 0.7rem; font-weight: 700; line-height: 18px; text-align: center;
