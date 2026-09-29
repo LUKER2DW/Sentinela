@@ -94,7 +94,7 @@ const NAV = [
   { page: "recordings", label: "Gravações", icon: "recordings" },
   { page: "events", label: "Eventos", icon: "events" },
   { page: "nuvem", label: "Nuvem", icon: "cloud" },
-  { page: "system", label: "Sistema", icon: "system" },
+  { page: "system", label: "Sistema", short: "Mais", icon: "system" },
 ];
 
 const roleLabel = { admin: "Administrador", operator: "Operador", viewer: "Visualizador" } as const;
@@ -172,7 +172,16 @@ function Shell() {
                 <Icon name={n.icon} />
                 {badge(n.page)}
               </span>
-              <span className="nav-label">{n.label}</span>
+              <span className="nav-label">
+                {"short" in n ? (
+                  <>
+                    <span className="hide-sm">{n.label}</span>
+                    <span className="show-sm">{n.short}</span>
+                  </>
+                ) : (
+                  n.label
+                )}
+              </span>
             </a>
           ))}
         </div>

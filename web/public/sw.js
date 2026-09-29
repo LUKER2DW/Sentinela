@@ -1,7 +1,9 @@
-// App-shell cache only. API, stream and recordings always go to the network:
-// video must never be cached on the phone.
-const CACHE = "sentinela-shell-v1";
-const SHELL = ["/", "/index.html", "/manifest.webmanifest", "/icon.svg"];
+// App-shell cache only. API, stream, recordings and Nuvem files always go to
+// the network: video and user files must never be cached on the phone.
+// The build id in CACHE is stamped per build (vite.config.ts): every release gets a
+// fresh cache and the old one is dropped on activate.
+const CACHE = "sentinela-shell-__BUILD_ID__";
+const SHELL = ["/", "/index.html", "/manifest.webmanifest", "/icon.svg", "/icon-192.png"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));

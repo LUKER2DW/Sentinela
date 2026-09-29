@@ -1,9 +1,29 @@
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
+import { readFileSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
+
+// Stamps a build id into the service worker's cache name, so each release
+// replaces the cached app shell (public/sw.js).
+function stampServiceWorker(): Plugin {
+  let outDir = "dist";
+  return {
+    name: "stamp-sw",
+    apply: "build",
+    configResolved(c) {
+      outDir = c.build.outDir;
+    },
+    closeBundle() {
+      const file = resolve(outDir, "sw.js");
+      const id = Date.now().toString(36);
+      writeFileSync(file, readFileSync(file, "utf8").replaceAll("__BUILD_ID__", id));
+    },
+  };
+}
 
 // In dev, the Go API runs on :8080; Vite proxies API, stream WS and health.
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), stampServiceWorker()],
   server: {
     proxy: {
       "/api": { target: "http://127.0.0.1:8080" },

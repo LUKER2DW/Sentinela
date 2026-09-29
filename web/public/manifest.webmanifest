@@ -1,7 +1,8 @@
 {
+  "id": "/",
   "name": "Sentinela",
   "short_name": "Sentinela",
-  "description": "Câmeras de casa: ao vivo, gravações e eventos.",
+  "description": "Câmeras de casa: ao vivo, gravações, eventos e a sua nuvem.",
   "lang": "pt-BR",
   "start_url": "/#/live",
   "scope": "/",
@@ -10,9 +11,58 @@
   "background_color": "#f5f2ec",
   "theme_color": "#3e7c88",
   "icons": [
-    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" },
-    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" },
-    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    },
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Ao vivo",
+      "url": "/#/live",
+      "icons": [
+        {
+          "src": "/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Gravações",
+      "url": "/#/recordings",
+      "icons": [
+        {
+          "src": "/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Nuvem",
+      "url": "/#/nuvem",
+      "icons": [
+        {
+          "src": "/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    }
   ]
 }

@@ -20,6 +20,9 @@ export function AuthPage({ mode, onDone, downMessage, onRetry }: Props) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const setup = mode === "setup";
+  // Opened through the tailnet name (away from home), or offline altogether.
+  const remote = location.hostname.endsWith(".ts.net") || !navigator.onLine;
+  const android = /Android/i.test(navigator.userAgent);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -65,16 +68,27 @@ export function AuthPage({ mode, onDone, downMessage, onRetry }: Props) {
             </div>
             <p className="auth-lede">
               {downMessage
-                ? "O servidor não respondeu. Confira se ele está ligado e tente de novo."
+                ? remote
+                  ? "Sem conexão com a casa. Fora de casa, o Sentinela só abre com o Tailscale ligado neste aparelho."
+                  : "O servidor não respondeu. Confira se ele está ligado e tente de novo."
                 : setup
                   ? "Primeiro acesso. Crie a conta de administrador: ela protege as câmeras, as gravações e os arquivos."
                   : "O farol da casa: câmeras ao vivo, gravações e a sua nuvem, num só lugar."}
             </p>
           </div>
           {downMessage ? (
-            <button className="btn primary" onClick={onRetry}>
-              Tentar de novo
-            </button>
+            <div className="stack-sm">
+              {remote && android && (
+                // Opens the Tailscale app (or its Play Store page if missing).
+                <a className="btn primary block" href="intent://#Intent;package=com.tailscale.ipn;end">
+                  Abrir o Tailscale
+                </a>
+              )}
+              {remote && !android && <p className="muted small">Abra o app Tailscale, ligue a conexão e volte aqui.</p>}
+              <button className={`btn block${remote && android ? "" : " primary"}`} onClick={onRetry}>
+                Tentar de novo
+              </button>
+            </div>
           ) : (
             <form onSubmit={submit} className="auth-form">
               <div className="field">
