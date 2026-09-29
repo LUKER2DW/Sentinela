@@ -201,6 +201,15 @@ export class LivePlayer {
     }
     const stream = new MediaStream();
     pc.ontrack = (ev) => {
+      // Smallest jitter buffer the browser allows: live view favours latency
+      // over smoothness (LAN / tailnet, little jitter).
+      const r = ev.receiver as unknown as { jitterBufferTarget?: number | null; playoutDelayHint?: number };
+      try {
+        if (r.jitterBufferTarget !== undefined) r.jitterBufferTarget = 0;
+        else r.playoutDelayHint = 0;
+      } catch {
+        /* not supported: default buffer */
+      }
       stream.addTrack(ev.track);
       if (this.video.srcObject !== stream) this.video.srcObject = stream;
     };
@@ -298,11 +307,14 @@ export class LivePlayer {
       if (buffered.length) {
         const end = buffered.end(buffered.length - 1);
         const start = buffered.start(0);
-        // Stay at the live edge: jump if we drift more than 2 s behind.
-        if (end - this.video.currentTime > 2) this.video.currentTime = end - 0.3;
-        // Keep ~20 s of history so memory stays flat.
-        if (end - start > 30 && !sb.updating) {
-          sb.remove(start, end - 20);
+        // Stay at the live edge: jump when far behind, otherwise play a
+        // little faster until caught up (no visible skip).
+        const lag = end - this.video.currentTime;
+        if (lag > 1.5) this.video.currentTime = end - 0.15;
+        else this.video.playbackRate = lag > 0.5 ? 1.08 : 1;
+        // Keep ~10 s of history so memory stays flat.
+        if (end - start > 20 && !sb.updating) {
+          sb.remove(start, end - 10);
           return;
         }
       }
@@ -313,12 +325,34 @@ export class LivePlayer {
     }
   }
 
-  /** Seconds between what is buffered and what is shown (MSE only). */
-  mseLag(): number | null {
-    const b = this.sb?.buffered;
-    if (!b || !b.length) return null;
-    return b.end(b.length - 1) - this.video.currentTime;
+  /**
+   * Seconds of video the browser holds before showing it: the MSE buffer
+   * ahead of the playhead, or the WebRTC jitter buffer. Camera encoding and
+   * network add a little on top; this is the part the player controls.
+   */
+  async bufferDelay(): Promise<number | null> {
+    if (this.transport === "mse") {
+      const b = this.sb?.buffered;
+      if (!b || !b.length) return null;
+      return Math.max(0, b.end(b.length - 1) - this.video.currentTime);
+    }
+    const pc = this.pc;
+    if (!pc) return null;
+    const stats = await pc.getStats();
+    let out: number | null = null;
+    stats.forEach((st) => {
+      const s = st as { type: string; kind?: string; jitterBufferDelay?: number; jitterBufferEmittedCount?: number };
+      if (s.type === "inbound-rtp" && s.kind === "video" && s.jitterBufferEmittedCount) {
+        const d = (s.jitterBufferDelay ?? 0) / s.jitterBufferEmittedCount;
+        const prev = this.jb;
+        this.jb = { delay: s.jitterBufferDelay ?? 0, count: s.jitterBufferEmittedCount };
+        // Delta since the last sample: current buffering, not the lifetime average.
+        out = prev && this.jb.count > prev.count ? (this.jb.delay - prev.delay) / (this.jb.count - prev.count) : d;
+      }
+    });
+    return out;
   }
+  private jb?: { delay: number; count: number };
 
   // ---------- lifecycle ----------
 
@@ -360,5 +394,7 @@ export class LivePlayer {
       this.video.load();
     }
     this.video.srcObject = null;
+    this.video.playbackRate = 1;
+    this.jb = undefined;
   }
 }

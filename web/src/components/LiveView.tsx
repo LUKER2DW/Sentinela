@@ -23,6 +23,7 @@ export function LiveView({ cameraId, cameraName, motion, allowTalk, compact, def
   const [talk, setTalk] = useState(false);
   const [status, setStatus] = useState<PlayerStatus>({ state: "connecting" });
   const [touch, setTouch] = useState(false);
+  const [delay, setDelay] = useState<number | null>(null);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -47,6 +48,25 @@ export function LiveView({ cameraId, cameraName, motion, allowTalk, compact, def
     if (videoRef.current) videoRef.current.muted = muted;
   }, [muted]);
 
+  // Buffer delay, sampled every 2 s while playing (shown in the tag).
+  const playing = status.state === "playing";
+  useEffect(() => {
+    if (!playing) return;
+    let live = true;
+    const tick = () =>
+      void playerRef.current
+        ?.bufferDelay()
+        .then((d) => live && setDelay(d))
+        .catch(() => {});
+    const t = window.setInterval(tick, 2000);
+    tick();
+    return () => {
+      live = false;
+      window.clearInterval(t);
+      setDelay(null);
+    };
+  }, [playing]);
+
   const fullscreen = () => {
     const el = wrapRef.current;
     if (!el) return;
@@ -69,7 +89,10 @@ export function LiveView({ cameraId, cameraName, motion, allowTalk, compact, def
         {status.state === "playing" ? <span className="dot rec" /> : <span className="dot warn" />}
         <span>{status.state === "playing" ? "Ao vivo" : "Conectando"}</span>
         {status.transport && status.state === "playing" && (
-          <span className="faint">{transportLabel[status.transport]}</span>
+          <span className="faint" title="Transporte e quanto vídeo o navegador segura antes de mostrar. Quanto menor, mais perto do tempo real.">
+            {transportLabel[status.transport]}
+            {delay !== null && ` ${delay < 0.1 ? "<0,1" : delay.toFixed(1).replace(".", ",")} s`}
+          </span>
         )}
       </div>
       {motion && (
