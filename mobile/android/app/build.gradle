@@ -7,8 +7,8 @@ android {
         applicationId "casa.sentinela.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 5
-        versionName "1.4"
+        versionCode 6
+        versionName "1.5"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         // Connection defaults for the start screen (ADR-0019); override with
         // env vars when building (scripts/build-apk.sh).
