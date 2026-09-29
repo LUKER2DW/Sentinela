@@ -209,6 +209,7 @@ func (s *Server) handler(zone string) http.Handler {
 	mux.Handle("GET /api/nas/upload", operator(s.nasUploadStatus))
 	mux.Handle("PUT /api/nas/upload", operator(s.nasUpload))
 	mux.Handle("POST /api/nas/mkdir", operator(s.nasMkdir))
+	mux.Handle("PUT /api/nas/text", operator(s.nasText))
 	mux.Handle("POST /api/nas/move", operator(s.nasMove))
 	mux.Handle("DELETE /api/nas/file", operator(s.nasDelete))
 

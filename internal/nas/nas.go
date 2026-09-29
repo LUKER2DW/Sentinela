@@ -397,6 +397,47 @@ func (s *Share) WriteChunk(a Access, p string, offset, total int64, body io.Read
 	return have, true, nil
 }
 
+// MaxText bounds a text file edited in the browser.
+const MaxText = 2 << 20
+
+// ReplaceText overwrites an existing file with data (the Nuvem's text
+// editor). The new content goes to a partial file first and is renamed
+// over the old one, so a failed save never leaves half a file.
+func (s *Share) ReplaceText(a Access, p string, data []byte) error {
+	if len(data) > MaxText {
+		return ErrTooLarge
+	}
+	part, err := s.partPath(a, p)
+	if err != nil {
+		return err
+	}
+	final, _ := Clean(p)
+	st, err := s.root.Lstat(final)
+	if err != nil {
+		return mapErr(err)
+	}
+	if !st.Mode().IsRegular() {
+		return ErrInvalid
+	}
+	f, err := s.root.OpenFile(part, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o664)
+	if err != nil {
+		return mapErr(err)
+	}
+	_, werr := f.Write(data)
+	if cerr := f.Close(); werr == nil {
+		werr = cerr
+	}
+	if werr != nil {
+		_ = s.root.Remove(part)
+		return werr
+	}
+	if err := s.root.Rename(part, final); err != nil {
+		_ = s.root.Remove(part)
+		return mapErr(err)
+	}
+	return nil
+}
+
 func (s *Share) partPath(a Access, p string) (string, error) {
 	p, err := Clean(p)
 	if err != nil {

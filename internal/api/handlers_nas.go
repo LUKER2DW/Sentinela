@@ -2,10 +2,12 @@ package api
 
 import (
 	"errors"
+	"io"
 	"mime"
 	"net/http"
 	"os"
 	"path"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -186,6 +188,35 @@ func (s *Server) nasUpload(w http.ResponseWriter, r *http.Request) {
 		s.audit(r, "nas.upload", clean, true, strconv.FormatInt(total, 10)+" bytes")
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"offset": have, "done": done})
+}
+
+// textTypes may be edited in the browser (small, plain text).
+var textTypes = regexp.MustCompile(`(?i)\.(txt|md|log|csv|tsv|json|xml|ya?ml|ini|conf|cfg|toml|srt|vtt)$`)
+
+// nasText saves a text file edited in the Nuvem viewer: PUT ?path=, body =
+// the new content (≤ 2 MiB, existing plain-text files only).
+func (s *Server) nasText(w http.ResponseWriter, r *http.Request) {
+	if !s.nasReady(w) {
+		return
+	}
+	p := r.URL.Query().Get("path")
+	if !textTypes.MatchString(p) {
+		writeErr(w, http.StatusBadRequest, "only plain-text files can be edited")
+		return
+	}
+	data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, nas.MaxText))
+	if err != nil {
+		writeErr(w, http.StatusRequestEntityTooLarge, "text too large (max 2 MB)")
+		return
+	}
+	err = s.nas.ReplaceText(s.nasAccess(r), p, data)
+	clean, _ := nas.Clean(p)
+	s.audit(r, "nas.edit", clean, err == nil, strconv.Itoa(len(data))+" bytes")
+	if err != nil {
+		s.nasErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 func (s *Server) nasMkdir(w http.ResponseWriter, r *http.Request) {

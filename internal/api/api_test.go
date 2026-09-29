@@ -327,6 +327,19 @@ func TestNuvemFileAPI(t *testing.T) {
 		resp.Header.Get("X-Frame-Options") != "SAMEORIGIN" {
 		t.Fatalf("inline pdf headers = %v", resp.Header)
 	}
+	// New empty text file (zero-byte upload), then edited in place.
+	if code, m, _ := admin.do("PUT", "/api/nas/upload?path=dono/nota.txt&offset=0&total=0", ""); code != 200 || m["done"] != true {
+		t.Fatalf("empty file = %d %v", code, m)
+	}
+	if code, _, body := admin.do("PUT", "/api/nas/text?path=dono/nota.txt", "leite\npão\n"); code != 200 {
+		t.Fatalf("edit text = %d %s", code, body)
+	}
+	if b, _ := os.ReadFile(filepath.Join(share, "dono", "nota.txt")); string(b) != "leite\npão\n" {
+		t.Fatalf("edited file = %q", b)
+	}
+	if code, _, _ := admin.do("PUT", "/api/nas/text?path=dono/d.pdf", "x"); code != 400 {
+		t.Fatalf("edit pdf as text = %d", code)
+	}
 	// Viewer: reads the shared folder, cannot write, cannot see the admin's folder.
 	viewer := newClient(t, ts.URL)
 	viewer.do("POST", "/api/login", `{"username":"view","password":"viewer password"}`)
@@ -335,6 +348,9 @@ func TestNuvemFileAPI(t *testing.T) {
 	}
 	if code, _, _ := viewer.do("GET", "/api/nas/file?path=dono/a.txt", ""); code != 403 {
 		t.Fatalf("viewer reads admin file = %d", code)
+	}
+	if code, _, _ := viewer.do("PUT", "/api/nas/text?path=Compartilhado/x.txt", "x"); code != 403 {
+		t.Fatalf("viewer edit = %d", code)
 	}
 	if code, _, _ := viewer.do("GET", "/api/nas/file?path=../../etc/passwd", ""); code != 403 && code != 404 {
 		t.Fatalf("traversal = %d", code)
