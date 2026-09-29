@@ -47,7 +47,7 @@ Target host: old CPU, 4 GB RAM, a dedicated recordings disk, Ubuntu 22.04.
 | DB | SQLite via `modernc.org/sqlite` (pure Go), WAL mode |
 | Media | go2rtc (sidecar container), ffmpeg (recorder) |
 | Frontend | React 19 + Vite + TypeScript, TanStack Query, plain CSS tokens |
-| Mobile | PWA first; Flutter later (Phase 6) |
+| Mobile | PWA + Capacitor Android app wrapping the same SPA (ADR-0011) |
 | Deploy | Docker Compose, Ubuntu 22.04 host (Debian 12/13 also fine) |
 | Remote | Tailscale |
 
@@ -66,6 +66,7 @@ internal/media/       go2rtc config generation + API client
 internal/recording/   ffmpeg supervisor, segment indexer, retention
 internal/store/       SQLite schema, migrations, queries
 web/                  React SPA
+mobile/               Capacitor Android wrapper of the SPA (ADR-0011)
 deploy/               compose + configs
 docs/                 plan, architecture, ADRs
 scripts/              operator scripts (audit, backup)

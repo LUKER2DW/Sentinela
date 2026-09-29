@@ -54,6 +54,15 @@ Enable HTTPS certificates and paste the ACL from
 install the Tailscale app and open that address. No router ports
 ([ADR-0004](docs/adr/0004-tailscale-remote-access.md)).
 
+## Android app
+
+`./scripts/build-apk.sh` on the dev PC (JDK 21 + Android SDK command-line
+tools) builds `mobile/build/sentinela.apk`; copy it to the phone and open it
+to install (allow "install unknown apps" once). The app opens the server
+over Tailscale; notifications come from the PWA for now
+([ADR-0011](docs/adr/0011-mobile-pwa-capacitor.md)). Keep a copy of
+`~/.sentinela-android/` (the signing key): updates need the same key.
+
 ## Install on a fresh server (Ubuntu 22.04)
 
 1. Mount the recordings disk at `/data` (and the NAS disk at `/srv/nas` if
