@@ -9,6 +9,7 @@ import { LiveView } from "../components/LiveView";
 import { CameraSettings, PtzPanel } from "../components/CameraControls";
 import { DayRibbon, RibbonLegend } from "../components/DayRibbon";
 import { Boat } from "../components/Doodles";
+import { Icon } from "../components/Icon";
 import { recordingDays } from "./SystemPage";
 import { initialStream } from "../lib/gestures";
 
@@ -57,8 +58,24 @@ export function LivePage({ params }: { params: URLSearchParams }) {
       </div>
     );
 
-  if (!selected) return <Grid cams={list} now={now} />;
-  return <Single cam={selected} now={now} multi={list.length > 1} />;
+  // Grid when asked (or several cameras and none picked); one camera otherwise.
+  const view = params.get("view") ?? (list.length > 1 && !params.get("cam") ? "grid" : "single");
+  if (view === "grid") return <Grid cams={list} now={now} />;
+  return <Single cam={selected ?? list[0]} now={now} />;
+}
+
+/** Uma câmera / Grade switch in the page header. */
+function ViewSwitch({ view, cam }: { view: "grid" | "single"; cam?: string }) {
+  return (
+    <div className="segmented" role="group" aria-label="Visualização">
+      <button aria-pressed={view === "single"} title="Uma câmera, com controles" onClick={() => navigate("live", { view: "single", ...(cam ? { cam } : {}) })}>
+        <Icon name="video" /> <span className="hide-sm">Detalhada</span>
+      </button>
+      <button aria-pressed={view === "grid"} title="Todas as câmeras em grade" onClick={() => navigate("live", { view: "grid" })}>
+        <Icon name="grid" /> <span className="hide-sm">Grade</span>
+      </button>
+    </div>
+  );
 }
 
 function Grid({ cams, now }: { cams: Camera[]; now: number }) {
@@ -70,14 +87,15 @@ function Grid({ cams, now }: { cams: Camera[]; now: number }) {
           <h1>Ao vivo</h1>
           <span className="sub">{fmtDay(now)}</span>
         </div>
+        <ViewSwitch view="grid" />
         <span className="clock">{fmtTime(now)}</span>
       </header>
-      <div className="grid-cams">
+      <div className={`grid-cams n${Math.min(cams.length, 4)}`}>
         {cams.map((c) => (
           <section key={c.id}>
             <div className="cam-title">
               <h2>
-                <a href={href("live", { cam: c.id })} style={{ textDecoration: "none" }}>
+                <a href={href("live", { view: "single", cam: c.id })} style={{ textDecoration: "none" }}>
                   {c.name}
                 </a>
               </h2>
@@ -91,7 +109,7 @@ function Grid({ cams, now }: { cams: Camera[]; now: number }) {
   );
 }
 
-function Single({ cam, now, multi }: { cam: Camera; now: number; multi: boolean }) {
+function Single({ cam, now }: { cam: Camera; now: number }) {
   const { can } = useSession();
   const active = useActiveEvents();
   const dayStart = startOfDay(now);
@@ -113,20 +131,16 @@ function Single({ cam, now, multi }: { cam: Camera; now: number; multi: boolean 
     <>
       <header className="page-head">
         <div className="title">
-          {multi && (
-            <a className="sub" href={href("live")}>
-              Todas as câmeras
-            </a>
-          )}
           <h1>{cam.name}</h1>
           <span className="sub">{fmtDay(now)}</span>
         </div>
         <RecordingPill cameraId={cam.id} />
+        <ViewSwitch view="single" cam={cam.id} />
         <span className="clock">{fmtTime(now)}</span>
       </header>
 
-      <div className="two-col">
-        <div className="stack">
+      <div className="two-col live-cols">
+        <div className="stack live-left">
           <LiveView
             cameraId={cam.id}
             cameraName={cam.name}
@@ -150,10 +164,10 @@ function Single({ cam, now, multi }: { cam: Camera; now: number; multi: boolean 
               onPick={(ms) => navigate("recordings", { cam: cam.id, t: new Date(ms).toISOString() })}
             />
             <RibbonLegend />
+            <TodayStats timeline={timeline.data} motion={motionToday} />
           </section>
-          <TodayStats timeline={timeline.data} motion={motionToday} />
         </div>
-        <aside className="stack">
+        <aside className="stack live-right">
           {!narrow && <PtzPanel cameraId={cam.id} canControl={can("operator")} />}
           <CameraSettings cameraId={cam.id} canControl={can("operator")} isAdmin={can("admin")} />
         </aside>
@@ -180,7 +194,7 @@ function TodayStats({ timeline, motion }: { timeline?: Timeline; motion: number 
   const hours = (timeline?.segments ?? []).reduce((a, x) => a + (new Date(x.end).getTime() - new Date(x.start).getTime()), 0) / 3_600_000;
   const days = sys.data ? recordingDays(sys.data) : null;
   return (
-    <section className="card stat-row" aria-label="Resumo de hoje">
+    <div className="stat-row today-stats" aria-label="Resumo de hoje">
       <div className="stat">
         <b>{hours.toFixed(1).replace(".", ",")} h</b>
         <span>gravadas hoje</span>
@@ -193,6 +207,6 @@ function TodayStats({ timeline, motion }: { timeline?: Timeline; motion: number 
         <b>{days === null ? "–" : days}</b>
         <span>{days === 1 ? "dia cabe no disco" : "dias cabem no disco"}</span>
       </div>
-    </section>
+    </div>
   );
 }

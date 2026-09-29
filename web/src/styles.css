@@ -1282,3 +1282,45 @@ table.table { width: 100%; border-collapse: collapse; }
 .tl-progress { display: grid; place-content: center; justify-items: center; gap: 12px; color: #c9d2d5; padding: 24px; text-align: center; }
 .tl-meter { width: min(320px, 70vw); background: rgb(255 255 255 / 0.12); }
 .btn.disabled { opacity: 0.45; pointer-events: none; }
+
+/* ---------- Ao vivo v2: columns end together, pad PTZ ---------- */
+.live-cols { align-items: stretch; grid-template-columns: minmax(0, 1fr) 340px; }
+@media (max-width: 1180px) { .live-cols { grid-template-columns: 1fr; } }
+.live-left, .live-right { display: flex; flex-direction: column; gap: 20px; }
+/* The last card of each column takes the slack, so both bottoms line up. */
+.live-left > :last-child, .live-right > :last-child { flex: 1; }
+@media (max-width: 1180px) { .live-left > :last-child, .live-right > :last-child { flex: none; } }
+.today-stats { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+.today-stats .stat b { font-size: 1.5rem; }
+.grid-cams.n1 { grid-template-columns: minmax(0, 1fr); max-width: 1100px; }
+.grid-cams.n2, .grid-cams.n4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.grid-cams.n3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 900px) { .grid-cams.n2, .grid-cams.n3, .grid-cams.n4 { grid-template-columns: 1fr; } }
+.page-head .segmented svg { width: 16px; height: 16px; }
+
+.ptz { display: block; }
+.ptz .card-head { margin-bottom: 14px; }
+.ptz-keys { display: inline-flex; align-items: center; gap: 6px; cursor: help; }
+.ptz-keys svg { width: 16px; height: 16px; }
+.ptz-body { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 16px; align-items: center; }
+.pad { display: grid; grid-template-columns: repeat(3, 44px); grid-template-rows: repeat(3, 44px); gap: 4px; touch-action: none; user-select: none; }
+.pad-btn { display: grid; place-items: center; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface-2); color: var(--muted);
+  cursor: pointer; transition: background-color 0.12s, color 0.12s, border-color 0.12s; }
+.pad-btn svg { width: 20px; height: 20px; }
+.pad-btn:hover:not(:disabled) { color: var(--text); border-color: var(--line-strong); background: var(--surface); }
+.pad-btn[data-active="true"] { background: var(--sea); border-color: var(--sea); color: var(--sea-ink); }
+.pad-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.pad-hub { display: grid; place-items: center; border-radius: var(--r-sm); background: var(--sea-soft); overflow: hidden; }
+.pad-hub svg { width: 38px; height: 38px; margin-top: 4px; }
+.ptz-side { display: grid; gap: 10px; min-width: 0; }
+.label-sm { font-size: 0.82rem; color: var(--muted); }
+.segmented.fill { display: flex; }
+.segmented.fill button { flex: 1; justify-content: center; padding: 0 6px; }
+.ptz-side .ptz-row .btn.icon.small { width: 32px; }
+@media (max-width: 400px) { .ptz-body { grid-template-columns: 1fr; justify-items: center; } .ptz-side { width: 100%; } }
+@media (pointer: coarse) { .pad { grid-template-columns: repeat(3, 52px); grid-template-rows: repeat(3, 52px); } }
+
+.presets.editing .chip { background: var(--coral-soft); color: var(--coral); }
+.chip.remove svg { width: 14px; height: 14px; }
+.btn.danger-fill { background: var(--coral); border-color: var(--coral); color: #fff; }
+.btn.danger-fill:hover:not(:disabled) { background: color-mix(in srgb, var(--coral) 85%, #000); border-color: transparent; }
