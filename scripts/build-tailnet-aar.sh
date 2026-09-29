@@ -33,7 +33,7 @@ fi
 mkdir -p "$ROOT/mobile/android/app/libs"
 echo "==> gomobile bind (NDK $(basename "$ANDROID_NDK_HOME"))"
 cd "$ROOT/mobile/tailnet"
-gomobile bind -target=android/arm64,android/arm -androidapi 24 -javapkg casa.sentinela \
+gomobile bind -target=android/arm64,android/arm,android/amd64 -androidapi 24 -javapkg casa.sentinela \
   -trimpath -ldflags "-s -w" -o "$ROOT/mobile/android/app/libs/tailnet.aar" .
 rm -f "$ROOT/mobile/android/app/libs/tailnet-sources.jar"
 echo "AAR: mobile/android/app/libs/tailnet.aar ($(du -h "$ROOT/mobile/android/app/libs/tailnet.aar" | cut -f1))"

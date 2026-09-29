@@ -11,7 +11,6 @@ const config: CapacitorConfig = {
   appName: "Sentinela",
   webDir: "www",
   server: {
-    errorPath: "offline.html",
     androidScheme: "https",
   },
   android: {

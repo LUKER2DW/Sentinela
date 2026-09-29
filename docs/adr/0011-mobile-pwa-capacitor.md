@@ -41,8 +41,10 @@ decoder, so the MSE fallback and a per-device capability probe stay.
 - `mobile/`: Capacitor 8, Android only. `server.url` is fixed at build time
   (`SENTINELA_URL`, default the owner's tailnet name) instead of a first-run
   prompt: one household, one server; a different server means a rebuild.
-  `server.errorPath` shows the bundled "Sem conexão com a casa" page with a
-  button that opens the Tailscale app.
+  A server that does not answer brings back the bundled start screen in its
+  "Sem conexão com a casa" state (retry, change path, open the Tailscale
+  app); Capacitor's `server.errorPath` page could not load its own styles or
+  reach the bridge on a remote `server.url`, so it was dropped (2026-09-29).
 - Native code only where the WebView falls short (`MainActivity`): the app
   lock (BiometricPrompt: fingerprint/face or the screen lock, after 5 min
   in the background; skipped on phones without a screen lock) and downloads

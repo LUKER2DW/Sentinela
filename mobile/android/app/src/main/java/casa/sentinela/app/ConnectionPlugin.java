@@ -33,10 +33,21 @@ public class ConnectionPlugin extends Plugin {
         r.put("tailnetHost", Connection.tailnetHost());
         r.put("lanUrl", Connection.prefs(c).getString("lanUrl", BuildConfig.LAN_URL));
         r.put("tailnetEnrolled", Connection.tailnetEnrolled(c));
-        r.put("tailnetStatus", Tailnet.status());
+        // Touching Tailnet loads the Go runtime (memory): only once paired.
+        r.put("tailnetStatus", Connection.tailnetEnrolled(c) ? Tailnet.status() : "");
         r.put("tailnetHostname", Connection.prefs(c).getString("tailnet.hostname", ""));
         r.put("version", BuildConfig.VERSION_NAME);
+        r.put("offline", Connection.offline != null);
+        r.put("offlineWhy", Connection.offline == null ? "" : Connection.offline);
         call.resolve(r);
+    }
+
+    /** "Tentar de novo" on the no-connection screen: reload on the same path. */
+    @PluginMethod
+    public void retry(PluginCall call) {
+        Connection.offline = null;
+        call.resolve();
+        restart();
     }
 
     /** Saves {mode, url?} and reloads the app on it. */
@@ -49,7 +60,7 @@ public class ConnectionPlugin extends Plugin {
             case "domain":
             case "funnel":
                 if (url == null || !url.matches("https://[A-Za-z0-9.-]+(:\\d{1,5})?/?")) {
-                    call.reject("Use um endereço https:// (só o domínio, sem caminho).");
+                    call.reject("Use um endereço https:// (só o nome ou o IP, sem caminho).");
                     return;
                 }
                 break;
@@ -63,6 +74,7 @@ public class ConnectionPlugin extends Plugin {
                 call.reject("Modo desconhecido.");
                 return;
         }
+        Connection.offline = null;
         SharedPreferences.Editor e = Connection.prefs(getContext()).edit().putString("mode", mode);
         if (!mode.equals("tailnet")) e.putString("url." + mode, url.replaceAll("/+$", ""));
         e.apply();
@@ -97,6 +109,7 @@ public class ConnectionPlugin extends Plugin {
                 }
                 Tailnet.waitUp(90_000);
                 p.edit().putBoolean("tailnet.enrolled", true).putString("mode", "tailnet").apply();
+                Connection.offline = null;
                 call.resolve();
                 restart();
             } catch (Exception ex) {
@@ -119,6 +132,7 @@ public class ConnectionPlugin extends Plugin {
     /** Back to the start screen (from the Sentinela pages or the offline page). */
     @PluginMethod
     public void change(PluginCall call) {
+        Connection.offline = null;
         Connection.prefs(getContext()).edit().putString("mode", "").apply();
         call.resolve();
         restart();

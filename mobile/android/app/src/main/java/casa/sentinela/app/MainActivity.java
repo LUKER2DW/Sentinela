@@ -6,6 +6,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.Color;
 import android.net.Uri;
+import android.net.http.SslError;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
@@ -14,18 +15,25 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.CookieManager;
+import android.webkit.RenderProcessGoneDetail;
+import android.webkit.SslErrorHandler;
 import android.webkit.URLUtil;
+import android.webkit.WebResourceError;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.widget.FrameLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.activity.OnBackPressedCallback;
 import androidx.annotation.NonNull;
 import androidx.biometric.BiometricManager;
 import androidx.biometric.BiometricPrompt;
 import androidx.core.content.ContextCompat;
 
 import com.getcapacitor.BridgeActivity;
+import com.getcapacitor.BridgeWebViewClient;
 
 /**
  * Sentinela Android app (ADR-0011): a Capacitor WebView on the server's
@@ -37,6 +45,10 @@ import com.getcapacitor.BridgeActivity;
  *   carrying the session cookie only to the Sentinela server itself.
  * Notifications come through UnifiedPush (PushBridge, SentinelaPushService);
  * tapping one opens its page here.
+ * It also makes the WebView behave like an app: the back button walks the
+ * pages (twice to leave), no page zoom or scrollbars, a server that does not
+ * answer brings back the start screen, and a killed renderer reloads
+ * instead of taking the app down.
  */
 public class MainActivity extends BridgeActivity {
     private static final long LOCK_AFTER_MS = 5 * 60 * 1000;
@@ -44,6 +56,7 @@ public class MainActivity extends BridgeActivity {
     private long backgroundAt = 0;
     private View cover;
     private boolean prompting = false;
+    private long lastBack = 0;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -52,6 +65,8 @@ public class MainActivity extends BridgeActivity {
         // This launch's server (or the bundled start screen), before the bridge loads.
         config = Connection.capConfig(this);
         super.onCreate(savedInstanceState);
+        tuneWebView();
+        installBackButton();
         installDownloads();
         SentinelaPushService.createChannel(this);
         openFromNotification(getIntent());
@@ -85,6 +100,88 @@ public class MainActivity extends BridgeActivity {
         if (backgroundAt > 0 && SystemClock.elapsedRealtime() - backgroundAt > LOCK_AFTER_MS) {
             lock();
         }
+    }
+
+    // ---------- WebView as an app ----------
+
+    private void tuneWebView() {
+        WebView web = getBridge().getWebView();
+        web.setVerticalScrollBarEnabled(false);
+        web.setHorizontalScrollBarEnabled(false);
+        web.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        WebSettings ws = web.getSettings();
+        ws.setSupportZoom(false);
+        ws.setBuiltInZoomControls(false);
+        ws.setDisplayZoomControls(false);
+        // The phone's font size setting would break the layout; the pages
+        // are sized for touch already.
+        ws.setTextZoom(100);
+        getBridge().setWebViewClient(new BridgeWebViewClient(getBridge()) {
+            @Override
+            public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+                super.onReceivedError(view, request, error);
+                if (request.isForMainFrame()) offline(String.valueOf(error.getDescription()));
+            }
+
+            @Override
+            public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
+                handler.cancel(); // never proceed past a bad certificate
+                String server = getBridge().getServerUrl();
+                if (server != null && error.getUrl() != null && error.getUrl().startsWith(server)) {
+                    offline("certificado HTTPS inválido");
+                }
+            }
+
+            @Override
+            public boolean onRenderProcessGone(WebView view, RenderProcessGoneDetail detail) {
+                // Android killed the page's process (memory): start over
+                // instead of letting the WebView take the app down.
+                super.onRenderProcessGone(view, detail);
+                runOnUiThread(MainActivity.this::recreate);
+                return true;
+            }
+        });
+    }
+
+    /** The chosen server did not answer: back to the start screen, offline state. */
+    private void offline(String why) {
+        if (getBridge().getServerUrl() == null || Connection.offline != null) return;
+        Connection.offline = why == null || why.isEmpty() ? "sem resposta" : why;
+        runOnUiThread(this::recreate);
+    }
+
+    /**
+     * Back: the page closes what is open or goes back a page
+     * (window.sentinelaBack in the web app); then WebView history; at the
+     * start, a second press within 2 s leaves (the app stays in recents).
+     */
+    private void installBackButton() {
+        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                if (cover != null && cover.getVisibility() == View.VISIBLE) {
+                    moveTaskToBack(true);
+                    return;
+                }
+                WebView web = getBridge().getWebView();
+                boolean can = web.canGoBack();
+                web.evaluateJavascript("(window.sentinelaBack ? window.sentinelaBack(" + can + ") : false) === true", v -> {
+                    if ("true".equals(v)) return;
+                    if (can) {
+                        web.goBack();
+                        return;
+                    }
+                    long now = SystemClock.elapsedRealtime();
+                    if (now - lastBack < 2000) {
+                        lastBack = 0;
+                        moveTaskToBack(true);
+                    } else {
+                        lastBack = now;
+                        Toast.makeText(MainActivity.this, "Toque em voltar de novo para sair", Toast.LENGTH_SHORT).show();
+                    }
+                });
+            }
+        });
     }
 
     // ---------- app lock ----------

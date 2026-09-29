@@ -2,7 +2,7 @@
 <html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
     <title>Sentinela</title>
     <!-- Start screen (ADR-0019 trial): pick how this phone reaches the house.
          Runs from the APK; talks to ConnectionPlugin (SentinelaConnection). -->
@@ -46,15 +46,37 @@
       .row > * { flex: 1; }
       footer { text-align: center; color: var(--muted); font-size: .8rem; }
       .link { background: none; border: 0; color: var(--sea); height: auto; padding: 0; font-weight: 600; font-size: .9rem; justify-self: start; }
+      /* An app, not a page: no text selection outside the fields. */
+      html { -webkit-text-size-adjust: 100%; touch-action: pan-x pan-y; }
+      body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+      input { -webkit-user-select: text; user-select: text; }
+      button { transition: transform .12s; } button:active:not(:disabled) { transform: scale(.97); }
+      .card { display: grid; gap: 10px; padding: 18px 16px; border-radius: 18px; text-align: center; border: 1px solid var(--line);
+        background: color-mix(in srgb, var(--card) 92%, transparent); backdrop-filter: blur(10px);
+        box-shadow: 0 1px 2px rgb(31 42 48 / .06), 0 18px 40px -18px rgb(31 42 48 / .35); }
+      .card p { margin: 0 0 4px; color: var(--muted); }
+      .card .why { font-size: .82rem; color: var(--muted); opacity: .8; }
+      a.button { display: block; height: 46px; line-height: 44px; border-radius: 14px; text-decoration: none; font-weight: 600; }
     </style>
   </head>
   <body>
     <main>
       <header class="rise">
         <div class="scene hero"></div>
-        <h1>Como chegar à casa?</h1>
-        <p class="lede">Escolha o caminho deste celular até o Sentinela. Dá para trocar depois em Mais → Segurança.</p>
+        <h1 id="title">Como chegar à casa?</h1>
+        <p class="lede" id="lede">Escolha o caminho deste celular até o Sentinela. Dá para trocar depois em Mais → Segurança.</p>
       </header>
+
+      <!-- The chosen server did not answer (MainActivity sends the app here). -->
+      <section class="card rise" id="offline" hidden>
+        <p id="off-text">O servidor não respondeu por este caminho. Tente de novo ou troque a forma de conexão.</p>
+        <button id="off-retry">Tentar de novo</button>
+        <button class="ghost" id="off-change">Trocar forma de conexão</button>
+        <a class="button ghost" id="off-ts" hidden href="intent://#Intent;package=com.tailscale.ipn;end">Abrir o Tailscale</a>
+        <span class="why" id="off-why"></span>
+      </section>
+
+      <div id="choose" style="display:grid;gap:14px">
 
       <details class="rise" id="m-tailnet" name="mode">
         <summary><b>Tailscale embutido <i class="tag">sem VPN</i></b><span>A rede privada roda dentro do app. Nada fica exposto na internet.</span></summary>
@@ -80,9 +102,9 @@
       </details>
 
       <details class="rise" id="m-domain" name="mode">
-        <summary><b>Domínio da casa</b><span>Porta aberta no roteador. Funciona em qualquer rede e navegador; pede o código de 2 etapas.</span></summary>
+        <summary><b>Endereço público da casa</b><span>Porta aberta no roteador (IP fixo). Qualquer rede e navegador; pede o código de 2 etapas.</span></summary>
         <div class="body">
-          <label>Endereço<input id="u-domain" inputmode="url" autocapitalize="none" spellcheck="false" placeholder="https://casa.exemplo.com.br" /></label>
+          <label>Endereço<input id="u-domain" inputmode="url" autocapitalize="none" spellcheck="false" placeholder="https://IP-fixo-da-casa" /></label>
           <button data-mode="domain">Conectar</button>
           <p class="err" role="alert"></p>
         </div>
@@ -105,6 +127,8 @@
           <p class="err" role="alert"></p>
         </div>
       </details>
+
+      </div>
 
       <footer class="rise" id="ver"></footer>
     </main>
@@ -137,7 +161,34 @@
         $("ver").textContent = "Sentinela " + s.version;
         const last = document.getElementById("m-" + (s.mode || (s.tailnetEnrolled ? "tailnet" : "")));
         if (last) last.open = true;
+        showOffline(s);
       }
+
+      const pathName = { tailnet: "Tailscale embutido", domain: "endereço público", funnel: "Tailscale Funnel", tailscale: "app do Tailscale" };
+      function showOffline(s) {
+        const off = !!s.offline;
+        $("offline").hidden = !off;
+        $("choose").style.display = off ? "none" : "grid";
+        $("title").textContent = off ? "Sem conexão com a casa" : "Como chegar à casa?";
+        $("lede").hidden = off;
+        if (!off) return;
+        const hint = {
+          tailscale: "Este caminho usa o app do Tailscale: ligue a VPN dele neste celular e tente de novo.",
+          tailnet: "A rede privada do app ainda não conectou (" + s.tailnetStatus + "). Confira a internet e tente de novo.",
+          domain: "O endereço público não respondeu. Se estiver no Wi-Fi de casa, o roteador pode não aceitar o próprio IP de fora: teste no 4G.",
+          funnel: "O Funnel não respondeu. Ele precisa estar ligado no servidor.",
+        }[s.mode];
+        $("off-text").textContent = hint || "O servidor não respondeu por este caminho. Tente de novo ou troque a forma de conexão.";
+        $("off-ts").hidden = s.mode !== "tailscale";
+        $("off-why").textContent = "Caminho: " + (pathName[s.mode] || s.mode) + (s.offlineWhy ? " · " + s.offlineWhy : "");
+      }
+
+      $("off-retry").addEventListener("click", () => {
+        $("off-retry").disabled = true;
+        $("off-retry").textContent = "Conectando…";
+        call("retry").catch(() => ($("off-retry").disabled = false));
+      });
+      $("off-change").addEventListener("click", () => showOffline({ offline: false }));
 
       document.querySelectorAll("button[data-mode]").forEach((b) =>
         b.addEventListener("click", async () => {

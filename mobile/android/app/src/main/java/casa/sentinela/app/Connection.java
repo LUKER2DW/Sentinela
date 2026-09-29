@@ -47,6 +47,14 @@ final class Connection {
     // WebView, which gets it as a cookie (other apps cannot read it).
     private static final String TOKEN = randomHex(32);
 
+    /**
+     * Set when the chosen server did not answer (MainActivity): the next
+     * launch shows the bundled start screen in its "no connection" state,
+     * which has the app's look and a working bridge (Capacitor's errorPath
+     * page gets neither). Cleared by "Tentar de novo" or a new choice.
+     */
+    static volatile String offline = null;
+
     private Connection() {}
 
     static SharedPreferences prefs(Context c) {
@@ -85,6 +93,7 @@ final class Connection {
 
     /** The server URL for this launch, or null for the start screen. */
     static String serverUrl(Context c) {
+        if (offline != null) return null;
         String mode = mode(c);
         if (mode.equals("tailnet")) {
             if (!tailnetEnrolled(c)) return null;
@@ -154,6 +163,8 @@ final class Connection {
             String url = serverUrl(c);
             if (url != null) server.put("url", url);
             else server.remove("url");
+            // Failures are handled natively (MainActivity), not by an error page.
+            server.remove("errorPath");
             JSONObject android = json.optJSONObject("android");
             if (android == null) {
                 android = new JSONObject();
