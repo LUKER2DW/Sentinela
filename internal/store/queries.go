@@ -385,6 +385,8 @@ type Event struct {
 	Start    time.Time  `json:"start"`
 	End      *time.Time `json:"end,omitempty"`
 	Meta     string     `json:"meta,omitempty"`
+	// Snapshot is set by the API when a picture exists (ADR-0015).
+	Snapshot bool `json:"snapshot,omitempty"`
 }
 
 // OpenEvent inserts an event without end and returns its id.
@@ -467,6 +469,27 @@ func (s *Store) EventsBetween(ctx context.Context, cameraID string, from, to tim
 		out = append(out, e)
 	}
 	return out, rows.Err()
+}
+
+// EventByID returns one event.
+func (s *Store) EventByID(ctx context.Context, id int64) (*Event, error) {
+	var e Event
+	var st string
+	var en sql.NullString
+	err := s.db.QueryRowContext(ctx, `SELECT id,camera_id,type,start_utc,end_utc,meta FROM events WHERE id=?`, id).
+		Scan(&e.ID, &e.CameraID, &e.Type, &st, &en, &e.Meta)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	e.Start = mustTime(st)
+	if en.Valid {
+		t := mustTime(en.String)
+		e.End = &t
+	}
+	return &e, nil
 }
 
 // PurgeEventsBefore deletes events older than t.

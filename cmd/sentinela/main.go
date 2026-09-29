@@ -112,14 +112,12 @@ func serve(ctx context.Context, log *slog.Logger, cfgPath string) error {
 	for i := range cfg.Cameras {
 		cam := &cfg.Cameras[i]
 		w := &onvif.Watcher{CameraID: cam.ID, Client: onvif.NewClient(cam.Host, cam.ONVIFPort, cam.User, cam.Password),
-			Store: st, Log: log, Sink: func(id, typ string, active bool, at time.Time) {
-				srv.Hub().Publish(api.LiveEvent{CameraID: id, Type: typ, Active: active, At: at.UTC()})
-			}}
+			Store: st, Log: log, Sink: srv.HandleEvent}
 		wg.Add(1)
 		go func() { defer wg.Done(); w.Run(ctx) }()
 	}
 	wg.Add(1)
-	go func() { defer wg.Done(); maintenance(ctx, log, cfg, st) }()
+	go func() { defer wg.Done(); maintenance(ctx, log, cfg, st, srv) }()
 
 	hs := &http.Server{Addr: cfg.Listen, Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout: 2 * time.Minute, MaxHeaderBytes: 64 << 10}
@@ -143,12 +141,14 @@ func serve(ctx context.Context, log *slog.Logger, cfgPath string) error {
 }
 
 // maintenance purges sessions hourly and writes a nightly DB backup.
-func maintenance(ctx context.Context, log *slog.Logger, cfg *config.Config, st *store.Store) {
+func maintenance(ctx context.Context, log *slog.Logger, cfg *config.Config, st *store.Store, srv *api.Server) {
 	t := time.NewTicker(time.Hour)
 	defer t.Stop()
 	lastBackup := ""
 	for {
 		_ = st.PurgeExpiredSessions(ctx)
+		// Event snapshots live as long as alert recordings (ADR-0015).
+		srv.PurgeSnapshots(30 * 24 * time.Hour)
 		day := time.Now().UTC().Format("20060102")
 		if day != lastBackup {
 			dir := filepath.Join(cfg.DataDir, "backup")

@@ -39,6 +39,8 @@ type Server struct {
 	stateMu  sync.Mutex
 	stateTTL map[string]cachedState
 
+	snaps snapshotter
+
 	// Nuvem file API (ADR-0012); nil when the share is not mounted.
 	nas     *nas.Share
 	nasRoot string
@@ -125,6 +127,7 @@ func (s *Server) Handler() http.Handler {
 	// Events and system
 	mux.Handle("GET /api/events", viewer(s.listEvents))
 	mux.Handle("GET /api/events/stream", viewer(s.eventStream))
+	mux.Handle("GET /api/events/{id}/snapshot", viewer(s.eventSnapshot))
 	mux.Handle("GET /api/system", viewer(s.system))
 
 	// Nuvem file API (ADR-0012): viewers read, operators and admins write.

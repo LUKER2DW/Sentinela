@@ -3,15 +3,18 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/LUKER2DW/sentinela/internal/config"
 	"github.com/LUKER2DW/sentinela/internal/store"
@@ -332,5 +335,43 @@ func TestNuvemFileAPI(t *testing.T) {
 	}
 	if _, _, body := admin.do("GET", "/api/audit", ""); !strings.Contains(body, "nas.upload") || !strings.Contains(body, "nas.delete") {
 		t.Fatalf("audit = %s", body)
+	}
+}
+
+func TestEventSnapshot(t *testing.T) {
+	jpeg := []byte("\xff\xd8\xff\xe0fake-jpeg\xff\xd9")
+	calls := 0
+	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if r.URL.Path != "/api/frame.jpeg" || r.URL.Query().Get("src") != "cam1_sub" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Write(jpeg)
+	}))
+	defer fake.Close()
+	ts, srv := newTestServer(t)
+	srv.go2rtc, _ = url.Parse(fake.URL)
+	admin := newClient(t, ts.URL)
+	admin.do("POST", "/api/setup", `{"username":"admin","password":"long enough pw"}`)
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+	id1, _ := srv.Store.OpenEvent(ctx, "cam1", "motion", now, "")
+	id2, _ := srv.Store.OpenEvent(ctx, "cam1", "motion", now.Add(time.Second), "")
+	srv.takeSnapshot(ctx, "cam1", id1)
+	srv.takeSnapshot(ctx, "cam1", id2) // within 10 s: rate-limited
+	if calls != 1 {
+		t.Fatalf("go2rtc called %d times, want 1 (rate limit)", calls)
+	}
+	code, _, body := admin.do("GET", fmt.Sprintf("/api/events/%d/snapshot", id1), "")
+	if code != 200 || body != string(jpeg) {
+		t.Fatalf("snapshot = %d %q", code, body)
+	}
+	if code, _, _ := admin.do("GET", fmt.Sprintf("/api/events/%d/snapshot", id2), ""); code != 404 {
+		t.Fatalf("rate-limited event snapshot = %d, want 404", code)
+	}
+	if _, _, body := admin.do("GET", "/api/events", ""); !strings.Contains(body, `"snapshot":true`) {
+		t.Fatalf("events list lacks snapshot flag: %s", body)
 	}
 }

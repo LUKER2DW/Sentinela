@@ -57,7 +57,7 @@ func TestWatcherMergesMotionTopics(t *testing.T) {
 	}
 	defer st.Close()
 	var got []bool
-	w := &Watcher{CameraID: "cam1", Store: st, Sink: func(_, typ string, active bool, _ time.Time) { got = append(got, active) }}
+	w := &Watcher{CameraID: "cam1", Store: st, Sink: func(_, typ string, _ int64, active bool, _ time.Time) { got = append(got, active) }}
 	now := time.Now()
 	cell := Notification{Topic: "tns1:RuleEngine/CellMotionDetector/Motion", Items: map[string]string{"IsMotion": "true"}}
 	alarm := Notification{Topic: "tns1:VideoSource/MotionAlarm", Items: map[string]string{"State": "true"}}

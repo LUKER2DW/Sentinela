@@ -39,6 +39,9 @@ func (s *Server) listEvents(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "database error")
 		return
 	}
+	for i := range ev {
+		ev[i].Snapshot = s.hasSnapshot(ev[i])
+	}
 	writeJSON(w, http.StatusOK, ev)
 }
 

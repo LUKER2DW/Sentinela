@@ -10,8 +10,9 @@ import (
 	"github.com/LUKER2DW/sentinela/internal/store"
 )
 
-// Sink receives event transitions (implemented by the API for live push).
-type Sink func(cameraID, typ string, active bool, at time.Time)
+// Sink receives event transitions with the stored event id (implemented by
+// the API: live push, snapshots, notifications).
+type Sink func(cameraID, typ string, eventID int64, active bool, at time.Time)
 
 // Watcher keeps a PullPoint subscription alive and writes events to the store.
 type Watcher struct {
@@ -124,7 +125,8 @@ func (w *Watcher) transition(ctx context.Context, typ string, active bool, now t
 			w.Log.Warn("store event", "err", err)
 			return
 		}
-		w.open[typ] = openEvent{id: id, start: now}
+		ev = openEvent{id: id, start: now}
+		w.open[typ] = ev
 	case !active && isOpen:
 		_ = w.Store.CloseEvent(ctx, ev.id, now)
 		delete(w.open, typ)
@@ -132,7 +134,7 @@ func (w *Watcher) transition(ctx context.Context, typ string, active bool, now t
 		return
 	}
 	if w.Sink != nil {
-		w.Sink(w.CameraID, typ, active, now)
+		w.Sink(w.CameraID, typ, ev.id, active, now)
 	}
 }
 
