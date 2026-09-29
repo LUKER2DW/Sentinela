@@ -44,6 +44,16 @@ GitHub Actions runs checks (`ci` workflow) on GitHub-hosted runners and never
 deploys. A server that still has the retired auto deployer:
 `sudo /opt/sentinela/scripts/uninstall-autodeploy.sh`.
 
+## Remote access (Tailscale)
+
+`sudo /opt/sentinela/scripts/setup-tailscale.sh` on the server installs
+Tailscale, joins the tailnet as `sentinela` (login URL on first run) and
+publishes `https://sentinela.<tailnet>.ts.net` with `tailscale serve`.
+Enable HTTPS certificates and paste the ACL from
+[`docs/SECURITY.md`](docs/SECURITY.md) (rule 9) in the admin console. Phones
+install the Tailscale app and open that address. No router ports
+([ADR-0004](docs/adr/0004-tailscale-remote-access.md)).
+
 ## Install on a fresh server (Ubuntu 22.04)
 
 1. Mount the recordings disk at `/data` (and the NAS disk at `/srv/nas` if
