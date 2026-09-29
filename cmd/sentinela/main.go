@@ -2,7 +2,7 @@
 //
 //	sentinela serve        API, auth, SPA, stream proxy, camera control, events
 //	sentinela record       ffmpeg recorders, segment indexer, retention (ADR-0007)
-//	sentinela user ...     add | passwd | list  (password read from stdin)
+//	sentinela user ...     add | passwd | del | list  (password read from stdin)
 //	sentinela healthcheck  exit 0 if the local API answers /healthz
 //	sentinela check-config validate the config + secrets, list the cameras
 //	sentinela version
@@ -261,8 +261,17 @@ func userCmd(ctx context.Context, cfgPath, role string, args []string) error {
 		return err
 	}
 	defer st.Close()
+	// Go's flag package stops at the first non-flag, so `user add -role
+	// admin bob` would leave "-role" in args: accept -role anywhere.
+	args, role, err = splitRoleFlag(args, role)
+	if err != nil {
+		return err
+	}
 	if len(args) == 0 {
-		return errors.New("usage: sentinela user add|passwd|list [username] [-role r]")
+		return errors.New("usage: sentinela user add|passwd|del|list [username] [-role r]")
+	}
+	if len(args) > 1 && strings.HasPrefix(args[1], "-") && args[0] != "del" {
+		return fmt.Errorf("usernames cannot start with '-': %q", args[1])
 	}
 	readPW := func() (string, error) {
 		fmt.Fprint(os.Stderr, "New password (min 10 chars), then Enter: ")
@@ -281,6 +290,24 @@ func userCmd(ctx context.Context, cfgPath, role string, args []string) error {
 		for _, u := range users {
 			fmt.Printf("%-20s %s\n", u.Username, u.Role)
 		}
+		return nil
+	case "del":
+		if len(args) < 2 {
+			return errors.New("username required")
+		}
+		u, err := st.UserByName(ctx, args[1])
+		if err != nil {
+			return err
+		}
+		if u.Role == auth.RoleAdmin {
+			if n, err := st.CountAdmins(ctx); err != nil || n <= 1 {
+				return errors.New("cannot delete the last admin")
+			}
+		}
+		if err := st.DeleteUser(ctx, u.ID); err != nil {
+			return err
+		}
+		fmt.Fprintln(os.Stderr, "ok")
 		return nil
 	case "add", "passwd":
 		if len(args) < 2 {
@@ -311,6 +338,29 @@ func userCmd(ctx context.Context, cfgPath, role string, args []string) error {
 		return err
 	}
 	return fmt.Errorf("unknown user subcommand %q", args[0])
+}
+
+// splitRoleFlag removes "-role x", "--role x", "-role=x" from args.
+func splitRoleFlag(args []string, role string) ([]string, string, error) {
+	out := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--": // the rest is literal (e.g. `user del -- -odd`)
+			return append(out, args[i+1:]...), role, nil
+		case a == "-role" || a == "--role":
+			if i+1 == len(args) {
+				return nil, "", errors.New("-role needs a value")
+			}
+			role = args[i+1]
+			i++
+		case strings.HasPrefix(a, "-role=") || strings.HasPrefix(a, "--role="):
+			role = a[strings.Index(a, "=")+1:]
+		default:
+			out = append(out, a)
+		}
+	}
+	return out, role, nil
 }
 
 func healthcheck(cfgPath string) error {
