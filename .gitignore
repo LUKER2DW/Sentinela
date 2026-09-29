@@ -18,3 +18,4 @@ mobile/build/
 *.jks
 *.keystore
 detector/.export/
+/.idea/
