@@ -158,7 +158,7 @@ Other findings:
 | Metric | Value |
 |---|---|
 | Live latency LAN, WebRTC (Chrome) | not measured yet (stopwatch method needs an operator); WebRTC jitter buffer ≈ 560 ms |
-| Live latency 4G via Tailscale | not measured (no Tailscale / server yet) |
+| Live latency 4G via Tailscale | **~0.8 s**, WebRTC, delay meter "sem atraso" (2026-09-29, Android Chrome on a Poco X7, Wi-Fi off). Tailscale path **direct** (no DERP relay) from the carrier IP; HTTPS via `tailscale serve` |
 | go2rtc CPU / RSS | Dev PC (Ryzen 5 5600G, Docker Desktop), 1 viewer on `cam1` WebRTC: 4–6 % CPU, 24 MiB. Idle/sub only: 1–2 %, 19 MiB. **Re-measure on the i5 server.** |
 | Recorder CPU / RSS | Phase 2 |
 
