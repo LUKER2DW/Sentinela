@@ -31,6 +31,11 @@ fi
 install -m 0644 "${REPO_DIR}/deploy/nas/avahi-smb.service" /etc/avahi/services/smb.service
 rm -f /etc/avahi/services/sentinela*.service
 
+# Recycle bin purge (files deleted more than 30 days ago).
+install -m 0644 "${REPO_DIR}/deploy/host/sentinela-trash.service" "${REPO_DIR}/deploy/host/sentinela-trash.timer" /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable -q --now sentinela-trash.timer
+
 systemctl enable -q --now smbd nmbd wsdd avahi-daemon
 systemctl restart smbd nmbd wsdd avahi-daemon
 # Owner's choice: 4-digit PINs allowed for the share (Samba's default minimum

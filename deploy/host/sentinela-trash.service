@@ -1,0 +1,12 @@
+[Unit]
+Description=Sentinela: purge the Nuvem recycle bin (older than 30 days)
+RequiresMountsFor=/srv/nas
+ConditionPathIsDirectory=/srv/nas/.lixeira
+
+[Service]
+Type=oneshot
+# recycle:touch sets the access time at deletion; empty folders go after.
+ExecStart=/usr/bin/find /srv/nas/.lixeira -mindepth 1 -type f -atime +30 -delete
+ExecStart=/usr/bin/find /srv/nas/.lixeira -mindepth 2 -type d -empty -delete
+Nice=19
+IOSchedulingClass=idle
