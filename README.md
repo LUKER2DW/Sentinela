@@ -59,8 +59,10 @@ install the Tailscale app and open that address. No router ports
 `./scripts/build-apk.sh` on the dev PC (JDK 21 + Android SDK command-line
 tools) builds `mobile/build/sentinela.apk`; copy it to the phone and open it
 to install (allow "install unknown apps" once). The app opens the server
-over Tailscale; notifications come from the PWA for now
-([ADR-0011](docs/adr/0011-mobile-pwa-capacitor.md)). Keep a copy of
+over Tailscale ([ADR-0011](docs/adr/0011-mobile-pwa-capacitor.md)).
+Notifications in the app need the ntfy app on the phone, with its default
+server set to `https://sentinela.<tailnet>.ts.net:8443`
+(`sudo /opt/sentinela/scripts/setup-ntfy.sh` on the server, ADR-0013). Keep a copy of
 `~/.sentinela-android/` (the signing key): updates need the same key.
 
 ## Install on a fresh server (Ubuntu 22.04)

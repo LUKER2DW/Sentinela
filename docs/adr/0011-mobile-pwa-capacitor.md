@@ -49,9 +49,9 @@ decoder, so the MSE fallback and a per-device capability probe stay.
   through DownloadManager, sending the session cookie only to the server's
   own host. The WebView's Web Share API is absent, so the share buttons
   hide themselves and "Baixar" is used instead.
-- No Firebase: the WebView has no Push API, so **the app does not receive
-  notifications yet**. Until the ntfy/UnifiedPush decision (ADR-0013), keep
-  the PWA installed from Chrome for notifications, or use both.
+- No Firebase: the WebView has no Push API, so the app gets notifications
+  through UnifiedPush and a self-hosted ntfy (ADR-0013); the ntfy app must be
+  installed on the phone. Without it, the PWA still notifies.
 - `scripts/build-apk.sh` builds and signs on the dev PC (JDK 21 + Android
   SDK command-line tools, no Android Studio). The signing key and its
   random password live in `~/.sentinela-android/` on the dev PC, never in

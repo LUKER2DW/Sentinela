@@ -7,6 +7,7 @@
 | `sentinela` | container, `sentinela serve` | API, auth, SPA hosting, stream proxy, camera control (DVRIP), ONVIF events, Nuvem file API (ADR-0012) |
 | `recorder` | container, `sentinela record` (same image, ADR-0007) | ffmpeg per camera, segment indexer, retention, heartbeat |
 | `go2rtc` | container (`alexxit/go2rtc`, pinned) | RTSP ingest, WebRTC/MSE/HLS/MJPEG out, two-way audio, snapshots |
+| `ntfy` | container (`binwiederhier/ntfy`, pinned) | UnifiedPush relay for notifications in the Android app (ADR-0013); loopback only, relays ciphertext |
 | Tailscale | host package (ADR-0004) | Private remote access; `tailscale serve` terminates HTTPS on :443 for `sentinela.<tailnet>.ts.net` and proxies to 127.0.0.1:8080 |
 | Samba, wsdd, Avahi | host packages (ADR-0008) | LAN file shares "Nuvem" and "Gravacoes" |
 | Host timers | systemd | SMART snapshot (hourly), DB/config backup + restic (nightly, ADR-0014) |
@@ -66,6 +67,9 @@ ONVIF PullPoint subscription (or DVRIP alarm callback) → `events` row
 phone (Tailscale app, PWA or Capacitor APK)
   ──https://sentinela.<tailnet>.ts.net──► tailscaled serve :443 ──► 127.0.0.1:8080 sentinela
   ◄════ WebRTC ICE on 100.x.y.z:8555 ═════ go2rtc
+ntfy app (UnifiedPush distributor)
+  ──https://sentinela.<tailnet>.ts.net:8443──► tailscaled serve ──► 127.0.0.1:2586 ntfy
+sentinela ──POST RFC 8291 ciphertext──► 127.0.0.1:2586 ntfy ──► phone ──► app decrypts
 ```
 
 `sentinela` trusts `X-Forwarded-For`/`X-Forwarded-Proto` only from loopback.
@@ -92,6 +96,8 @@ only after the owner approves it.
 |---|---|---|---|
 | 8080/tcp | LAN (ufw) | sentinela | plain HTTP on the LAN; remote users go through 443 |
 | 443/tcp | tailscale0 | tailscaled (`serve`) | HTTPS, proxies to 127.0.0.1:8080 |
+| 8443/tcp | tailscale0 | tailscaled (`serve`) | HTTPS, proxies to the ntfy relay on 127.0.0.1:2586 |
+| 2586/tcp | 127.0.0.1 | ntfy | UnifiedPush relay (ADR-0013) |
 | 1984/tcp | 127.0.0.1 | go2rtc API | never exposed |
 | 8554/tcp | 127.0.0.1 | go2rtc RTSP | internal restream |
 | 8555/tcp+udp | LAN + tailscale0 | go2rtc WebRTC | ICE |

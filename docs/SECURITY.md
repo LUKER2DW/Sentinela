@@ -10,7 +10,7 @@
 | LAN guest/IoT device attacks camera | Medium | Separate VLAN/SSID for cameras if router supports; strong camera password |
 | Credential leak via logs/git | Medium | Redaction helper; `.env` git-ignored; secret scanning pre-commit (gitleaks) |
 | Web attacks (CSRF/XSS/session theft) | Low (private) | SameSite=Strict HttpOnly cookies, CSRF token, strict CSP, no inline scripts |
-| Compromised or lost tailnet device | Medium | Tailscale ACL: only `group:family` reaches `tag:nvr`, only ports 443/8555 (22 for admins); key expiry on phones; app sessions revocable |
+| Compromised or lost tailnet device | Medium | Tailscale ACL: only `group:family` reaches `tag:nvr`, only ports 443/8443/8555 (22 for admins); key expiry on phones; app sessions revocable |
 | Supply chain via CI / auto deploy | Medium | Retired (ADR-0010): the server holds no GitHub credential and runs no runner; CI runs on GitHub-hosted runners only |
 | Data loss in the Nuvem (bug, mistake, ransomware on a client) | Medium | Recycle bin, audit of API writes, nightly restic to an external disk (ADR-0014) |
 
@@ -39,7 +39,8 @@
 7. Dependencies pinned; containers pinned by digest; `govulncheck` in `make check`.
 8. Host: SSH is key-only; ufw allows only 192.168.1.0/24 (22, 8080, 8555,
    SMB 139/445, discovery, NTP) and, on `tailscale0`, only 443/tcp
-   (`tailscale serve`), 8555/tcp+udp (WebRTC) and 22/tcp. 8080 is never
+   (`tailscale serve`), 8443/tcp (`serve` for the ntfy relay), 8555/tcp+udp
+   (WebRTC) and 22/tcp. 8080 is never
    reachable over the tailnet: remote users always get HTTPS. Samba binds to
    `eno1`, no guest; it joins the tailnet only after per-user passwords of
    ≥ 12 characters and the owner's approval.
@@ -63,7 +64,7 @@
      "groups":    {"group:family": ["owner@example.com"]},
      "tagOwners": {"tag:nvr": ["autogroup:admin"]},
      "acls": [
-       {"action": "accept", "src": ["group:family"],    "dst": ["tag:nvr:443,8555"]},
+       {"action": "accept", "src": ["group:family"],    "dst": ["tag:nvr:443,8443,8555"]},
        {"action": "accept", "src": ["autogroup:admin"], "dst": ["tag:nvr:22"]}
      ],
      "ssh": []
@@ -82,8 +83,8 @@
     password kept in `/etc/sentinela/restic.env` (0600) **and** in the
     owner's password manager (without it the backup is unreadable).
 12. Notifications (ADR-0013): the server only POSTs to allow-listed push
-    services (outbound HTTPS); payloads are end-to-end encrypted and hold
-    no image. VAPID private key in `/data/push/vapid.json` (0600).
+    services (outbound HTTPS) or to `up*` topics of its own ntfy relay
+    (loopback); payloads are end-to-end encrypted and hold no image. VAPID private key in `/data/push/vapid.json` (0600).
 
 ## Reporting
 

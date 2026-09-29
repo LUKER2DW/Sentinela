@@ -1,7 +1,7 @@
 # ADR-0013: Notifications — Web Push + ntfy, images never through a third party
 
-Status: Accepted for Web Push · 2026-09-29. The ntfy part is deferred to
-Stage B2 (owner decision: no new service for now).
+Status: Accepted · 2026-09-29. Web Push built with Wave 2; the ntfy relay
+approved by the owner and built after Stage B2 (same day).
 
 ## Context
 Event alerts must reach the phone quickly (≤ 5 s) without exposing the
@@ -34,6 +34,28 @@ UnifiedPush distributor for the Capacitor app.
 - Payload: title, time, and the snapshot *path* on the server; the phone
   fetches the picture itself over the tailnet.
 
+### ntfy relay for the Android app
+- The Capacitor WebView has no Push API, and Firebase is not wanted, so
+  the app uses **UnifiedPush** with the ntfy Android app as distributor and
+  a **self-hosted ntfy** (`binwiederhier/ntfy`, pinned) as the push server.
+  The built-in publisher option was dropped: the phone side needs a
+  distributor app anyway, and ntfy's is the maintained one.
+- ntfy listens on `127.0.0.1:2586` only; `tailscale serve --https=8443`
+  publishes it on the tailnet (ntfy cannot live under a sub-path of :443).
+  No ntfy accounts: the tailnet ACL decides who connects, UnifiedPush topics
+  are random names, and the web app is disabled. 64 MB memory cap.
+- The app's `PushBridge` plugin registers with ntfy (`connector` 3.x) and
+  returns the endpoint plus RFC 8291 keys; the page subscribes it through
+  the same `/api/push/subscribe`. The server accepts only `up*` topics on
+  its own `ntfy.public_url` and posts them to `ntfy.url` on loopback,
+  encrypted like Web Push, without VAPID (ntfy ignores it). The connector
+  decrypts; `SentinelaPushService` shows the notification and then adds the
+  snapshot, fetched from the server with the app's session cookie.
+- Phone setup: install ntfy, set its default server to
+  `https://sentinela.<tailnet>.ts.net:8443`, then "Ativar" in the app.
+
 ## Consequences
 + No cloud account; works whenever the phone has Tailscale up.
-− ntfy would be one more small service (≈ 20 MB RSS) if chosen.
++ ntfy only ever sees ciphertext, and nothing leaves the tailnet.
+− One more small container (≈ 20 MB RSS) and one more tailnet port (8443).
+− The ntfy app keeps a background connection, which uses some battery.
