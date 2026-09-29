@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { disablePush, enablePush, getMode, pushState, putMode, testPush, type ModeSettings, type PushState } from "../lib/push";
+import { get } from "../lib/api";
+import { disablePush, enablePush, getMode, isApp, pushState, putMode, refreshNativePush, testPush, type ModeSettings, type PushState } from "../lib/push";
 import { useSession, useToast } from "../lib/session";
 import { Icon } from "./Icon";
 
@@ -54,6 +55,8 @@ const stateText: Record<PushState, string> = {
   denied: "As notificações foram bloqueadas nas configurações do navegador para este site.",
   off: "Desligadas neste aparelho.",
   on: "Ligadas neste aparelho.",
+  "no-ntfy": "No app, os avisos chegam pelo ntfy. Instale o ntfy e, nas configurações dele, mude o Servidor padrão para o endereço abaixo.",
+  "no-relay": "O servidor da casa ainda não tem o ntfy configurado (scripts/setup-ntfy.sh).",
 };
 
 /** Notifications card for the System ("Mais") page. */
@@ -64,11 +67,16 @@ export function NotificationsCard() {
   const [state, setState] = useState<PushState | null>(null);
   const [busy, setBusy] = useState(false);
   const mode = useQuery({ queryKey: ["notify-mode"], queryFn: getMode, staleTime: 30_000 });
+  const info = useQuery({ queryKey: ["push-info"], queryFn: () => get<{ ntfy_url: string }>("/api/push"), enabled: isApp(), staleTime: 300_000 });
 
   useEffect(() => {
     let live = true;
     void pushState()
-      .then((s) => live && setState(s))
+      .then((s) => {
+        if (!live) return;
+        setState(s);
+        if (s === "on") void refreshNativePush().catch(() => {});
+      })
       .catch(() => live && setState("unsupported"));
     return () => {
       live = false;
@@ -104,7 +112,18 @@ export function NotificationsCard() {
         )}
       </div>
       <p className="muted">{state ? stateText[state] : "Verificando…"}</p>
+      {state === "no-ntfy" && info.data?.ntfy_url && <code className="copy-line">{info.data.ntfy_url}</code>}
       <div className="row-actions">
+        {state === "no-ntfy" && (
+          <>
+            <a className="btn primary" href="https://play.google.com/store/apps/details?id=io.heckel.ntfy" target="_blank" rel="noreferrer">
+              Instalar o ntfy
+            </a>
+            <button className="btn" disabled={busy} onClick={() => void run(pushState)}>
+              Já instalei
+            </button>
+          </>
+        )}
         {state === "off" && (
           <button className="btn primary" disabled={busy} onClick={() => void run(enablePush)}>
             <Icon name="events" /> Ativar neste aparelho
@@ -169,7 +188,11 @@ export function NotificationsCard() {
           </div>
         </div>
       )}
-      <p className="muted small card-foot">A imagem do evento vem direto do servidor pelo Tailscale; o serviço de avisos do navegador só vê texto cifrado.</p>
+      <p className="muted small card-foot">
+        {isApp()
+          ? "Os avisos passam pelo ntfy da própria casa, cifrados; a imagem vem direto do servidor pelo Tailscale."
+          : "A imagem do evento vem direto do servidor pelo Tailscale; o serviço de avisos do navegador só vê texto cifrado."}
+      </p>
     </section>
   );
 }

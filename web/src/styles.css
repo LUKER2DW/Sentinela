@@ -526,6 +526,7 @@ button.list-row:hover { background: var(--surface-2); }
 .copy-field { display: flex; align-items: center; gap: 8px; padding: 4px 4px 4px 12px; border-radius: var(--r-md); background: var(--surface-2); border: 1px solid var(--line); }
 .copy-field code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.95rem; }
 code { font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace; font-size: 0.9em; }
+.copy-line { display: block; margin: 0.25rem 0 0.75rem; padding: 0.5rem 0.75rem; border-radius: 8px; background: var(--surface-2); user-select: all; overflow-wrap: anywhere; }
 .segmented.wrap { flex-wrap: wrap; }
 .connect-steps { margin: 16px 0; }
 .hero-card { position: relative; overflow: hidden; }
