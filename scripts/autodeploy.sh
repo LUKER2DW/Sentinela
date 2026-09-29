@@ -41,6 +41,16 @@ git -C "$SRC" fetch --quiet origin "$BRANCH"
 new="$(git -C "$SRC" rev-parse "origin/$BRANCH")"
 last="$(cat "$STATE" 2>/dev/null || true)"
 [[ "$new" == "$last" ]] && exit 0
+# Only move forward. A manual deploy (scripts/deploy.sh) may already run a
+# newer commit than GitHub's head, or one GitHub has not seen yet.
+if [[ -n "$last" ]]; then
+  if ! git -C "$SRC" cat-file -e "$last^{commit}" 2>/dev/null; then
+    exit 0 # running an unpushed commit: wait until it is on GitHub
+  fi
+  if git -C "$SRC" merge-base --is-ancestor "$new" "$last"; then
+    exit 0 # already running this commit or a newer one
+  fi
+fi
 
 short="${new:0:7}"
 log "new commit $short on $BRANCH (last handled: ${last:0:7})"
