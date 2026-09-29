@@ -129,6 +129,15 @@ export interface SystemInfo {
   nas_host: string;
   disk_health: { updated: string; mounts: Record<string, DiskHealth> } | null;
   backup: BackupStatus | null;
+  detector?: {
+    healthy: boolean;
+    last_seen?: string;
+    status?: {
+      inference_ms: number;
+      inferences: number;
+      cameras: Record<string, { connected: boolean; analysing: boolean; last_analysis: number | null }>;
+    };
+  };
 }
 
 export interface DiskHealth {
