@@ -10,6 +10,7 @@ import (
 
 	"github.com/LUKER2DW/sentinela/internal/auth/redact"
 	"github.com/LUKER2DW/sentinela/internal/camera/dvrip"
+	"github.com/LUKER2DW/sentinela/internal/camera/onvif"
 	"github.com/LUKER2DW/sentinela/internal/config"
 )
 
@@ -195,4 +196,32 @@ func (s *Server) setDayNight(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// cameraClock reports how far the camera's clock (the one burned into the
+// video) is from the server's NTP-synced clock. Read-only ONVIF call.
+func (s *Server) cameraClock(w http.ResponseWriter, r *http.Request) {
+	cam := s.camera(w, r)
+	if cam == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	c := onvif.NewClient(cam.Host, cam.ONVIFPort, cam.User, cam.Password)
+	t0 := time.Now()
+	camTime, err := c.SystemTime(ctx)
+	t1 := time.Now()
+	if err != nil {
+		s.Log.Warn("camera clock read failed", "camera", cam.ID, "err", redact.Secrets(err.Error(), cam.Password))
+		writeErr(w, http.StatusBadGateway, "camera did not report its time")
+		return
+	}
+	mid := t0.Add(t1.Sub(t0) / 2)
+	// The camera reports whole seconds (truncated): on average its real time
+	// is half a second later, so the offset is accurate to about ±0.5 s.
+	writeJSON(w, http.StatusOK, map[string]any{
+		"camera":    camTime,
+		"server":    mid.UTC(),
+		"offset_ms": camTime.Add(500 * time.Millisecond).Sub(mid).Milliseconds(),
+	})
 }

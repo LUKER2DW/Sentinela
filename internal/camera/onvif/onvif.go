@@ -201,3 +201,38 @@ func Classify(n Notification) (typ string, active bool, ok bool) {
 	}
 	return "", false, false
 }
+
+const devNS = "http://www.onvif.org/ver10/device/wsdl"
+
+// SystemTime reads the device clock (GetSystemDateAndTime, read-only). The
+// camera burns this clock into the video, so its offset from the server
+// explains an OSD that disagrees with real time.
+func (c *Client) SystemTime(ctx context.Context) (time.Time, error) {
+	data, err := c.call(ctx, c.Base+"/onvif/device_service", "", `<GetSystemDateAndTime xmlns="`+devNS+`"/>`)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return ParseSystemTime(data)
+}
+
+// ParseSystemTime extracts UTCDateTime from a GetSystemDateAndTime response.
+func ParseSystemTime(data []byte) (time.Time, error) {
+	var r struct {
+		UTC struct {
+			Y  int `xml:"Date>Year"`
+			Mo int `xml:"Date>Month"`
+			D  int `xml:"Date>Day"`
+			H  int `xml:"Time>Hour"`
+			Mi int `xml:"Time>Minute"`
+			S  int `xml:"Time>Second"`
+		} `xml:"Body>GetSystemDateAndTimeResponse>SystemDateAndTime>UTCDateTime"`
+	}
+	if err := xml.Unmarshal(data, &r); err != nil {
+		return time.Time{}, fmt.Errorf("onvif: parse time: %w", err)
+	}
+	u := r.UTC
+	if u.Y < 2000 {
+		return time.Time{}, errors.New("onvif: no UTCDateTime in response")
+	}
+	return time.Date(u.Y, time.Month(u.Mo), u.D, u.H, u.Mi, u.S, 0, time.UTC), nil
+}

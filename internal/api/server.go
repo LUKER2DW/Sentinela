@@ -98,6 +98,7 @@ func (s *Server) Handler() http.Handler {
 	// Cameras and control
 	mux.Handle("GET /api/cameras", viewer(s.listCameras))
 	mux.Handle("GET /api/cameras/{id}/control", viewer(s.cameraControl))
+	mux.Handle("GET /api/cameras/{id}/clock", viewer(s.cameraClock))
 	mux.Handle("POST /api/cameras/{id}/ptz", operator(s.ptz))
 	mux.Handle("POST /api/cameras/{id}/presets/{preset}", operator(s.preset))
 	mux.Handle("PUT /api/cameras/{id}/light", operator(s.setLight))

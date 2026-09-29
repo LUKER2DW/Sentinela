@@ -181,3 +181,6 @@ NTP-synced server (camera NTP not set) and the owner's PC 15.7 s ahead, which
 looked like "20 s of delay" next to a PC-time clock. The UI clock now follows
 the server's. Opening the view waits ≤ 2 s for a keyframe; go2rtc `preload`
 keeps `cam1` connected so the RTSP handshake is not added on top.
+The live view's delay meter reads the camera clock with ONVIF
+`GetSystemDateAndTime` (device service, port 8899, read-only; whole seconds)
+and shows what the OSD should read with zero delay.

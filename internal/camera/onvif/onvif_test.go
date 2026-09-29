@@ -75,3 +75,18 @@ func TestWatcherMergesMotionTopics(t *testing.T) {
 		t.Fatalf("events = %+v", ev)
 	}
 }
+
+func TestParseSystemTime(t *testing.T) {
+	// Trimmed response from the XMEye camera (docs/CAMERA.md §5.1).
+	data := []byte(`<?xml version="1.0"?><s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope" xmlns:tds="http://www.onvif.org/ver10/device/wsdl" xmlns:tt="http://www.onvif.org/ver10/schema"><s:Body><tds:GetSystemDateAndTimeResponse><tds:SystemDateAndTime><tt:DateTimeType>Manual</tt:DateTimeType><tt:UTCDateTime><tt:Time><tt:Hour>0</tt:Hour><tt:Minute>3</tt:Minute><tt:Second>37</tt:Second></tt:Time><tt:Date><tt:Year>2026</tt:Year><tt:Month>9</tt:Month><tt:Day>29</tt:Day></tt:Date></tt:UTCDateTime><tt:LocalDateTime><tt:Time><tt:Hour>21</tt:Hour><tt:Minute>3</tt:Minute><tt:Second>37</tt:Second></tt:Time><tt:Date><tt:Year>2026</tt:Year><tt:Month>9</tt:Month><tt:Day>28</tt:Day></tt:Date></tt:LocalDateTime></tds:SystemDateAndTime></tds:GetSystemDateAndTimeResponse></s:Body></s:Envelope>`)
+	got, err := ParseSystemTime(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := time.Date(2026, 9, 29, 0, 3, 37, 0, time.UTC); !got.Equal(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	if _, err := ParseSystemTime([]byte(`<s:Envelope xmlns:s="x"><s:Body/></s:Envelope>`)); err == nil {
+		t.Fatal("want error for a response without UTCDateTime")
+	}
+}
