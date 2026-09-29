@@ -52,6 +52,14 @@ SystemInfo, `1042` get config, `1040` set config, `1400` PTZ. Reads used:
 `NetWork.Nat` (only `NatEnable`, for the System page's cloud/P2P warning;
 never written — network config stays forbidden).
 
+Alarm channel (read-only, hardware probe only so far): message `1500`
+`{"Name": "", "SessionID": …}` subscribes this session to alarm pushes and
+answers `Ret 100` (verified 2026-09-29); keepalive `1006`
+`{"Name": "KeepAlive", …}` every 10 s keeps it open. Pushes are expected as
+message `1504` (`AlarmInfo`: `Channel`, `Event`, `StartTime`, `Status`, per
+python-dvr) — **event names not observed yet**; do not map them in code
+until they are recorded here.
+
 PTZ request envelope (message `1400`), verified by v1 on this model:
 
 ```json
