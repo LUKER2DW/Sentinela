@@ -1,6 +1,6 @@
 # ADR-0009: Auto deploy from GitHub without inbound access
 
-Status: Accepted · 2026-09-28 (owner request)
+Status: **Superseded by ADR-0010** (2026-09-29) · was Accepted 2026-09-28 (owner request)
 
 ## Context
 Deploys ran from the dev PC (`scripts/deploy.sh`: build locally, stream the
