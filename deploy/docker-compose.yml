@@ -39,8 +39,13 @@ services:
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     env_file: /etc/sentinela/secrets.env
+    # cam1 lives in go2rtc.yaml; cameras added with scripts/add-camera.sh are
+    # generated into /etc/sentinela/go2rtc-cameras.yaml (never overwritten by
+    # a deploy). go2rtc merges both files.
+    command: ["go2rtc", "-config", "/config/go2rtc.yaml", "-config", "/config/cameras.yaml"]
     volumes:
       - ./go2rtc.yaml:/config/go2rtc.yaml:ro
+      - /etc/sentinela/go2rtc-cameras.yaml:/config/cameras.yaml:ro
     tmpfs: [/tmp]
     mem_limit: 256m
     logging:

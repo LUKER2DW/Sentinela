@@ -607,8 +607,18 @@ table.table { width: 100%; border-collapse: collapse; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .timelapse-video { width: 100%; aspect-ratio: 16 / 9; background: var(--video); border-radius: 14px; margin: 8px 0; display: block; }
 .check-row { display: flex; align-items: center; gap: 10px; min-height: 44px; }
+.check-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.check-list li { padding-left: 26px; position: relative; overflow-wrap: anywhere; }
+.check-list li::before { position: absolute; left: 0; font-weight: 700; }
+.check-list li.ok::before { content: "✓"; color: var(--kelp); }
+.check-list li.fail::before { content: "✕"; color: var(--coral); }
 .timelapse-video { width: 100%; aspect-ratio: 16 / 9; background: var(--video); border-radius: 14px; margin: 8px 0; display: block; }
 .check-row { display: flex; align-items: center; gap: 10px; min-height: 44px; }
+.check-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.check-list li { padding-left: 26px; position: relative; overflow-wrap: anywhere; }
+.check-list li::before { position: absolute; left: 0; font-weight: 700; }
+.check-list li.ok::before { content: "✓"; color: var(--kelp); }
+.check-list li.fail::before { content: "✕"; color: var(--coral); }
 
 .grid-cams { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 24px; }
 @media (max-width: 760px) { .grid-cams { grid-template-columns: 1fr; } }

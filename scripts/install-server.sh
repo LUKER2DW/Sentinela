@@ -64,6 +64,8 @@ else
   echo "keeping existing ${ETC}/secrets.env"
 fi
 
+[[ -f "${ETC}/go2rtc-cameras.yaml" ]] || echo "# cameras added by scripts/add-camera.sh" | install -m 0644 /dev/stdin "${ETC}/go2rtc-cameras.yaml"
+
 say "3/6 Data directory ${DATA}"
 if ! mountpoint -q "${DATA}"; then
   warn "${DATA} is not a mount point: recordings would land on the system disk."

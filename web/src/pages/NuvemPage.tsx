@@ -27,7 +27,7 @@ function guessOS(): OS {
   return "windows";
 }
 
-function CopyField({ value, label }: { value: string; label: string }) {
+export function CopyField({ value, label }: { value: string; label: string }) {
   const [done, setDone] = useState(false);
   return (
     <div className="copy-field">

@@ -142,12 +142,21 @@ func (c *Controller) Close() {
 }
 
 func (c *Controller) requireApproved() error {
-	for _, m := range approvedModels {
-		if strings.Contains(strings.ToUpper(c.model), m) {
-			return nil
-		}
+	if ApprovedModel(c.model) {
+		return nil
 	}
 	return ErrUnsupportedModel
+}
+
+// ApprovedModel reports whether a DeviceModel string is one whose control
+// surface is verified (docs/CAMERA.md).
+func ApprovedModel(model string) bool {
+	for _, m := range approvedModels {
+		if strings.Contains(strings.ToUpper(model), m) {
+			return true
+		}
+	}
+	return false
 }
 
 // State is the readable control state of a camera.

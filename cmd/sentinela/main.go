@@ -4,6 +4,7 @@
 //	sentinela record       ffmpeg recorders, segment indexer, retention (ADR-0007)
 //	sentinela user ...     add | passwd | list  (password read from stdin)
 //	sentinela healthcheck  exit 0 if the local API answers /healthz
+//	sentinela check-config validate the config + secrets, list the cameras
 //	sentinela version
 package main
 
@@ -64,15 +65,30 @@ func main() {
 		err = userCmd(ctx, *cfgPath, *role, fl.Args())
 	case "healthcheck":
 		err = healthcheck(*cfgPath)
+	case "check-config":
+		err = checkConfig(*cfgPath)
 	case "version":
 		fmt.Println(version)
 	default:
-		err = fmt.Errorf("unknown command %q (serve|record|user|healthcheck|version)", cmd)
+		err = fmt.Errorf("unknown command %q (serve|record|user|healthcheck|check-config|version)", cmd)
 	}
 	if err != nil {
 		log.Error("fatal", "cmd", cmd, "err", err)
 		os.Exit(1)
 	}
+}
+
+// checkConfig loads the config with its secrets and prints the cameras
+// (scripts/add-camera.sh runs it on a candidate config before installing it).
+func checkConfig(path string) error {
+	cfg, err := config.Load(path)
+	if err != nil {
+		return err
+	}
+	for _, c := range cfg.Cameras {
+		fmt.Printf("%s\t%s\t%d\t%d\t%s\n", c.ID, c.Host, c.RTSPPort, c.DVRIPPort, c.Name)
+	}
+	return nil
 }
 
 func envOr(k, d string) string {

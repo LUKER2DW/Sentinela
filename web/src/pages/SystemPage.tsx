@@ -8,6 +8,7 @@ import { VolumeMeter } from "./NuvemPage";
 import { PasswordField } from "../components/PasswordField";
 import { NotificationsCard } from "../components/Notifications";
 import { DevicesCard } from "../components/Devices";
+import { AddCameraCard } from "../components/AddCamera";
 
 const roleLabel: Record<Role, string> = { admin: "Administrador", operator: "Operador", viewer: "Visualizador" };
 const stateLabel: Record<string, string> = {
@@ -57,6 +58,7 @@ export function SystemPage() {
             <DevicesCard />
           </div>
           {can("admin") && <Users />}
+          {can("admin") && <AddCameraCard />}
           {can("admin") && <Audit />}
         </div>
       )}

@@ -34,6 +34,8 @@ echo "==> ship image ($(docker image inspect sentinela:local --format '{{.Size}}
 docker save sentinela:local | gzip -1 | "${SSH[@]}" 'gunzip | docker load -q'
 
 echo "==> restart stack"
+# go2rtc mounts the extra-cameras file: it must exist (else docker makes a directory).
+"${SSH[@]}" 'sudo test -f /etc/sentinela/go2rtc-cameras.yaml || echo "# cameras added by scripts/add-camera.sh" | sudo install -m 0644 /dev/stdin /etc/sentinela/go2rtc-cameras.yaml'
 "${SSH[@]}" "cd /opt/sentinela/deploy && sudo docker compose pull -q go2rtc && sudo SENTINELA_VERSION=${VERSION} docker compose up -d --no-build --remove-orphans && docker image prune -f >/dev/null"
 
 echo "==> health"

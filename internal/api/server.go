@@ -41,9 +41,10 @@ type Server struct {
 	stateMu  sync.Mutex
 	stateTTL map[string]cachedState
 
-	snaps snapshotter
-	tlSem chan struct{} // one timelapse at a time
-	push  notifier
+	snaps    snapshotter
+	tlSem    chan struct{} // one timelapse at a time
+	wizardMu sync.Mutex    // one camera search/test at a time
+	push     notifier
 
 	// Nuvem file API (ADR-0012); nil when the share is not mounted.
 	nas     *nas.Share
@@ -121,6 +122,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("PATCH /api/users/{id}", admin(s.updateUser))
 	mux.Handle("DELETE /api/users/{id}", admin(s.deleteUser))
 	mux.Handle("GET /api/audit", admin(s.listAudit))
+	mux.Handle("POST /api/cameras/discover", admin(s.discoverCameras))
+	mux.Handle("POST /api/cameras/test", admin(s.testCamera))
 
 	// Cameras and control
 	mux.Handle("GET /api/cameras", viewer(s.listCameras))
