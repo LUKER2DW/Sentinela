@@ -33,6 +33,9 @@ rm -f /etc/avahi/services/sentinela*.service
 
 systemctl enable -q --now smbd nmbd wsdd avahi-daemon
 systemctl restart smbd nmbd wsdd avahi-daemon
+# Owner's choice: 4-digit PINs allowed for the share (Samba's default minimum
+# is 5). LAN-only share behind the firewall; see ADR-0008.
+pdbedit -P "min password length" -C 4 >/dev/null
 
 if command -v ufw >/dev/null && ufw status | grep -q active; then
   LAN=192.168.1.0/24

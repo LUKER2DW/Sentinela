@@ -25,6 +25,10 @@ added a lot of code and failure modes.
 - For speed on the old CPU, SMB signing/encryption are negotiated, not forced
   (LAN only; Tailscale adds its own encryption for remote use later).
 - Config lives in `deploy/nas/smb.conf`; `scripts/setup-nas.sh` applies it.
+- Share passwords may be 4 characters (owner's choice, e.g. a numeric PIN;
+  Samba's account policy `min password length` set to 4). Acceptable only
+  because the share is LAN-only and firewalled; revisit before any remote
+  access other than Tailscale.
 
 ## Consequences
 + Gigabit-limited transfers (~110 MB/s) with zero custom code.
