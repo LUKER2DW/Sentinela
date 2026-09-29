@@ -7,5 +7,14 @@ Third-party code adapted into this repository is listed here with its licence.
 
 Runtime dependencies (not bundled in the binary): go2rtc (MIT, AlexxIT),
 FFmpeg (LGPL/GPL, Debian package inside the container image).
+
+Object detector image (detector/, ADR-0016), built locally, not
+redistributed: ONNX Runtime (MIT, Microsoft), PyAV (BSD-3-Clause) with its
+bundled FFmpeg (LGPL), NumPy (BSD-3-Clause). The model is Ultralytics
+YOLO26n (AGPL-3.0): the weights are downloaded (pinned by sha256) and
+exported to ONNX while building the image; no weights or Ultralytics code
+are part of this repository. detector/detector.py is original code; its
+YOLO output decoding follows the public output format documented by
+Ultralytics and Frigate's "yolo-generic" model type.
 Bundled web fonts: Barlow and Barlow Semi Condensed (SIL Open Font License 1.1,
 Jeremy Tribby), via @fontsource.

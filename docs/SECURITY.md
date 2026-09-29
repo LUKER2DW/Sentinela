@@ -86,6 +86,12 @@
     services (outbound HTTPS) or to `up*` topics of its own ntfy relay
     (loopback); payloads are end-to-end encrypted and hold no image. VAPID private key in `/data/push/vapid.json` (0600).
 
+13. Object detector (ADR-0016): `/internal/detector/*` answers only loopback
+    peers with the bearer token from `/data/detector/token` (0640, uid 1000,
+    created by `serve`); the detector reads video only from go2rtc's
+    loopback restream and never sees camera credentials. Model weights are
+    pinned by sha256 at image build.
+
 ## Reporting
 
 Private project. Record findings in `docs/CAMERA.md` §3 (camera) or as an

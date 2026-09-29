@@ -1,34 +1,33 @@
-# ADR-0017: Detection zone editor — plan only
+# ADR-0017: Detection zones drawn in Sentinela, not in the camera
 
-Status: Proposed · 2026-09-29 (plan only; no camera write until the owner approves)
+Status: Accepted · 2026-09-29 (owner: "better to build our own; the camera's regions are poor")
 
 ## Context
-The camera's motion and human-detection regions are set in its own web UI.
-The owner would like to draw them in Sentinela. That is a **persistent
-camera config write**, which AGENTS.md §2.6 only allows for objects
-documented in docs/CAMERA.md with a read → change one field → read back →
-restore-on-failure cycle. The region object of this firmware is **not
-documented yet**: SystemFunction only advertises `AlarmFunction.HumanDection`
-and `MotionHumanDection`; the config names and the grid/polygon format are
-unknown, and must not be guessed (CLAUDE.md).
+The first plan was an editor for the camera's own motion/human regions:
+a persistent camera config write through DVRIP, with an undocumented
+region object (only `AlarmFunction.HumanDection` is advertised). The owner
+finds the camera's regions poor (a coarse grid) and prefers zones of our
+own. With the object detector (ADR-0016) Sentinela can apply any polygon to
+what it detects, so no camera write is needed.
 
-## Plan
-1. **Read-only probe** (owner approval needed for the probe itself, since
-   the name is not documented): read the detection objects with message
-   1042, save sanitized fixtures under `internal/camera/dvrip/testdata/`,
-   and document names, grid size and value format in CAMERA.md §1.3.
-2. Decode/encode the region format in pure Go with fixture tests
-   (round-trip must be byte-identical for an unchanged grid).
-3. UI (admin): the live substream snapshot with the grid on top; paint
-   cells; "Salvar" shows a diff first.
-4. Write path: the existing `setParam` discipline — read the full object,
-   change only the region field, write, read back, compare, restore the
-   original on any mismatch; audit log with before/after hashes.
-5. A hardware test that writes the **unchanged** object back, run once with
-   the owner watching, before any real edit.
+## Decision
+- Zones are **Sentinela data**, not camera config: per camera, up to 10
+  polygons (3–32 points, normalised 0..1), each with a name and the kinds
+  it watches (people, vehicles, animals). Stored with the detection
+  settings (on/off, sensitivity) in the `settings` table as
+  `detection.<camera>`.
+- Rule: an object counts when the bottom-centre of its box (feet/wheels)
+  is inside a zone watching its kind — a person behind the gate on the
+  street does not count even if their head overlaps the zone.
+- Editor on the System page (operators): a current substream picture
+  (`/api/cameras/{id}/frame.jpeg`, one go2rtc keyframe decode, cached 5 s),
+  tap to add points, drag to move, per-zone kinds, sensitivity presets.
+- The camera's motion detection stays as it is: it is the cheap trigger
+  that wakes the detector. Its regions are not touched (no DVRIP write).
 
 ## Consequences
-+ Regions editable from the phone, with a safe rollback.
-− New allow-listed write; one more firmware-specific format to maintain.
-− If the firmware stores regions in a format we cannot round-trip exactly,
-  the feature is dropped (the camera UI remains the way to edit them).
++ Free-form polygons, per-kind zones, editable from the phone; no camera
+  write path, nothing to allow-list in CAMERA.md.
+− Zones only apply to the detector's events; raw camera `motion` events
+  still cover the camera's own region (they only feed the timeline and the
+  detector trigger).

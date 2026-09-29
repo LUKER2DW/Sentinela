@@ -7,6 +7,7 @@
 | `sentinela` | container, `sentinela serve` | API, auth, SPA hosting, stream proxy, camera control (DVRIP), ONVIF events, Nuvem file API (ADR-0012) |
 | `recorder` | container, `sentinela record` (same image, ADR-0007) | ffmpeg per camera, segment indexer, retention, heartbeat |
 | `go2rtc` | container (`alexxit/go2rtc`, pinned) | RTSP ingest, WebRTC/MSE/HLS/MJPEG out, two-way audio, snapshots |
+| `detector` | container (`detector/`, ADR-0016) | Motion-gated YOLO26n on substream keyframes; zones; reports people/vehicles/animals to the API over loopback. Capped at 15 % of a core, 192 MB; nothing depends on it |
 | `ntfy` | container (`binwiederhier/ntfy`, pinned) | UnifiedPush relay for notifications in the Android app (ADR-0013); loopback only, relays ciphertext |
 | Tailscale | host package (ADR-0004) | Private remote access; `tailscale serve` terminates HTTPS on :443 for `sentinela.<tailnet>.ts.net` and proxies to 127.0.0.1:8080 |
 | Samba, wsdd, Avahi | host packages (ADR-0008) | LAN file shares "Nuvem" and "Gravacoes" |
@@ -60,6 +61,14 @@ no repeat arrives within 1 s (deadman), on release, or on disconnect.
 
 ONVIF PullPoint subscription (or DVRIP alarm callback) → `events` row
 `(camera_id, type, start_utc, end_utc)` → timeline markers, optional push.
+
+Object detection (ADR-0016/0017): camera `motion` → `sentinela` marks the
+camera as moving → the detector (polling `/internal/detector/motion` every
+second) decodes substream keyframes from `rtsp://127.0.0.1:8554/<cam>_sub`
+and runs YOLO26n → objects whose base is inside a zone watching their kind
+→ `POST /internal/detector/event` → `human` / `vehicle` / `animal` event
+with the analysed frame as snapshot → review + notification. While the
+detector is healthy, plain `motion` does not notify.
 
 ### 2.5 Remote and mobile
 

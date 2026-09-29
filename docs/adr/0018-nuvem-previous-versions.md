@@ -1,6 +1,6 @@
 # ADR-0018: "Versões anteriores" on the Nuvem with Btrfs + snapper — plan only
 
-Status: Proposed · 2026-09-29 (plan only; needs a data move the owner must approve)
+Status: Approved · 2026-09-29 (owner) — waits on its preconditions (restic USB disk + restore drill); the migration window is scheduled with the owner
 
 ## Context
 The Nuvem (`/srv/nas`, disk `sdb`, ext4) has a 30-day recycle bin for
