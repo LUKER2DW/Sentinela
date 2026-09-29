@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"regexp"
 	"strings"
@@ -39,6 +40,15 @@ type Config struct {
 	Timezone string `yaml:"timezone"`
 	// PushSubject identifies the sender to push services (VAPID "sub").
 	PushSubject string `yaml:"push_subject"`
+	// Ntfy is the self-hosted UnifiedPush relay for the Android app (ADR-0013).
+	Ntfy Ntfy `yaml:"ntfy"`
+}
+
+// Ntfy: phones reach PublicURL over the tailnet; the server posts to URL.
+// An empty PublicURL disables notifications in the Android app.
+type Ntfy struct {
+	PublicURL string `yaml:"public_url"`
+	URL       string `yaml:"url"`
 }
 
 // Volume is a filesystem shown in the UI. Share is the SMB share name, if any.
@@ -129,6 +139,7 @@ func (c *Config) applyDefaults() {
 	def(&c.BackupStatusFile, "/host/backup.json")
 	def(&c.Timezone, "America/Sao_Paulo")
 	def(&c.PushSubject, "mailto:admin@sentinela.invalid")
+	def(&c.Ntfy.URL, "http://127.0.0.1:2586")
 	defInt(&c.Recording.SegmentSeconds, 300)
 	defInt(&c.Recording.MaxDiskPercent, 90)
 	defInt(&c.Recording.DefaultRetentionDays, 15)
@@ -154,6 +165,14 @@ func (c *Config) validate() error {
 	}
 	if c.Recording.MaxDiskPercent < 50 || c.Recording.MaxDiskPercent > 98 {
 		errs = append(errs, errors.New("recording.max_disk_percent must be 50..98"))
+	}
+	if p := c.Ntfy.PublicURL; p != "" {
+		if u, err := url.Parse(p); err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || strings.Trim(u.Path, "/") != "" || u.RawQuery != "" {
+			errs = append(errs, errors.New("ntfy.public_url must be https://host[:port] without a path"))
+		}
+	}
+	if u, err := url.Parse(c.Ntfy.URL); err != nil || u.Scheme != "http" && u.Scheme != "https" || u.Host == "" {
+		errs = append(errs, errors.New("ntfy.url must be an http(s) URL"))
 	}
 	seen := map[string]bool{}
 	for _, cam := range c.Cameras {

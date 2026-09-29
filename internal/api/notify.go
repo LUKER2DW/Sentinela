@@ -184,7 +184,8 @@ func (s *Server) pushInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	subs, _ := s.Store.PushSubs(r.Context(), userFrom(r).ID)
-	writeJSON(w, http.StatusOK, map[string]any{"public_key": s.push.sender.Keys.Public, "devices": len(subs)})
+	// ntfy_url: the relay the Android app registers with (empty = none).
+	writeJSON(w, http.StatusOK, map[string]any{"public_key": s.push.sender.Keys.Public, "devices": len(subs), "ntfy_url": s.Cfg.Ntfy.PublicURL})
 }
 
 func (s *Server) pushSubscribe(w http.ResponseWriter, r *http.Request) {
@@ -200,7 +201,11 @@ func (s *Server) pushSubscribe(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if !push.ValidEndpoint(body.Endpoint) || len(body.Endpoint) > 1024 || body.Keys.P256dh == "" || body.Keys.Auth == "" ||
+	if s.push.sender == nil {
+		writeErr(w, http.StatusServiceUnavailable, "notifications not available")
+		return
+	}
+	if !s.push.sender.Allowed(body.Endpoint) || len(body.Endpoint) > 1024 || body.Keys.P256dh == "" || body.Keys.Auth == "" ||
 		len(body.Keys.P256dh) > 200 || len(body.Keys.Auth) > 100 {
 		writeErr(w, http.StatusBadRequest, "invalid or unsupported push subscription")
 		return

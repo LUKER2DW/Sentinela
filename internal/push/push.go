@@ -1,7 +1,8 @@
 // Package push sends Web Push notifications (ADR-0013) with the standard
 // library only: VAPID (RFC 8292, ES256 JWT) and message encryption
 // (RFC 8291, aes128gcm per RFC 8188). The payload is end-to-end encrypted:
-// the browser vendor's push service only sees ciphertext.
+// the browser vendor's push service only sees ciphertext. The Android app
+// uses the same encryption through a self-hosted ntfy relay (UnifiedPush).
 package push
 
 import (
@@ -25,6 +26,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -127,16 +129,56 @@ func ValidEndpoint(u string) bool {
 // ErrGone means the subscription expired or was revoked: delete it.
 var ErrGone = errors.New("push subscription gone")
 
+// Relay is the self-hosted ntfy server that acts as UnifiedPush distributor
+// for the Android app (ADR-0013). Phones register endpoints under PublicURL
+// (the tailnet name); the server posts the same topic to URL on loopback.
+type Relay struct {
+	PublicURL string // https://sentinela.<tailnet>.ts.net:8443
+	URL       string // http://127.0.0.1:2586
+}
+
+// upTopic is the shape of ntfy's UnifiedPush topics ("up" + random id).
+var upTopic = regexp.MustCompile(`^/up[A-Za-z0-9_-]{1,64}$`)
+
+// target maps a relay endpoint to the loopback URL, or "" when endpoint is
+// not a UnifiedPush topic on this relay.
+func (r *Relay) target(endpoint string) string {
+	if r == nil || r.PublicURL == "" {
+		return ""
+	}
+	e, err := url.Parse(endpoint)
+	if err != nil || e.User != nil || e.Fragment != "" || !upTopic.MatchString(e.Path) ||
+		(e.RawQuery != "" && e.RawQuery != "up=1") {
+		return ""
+	}
+	pub, err := url.Parse(r.PublicURL)
+	if err != nil || e.Scheme != pub.Scheme || !strings.EqualFold(e.Host, pub.Host) {
+		return ""
+	}
+	return strings.TrimSuffix(r.URL, "/") + e.Path + "?up=1"
+}
+
 // Sender posts encrypted messages to push services.
 type Sender struct {
 	Keys    *Keys
 	Subject string // "mailto:…" or an https URL identifying the sender
 	Client  *http.Client
+	Relay   *Relay // optional self-hosted ntfy (UnifiedPush)
+}
+
+// Allowed reports whether the server may post to endpoint: a browser push
+// service, or a UnifiedPush topic on its own relay.
+func (s *Sender) Allowed(endpoint string) bool {
+	return ValidEndpoint(endpoint) || s.Relay.target(endpoint) != ""
 }
 
 // Send delivers payload (≤ 3 KB of JSON) to one subscription.
 func (s *Sender) Send(ctx context.Context, sub Subscription, payload []byte, ttl time.Duration) error {
-	if !ValidEndpoint(sub.Endpoint) {
+	dest := sub.Endpoint
+	relay := s.Relay.target(sub.Endpoint)
+	if relay != "" {
+		dest = relay
+	} else if !ValidEndpoint(sub.Endpoint) {
 		return errors.New("push endpoint not allowed")
 	}
 	uaPub, err := b64.DecodeString(strings.TrimRight(sub.P256dh, "="))
@@ -151,11 +193,7 @@ func (s *Sender) Send(ctx context.Context, sub Subscription, payload []byte, ttl
 	if err != nil {
 		return err
 	}
-	jwt, err := s.vapidJWT(sub.Endpoint, time.Now())
-	if err != nil {
-		return err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, sub.Endpoint, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, dest, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
@@ -163,7 +201,13 @@ func (s *Sender) Send(ctx context.Context, sub Subscription, payload []byte, ttl
 	req.Header.Set("Content-Encoding", "aes128gcm")
 	req.Header.Set("TTL", fmt.Sprint(int(ttl.Seconds())))
 	req.Header.Set("Urgency", "high")
-	req.Header.Set("Authorization", "vapid t="+jwt+", k="+s.Keys.Public)
+	if relay == "" { // ntfy ignores VAPID; browser services require it
+		jwt, err := s.vapidJWT(sub.Endpoint, time.Now())
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Authorization", "vapid t="+jwt+", k="+s.Keys.Public)
+	}
 	c := s.Client
 	if c == nil {
 		c = &http.Client{Timeout: 10 * time.Second}

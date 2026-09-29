@@ -85,6 +85,57 @@ func TestValidEndpoint(t *testing.T) {
 	}
 }
 
+func TestRelayTarget(t *testing.T) {
+	r := &Relay{PublicURL: "https://sentinela.tail0.ts.net:8443", URL: "http://127.0.0.1:2586"}
+	for u, want := range map[string]string{
+		"https://sentinela.tail0.ts.net:8443/upAbC_12-x?up=1": "http://127.0.0.1:2586/upAbC_12-x?up=1",
+		"https://SENTINELA.tail0.ts.net:8443/upabc":           "http://127.0.0.1:2586/upabc?up=1",
+		"https://sentinela.tail0.ts.net/upabc?up=1":           "", // other port
+		"https://sentinela.tail0.ts.net:8443/mytopic?up=1":    "", // not a UnifiedPush topic
+		"https://sentinela.tail0.ts.net:8443/upabc/json":      "",
+		"https://sentinela.tail0.ts.net:8443/upabc?up=1&x=1":  "",
+		"https://u@sentinela.tail0.ts.net:8443/upabc":         "",
+		"http://sentinela.tail0.ts.net:8443/upabc":            "",
+		"https://ntfy.sh/upabc?up=1":                          "",
+	} {
+		if got := r.target(u); got != want {
+			t.Errorf("target(%q) = %q, want %q", u, got, want)
+		}
+	}
+	var none *Relay
+	if none.target("https://sentinela.tail0.ts.net:8443/upabc") != "" {
+		t.Fatal("nil relay allowed an endpoint")
+	}
+}
+
+func TestSendThroughRelay(t *testing.T) {
+	keys, _ := LoadOrCreateKeys(filepath.Join(t.TempDir(), "vapid.json"))
+	ua, _ := ecdh.P256().GenerateKey(rand.Reader)
+	auth := make([]byte, 16)
+	_, _ = rand.Read(auth)
+	var gotURL, gotAuth string
+	var gotBody []byte
+	client := &http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) {
+		gotURL, gotAuth = r.URL.String(), r.Header.Get("Authorization")
+		gotBody, _ = io.ReadAll(r.Body)
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("{}"))}, nil
+	})}
+	s := &Sender{Keys: keys, Client: client, Relay: &Relay{PublicURL: "https://sentinela.tail0.ts.net:8443", URL: "http://127.0.0.1:2586"}}
+	sub := Subscription{Endpoint: "https://sentinela.tail0.ts.net:8443/upXYZ?up=1", P256dh: b64.EncodeToString(ua.PublicKey().Bytes()), Auth: b64.EncodeToString(auth)}
+	if !s.Allowed(sub.Endpoint) || s.Allowed("https://ntfy.sh/upXYZ") {
+		t.Fatal("Allowed")
+	}
+	if err := s.Send(context.Background(), sub, []byte(`{"t":2}`), time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if gotURL != "http://127.0.0.1:2586/upXYZ?up=1" || gotAuth != "" {
+		t.Fatalf("posted to %q with auth %q", gotURL, gotAuth)
+	}
+	if string(decrypt(t, gotBody, ua, auth)) != `{"t":2}` {
+		t.Fatal("payload mismatch")
+	}
+}
+
 type roundTrip func(*http.Request) (*http.Response, error)
 
 func (f roundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
