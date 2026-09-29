@@ -116,7 +116,7 @@ func (c *Config) applyDefaults() {
 	def(&c.DiskHealthFile, "/host/disks.json")
 	defInt(&c.Recording.SegmentSeconds, 300)
 	defInt(&c.Recording.MaxDiskPercent, 90)
-	defInt(&c.Recording.DefaultRetentionDays, 60)
+	defInt(&c.Recording.DefaultRetentionDays, 15)
 	defInt(&c.Recording.StallSeconds, 20)
 	for i := range c.Cameras {
 		cam := &c.Cameras[i]

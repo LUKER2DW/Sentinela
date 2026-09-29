@@ -122,3 +122,11 @@ export function useNow(): number {
     () => nowValue,
   );
 }
+
+/** Days between the oldest start and the newest end (one decimal); null if empty. */
+export function spanDays(ranges: { oldest: string; newest: string }[]): number | null {
+  if (ranges.length === 0) return null;
+  const oldest = Math.min(...ranges.map((x) => new Date(x.oldest).getTime()));
+  const newest = Math.max(...ranges.map((x) => new Date(x.newest).getTime()));
+  return Math.max(0, Math.round(((newest - oldest) / 86_400_000) * 10) / 10);
+}

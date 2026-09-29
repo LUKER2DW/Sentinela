@@ -16,7 +16,7 @@ cameras:
 		t.Fatal(err)
 	}
 	cam := c.Camera("cam1")
-	if cam.ONVIFPort != 8899 || cam.DVRIPPort != 34567 || cam.RetentionDays != 60 || !cam.Recording() || !cam.AudioRecording() {
+	if cam.ONVIFPort != 8899 || cam.DVRIPPort != 34567 || cam.RetentionDays != 15 || !cam.Recording() || !cam.AudioRecording() {
 		t.Fatalf("defaults not applied: %+v", cam)
 	}
 	if got := cam.RTSPURL(1); got != "rtsp://192.168.1.20:554/user=admin&password=Pa@ss&channel=1&stream=1.sdp?real_stream" {

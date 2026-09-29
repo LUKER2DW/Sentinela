@@ -78,7 +78,7 @@ RTSP from the camera: it accepts only 3 sessions.
 
 Recordings go to `/data/recordings/<camera>/<YYYY>/<MM>/<DD>/<HH-MM-SS>.mp4`
 (UTC), 5 minutes each (~24 GB/day). The oldest are deleted after
-`retention_days` or when the disk passes 90 % (≈ 18 days on -).
+`retention_days` (15) or when the disk passes 90 % (≈ 18 days on -).
 
 ## Develop
 

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, get, type AuditEntry, type Role, type SystemInfo, type User, fetchSystem } from "../lib/api";
 import { useSession, useToast } from "../lib/session";
-import { fmtBytes, fmtDuration, fmtTime, relative } from "../lib/time";
+import { fmtBytes, fmtDuration, fmtTime, relative, spanDays } from "../lib/time";
 import { useCameras } from "./LivePage";
 import { VolumeMeter } from "./NuvemPage";
 import { PasswordField } from "../components/PasswordField";
@@ -63,6 +63,7 @@ function Storage({ s }: { s: SystemInfo }) {
   const daily = Object.values(s.daily_bytes).reduce((a, x) => a + x, 0);
   const days = recordingDays(s);
   const oldest = s.storage.map((x) => x.oldest).sort()[0];
+  const onDisk = spanDays(s.storage);
   return (
     <section className="card">
       <h2>Armazenamento</h2>
@@ -82,6 +83,8 @@ function Storage({ s }: { s: SystemInfo }) {
         <dd>{fmtBytes(recBytes)}</dd>
         <dt>Por dia</dt>
         <dd>{daily > 0 ? fmtBytes(daily) : "calculando"}</dd>
+        <dt>No disco agora</dt>
+        <dd>{onDisk !== null ? `${onDisk.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} ${onDisk === 1 ? "dia" : "dias"}` : "nenhuma"}</dd>
         <dt>Mais antiga</dt>
         <dd>{oldest ? relative(oldest) : "nenhuma"}</dd>
       </dl>

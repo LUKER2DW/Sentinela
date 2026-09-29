@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fmtBytes, fmtDuration, mergeRanges } from "./time";
+import { fmtBytes, fmtDuration, mergeRanges, spanDays } from "./time";
 import { supportedMseCodecs } from "./player";
 import { findSegment } from "./segments";
 import type { Segment } from "./api";
@@ -46,5 +46,17 @@ describe("supportedMseCodecs", () => {
   it("keeps only codecs the browser accepts, in go2rtc order", () => {
     const ok = (t: string) => t.includes("hvc1") || t.includes("flac");
     expect(supportedMseCodecs(ok)).toBe("hvc1.1.6.L153.B0,flac");
+  });
+});
+
+describe("spanDays", () => {
+  it("spans all cameras from the oldest start to the newest end", () => {
+    expect(spanDays([])).toBeNull();
+    expect(
+      spanDays([
+        { oldest: "2026-09-14T00:00:00Z", newest: "2026-09-28T12:00:00Z" },
+        { oldest: "2026-09-20T00:00:00Z", newest: "2026-09-29T00:00:00Z" },
+      ]),
+    ).toBe(15);
   });
 });
