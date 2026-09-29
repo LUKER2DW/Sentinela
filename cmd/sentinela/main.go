@@ -148,7 +148,15 @@ func serve(ctx context.Context, log *slog.Logger, cfgPath string) error {
 	}
 	if p := cfg.Remote.Public; p.Domain != "" {
 		var tc *tls.Config
-		if ip := net.ParseIP(p.Domain); ip != nil {
+		if ip := net.ParseIP(p.Domain); ip != nil && p.SelfSigned {
+			// The ISP blocks 80 and 443: a self-signed certificate the app pins.
+			c, fp, err := publiccert.SelfSigned(filepath.Join(cfg.DataDir, "acme", "self"), ip.String())
+			if err != nil {
+				return fmt.Errorf("public self-signed certificate: %w", err)
+			}
+			log.Info("public listener uses a self-signed certificate", "ip", ip.String(), "sha256", fp)
+			tc = c
+		} else if ip != nil {
 			// No domain: a short-lived Let's Encrypt certificate for the fixed IP.
 			m := &publiccert.Manager{IP: ip.String(), Email: p.Email, Dir: filepath.Join(cfg.DataDir, "acme", "ip"), Log: log, HTTP01: p.HTTP01Listen != ""}
 			if p.HTTP01Listen != "" {

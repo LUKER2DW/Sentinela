@@ -38,12 +38,17 @@ ufw allow in on tailscale0 to any port 22 proto tcp comment 'tailnet ssh' >/dev/
 # owner's approval (PLAN Phase 9):
 #   ufw allow in on tailscale0 to any port 445 proto tcp comment 'tailnet smb'
 # Remote access trial P1 (ADR-0019): only while scripts/setup-public.sh has
-# left its marker. 7443 = the port-forwarded TLS listener (router WAN 443 or
-# 8443), 7080 = the HTTP-01 answer for the IP certificate (router WAN 80;
-# 404 for anything else), 8555 = WebRTC media. Any source: internet-facing.
+# left its marker. 7443 = the port-forwarded TLS listener (any router WAN
+# port), 7080 = the HTTP-01 answer for the IP certificate, only when
+# remote.public.http01_listen is set (404 for anything else), 8555 = WebRTC
+# media. Any source: internet-facing.
 if [[ -f /etc/sentinela/public-access ]]; then
   ufw allow 7443/tcp comment 'public https (ADR-0019 P1)' >/dev/null
-  ufw allow 7080/tcp comment 'public acme http-01 (ADR-0019 P1)' >/dev/null
+  if grep -q '^[[:space:]]*http01_listen:' /etc/sentinela/config.yaml 2>/dev/null; then
+    ufw allow 7080/tcp comment 'public acme http-01 (ADR-0019 P1)' >/dev/null
+  else
+    ufw delete allow 7080/tcp >/dev/null 2>&1 || true
+  fi
   ufw allow 8555/tcp comment 'public webrtc (ADR-0019 P1)' >/dev/null
   ufw allow 8555/udp comment 'public webrtc (ADR-0019 P1)' >/dev/null
 fi

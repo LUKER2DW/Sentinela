@@ -73,6 +73,10 @@ type PublicTLS struct {
 	// plain-HTTP listener (router WAN 80 -> here) instead of TLS-ALPN-01 on
 	// WAN 443, for ISPs that block inbound 443. It answers challenges only.
 	HTTP01Listen string `yaml:"http01_listen"`
+	// SelfSigned, for an IP: no Let's Encrypt at all (the ISP blocks
+	// inbound 80 and 443). The server keeps a 10-year self-signed
+	// certificate that the Android app pins; browsers show a warning.
+	SelfSigned bool `yaml:"self_signed"`
 }
 
 // Ntfy: phones reach PublicURL over the tailnet; the server posts to URL.
@@ -228,6 +232,9 @@ func (c *Config) validate() error {
 		}
 		if _, _, err := net.SplitHostPort(c.Remote.Public.Listen); err != nil {
 			errs = append(errs, errors.New("remote.public.listen must be host:port"))
+		}
+		if c.Remote.Public.SelfSigned && (net.ParseIP(d) == nil || c.Remote.Public.HTTP01Listen != "") {
+			errs = append(errs, errors.New("remote.public.self_signed needs an IP domain and no http01_listen"))
 		}
 		if l := c.Remote.Public.HTTP01Listen; l != "" {
 			if _, _, err := net.SplitHostPort(l); err != nil {

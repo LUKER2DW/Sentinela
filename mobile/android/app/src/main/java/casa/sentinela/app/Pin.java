@@ -1,0 +1,100 @@
+package casa.sentinela.app;
+
+import android.net.http.SslCertificate;
+import android.os.Bundle;
+
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.security.KeyStore;
+import java.security.MessageDigest;
+import java.security.cert.CertificateException;
+import java.security.cert.X509Certificate;
+import java.util.Locale;
+
+import javax.net.ssl.HttpsURLConnection;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLSocketFactory;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.TrustManagerFactory;
+import javax.net.ssl.X509TrustManager;
+
+/**
+ * The home's public address uses a self-signed certificate (the ISP blocks
+ * the ports Let's Encrypt needs, ADR-0019 P1). Besides the normal system
+ * trust, the app accepts exactly that one certificate — its SHA-256 is
+ * built in (SENTINELA_PUBLIC_CERT_SHA256). Any other untrusted certificate
+ * still fails, so a man in the middle gets the same error as before.
+ */
+final class Pin {
+    private Pin() {}
+
+    static boolean active() {
+        return !BuildConfig.PUBLIC_CERT_SHA256.isEmpty();
+    }
+
+    static String sha256(byte[] der) {
+        try {
+            byte[] d = MessageDigest.getInstance("SHA-256").digest(der);
+            StringBuilder sb = new StringBuilder(d.length * 2);
+            for (byte b : d) sb.append(String.format(Locale.ROOT, "%02x", b));
+            return sb.toString();
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    static boolean matches(byte[] der) {
+        return active() && der != null && sha256(der).equals(BuildConfig.PUBLIC_CERT_SHA256.toLowerCase(Locale.ROOT));
+    }
+
+    /** The WebView's view of a certificate (SslError.getCertificate()). */
+    static boolean matches(SslCertificate cert) {
+        if (cert == null) return false;
+        Bundle b = SslCertificate.saveState(cert);
+        return b != null && matches(b.getByteArray("x509-certificate"));
+    }
+
+    /** Opens a connection that also trusts the pinned certificate. */
+    static HttpURLConnection open(String url) throws Exception {
+        HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+        if (c instanceof HttpsURLConnection && active()) {
+            ((HttpsURLConnection) c).setSSLSocketFactory(factory());
+        }
+        return c;
+    }
+
+    private static SSLSocketFactory factory;
+
+    private static synchronized SSLSocketFactory factory() throws Exception {
+        if (factory != null) return factory;
+        TrustManagerFactory tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
+        tmf.init((KeyStore) null);
+        X509TrustManager system = null;
+        for (TrustManager t : tmf.getTrustManagers()) {
+            if (t instanceof X509TrustManager) system = (X509TrustManager) t;
+        }
+        final X509TrustManager sys = system;
+        TrustManager tm = new X509TrustManager() {
+            @Override
+            public void checkClientTrusted(X509Certificate[] chain, String authType) throws CertificateException {
+                throw new CertificateException("client certificates are not used");
+            }
+
+            @Override
+            public void checkServerTrusted(X509Certificate[] chain, String authType) throws CertificateException {
+                if (chain != null && chain.length > 0 && matches(chain[0].getEncoded())) return;
+                if (sys == null) throw new CertificateException("no system trust");
+                sys.checkServerTrusted(chain, authType);
+            }
+
+            @Override
+            public X509Certificate[] getAcceptedIssuers() {
+                return sys == null ? new X509Certificate[0] : sys.getAcceptedIssuers();
+            }
+        };
+        SSLContext ctx = SSLContext.getInstance("TLS");
+        ctx.init(null, new TrustManager[] {tm}, null);
+        factory = ctx.getSocketFactory();
+        return factory;
+    }
+}

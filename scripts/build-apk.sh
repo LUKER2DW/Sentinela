@@ -3,6 +3,7 @@
 #
 #   ./scripts/build-apk.sh                       # -> mobile/build/sentinela.apk
 #   SENTINELA_TAILNET_HOST=sentinela.<tailnet>.ts.net #   SENTINELA_LAN_URL=http://192.168.1.10:8080 #   SENTINELA_DOMAIN_URL=https://casa.example.com.br ./scripts/build-apk.sh
+#   SENTINELA_PUBLIC_CERT_SHA256=<hex>   # self-signed public certificate the app pins (setup-public.sh status)
 # (defaults shown on the start screen; the path is picked in the app, ADR-0019)
 #
 # Needs JDK 21 and the Android SDK (defaults: the per-user installs under

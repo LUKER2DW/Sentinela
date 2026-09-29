@@ -120,7 +120,7 @@ public class SentinelaPushService extends PushService {
             if (server == null || !server.startsWith("https://")) return null;
             URL u = new URL(Uri.parse(server).buildUpon().encodedPath(path).build().toString());
             if (!u.getHost().equals(Uri.parse(server).getHost())) return null;
-            c = (HttpURLConnection) u.openConnection();
+            c = Pin.open(u.toString()); // the public address's certificate is pinned
             c.setConnectTimeout(4000);
             c.setReadTimeout(4000);
             String cookie = CookieManager.getInstance().getCookie(server);

@@ -15,6 +15,10 @@ android {
         buildConfigField "String", "TAILNET_HOST", "\"${System.getenv('SENTINELA_TAILNET_HOST') ?: 'sentinela.tail0.ts.net'}\""
         buildConfigField "String", "LAN_URL", "\"${System.getenv('SENTINELA_LAN_URL') ?: 'http://192.168.1.10:8080'}\""
         buildConfigField "String", "DOMAIN_URL", "\"${System.getenv('SENTINELA_DOMAIN_URL') ?: ''}\""
+        // SHA-256 of the public address's self-signed certificate (hex), the
+        // only untrusted certificate the app accepts (Pin.java). Printed by
+        // `sudo /opt/sentinela/scripts/setup-public.sh status` on the server.
+        buildConfigField "String", "PUBLIC_CERT_SHA256", "\"${System.getenv('SENTINELA_PUBLIC_CERT_SHA256') ?: ''}\""
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
              // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61

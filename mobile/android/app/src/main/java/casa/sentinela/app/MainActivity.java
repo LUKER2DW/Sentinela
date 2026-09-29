@@ -2,6 +2,7 @@ package casa.sentinela.app;
 
 import android.app.DownloadManager;
 import android.app.KeyguardManager;
+import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Color;
@@ -11,6 +12,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.SystemClock;
+import android.provider.MediaStore;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -34,6 +36,13 @@ import androidx.core.content.ContextCompat;
 
 import com.getcapacitor.BridgeActivity;
 import com.getcapacitor.BridgeWebViewClient;
+
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
 
 /**
  * Sentinela Android app (ADR-0011): a Capacitor WebView on the server's
@@ -125,8 +134,14 @@ public class MainActivity extends BridgeActivity {
 
             @Override
             public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
-                handler.cancel(); // never proceed past a bad certificate
                 String server = getBridge().getServerUrl();
+                // The home's own self-signed certificate (pinned, Pin) on the
+                // chosen server: go on. Anything else: never.
+                if (server != null && error.getUrl() != null && error.getUrl().startsWith(server) && Pin.matches(error.getCertificate())) {
+                    handler.proceed();
+                    return;
+                }
+                handler.cancel();
                 if (server != null && error.getUrl() != null && error.getUrl().startsWith(server)) {
                     offline("certificado HTTPS inválido");
                 }
@@ -265,6 +280,12 @@ public class MainActivity extends BridgeActivity {
                 return;
             }
             String name = URLUtil.guessFileName(url, disposition, mime);
+            if (Pin.active() && server.startsWith("https://") && !"127.0.0.1".equals(uri.getHost())) {
+                // DownloadManager trusts only the system CAs: on the public
+                // address (self-signed, pinned) the app downloads by itself.
+                pinnedDownload(url, name, mime, userAgent);
+                return;
+            }
             DownloadManager.Request req = new DownloadManager.Request(uri);
             String cookie = CookieManager.getInstance().getCookie(url);
             if (cookie != null) req.addRequestHeader("Cookie", cookie);
@@ -277,5 +298,52 @@ public class MainActivity extends BridgeActivity {
             dm.enqueue(req);
             Toast.makeText(this, "Baixando " + name, Toast.LENGTH_SHORT).show();
         });
+    }
+
+    /** Download over the pinned connection into Downloads/Sentinela. */
+    private void pinnedDownload(String url, String name, String mime, String userAgent) {
+        Toast.makeText(this, "Baixando " + name, Toast.LENGTH_SHORT).show();
+        final String cookie = CookieManager.getInstance().getCookie(url);
+        new Thread(() -> {
+            String msg;
+            HttpURLConnection c = null;
+            try {
+                c = Pin.open(url);
+                c.setConnectTimeout(10000);
+                c.setReadTimeout(60000);
+                if (cookie != null) c.setRequestProperty("Cookie", cookie);
+                c.setRequestProperty("User-Agent", userAgent);
+                if (c.getResponseCode() != 200) throw new IOException("HTTP " + c.getResponseCode());
+                try (InputStream in = c.getInputStream(); OutputStream out = openDownload(name, mime)) {
+                    byte[] buf = new byte[64 * 1024];
+                    for (int n; (n = in.read(buf)) > 0; ) out.write(buf, 0, n);
+                }
+                msg = "Salvo em Downloads/Sentinela: " + name;
+            } catch (Exception e) {
+                msg = "Não foi possível baixar " + name;
+            } finally {
+                if (c != null) c.disconnect();
+            }
+            final String m = msg;
+            runOnUiThread(() -> Toast.makeText(this, m, Toast.LENGTH_LONG).show());
+        }, "download").start();
+    }
+
+    private OutputStream openDownload(String name, String mime) throws IOException {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ContentValues v = new ContentValues();
+            v.put(MediaStore.Downloads.DISPLAY_NAME, name);
+            if (mime != null) v.put(MediaStore.Downloads.MIME_TYPE, mime);
+            v.put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/Sentinela");
+            Uri item = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
+            if (item == null) throw new IOException("no downloads entry");
+            OutputStream out = getContentResolver().openOutputStream(item);
+            if (out == null) throw new IOException("cannot write");
+            return out;
+        }
+        // Android 9 and older: the app's own Downloads folder (no storage permission).
+        File dir = new File(getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "Sentinela");
+        if (!dir.isDirectory() && !dir.mkdirs()) throw new IOException("cannot create folder");
+        return new FileOutputStream(new File(dir, name));
     }
 }
