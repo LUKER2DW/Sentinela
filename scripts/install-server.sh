@@ -92,6 +92,8 @@ systemctl enable -q --now sentinela-disk-health.timer
 systemctl start sentinela-disk-health.service || true
 "${REPO_DIR}/scripts/firewall.sh" >/dev/null && echo "firewall: LAN-only rules applied"
 if mountpoint -q /srv/nas; then "${REPO_DIR}/scripts/setup-nas.sh"; else echo "no /srv/nas mount: skipping the LAN file server"; fi
+# Nightly DB/config backup + restic (ADR-0014) needs its own disk at /srv/backup.
+if grep -qE '[[:space:]]/srv/(backup|nas/Extra)[[:space:]]' /etc/fstab; then "${REPO_DIR}/scripts/setup-backup.sh"; else echo "no /srv/backup disk in fstab: skipping backups"; fi
 
 say "5/6 Start containers"
 cd "${REPO_DIR}/deploy"

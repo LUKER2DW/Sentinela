@@ -195,11 +195,9 @@ func (s *Server) system(w http.ResponseWriter, r *http.Request) {
 		d, err := sysinfo.DiskUsage(v.Path)
 		volumes = append(volumes, volumeDTO{Volume: v, Disk: d, Mounted: err == nil && d.Total > 0})
 	}
-	// Optional SMART snapshot from the host (absent on dev machines).
-	var health json.RawMessage
-	if b, err := os.ReadFile(s.Cfg.DiskHealthFile); err == nil && json.Valid(b) && len(b) < 64<<10 {
-		health = b
-	}
+	// Optional host snapshots (absent on dev machines): SMART and backups.
+	health := hostJSON(s.Cfg.DiskHealthFile)
+	backup := hostJSON(s.Cfg.BackupStatusFile)
 	g2r, gerr := s.go2rtcStatus(ctx)
 	g2rErr := ""
 	if gerr != nil {
@@ -221,5 +219,15 @@ func (s *Server) system(w http.ResponseWriter, r *http.Request) {
 		"volumes":      volumes,
 		"nas_host":     s.Cfg.NASHost,
 		"disk_health":  health,
+		"backup":       backup,
 	})
+}
+
+// hostJSON reads a small JSON file written by a host timer; nil if absent or invalid.
+func hostJSON(path string) json.RawMessage {
+	b, err := os.ReadFile(path)
+	if err != nil || len(b) >= 64<<10 || !json.Valid(b) {
+		return nil
+	}
+	return b
 }

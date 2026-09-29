@@ -165,20 +165,44 @@ function Disks({ s }: { s: SystemInfo }) {
           <VolumeMeter key={v.id} v={v} health={s.disk_health?.mounts[volumeMount(v.id)]} />
         ))}
       </div>
+      <Backup b={s.backup} now={s.now} />
       <p className="muted small card-foot">Gravações acima de {s.max_disk_pct}% do disco apagam as mais antigas.</p>
     </section>
   );
 }
 
+const resticLabel: Record<string, string> = {
+  ok: "em dia",
+  off: "sem disco externo configurado",
+  disk_missing: "disco externo desconectado",
+  failed: "falhou",
+};
+
+function Backup({ b, now }: { b: SystemInfo["backup"]; now: string }) {
+  if (!b) return null;
+  // Nightly job: more than 36 h without a good copy means it is not running.
+  const stale = !b.db_at || new Date(now).getTime() - new Date(b.db_at).getTime() > 36 * 3_600_000;
+  return (
+    <dl className="kv card-foot">
+      <dt>Cópia do banco</dt>
+      <dd className={stale || !b.db_ok ? "bad" : undefined}>{b.db_at ? relative(b.db_at) : "nunca"}</dd>
+      <dt>Disco externo</dt>
+      <dd className={b.restic === "failed" || b.restic === "disk_missing" ? "bad" : undefined}>
+        {b.restic === "ok" && b.restic_at ? relative(b.restic_at) : resticLabel[b.restic] ?? b.restic}
+      </dd>
+    </dl>
+  );
+}
+
 // Volume id -> host mount point used by scripts/disk-health.sh.
 function volumeMount(id: string) {
-  return ({ recordings: "/data", nuvem: "/srv/nas", extra: "/srv/nas/Extra" } as Record<string, string>)[id] ?? "";
+  return ({ recordings: "/data", nuvem: "/srv/nas", backup: "/srv/backup" } as Record<string, string>)[id] ?? "";
 }
 
 function DiskWarning({ s }: { s: SystemInfo }) {
   const bad = Object.entries(s.disk_health?.mounts ?? {}).filter(([m, h]) => m !== "/" && h.state !== "ok");
   if (!bad.length) return null;
-  const names: Record<string, string> = { "/data": "gravações", "/srv/nas": "Nuvem", "/srv/nas/Extra": "Nuvem Extra" };
+  const names: Record<string, string> = { "/data": "gravações", "/srv/nas": "Nuvem", "/srv/backup": "backups" };
   return (
     <div className="notice error" role="alert">
       <strong>Disco com sinais de desgaste:</strong>{" "}

@@ -17,7 +17,7 @@ nas_host: SENTINELA
 volumes:
   - {id: recordings, name: Gravações, path: /data, kind: recordings, share: Gravacoes}
   - {id: nuvem, name: Nuvem, path: /srv/nas, kind: nas, share: Nuvem}
-  - {id: extra, name: Nuvem Extra, path: /srv/nas/Extra, kind: nas, share: Nuvem}
+  - {id: backup, name: Backups, path: /srv/backup, kind: backup}
 
 cameras:
   - id: cam1                        # also the go2rtc stream name (cam1, cam1_sub)

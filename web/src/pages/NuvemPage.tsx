@@ -153,12 +153,9 @@ export function NuvemPage() {
             )}
             <div className="stack-sm">
               {nas.map((v) => (
-                <VolumeMeter key={v.id} v={v} health={sys.data?.disk_health?.mounts[v.id === "extra" ? "/srv/nas/Extra" : "/srv/nas"]} />
+                <VolumeMeter key={v.id} v={v} health={sys.data?.disk_health?.mounts["/srv/nas"]} />
               ))}
             </div>
-            <p className="muted small">
-              “Nuvem Extra” fica na pasta <code>Extra</code>, dentro da própria Nuvem.
-            </p>
           </div>
           <Whale className="hero-doodle" />
         </section>

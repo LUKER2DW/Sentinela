@@ -30,6 +30,9 @@ type Config struct {
 	// DiskHealthFile is the SMART snapshot written by the host timer
 	// (scripts/disk-health.sh), mounted read-only into the container.
 	DiskHealthFile string `yaml:"disk_health_file"`
+	// BackupStatusFile is written by the nightly host backup
+	// (scripts/backup.sh, ADR-0014), mounted read-only like DiskHealthFile.
+	BackupStatusFile string `yaml:"backup_status_file"`
 }
 
 // Volume is a filesystem shown in the UI. Share is the SMB share name, if any.
@@ -38,7 +41,7 @@ type Volume struct {
 	Name  string `yaml:"name" json:"name"`
 	Path  string `yaml:"path" json:"-"`
 	Share string `yaml:"share" json:"share,omitempty"`
-	Kind  string `yaml:"kind" json:"kind"` // recordings | nas
+	Kind  string `yaml:"kind" json:"kind"` // recordings | nas | backup
 }
 
 // Recording holds recorder, indexer and retention settings.
@@ -114,6 +117,7 @@ func (c *Config) applyDefaults() {
 	def(&c.DBPath, c.DataDir+"/db/sentinela.db")
 	def(&c.Go2RTCAPI, "http://127.0.0.1:1984")
 	def(&c.DiskHealthFile, "/host/disks.json")
+	def(&c.BackupStatusFile, "/host/backup.json")
 	defInt(&c.Recording.SegmentSeconds, 300)
 	defInt(&c.Recording.MaxDiskPercent, 90)
 	defInt(&c.Recording.DefaultRetentionDays, 15)

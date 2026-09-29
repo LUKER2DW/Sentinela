@@ -1,0 +1,10 @@
+[Unit]
+Description=Sentinela: nightly DB/config backup and restic (ADR-0014)
+After=local-fs.target
+RequiresMountsFor=/srv/backup /data
+
+[Service]
+Type=oneshot
+ExecStart=/opt/sentinela/scripts/backup.sh
+Nice=10
+IOSchedulingClass=idle

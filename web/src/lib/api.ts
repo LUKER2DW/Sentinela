@@ -67,6 +67,16 @@ export interface RecorderStatus {
   current_file: string;
 }
 
+/** Nightly host backup (scripts/backup.sh, ADR-0014). */
+export interface BackupStatus {
+  updated: string;
+  db_ok: boolean;
+  db_at: string;
+  db_bytes: number;
+  restic: "ok" | "off" | "disk_missing" | "failed";
+  restic_at: string;
+}
+
 export interface SystemInfo {
   version: string;
   started: string;
@@ -92,6 +102,7 @@ export interface SystemInfo {
   volumes: Volume[];
   nas_host: string;
   disk_health: { updated: string; mounts: Record<string, DiskHealth> } | null;
+  backup: BackupStatus | null;
 }
 
 export interface DiskHealth {

@@ -4,7 +4,7 @@
 #   scripts/disk-health.sh [/var/lib/sentinela/disks.json]
 set -euo pipefail
 OUT="${1:-/var/lib/sentinela/disks.json}"
-MOUNTS=(/data /srv/nas /srv/nas/Extra /)
+MOUNTS=(/data /srv/nas /srv/backup /)
 python3 - "$OUT" "${MOUNTS[@]}" <<'PY'
 import json, os, subprocess, sys, tempfile, time
 out, mounts = sys.argv[1], sys.argv[2:]

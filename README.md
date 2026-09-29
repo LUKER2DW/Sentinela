@@ -25,7 +25,7 @@ acceptance checks. See [`docs/PLAN.md`](docs/PLAN.md).
 
 `ana@192.168.1.10` (Ubuntu 22.04, old CPU, three disks): web panel on
 `http://192.168.1.10:8080`, LAN share `\\192.168.1.10\Nuvem`
-(~670 GB) and read-only `\\192.168.1.10\Gravacoes`. Disk layout and
+(~-) and read-only `\\192.168.1.10\Gravacoes`. Disk layout and
 health notes: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §6.
 
 ## Deploy an update (from the dev PC)
