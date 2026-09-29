@@ -128,6 +128,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/events", viewer(s.listEvents))
 	mux.Handle("GET /api/events/stream", viewer(s.eventStream))
 	mux.Handle("GET /api/events/{id}/snapshot", viewer(s.eventSnapshot))
+	mux.Handle("GET /api/review", viewer(s.listReview))
+	mux.Handle("POST /api/review/seen", viewer(s.markSeen))
 	mux.Handle("GET /api/system", viewer(s.system))
 
 	// Nuvem file API (ADR-0012): viewers read, operators and admins write.

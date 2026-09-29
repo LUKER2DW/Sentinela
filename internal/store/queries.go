@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"slices"
 	"time"
 )
 
@@ -495,6 +496,58 @@ func (s *Store) EventByID(ctx context.Context, id int64) (*Event, error) {
 // PurgeEventsBefore deletes events older than t.
 func (s *Store) PurgeEventsBefore(ctx context.Context, t time.Time) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM events WHERE start_utc<?`, FormatTime(t))
+	return err
+}
+
+// ---------- review ----------
+
+// SeenItems returns which of ids the user has marked seen.
+func (s *Store) SeenItems(ctx context.Context, userID int64, ids []int64) (map[int64]bool, error) {
+	out := map[int64]bool{}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT item_id FROM review_seen WHERE user_id=? AND item_id>=? AND item_id<=?`,
+		userID, slices.Min(ids), slices.Max(ids))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	want := map[int64]bool{}
+	for _, id := range ids {
+		want[id] = true
+	}
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		if want[id] {
+			out[id] = true
+		}
+	}
+	return out, rows.Err()
+}
+
+// MarkSeen records review items as seen by the user.
+func (s *Store) MarkSeen(ctx context.Context, userID int64, ids []int64) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	now := FormatTime(time.Now())
+	for _, id := range ids {
+		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO review_seen(user_id,item_id,seen_at) VALUES(?,?,?)`, userID, id, now); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// PurgeSeenBefore drops seen marks older than t (their events are gone).
+func (s *Store) PurgeSeenBefore(ctx context.Context, t time.Time) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM review_seen WHERE seen_at<?`, FormatTime(t))
 	return err
 }
 

@@ -149,6 +149,7 @@ func maintenance(ctx context.Context, log *slog.Logger, cfg *config.Config, st *
 		_ = st.PurgeExpiredSessions(ctx)
 		// Event snapshots live as long as alert recordings (ADR-0015).
 		srv.PurgeSnapshots(30 * 24 * time.Hour)
+		_ = st.PurgeSeenBefore(ctx, time.Now().Add(-31*24*time.Hour))
 		day := time.Now().UTC().Format("20060102")
 		if day != lastBackup {
 			dir := filepath.Join(cfg.DataDir, "backup")

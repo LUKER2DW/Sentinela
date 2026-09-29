@@ -375,3 +375,36 @@ func TestEventSnapshot(t *testing.T) {
 		t.Fatalf("events list lacks snapshot flag: %s", body)
 	}
 }
+
+func TestReviewItemsAndSeen(t *testing.T) {
+	ts, srv := newTestServer(t)
+	admin := newClient(t, ts.URL)
+	admin.do("POST", "/api/setup", `{"username":"admin","password":"long enough pw"}`)
+	ctx := context.Background()
+	t0 := time.Now().UTC().Add(-time.Hour)
+	a, _ := srv.Store.OpenEvent(ctx, "cam1", "motion", t0, "")
+	_ = srv.Store.CloseEvent(ctx, a, t0.Add(5*time.Second))
+	b, _ := srv.Store.OpenEvent(ctx, "cam1", "intrusion", t0.Add(20*time.Second), "")
+	_ = srv.Store.CloseEvent(ctx, b, t0.Add(25*time.Second))
+	c, _ := srv.Store.OpenEvent(ctx, "cam1", "motion", t0.Add(10*time.Minute), "")
+	_ = c
+
+	_, m, body := admin.do("GET", "/api/review", "")
+	items, _ := m["items"].([]any)
+	if len(items) != 2 || m["unseen"] != float64(2) || !strings.Contains(body, `"severity":"alert"`) {
+		t.Fatalf("review = %s", body)
+	}
+	if _, m, _ := admin.do("GET", "/api/review?severity=alert", ""); len(m["items"].([]any)) != 1 {
+		t.Fatalf("alert filter = %v", m)
+	}
+	if code, _, _ := admin.do("POST", "/api/review/seen", fmt.Sprintf(`{"ids":[%d]}`, a)); code != 200 {
+		t.Fatalf("mark seen = %d", code)
+	}
+	if _, m, _ := admin.do("GET", "/api/review?unseen=1", ""); len(m["items"].([]any)) != 1 || m["unseen"] != float64(1) {
+		t.Fatalf("after seen = %v", m)
+	}
+	admin.do("POST", "/api/review/seen", `{"all":true}`)
+	if _, m, _ := admin.do("GET", "/api/review", ""); m["unseen"] != float64(0) {
+		t.Fatalf("after mark all = %v", m)
+	}
+}
