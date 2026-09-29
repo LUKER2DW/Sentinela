@@ -1773,3 +1773,17 @@ textarea.viewer-text.editing { border: 0; outline: none; resize: none; backgroun
 .install-box { display: grid; gap: 8px; padding: 14px; border-radius: var(--r-md); background: var(--sea-soft); }
 .btn .spinner.small { border-color: color-mix(in srgb, currentColor 30%, transparent); border-top-color: currentColor; }
 @media (max-width: 760px) { .file-list.grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; } .file-list.grid .file-icon.k-folder svg { width: 30px; height: 30px; } }
+
+/* ---------- big screens: the page uses the width (owner, 2026-09-29) ---------- */
+.page { max-width: 1840px; }
+@media (min-width: 1500px) {
+  :root { font-size: 16.5px; }
+  .live-cols { grid-template-columns: minmax(0, 1fr) 380px; gap: 28px; }
+  .rec-layout { grid-template-columns: minmax(0, 1fr) 380px; }
+  .dial { width: 224px; height: 224px; }
+}
+@media (min-width: 1900px) {
+  :root { font-size: 17px; }
+  .live-cols { grid-template-columns: minmax(0, 1fr) 420px; }
+  .rec-layout { grid-template-columns: minmax(0, 1fr) 420px; }
+}
