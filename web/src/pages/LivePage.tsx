@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { get, type Camera, type SystemInfo, type Timeline } from "../lib/api";
+import { fetchSystem, get, type Camera, type Timeline } from "../lib/api";
 import { href, navigate } from "../lib/router";
 import { useSession } from "../lib/session";
 import { useActiveEvents } from "../lib/liveEvents";
@@ -16,7 +16,7 @@ export function useCameras() {
 }
 
 export function useRecorderState(cameraId: string) {
-  const sys = useQuery({ queryKey: ["system"], queryFn: () => get<SystemInfo>("/api/system"), refetchInterval: 15_000 });
+  const sys = useQuery({ queryKey: ["system"], queryFn: fetchSystem, refetchInterval: 15_000 });
   const rec = sys.data?.recorders.find((r) => r.camera_id === cameraId);
   // Staleness is judged with the server's clock, not the phone's.
   const fresh = rec && sys.data && new Date(sys.data.now).getTime() - new Date(rec.heartbeat).getTime() < 60_000;
@@ -158,7 +158,7 @@ function Single({ cam, now, multi }: { cam: Camera; now: number; multi: boolean 
 }
 
 function TodayStats({ timeline, motion }: { timeline?: Timeline; motion: number }) {
-  const sys = useQuery({ queryKey: ["system"], queryFn: () => get<SystemInfo>("/api/system"), refetchInterval: 15_000 });
+  const sys = useQuery({ queryKey: ["system"], queryFn: fetchSystem, refetchInterval: 15_000 });
   const hours = (timeline?.segments ?? []).reduce((a, x) => a + (new Date(x.end).getTime() - new Date(x.start).getTime()), 0) / 3_600_000;
   const days = sys.data ? recordingDays(sys.data) : null;
   return (

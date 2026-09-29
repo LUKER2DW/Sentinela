@@ -53,7 +53,7 @@ export function fmtBytes(b: number): string {
   return `${v.toFixed(v < 10 && i > 0 ? 1 : 0).replace(".", ",")} ${units[i]}`;
 }
 
-export function relative(d: Date | string, now = Date.now()): string {
+export function relative(d: Date | string, now = serverNow()): string {
   const diff = now - new Date(d).getTime();
   if (diff < 60_000) return "agora";
   if (diff < 3_600_000) return `há ${Math.floor(diff / 60_000)} min`;
@@ -89,12 +89,28 @@ export const eventLabel: Record<string, string> = {
 
 // ---------- shared clock ----------
 
+// The UI clock follows the server (NTP-synced), not the device: a phone or PC
+// that is a few seconds off would otherwise make the live view look late next
+// to the camera's on-screen clock.
+let offset = 0;
 let nowValue = Date.now();
 const clockSubs = new Set<() => void>();
 setInterval(() => {
-  nowValue = Date.now();
+  nowValue = Date.now() + offset;
   clockSubs.forEach((f) => f());
 }, 1000);
+
+/** Record the server time seen by a request sent at t0 and answered at t1 (device ms). */
+export function syncServerClock(serverIso: string, t0: number, t1: number) {
+  const server = new Date(serverIso).getTime();
+  if (!Number.isFinite(server) || t1 - t0 > 2000) return; // slow round trip: skip
+  offset = server - (t0 + t1) / 2;
+}
+
+/** Device time corrected to the server clock. */
+export function serverNow(): number {
+  return Date.now() + offset;
+}
 
 /** Current time, updated every second (one shared timer). */
 export function useNow(): number {

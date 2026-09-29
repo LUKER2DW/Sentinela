@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { get, type DiskHealth, type SystemInfo, type Volume } from "../lib/api";
+import { fetchSystem, type DiskHealth, type Volume } from "../lib/api";
 import { fmtBytes } from "../lib/time";
 import { Icon } from "../components/Icon";
 import { Whale } from "../components/Doodles";
@@ -76,7 +76,7 @@ export function VolumeMeter({ v, health }: { v: Volume; health?: DiskHealth }) {
 }
 
 export function NuvemPage() {
-  const sys = useQuery({ queryKey: ["system"], queryFn: () => get<SystemInfo>("/api/system"), refetchInterval: 30_000 });
+  const sys = useQuery({ queryKey: ["system"], queryFn: fetchSystem, refetchInterval: 30_000 });
   const [os, setOs] = useState<OS>(guessOS);
   const nas = (sys.data?.volumes ?? []).filter((v) => v.kind === "nas");
   const total = nas.reduce((a, v) => a + v.total, 0);

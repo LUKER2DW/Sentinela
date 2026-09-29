@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, get, onUnauthorized, setCsrf, type CamEvent, type User } from "./lib/api";
+import { api, fetchSystem, get, onUnauthorized, setCsrf, type CamEvent, type User } from "./lib/api";
 import { href, useRoute } from "./lib/router";
 import { SessionProvider, ToastProvider, useSession } from "./lib/session";
 import { LiveEventsProvider, useActiveEvents } from "./lib/liveEvents";
@@ -110,6 +110,8 @@ function Shell() {
   const qc = useQueryClient();
   const collapsed = useSidebarCollapsed();
   const eventsToday = useTodayEvents();
+  // Keeps the UI clock on server time on every page (shared cache with the pages).
+  useQuery({ queryKey: ["system"], queryFn: fetchSystem, refetchInterval: 60_000 });
   const active = useActiveEvents();
   const motionNow = Object.values(active).some((t) => t.length > 0);
   useEffect(() => {

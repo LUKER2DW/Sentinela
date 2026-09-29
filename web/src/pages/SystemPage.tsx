@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, get, type AuditEntry, type Role, type SystemInfo, type User } from "../lib/api";
+import { api, get, type AuditEntry, type Role, type SystemInfo, type User, fetchSystem } from "../lib/api";
 import { useSession, useToast } from "../lib/session";
 import { fmtBytes, fmtDuration, fmtTime, relative } from "../lib/time";
 import { useCameras } from "./LivePage";
@@ -26,7 +26,7 @@ export function recordingDays(s: SystemInfo): number | null {
 
 export function SystemPage() {
   const { can } = useSession();
-  const sys = useQuery({ queryKey: ["system"], queryFn: () => get<SystemInfo>("/api/system"), refetchInterval: 10_000 });
+  const sys = useQuery({ queryKey: ["system"], queryFn: fetchSystem, refetchInterval: 10_000 });
   const s = sys.data;
 
   return (

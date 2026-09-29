@@ -1,3 +1,4 @@
+import { syncServerClock } from "./time";
 // Typed client for the Sentinela API. The CSRF token comes from /api/me or
 // /api/login and is sent on every unsafe request.
 
@@ -175,3 +176,11 @@ export async function api<T>(method: string, path: string, body?: unknown): Prom
 }
 
 export const get = <T>(path: string) => api<T>("GET", path);
+
+/** GET /api/system, also syncing the UI clock to the server's. */
+export async function fetchSystem(): Promise<SystemInfo> {
+  const t0 = Date.now();
+  const s = await get<SystemInfo>("/api/system");
+  syncServerClock(s.now, t0, Date.now());
+  return s;
+}
