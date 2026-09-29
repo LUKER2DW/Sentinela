@@ -1,0 +1,78 @@
+/* The Sentinela scene for the app's bundled pages (start screen, offline):
+   the same lighthouse, boat, fish and drifting sea as the web app's
+   OceanScene (web/src/components/Doodles.tsx), with its animations. */
+:root {
+  --wave-1: #8dbdbb; --wave-2: #b4d6d3; --wave-3: #d4e7e4; --lamp: #f2c46b; --ink: #2d6670; --band: #df927f;
+  --glass: #e4f0ee; --roof: #3e7c88; --paper: #fbfaf7; --coral: #d9806b; --sky: #e2efed; --boat-ink: #2d6670;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --wave-1: #2f5456; --wave-2: #274345; --wave-3: #213538; --ink: #a9d3d0; --band: #d98f7e; --glass: #22393c;
+    --roof: #4f8f92; --paper: #1f2427; --coral: #eba08e; --sky: #1c2a33; --boat-ink: #b0dbd8;
+  }
+}
+.scene { position: relative; width: 100%; aspect-ratio: 2 / 1; max-height: 32dvh; border-radius: 24px; overflow: hidden;
+  background: linear-gradient(var(--sky), color-mix(in srgb, var(--sky) 40%, var(--bg)) 75%); border: 1px solid var(--line); }
+.scene.hero { aspect-ratio: auto; max-height: none; border: 0; border-radius: 0; background: var(--bg-soft); min-height: 0; }
+.scene.hero .pano { position: absolute; inset: 0; width: 100%; height: 100%; }
+.scene.hero::after { content: ""; position: absolute; inset: auto 0 0 0; height: 34%; pointer-events: none;
+  background: linear-gradient(transparent, color-mix(in srgb, var(--bg) 70%, transparent) 55%, var(--bg)); }
+.scene svg.ocean { position: absolute; inset: 0; width: 100%; height: 100%; }
+.scene .gulls { position: absolute; left: 14%; top: 16%; width: 20%; overflow: visible; }
+.scene .gulls path { fill: none; stroke: var(--ink); stroke-width: 1.4; stroke-linecap: round; opacity: 0.55; }
+.scene .star { position: absolute; width: 3px; height: 3px; border-radius: 50%; background: var(--lamp); opacity: 0; }
+@media (prefers-color-scheme: dark) { .scene .star { opacity: 0.8; } .scene .gulls { display: none; } }
+.lh-mark { overflow: visible; }
+.lh-mark .ink { fill: none; stroke: var(--ink); stroke-width: 1.05; stroke-linecap: round; stroke-linejoin: round; }
+.lh-mark .ink.thin { stroke-width: 0.75; }
+.f-paper { fill: var(--paper); } .f-band { fill: var(--band); } .f-glass { fill: var(--glass); } .f-lamp { fill: var(--lamp); } .f-roof { fill: var(--roof); }
+.lh-mark .lh-beam { transform-box: view-box; transform-origin: 24px 14px; opacity: 0.7; }
+.lh-mark .lh-lamp { transform-box: view-box; transform-origin: 24px 14px; }
+.ocean .o-back { fill: var(--wave-3); } .ocean .o-mid { fill: var(--wave-2); } .ocean .o-front { fill: var(--wave-1); }
+.ocean .o-boat path { fill: var(--paper); stroke: var(--boat-ink); stroke-width: 1.4; stroke-linejoin: round; }
+.ocean .o-fish path { fill: var(--coral); opacity: 0; }
+@media (prefers-reduced-motion: no-preference) {
+  .lh-mark .lh-beam { animation: lh-sweep 7s linear infinite; }
+  .lh-mark .lh-lamp { animation: lh-glow 7s ease-in-out infinite; }
+  .lh-mark .lh-sea { animation: sway 5s ease-in-out infinite; }
+  .ocean .o-back { animation: o-drift 26s linear infinite; }
+  .ocean .o-mid { animation: o-drift-r 19s linear infinite; }
+  .ocean .o-front { animation: o-drift 13s linear infinite; }
+  .ocean .o-boat { transform-box: fill-box; transform-origin: 50% 90%; animation: o-bob 5s ease-in-out infinite; }
+  .ocean .o-fish path { transform-box: fill-box; animation: o-jump 14s ease-in-out infinite; }
+  .scene .gulls { animation: gulls 40s linear infinite; }
+  .scene .gulls path { transform-box: fill-box; transform-origin: center; animation: flap 0.9s ease-in-out infinite alternate; }
+  .scene .star { animation: twinkle 3s ease-in-out infinite alternate; }
+  @keyframes lh-sweep {
+    0% { transform: scaleX(1); opacity: 0.7; } 12.5% { transform: scaleX(0.7); opacity: 0.85; } 25% { transform: scaleX(0.04); opacity: 1; }
+    37.5% { transform: scaleX(-0.7); opacity: 0.85; } 50% { transform: scaleX(-1); opacity: 0.7; } 62.5% { transform: scaleX(-0.7); opacity: 0.45; }
+    75% { transform: scaleX(-0.04); opacity: 0.15; } 87.5% { transform: scaleX(0.7); opacity: 0.45; } 100% { transform: scaleX(1); opacity: 0.7; }
+  }
+  @keyframes lh-glow { 25% { filter: brightness(1.25); } 75% { filter: brightness(0.85); } }
+  @keyframes sway { 50% { transform: translateX(-6px); } }
+  @keyframes o-drift { to { transform: translateX(-240px); } }
+  @keyframes o-drift-r { from { transform: translateX(-240px); } to { transform: translateX(0); } }
+  @keyframes o-bob { 0%, 100% { transform: translateY(0) rotate(-3deg); } 50% { transform: translateY(2.5px) rotate(3deg); } }
+  @keyframes o-jump {
+    0%, 78% { opacity: 0; transform: translate(0, 12px) rotate(20deg); } 82% { opacity: 1; transform: translate(10px, -14px) rotate(-10deg); }
+    88% { opacity: 1; transform: translate(22px, -6px) rotate(25deg); } 92%, 100% { opacity: 0; transform: translate(30px, 14px) rotate(40deg); }
+  }
+  @keyframes gulls { from { transform: translateX(-60%); } to { transform: translateX(420%); } }
+  @keyframes flap { to { transform: scaleY(0.45); } }
+  @keyframes twinkle { from { opacity: 0.25; } }
+  /* Content rises in under the scene. */
+  .rise { animation: rise 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+  .rise:nth-child(2) { animation-delay: 0.05s; } .rise:nth-child(3) { animation-delay: 0.1s; }
+  .rise:nth-child(4) { animation-delay: 0.15s; } .rise:nth-child(5) { animation-delay: 0.2s; } .rise:nth-child(n + 6) { animation-delay: 0.25s; }
+  @keyframes rise { from { opacity: 0; transform: translateY(16px); } }
+}
+
+/* Background doodles (art/panorama.js): behind everything, never in the way. */
+.app-doodles { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; color: var(--doodle); }
+:root[data-theme="light"] .app-doodles { color: var(--sea); }
+.app-doodles .bg-doodles { display: block; position: absolute; inset: 0; }
+.app-doodles .bg-doodles .bd { opacity: 0.2; }
+:root[data-theme="light"] .app-doodles .bg-doodles .bd { opacity: 0.3; }
+.app-doodles .auth-anchor { display: block; position: absolute; left: auto; right: 18px; top: 46%; width: 44px; opacity: 0.28; }
+.app-doodles .auth-compass { display: block; position: absolute; width: 150px; right: -36px; bottom: -40px; opacity: 0.18; }
+body > *:not(.app-doodles) { position: relative; z-index: 1; }

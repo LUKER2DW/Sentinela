@@ -6,16 +6,22 @@
     <title>Sentinela</title>
     <!-- Start screen (ADR-0019 trial): pick how this phone reaches the house.
          Runs from the APK; talks to ConnectionPlugin (SentinelaConnection). -->
+    <link rel="stylesheet" href="art/panorama.css" />
+    <link rel="stylesheet" href="scene.css" />
     <style>
-      :root { --bg: #f5f2ec; --card: #fffdf9; --text: #1f2a30; --muted: #5f6d74; --line: #e3ddd3; --sea: #3e7c88; --ink: #fff; --err: #a8452f; }
-      @media (prefers-color-scheme: dark) { :root { --bg: #161a1c; --card: #1e2325; --text: #ece9e3; --muted: #a4acaf; --line: #2e3538; --sea: #8fc6c3; --ink: #0f2b2e; --err: #f09a82; } }
+      :root { --bg: #f5f2ec; --card: #fffdf9; --text: #1f2a30; --muted: #5f6d74; --line: #e3ddd3; --sea: #3e7c88; --on-sea: #fff; --err: #a8452f; }
+      @media (prefers-color-scheme: dark) { :root { --bg: #161a1c; --card: #1e2325; --text: #ece9e3; --muted: #a4acaf; --line: #2e3538; --sea: #8fc6c3; --on-sea: #0f2b2e; --err: #f09a82; } }
       * { box-sizing: border-box; }
+      [hidden] { display: none !important; }
       body { margin: 0; min-height: 100dvh; background: var(--bg); color: var(--text); font: 16px/1.45 system-ui, sans-serif;
         padding: calc(20px + env(safe-area-inset-top)) 16px calc(24px + env(safe-area-inset-bottom)); }
       main { max-width: 26rem; margin: 0 auto; display: grid; gap: 14px; }
-      header { display: grid; justify-items: center; gap: 6px; text-align: center; margin-bottom: 4px; }
-      header svg { width: 64px; height: 64px; color: var(--sea); }
-      h1 { margin: 0; font: 600 1.45rem/1.2 Georgia, serif; }
+      header { display: grid; justify-items: center; gap: 8px; text-align: center; margin-bottom: 4px; }
+      header h1, header .lede { position: relative; z-index: 2; }
+      header .scene.hero { width: calc(100% + 32px); margin: calc(-20px - env(safe-area-inset-top)) -16px -40px; height: 38dvh; min-height: 220px; }
+      body { font-family: "Figtree Variable", system-ui, sans-serif; }
+      h1 { margin: 0; font: 500 1.9rem/1.15 "Fraunces Variable", Georgia, serif; font-variation-settings: "SOFT" 100, "opsz" 48; letter-spacing: -0.01em; }
+      details { backdrop-filter: blur(8px); background: color-mix(in srgb, var(--card) 92%, transparent) !important; }
       .lede { margin: 0; color: var(--muted); font-size: .95rem; }
       details { background: var(--card); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
       details[open] { border-color: color-mix(in srgb, var(--sea) 55%, var(--line)); }
@@ -30,7 +36,7 @@
       input { width: 100%; height: 44px; padding: 0 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--bg);
         color: var(--text); font: inherit; }
       input:focus { outline: 2px solid color-mix(in srgb, var(--sea) 60%, transparent); outline-offset: 1px; }
-      button { height: 46px; border-radius: 14px; border: 0; font: 600 1rem system-ui, sans-serif; background: var(--sea); color: var(--ink); cursor: pointer; }
+      button { height: 46px; border-radius: 14px; border: 0; font: 600 1rem system-ui, sans-serif; background: var(--sea); color: var(--on-sea); cursor: pointer; }
       button.ghost { background: transparent; color: var(--text); border: 1px solid var(--line); }
       button:disabled { opacity: .6; }
       .note { margin: 0; color: var(--muted); font-size: .85rem; }
@@ -44,17 +50,13 @@
   </head>
   <body>
     <main>
-      <header>
-        <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M19.4 17.5 19.3 12.4Q24 11.3 28.7 12.5L28.6 17.5" /><path d="M17.8 12.7 24 7.3 30.2 12.8" />
-          <path d="M19.7 17.8 17 36.5M28.3 17.8 31.2 36.6" /><path d="M18.6 27.3Q24 26.2 29.6 27.5" />
-          <path d="M8 40.5q4-3 8 0t8 0 8 0 8 0" />
-        </svg>
+      <header class="rise">
+        <div class="scene hero"></div>
         <h1>Como chegar à casa?</h1>
-        <p class="lede">Escolha o caminho deste celular até o Sentinela. Dá para trocar depois em Mais → Conexão.</p>
+        <p class="lede">Escolha o caminho deste celular até o Sentinela. Dá para trocar depois em Mais → Segurança.</p>
       </header>
 
-      <details id="m-tailnet" name="mode">
+      <details class="rise" id="m-tailnet" name="mode">
         <summary><b>Tailscale embutido <i class="tag">sem VPN</i></b><span>A rede privada roda dentro do app. Nada fica exposto na internet.</span></summary>
         <div class="body">
           <p class="note" id="tn-status"></p>
@@ -77,7 +79,7 @@
         </div>
       </details>
 
-      <details id="m-domain" name="mode">
+      <details class="rise" id="m-domain" name="mode">
         <summary><b>Domínio da casa</b><span>Porta aberta no roteador. Funciona em qualquer rede e navegador; pede o código de 2 etapas.</span></summary>
         <div class="body">
           <label>Endereço<input id="u-domain" inputmode="url" autocapitalize="none" spellcheck="false" placeholder="https://casa.exemplo.com.br" /></label>
@@ -86,7 +88,7 @@
         </div>
       </details>
 
-      <details id="m-funnel" name="mode">
+      <details class="rise" id="m-funnel" name="mode">
         <summary><b>Tailscale Funnel</b><span>Endereço público do Tailscale. Qualquer rede; pede o código de 2 etapas.</span></summary>
         <div class="body">
           <label>Endereço<input id="u-funnel" inputmode="url" autocapitalize="none" spellcheck="false" /></label>
@@ -95,7 +97,7 @@
         </div>
       </details>
 
-      <details id="m-tailscale" name="mode">
+      <details class="rise" id="m-tailscale" name="mode">
         <summary><b>App do Tailscale (VPN)</b><span>Como antes: precisa do app Tailscale ligado neste celular.</span></summary>
         <div class="body">
           <label>Endereço<input id="u-tailscale" inputmode="url" autocapitalize="none" spellcheck="false" /></label>
@@ -104,8 +106,10 @@
         </div>
       </details>
 
-      <footer id="ver"></footer>
+      <footer class="rise" id="ver"></footer>
     </main>
+    <script src="art/panorama.js"></script>
+    <script src="scene.js"></script>
     <script>
       const cap = window.Capacitor;
       const call = (method, opts) =>
