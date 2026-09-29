@@ -10,6 +10,7 @@ import { CameraSettings, PtzPanel } from "../components/CameraControls";
 import { DayRibbon, RibbonLegend } from "../components/DayRibbon";
 import { Boat } from "../components/Doodles";
 import { recordingDays } from "./SystemPage";
+import { initialStream } from "../lib/gestures";
 
 export function useCameras() {
   return useQuery({ queryKey: ["cameras"], queryFn: () => get<Camera[]>("/api/cameras"), staleTime: 60_000 });
@@ -102,8 +103,9 @@ function Single({ cam, now, multi }: { cam: Camera; now: number; multi: boolean 
     refetchInterval: 60_000,
   });
   const motionToday = timeline.data?.events.filter((e) => e.type === "motion").length ?? 0;
-  // Phones start on the substream (SD) to save mobile data; HD is one tap away.
-  const [phone] = useState(() => window.matchMedia("(max-width: 760px)").matches);
+  // The last HD/SD choice on this device; otherwise SD on phones and on
+  // mobile data (saves the data plan), HD elsewhere. One tap switches.
+  const [stream] = useState(() => initialStream(window.matchMedia("(max-width: 760px)").matches));
 
   return (
     <>
@@ -128,7 +130,7 @@ function Single({ cam, now, multi }: { cam: Camera; now: number; multi: boolean 
             cameraName={cam.name}
             allowTalk={can("operator")}
             motion={(active[cam.id] ?? []).length > 0}
-            defaultStream={phone ? "sub" : "main"}
+            defaultStream={stream}
           />
           <section className="card" aria-label="Hoje">
             <div className="card-head">

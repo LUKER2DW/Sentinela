@@ -54,6 +54,29 @@ export function webrtcSupportsH265(): boolean {
   return !!caps?.codecs.some((c) => c.mimeType.toLowerCase() === "video/h265");
 }
 
+// Per-device memory of a failed WebRTC path (no HEVC decoder, blocked UDP):
+// skip straight to MSE for a week instead of waiting 6 s every time.
+const TRANSPORT_KEY = "sentinela.webrtcFailedAt";
+const TRANSPORT_TTL = 7 * 24 * 3_600_000;
+
+export function webrtcRecentlyFailed(now = Date.now()): boolean {
+  try {
+    const at = Number(localStorage.getItem(TRANSPORT_KEY) ?? 0);
+    return at > 0 && now - at < TRANSPORT_TTL;
+  } catch {
+    return false;
+  }
+}
+
+function rememberWebrtc(ok: boolean) {
+  try {
+    if (ok) localStorage.removeItem(TRANSPORT_KEY);
+    else localStorage.setItem(TRANSPORT_KEY, String(Date.now()));
+  } catch {
+    /* private mode: probe again next time */
+  }
+}
+
 export function canTalk(): boolean {
   return window.isSecureContext && !!navigator.mediaDevices?.getUserMedia;
 }
@@ -74,6 +97,7 @@ export class LivePlayer {
   private objectUrl?: string;
   private transport?: Transport;
   private webrtcFailed = false;
+  private micOn = false;
 
   constructor(video: HTMLVideoElement, opts: PlayerOptions) {
     this.video = video;
@@ -86,6 +110,12 @@ export class LivePlayer {
 
   get peer() {
     return this.pc;
+  }
+
+  /** Push-to-talk: the mic track only carries sound while this is on. */
+  setMic(on: boolean) {
+    this.micOn = on;
+    this.mic?.getAudioTracks().forEach((t) => (t.enabled = on));
   }
 
   start() {
@@ -107,7 +137,7 @@ export class LivePlayer {
   private pickTransport(): Transport {
     if (this.opts.talk) return "webrtc";
     if (this.opts.prefer) return this.opts.prefer;
-    if (!this.webrtcFailed && webrtcSupportsH265()) return "webrtc";
+    if (!this.webrtcFailed && !webrtcRecentlyFailed() && webrtcSupportsH265()) return "webrtc";
     return "mse";
   }
 
@@ -191,6 +221,7 @@ export class LivePlayer {
         this.mic = await navigator.mediaDevices.getUserMedia({
           audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
         });
+        this.setMic(this.micOn);
         pc.addTransceiver(this.mic.getAudioTracks()[0], { direction: "sendrecv" });
       } catch {
         this.emit({ state: "error", message: "Microfone bloqueado pelo navegador" });
@@ -222,6 +253,7 @@ export class LivePlayer {
         window.clearTimeout(this.fallbackTimer);
         this.retry = 0;
         void this.video.play().catch(() => {});
+        rememberWebrtc(true);
         this.emit({ state: "playing", transport: "webrtc" });
       } else if (pc.connectionState === "failed") {
         if (!this.opts.talk) this.fallbackToMSE();
@@ -239,6 +271,7 @@ export class LivePlayer {
 
   private fallbackToMSE() {
     this.webrtcFailed = true;
+    rememberWebrtc(false);
     this.retry = 0;
     void this.connect();
   }
