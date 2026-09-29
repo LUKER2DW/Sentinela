@@ -42,6 +42,7 @@ type Server struct {
 	stateTTL map[string]cachedState
 
 	snaps snapshotter
+	tlSem chan struct{} // one timelapse at a time
 	push  notifier
 
 	// Nuvem file API (ADR-0012); nil when the share is not mounted.
@@ -63,7 +64,8 @@ func New(cfg *config.Config, st *store.Store, web fs.FS, log *slog.Logger) (*Ser
 	}
 	s := &Server{Cfg: cfg, Store: st, Log: log, Web: web, Started: time.Now(), FFmpeg: "ffmpeg",
 		tickets: auth.NewTickets(60 * time.Second), loginRL: auth.NewLimiter(5, time.Minute),
-		go2rtc: g, ctrl: map[string]*dvrip.Controller{}, hub: NewHub(), stateTTL: map[string]cachedState{}}
+		go2rtc: g, ctrl: map[string]*dvrip.Controller{}, hub: NewHub(), stateTTL: map[string]cachedState{},
+		tlSem: make(chan struct{}, 1)}
 	for i := range cfg.Cameras {
 		cam := &cfg.Cameras[i]
 		addr := hostPort(cam.Host, cam.DVRIPPort)
@@ -136,6 +138,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/recordings/{seg}", viewer(s.recording))
 	mux.Handle("PUT /api/recordings/{seg}/protected", operator(s.protectSegment))
 	mux.Handle("GET /api/cameras/{id}/export", viewer(s.export))
+	mux.Handle("GET /api/cameras/{id}/timelapse", viewer(s.timelapse))
 
 	// Events and system
 	mux.Handle("GET /api/events", viewer(s.listEvents))

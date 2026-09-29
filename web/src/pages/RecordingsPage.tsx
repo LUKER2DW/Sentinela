@@ -9,6 +9,7 @@ import { Icon } from "../components/Icon";
 import { Boat, Fish } from "../components/Doodles";
 import { useCameras } from "./LivePage";
 import { findSegment } from "../lib/segments";
+import { TimelapseCard } from "../components/Timelapse";
 
 const SPEEDS = [1, 2, 4, 8];
 
@@ -101,6 +102,7 @@ export function RecordingsPage({ params }: { params: URLSearchParams }) {
         )}
         <aside className="stack">
           <DayEvents timeline={timeline.data} onPick={(ms) => go(ms)} />
+          {camId && <TimelapseCard key={`${camId}-${from}`} camId={camId} dayStart={dayStart} now={now} />}
         </aside>
       </div>
     </>
