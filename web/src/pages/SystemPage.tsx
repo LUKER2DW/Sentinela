@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, get, type AuditEntry, type Camera, type ControlState, type Role, type SystemInfo, type User, fetchSystem } from "../lib/api";
 import { useSession, useToast } from "../lib/session";
@@ -11,6 +11,8 @@ import { DevicesCard } from "../components/Devices";
 import { SecurityCard } from "../components/Security";
 import { AddCameraCard } from "../components/AddCamera";
 import { DetectionCard } from "../components/Detection";
+import { useCompact } from "../lib/viewport";
+import { OceanScene } from "../components/Doodles";
 
 const roleLabel: Record<Role, string> = { admin: "Administrador", operator: "Operador", viewer: "Visualizador" };
 const stateLabel: Record<string, string> = {
@@ -31,6 +33,7 @@ export function recordingDays(s: SystemInfo): number | null {
 
 export function SystemPage() {
   const { can } = useSession();
+  const compact = useCompact();
   const sys = useQuery({ queryKey: ["system"], queryFn: fetchSystem, refetchInterval: 10_000 });
   const s = sys.data;
 
@@ -44,7 +47,7 @@ export function SystemPage() {
         {s && <span className="pill">Versão {s.version}</span>}
       </header>
       {sys.isError && <p className="notice error">Não foi possível ler o estado do servidor.</p>}
-      {s && (
+      {s && (compact ? <PhoneSections s={s} admin={can("admin")} /> : (
         <div className="stack">
           <DiskWarning s={s} />
           <RecordingWarning s={s} />
@@ -65,8 +68,105 @@ export function SystemPage() {
           {can("admin") && <AddCameraCard />}
           {can("admin") && <Audit />}
         </div>
-      )}
+      ))}
     </>
+  );
+}
+
+type Section = "account" | "recording" | "server" | "detection";
+const SECTIONS: { id: Section; label: string }[] = [
+  { id: "account", label: "Conta" },
+  { id: "recording", label: "Gravação" },
+  { id: "server", label: "Servidor" },
+  { id: "detection", label: "Detecção" },
+];
+const SECTION_KEY = "sentinela.systemSection";
+
+function savedSection(): Section {
+  try {
+    const v = localStorage.getItem(SECTION_KEY);
+    if (SECTIONS.some((x) => x.id === v)) return v as Section;
+  } catch {
+    /* private mode */
+  }
+  return "account";
+}
+
+/**
+ * Phone layout of the System page: one section at a time behind sticky
+ * chips. Users, cameras and the audit log are desktop-only (owner's
+ * choice): they are rare, wide, and risky to fat-finger.
+ */
+function PhoneSections({ s, admin }: { s: SystemInfo; admin: boolean }) {
+  const [section, setSection] = useState<Section>(savedSection);
+  const pick = (id: Section) => {
+    setSection(id);
+    try {
+      localStorage.setItem(SECTION_KEY, id);
+    } catch {
+      /* private mode */
+    }
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+  const cards: Record<Section, ReactNode> = {
+    account: (
+      <>
+        <Account />
+        <SecurityCard />
+        <NotificationsCard />
+        <DevicesCard />
+      </>
+    ),
+    recording: (
+      <>
+        <Storage s={s} />
+        <Recorders s={s} />
+      </>
+    ),
+    server: (
+      <>
+        <LiveService s={s} />
+        <Disks s={s} />
+        <Server s={s} />
+      </>
+    ),
+    detection: <DetectionCard s={s} />,
+  };
+  const { user, logout } = useSession();
+  return (
+    <div className="stack">
+      <div className="phone-who">
+        <OceanScene className="phone-ocean" />
+        <div className="who">
+          <span className="avatar" aria-hidden="true">
+            {user.username.slice(0, 1).toUpperCase()}
+          </span>
+          <div className="who-text">
+            <div className="who-name">{user.username}</div>
+            <div className="who-role">{roleLabel[user.role]}</div>
+          </div>
+          <button className="btn small ghost" onClick={logout}>
+            Sair
+          </button>
+        </div>
+      </div>
+      <DiskWarning s={s} />
+      <RecordingWarning s={s} />
+      <CloudWarning />
+      <div className="section-tabs" role="tablist" aria-label="Seções">
+        {SECTIONS.map((x) => (
+          <button key={x.id} role="tab" aria-selected={section === x.id} onClick={() => pick(x.id)}>
+            {x.label}
+          </button>
+        ))}
+      </div>
+      <div className="stack section-body" key={section} role="tabpanel">
+        {cards[section]}
+        {admin && section === "account" && (
+          <p className="muted small desk-note">Usuários, câmeras e o registro de ações ficam no computador.</p>
+        )}
+      </div>
+    </div>
   );
 }
 

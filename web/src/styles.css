@@ -601,7 +601,14 @@ table.table { width: 100%; border-collapse: collapse; }
 .bd-wave { width: 90px; top: 58%; left: 4px; }
 .bd-anchor { width: 38px; top: 132px; right: 8px; transform: rotate(10deg); }
 .bd-compass { width: 120px; bottom: -40px; left: 46%; opacity: 0.14 !important; }
-@media (max-width: 760px) { .bg-doodles { display: none; } }
+@media (max-width: 760px) {
+  /* Phone: a few finds stay in the margins, fainter. */
+  .bd-bottle, .bd-wave, .bd-compass, .bd-anchor { display: none; }
+  .bg-doodles .bd { opacity: 0.14; }
+  .bd-gulls { width: 56px; top: 64px; left: auto; right: 18px; }
+  .bd-star { bottom: calc(var(--tabbar) + 24px); }
+  .bd-shell { bottom: calc(var(--tabbar) + 60px); }
+}
 
 .dialog-backdrop { position: fixed; inset: 0; z-index: 50; background: rgb(22 26 28 / 0.45); display: grid; place-items: center; padding: 16px; backdrop-filter: blur(3px); }
 .dialog { width: min(440px, 100%); background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 24px; display: grid; gap: 16px; box-shadow: var(--shadow); }
@@ -942,3 +949,178 @@ table.table { width: 100%; border-collapse: collapse; }
 .totp-secret { font-size: 0.85rem; word-break: break-all; }
 .auth-via { text-align: center; margin: 4px 0 0; }
 .linkish { background: none; border: 0; padding: 0; font: inherit; color: var(--sea); font-weight: 600; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+
+/* ---------- phone polish (2026-09-29): sections, motion, touch ---------- */
+.section-tabs {
+  position: sticky; z-index: 6; top: 0; display: flex; gap: 6px; margin: -4px calc(-1 * var(--gutter)) 0; padding: 8px var(--gutter);
+  overflow-x: auto; scrollbar-width: none; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(10px);
+}
+.section-tabs::-webkit-scrollbar { display: none; }
+.section-tabs button {
+  flex: 1 0 auto; height: 38px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface);
+  color: var(--muted); font: inherit; font-weight: 600; font-size: 0.92rem; cursor: pointer;
+  transition: background-color 0.2s, color 0.2s, border-color 0.2s, transform 0.12s;
+}
+.section-tabs button[aria-selected="true"] { background: var(--sea); border-color: var(--sea); color: var(--sea-ink); }
+.section-tabs button:active { transform: scale(0.95); }
+.section-body { gap: 16px; }
+.desk-note { text-align: center; margin: 4px 0 0; }
+
+@media (max-width: 760px) {
+  /* Tab bar: the active tab gets a soft pill behind its icon. */
+  .shell .nav-item { position: relative; -webkit-tap-highlight-color: transparent; }
+  .shell .nav-item .nav-icon::before {
+    content: ""; position: absolute; inset: -4px -14px; border-radius: 999px; background: var(--sea-soft);
+    opacity: 0; transform: scaleX(0.4); transition: opacity 0.25s, transform 0.3s cubic-bezier(0.3, 1.4, 0.5, 1);
+  }
+  .shell .nav-item .nav-icon svg { position: relative; transition: transform 0.25s cubic-bezier(0.3, 1.4, 0.5, 1); }
+  .shell .nav-item[aria-current="page"] .nav-icon::before { opacity: 1; transform: scaleX(1); }
+  .shell .nav-item[aria-current="page"] .nav-icon svg { transform: translateY(-1px); }
+  .shell .nav-item:active .nav-icon svg { transform: scale(0.88); }
+  .shell .nav-item[aria-current="page"] .nav-label { font-weight: 700; }
+
+  /* Tighter rhythm and bigger touch targets. */
+  .page-head { margin-bottom: 16px; }
+  .card { padding: 16px; border-radius: 18px; }
+  .card > h2 { margin-bottom: 12px; }
+  .stack { gap: 16px; }
+  .btn { min-height: 44px; }
+  .btn.small { min-height: 40px; }
+  .status-row { padding: 12px 0; }
+
+  /* Filter rows scroll sideways instead of wrapping into a wall. */
+  .review-bar { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin-left: calc(-1 * var(--gutter)); margin-right: calc(-1 * var(--gutter));
+    padding: 2px var(--gutter) 4px; }
+  .review-bar::-webkit-scrollbar { display: none; }
+  .review-bar > * { flex: none; }
+  .review-bar .grow { display: none; }
+
+  /* Dialogs become bottom sheets. */
+  .dialog-backdrop { place-items: end stretch; padding: 0; }
+  .dialog { width: 100%; border-radius: 22px 22px 0 0; padding: 20px 16px calc(20px + env(safe-area-inset-bottom)); max-height: 92dvh; overflow-y: auto; }
+  .dialog-actions .btn { flex: 1; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .page { animation: page-in 0.34s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+  @keyframes page-in { from { opacity: 0; transform: translateY(10px); } }
+  .section-body > *, .grid-3 > .card, .review-grid > li {
+    animation: card-in 0.42s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+  .section-body > :nth-child(2), .grid-3 > .card:nth-child(2), .review-grid > li:nth-child(2) { animation-delay: 0.04s; }
+  .section-body > :nth-child(3), .grid-3 > .card:nth-child(3), .review-grid > li:nth-child(3) { animation-delay: 0.08s; }
+  .section-body > :nth-child(4), .grid-3 > .card:nth-child(4), .review-grid > li:nth-child(4) { animation-delay: 0.12s; }
+  .section-body > :nth-child(n + 5), .grid-3 > .card:nth-child(n + 5), .review-grid > li:nth-child(n + 5) { animation-delay: 0.16s; }
+  @keyframes card-in { from { opacity: 0; transform: translateY(14px) scale(0.985); } }
+  .dialog-backdrop { animation: fade-in 0.2s ease both; }
+  @keyframes fade-in { from { opacity: 0; } }
+  .toast, .update-toast { animation: toast-in 0.35s cubic-bezier(0.3, 1.4, 0.5, 1) both; }
+  @keyframes toast-in { from { opacity: 0; transform: translate(-50%, 16px); } }
+  .btn, .review-item { transition: background-color 0.15s, border-color 0.15s, color 0.15s, transform 0.12s, box-shadow 0.15s; }
+  .review-item:active { transform: scale(0.985); }
+}
+@media (prefers-reduced-motion: no-preference) and (max-width: 760px) {
+  .dialog { animation: sheet-up 0.36s cubic-bezier(0.2, 0.9, 0.25, 1) both; }
+  .sheet[open] { animation: sheet-up 0.36s cubic-bezier(0.2, 0.9, 0.25, 1) both; }
+  @keyframes sheet-up { from { transform: translateY(40%); opacity: 0.4; } }
+  .btn:active:not(:disabled) { transform: scale(0.97); }
+}
+
+/* ---------- phone identity: brand bar, sea above the tab bar, "Mais" ocean ---------- */
+.mobile-bar { display: none; }
+@media (max-width: 760px) {
+  .topbar { display: none; }
+  .page-head { padding-right: 0; }
+  .mobile-bar {
+    position: sticky; z-index: 20; top: 0; display: flex; align-items: center; justify-content: space-between;
+    margin: -16px calc(-1 * var(--gutter)) 12px; padding: calc(8px + env(safe-area-inset-top)) var(--gutter) 10px;
+    background: color-mix(in srgb, var(--bg) 86%, transparent); backdrop-filter: blur(12px);
+  }
+  .mobile-brand { display: flex; align-items: center; gap: 8px; color: var(--text); text-decoration: none;
+    font-family: var(--serif); font-variation-settings: "SOFT" 100, "opsz" 36; font-size: 1.3rem; font-weight: 600; }
+  .mobile-brand .lh-mark { width: 38px; height: 38px; margin: -4px -2px -4px -6px; }
+  .mobile-bar .theme-btn { width: 38px; height: 38px; }
+  .mobile-bar-wave { position: absolute; left: 0; right: 0; bottom: -4px; width: 100%; height: 8px; overflow: visible; }
+  .mobile-bar-wave path { fill: none; stroke: var(--foam); stroke-width: 1.4; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+  .section-tabs { top: calc(62px + env(safe-area-inset-top)); }
+
+  /* The tab bar floats on a thin band of sea. */
+  .side-nav::before {
+    content: ""; position: absolute; left: 0; right: 0; top: -7px; height: 8px; pointer-events: none;
+    background: radial-gradient(circle at 8px -2px, transparent 7px, color-mix(in srgb, var(--wave-1) 70%, transparent) 7.5px) 0 0 / 16px 8px repeat-x;
+    opacity: 0.55;
+  }
+  .side-nav { border-top-color: color-mix(in srgb, var(--wave-1) 60%, var(--line)); }
+
+  .phone-who { position: relative; border-radius: 20px; overflow: hidden; border: 1px solid var(--line);
+    background: linear-gradient(var(--sky-day), var(--bg-soft) 70%); }
+  :root[data-theme="dark"] .phone-who { background: linear-gradient(#1c2a33, var(--bg-soft) 70%); }
+  .phone-ocean { display: block; width: 100%; height: 150px; }
+  .shell .phone-who .who { position: absolute; left: 12px; right: 12px; bottom: 12px; margin: 0; flex-direction: row; padding: 8px 8px 8px 10px; }
+  .shell .phone-who .who-text { display: block; }
+  .phone-who .who .btn { min-height: 36px; height: 36px; }
+}
+@media (prefers-reduced-motion: no-preference) and (max-width: 760px) {
+  .mobile-bar-wave path { animation: bar-wave 6s ease-in-out infinite alternate; }
+  @keyframes bar-wave { from { transform: translateX(-12px); } to { transform: translateX(0); } }
+  .side-nav::before { animation: tab-sea 9s linear infinite; }
+  @keyframes tab-sea { to { background-position: 64px 0; } }
+}
+
+/* Sideways-scrolling rows (section chips, event filters): keep the last
+   button clear of the edge (flex scrollers drop the end padding) and fade
+   the edges so it is clear there is more to swipe. */
+.section-tabs::after, .review-bar::after { content: ""; flex: 0 0 calc(var(--gutter) - 6px); }
+@media (max-width: 760px) {
+  .section-tabs, .review-bar {
+    scroll-snap-type: x proximity; scroll-padding-inline: var(--gutter);
+    -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 12px, #000 calc(100% - 24px), transparent);
+    mask-image: linear-gradient(90deg, transparent 0, #000 12px, #000 calc(100% - 24px), transparent);
+  }
+  .section-tabs > button, .review-bar > * { scroll-snap-align: start; }
+  .section-tabs > button { flex: 1 0 auto; padding: 0 11px; font-size: 0.88rem; }
+  .section-tabs { gap: 5px; }
+  .review-bar .segmented { flex: none; }
+  .review-bar .segmented button { white-space: nowrap; }
+  .page-head .segmented { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+}
+/* Light theme: the doodles need more ink to show on paper (phone and desktop). */
+:root:not([data-theme="dark"]) .bg-doodles { color: var(--sea); }
+:root:not([data-theme="dark"]) .bg-doodles .bd { opacity: 0.3; }
+:root:not([data-theme="dark"]) .bg-doodles .bd-compass { opacity: 0.18 !important; }
+
+/* ---------- phone sign-in: the full lighthouse scene as the hero ---------- */
+@media (max-width: 860px) {
+  /* The scene takes whatever height the form leaves: no scrolling to sign in. */
+  .auth { grid-template-rows: minmax(140px, 1fr) auto; min-height: 100dvh; height: 100dvh; }
+  .auth-art { border-bottom: 0; }
+  /* Sea melts into the page instead of a hard edge. */
+  .auth-art::after { content: ""; position: absolute; inset: auto 0 0 0; height: 34%;
+    background: linear-gradient(transparent, color-mix(in srgb, var(--bg) 70%, transparent) 55%, var(--bg)); pointer-events: none; }
+  .auth-panel { margin-top: -48px; padding: 0 16px calc(16px + env(safe-area-inset-bottom)); overflow: visible; align-content: end; z-index: 1; }
+  .auth-card { gap: 18px; }
+  .auth-head { gap: 8px; }
+  .auth-brand { margin-left: 0; }
+  .auth-brand .lh-mark { display: none; }
+  .auth-card h1 { font-size: 2.3rem; }
+  .auth-lede { font-size: 0.98rem; }
+  .auth-form { gap: 12px; padding: 16px; background: color-mix(in srgb, var(--surface) 92%, transparent); backdrop-filter: blur(10px); box-shadow: var(--shadow-lift); }
+  .theme-btn.auth-top { position: fixed; top: calc(14px + env(safe-area-inset-top)); right: 14px; z-index: 5;
+    background: color-mix(in srgb, var(--surface) 70%, transparent); backdrop-filter: blur(8px); }
+  /* Doodles peek out around the card, as on the desktop sign-in. */
+  .auth-anchor { display: block; left: auto; right: 22px; top: 6px; width: 40px; opacity: 0.3; z-index: 0; }
+  .auth-compass { display: block; position: absolute; width: 150px; right: -40px; bottom: -44px; opacity: 0.2; z-index: 0; }
+  .auth-panel { overflow: hidden; }
+  /* The theme button (sun/moon) sits in that corner: one sky body only. */
+  .auth-art .pano-sun, :root[data-theme="dark"] .auth-art .pano-moon { display: none; }
+}
+@media (max-width: 860px) and (max-height: 760px) {
+  .auth-lede { display: none; }
+  .auth-card h1 { font-size: 2rem; }
+  .auth-form .field .muted.small { display: none; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .auth-card > * { animation: card-in 0.55s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+  .auth-card > :nth-child(2) { animation-delay: 0.08s; }
+  .auth-art .pano { animation: fade-in 0.8s ease both; }
+}

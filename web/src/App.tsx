@@ -221,7 +221,18 @@ function Shell() {
         <div className="topbar">
           <ThemeToggle />
         </div>
-        <div className="page">
+        {/* Phone: brand bar with the turning lighthouse (the sidebar is a tab bar there). */}
+        <header className="mobile-bar">
+          <a className="mobile-brand" href={href("live")} aria-label="Sentinela, ao vivo">
+            <LighthouseMark />
+            <span>Sentinela</span>
+          </a>
+          <ThemeToggle />
+          <svg className="mobile-bar-wave" viewBox="0 0 400 8" preserveAspectRatio="none" aria-hidden="true">
+            <path d="M0 4 q12.5 -4 25 0 t25 0 t25 0 t25 0 t25 0 t25 0 t25 0 t25 0 t25 0 t25 0 t25 0 t25 0 t25 0 t25 0 t25 0 t25 0" />
+          </svg>
+        </header>
+        <div className="page" key={route.page}>
           {route.page === "recordings" ? (
             <RecordingsPage params={route.params} />
           ) : route.page === "events" ? (
