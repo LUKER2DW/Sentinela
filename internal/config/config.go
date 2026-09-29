@@ -42,6 +42,30 @@ type Config struct {
 	PushSubject string `yaml:"push_subject"`
 	// Ntfy is the self-hosted UnifiedPush relay for the Android app (ADR-0013).
 	Ntfy Ntfy `yaml:"ntfy"`
+	// Remote holds the access paths of the ADR-0019 trial. All off by default.
+	Remote Remote `yaml:"remote"`
+}
+
+// Remote configures the ADR-0019 trial paths. Requests on FunnelListen and
+// Public.Listen are in a public zone (mandatory 2FA, closed door).
+type Remote struct {
+	// FunnelListen is where `tailscale funnel` proxies to (P3), loopback only.
+	FunnelListen string    `yaml:"funnel_listen"`
+	Public       PublicTLS `yaml:"public"`
+	// AppTag is the tag of the embedded app nodes (P2).
+	AppTag string `yaml:"app_tag"`
+	// Tailscale OAuth client (scope auth_keys) that mints app keys (P2).
+	// Read from TS_OAUTH_CLIENT_ID / TS_OAUTH_CLIENT_SECRET, never YAML.
+	OAuthClientID     string `yaml:"-"`
+	OAuthClientSecret string `yaml:"-"`
+}
+
+// PublicTLS is the port-forwarded HTTPS listener (P1). Empty Domain = off.
+type PublicTLS struct {
+	Domain string `yaml:"domain"`
+	Listen string `yaml:"listen"`
+	// Email for Let's Encrypt expiry notices (optional).
+	Email string `yaml:"email"`
 }
 
 // Ntfy: phones reach PublicURL over the tailnet; the server posts to URL.
@@ -109,6 +133,8 @@ func Parse(raw []byte, getenv func(string) string) (*Config, error) {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
 	c.applyDefaults()
+	c.Remote.OAuthClientID = getenv("TS_OAUTH_CLIENT_ID")
+	c.Remote.OAuthClientSecret = getenv("TS_OAUTH_CLIENT_SECRET")
 	for i := range c.Cameras {
 		cam := &c.Cameras[i]
 		cam.User = getenv(cam.UserEnv)
@@ -140,6 +166,10 @@ func (c *Config) applyDefaults() {
 	def(&c.Timezone, "America/Sao_Paulo")
 	def(&c.PushSubject, "mailto:admin@sentinela.invalid")
 	def(&c.Ntfy.URL, "http://127.0.0.1:2586")
+	def(&c.Remote.AppTag, "tag:sentinela-app")
+	if c.Remote.Public.Domain != "" {
+		def(&c.Remote.Public.Listen, ":7443")
+	}
 	defInt(&c.Recording.SegmentSeconds, 300)
 	defInt(&c.Recording.MaxDiskPercent, 90)
 	defInt(&c.Recording.DefaultRetentionDays, 15)
@@ -173,6 +203,23 @@ func (c *Config) validate() error {
 	}
 	if u, err := url.Parse(c.Ntfy.URL); err != nil || u.Scheme != "http" && u.Scheme != "https" || u.Host == "" {
 		errs = append(errs, errors.New("ntfy.url must be an http(s) URL"))
+	}
+	if l := c.Remote.FunnelListen; l != "" {
+		// Funnel traffic arrives from tailscaled on this host only.
+		if h, _, err := net.SplitHostPort(l); err != nil || net.ParseIP(h) == nil || !net.ParseIP(h).IsLoopback() {
+			errs = append(errs, errors.New("remote.funnel_listen must be a loopback host:port, e.g. 127.0.0.1:8081"))
+		}
+	}
+	if d := c.Remote.Public.Domain; d != "" {
+		if !validHostname(d) || !strings.Contains(d, ".") || net.ParseIP(d) != nil {
+			errs = append(errs, errors.New("remote.public.domain must be a DNS name"))
+		}
+		if _, _, err := net.SplitHostPort(c.Remote.Public.Listen); err != nil {
+			errs = append(errs, errors.New("remote.public.listen must be host:port"))
+		}
+	}
+	if !strings.HasPrefix(c.Remote.AppTag, "tag:") {
+		errs = append(errs, errors.New("remote.app_tag must be a Tailscale tag such as tag:sentinela-app"))
 	}
 	seen := map[string]bool{}
 	for _, cam := range c.Cameras {

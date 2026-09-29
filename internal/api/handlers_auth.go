@@ -20,6 +20,8 @@ var usernamePattern = regexp.MustCompile(`^[A-Za-z0-9._-]{3,32}$`)
 type credentials struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
+	// Code is the TOTP code, required in public zones (ADR-0019).
+	Code string `json:"code,omitempty"`
 }
 
 func (s *Server) setupStatus(w http.ResponseWriter, r *http.Request) {
@@ -28,7 +30,9 @@ func (s *Server) setupStatus(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "database error")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"needs_setup": n == 0, "version": Version})
+	z := zoneFrom(r)
+	writeJSON(w, http.StatusOK, map[string]any{"needs_setup": n == 0 && !PublicZone(z), "version": Version,
+		"zone": z, "mfa": PublicZone(z)})
 }
 
 // setup creates the first admin. It only works while no user exists.
@@ -58,7 +62,7 @@ func (s *Server) setup(w http.ResponseWriter, r *http.Request) {
 	}
 	s.Log.Info("first admin created", "user", c.Username)
 	_ = s.Store.Audit(r.Context(), id, c.Username, "setup", c.Username, true, "")
-	s.startSession(w, r, id)
+	s.startSession(w, r, id, false)
 }
 
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
@@ -72,37 +76,69 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	u, err := s.Store.UserByName(r.Context(), strings.TrimSpace(c.Username))
+	zone := zoneFrom(r)
+	public := PublicZone(zone)
+	name := strings.TrimSpace(c.Username)
+	// From the internet, an account takes 10 attempts per hour (ADR-0019).
+	if public && !s.acctRL.Allow("acct:"+strings.ToLower(name)) {
+		_ = s.Store.Audit(r.Context(), 0, name, "login", ip, false, zone+": account locked")
+		writeErr(w, http.StatusTooManyRequests, "too many attempts for this account, wait an hour")
+		return
+	}
+	u, err := s.Store.UserByName(r.Context(), name)
 	if err != nil {
 		auth.VerifyDummy(c.Password)
-		_ = s.Store.Audit(r.Context(), 0, c.Username, "login", ip, false, "unknown user")
+		_ = s.Store.Audit(r.Context(), 0, c.Username, "login", ip, false, zone+": unknown user")
 		writeErr(w, http.StatusUnauthorized, "invalid username or password")
 		return
 	}
 	if !auth.VerifyPassword(u.PWHash, c.Password) {
-		_ = s.Store.Audit(r.Context(), u.ID, u.Username, "login", ip, false, "bad password")
+		_ = s.Store.Audit(r.Context(), u.ID, u.Username, "login", ip, false, zone+": bad password")
 		writeErr(w, http.StatusUnauthorized, "invalid username or password")
 		return
 	}
-	_ = s.Store.Audit(r.Context(), u.ID, u.Username, "login", ip, true, "")
-	s.startSession(w, r, u.ID)
+	if public {
+		// Two-step login is mandatory outside; it is enrolled at home only,
+		// so a leaked password alone opens nothing remotely.
+		if !u.TOTP {
+			_ = s.Store.Audit(r.Context(), u.ID, u.Username, "login", ip, false, zone+": no 2fa")
+			writeErr(w, http.StatusForbidden, "two-step login is not set up for this account")
+			return
+		}
+		if strings.TrimSpace(c.Code) == "" {
+			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "code required", "mfa": true})
+			return
+		}
+		step, ok := auth.VerifyTOTP(u.TOTPSecret, c.Code, time.Now(), u.TOTPStep)
+		if !ok || s.Store.UseTOTPStep(r.Context(), u.ID, step) != nil {
+			_ = s.Store.Audit(r.Context(), u.ID, u.Username, "login", ip, false, zone+": bad code")
+			writeErr(w, http.StatusUnauthorized, "invalid code")
+			return
+		}
+	}
+	_ = s.Store.Audit(r.Context(), u.ID, u.Username, "login", ip, true, zone)
+	if public {
+		go s.alertOutsideLogin(u, ip, zone)
+	}
+	s.startSession(w, r, u.ID, public)
 }
 
-func (s *Server) startSession(w http.ResponseWriter, r *http.Request, userID int64) {
+// startSession logs userID in on this device; mfa marks a two-step login.
+func (s *Server) startSession(w http.ResponseWriter, r *http.Request, userID int64, mfa bool) {
 	tok, csrf := auth.NewToken(), auth.NewToken()
 	exp := time.Now().Add(SessionTTL)
 	ua := r.UserAgent()
 	if len(ua) > 200 {
 		ua = ua[:200]
 	}
-	if err := s.Store.CreateSession(r.Context(), auth.HashToken(tok), userID, csrf, exp, ua); err != nil {
+	if err := s.Store.CreateSession(r.Context(), auth.HashToken(tok), userID, csrf, exp, ua, mfa); err != nil {
 		writeErr(w, http.StatusInternalServerError, "could not create session")
 		return
 	}
 	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: tok, Path: "/", Expires: exp, HttpOnly: true,
 		Secure: s.Cfg.SecureCookies || isHTTPS(r), SameSite: http.SameSiteStrictMode})
 	u, _ := s.Store.UserByID(r.Context(), userID)
-	writeJSON(w, http.StatusOK, map[string]any{"user": u, "csrf": csrf})
+	writeJSON(w, http.StatusOK, map[string]any{"user": u, "csrf": csrf, "zone": zoneFrom(r)})
 }
 
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
@@ -145,7 +181,7 @@ func (s *Server) revokeSession(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) me(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"user": userFrom(r), "csrf": sessionFrom(r).CSRF})
+	writeJSON(w, http.StatusOK, map[string]any{"user": userFrom(r), "csrf": sessionFrom(r).CSRF, "zone": zoneFrom(r)})
 }
 
 func (s *Server) changeOwnPassword(w http.ResponseWriter, r *http.Request) {
@@ -172,7 +208,8 @@ func (s *Server) changeOwnPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.audit(r, "user.password", u.Username, true, "self")
-	s.startSession(w, r, u.ID) // old sessions were revoked; keep this device logged in
+	// Old sessions were revoked; keep this device logged in.
+	s.startSession(w, r, u.ID, sessionFrom(r).MFA)
 }
 
 // ---------- users (admin) ----------
@@ -264,6 +301,8 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request) {
 		Role     *string   `json:"role"`
 		Password *string   `json:"password"`
 		Cameras  *[]string `json:"cameras"`
+		// TOTPOff turns the user's two-step login off (lost phone).
+		TOTPOff bool `json:"totp_off"`
 	}
 	if err := readJSON(r, &body); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -308,6 +347,13 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.audit(r, "user.password", u.Username, true, "reset by admin")
+	}
+	if body.TOTPOff {
+		if err := s.Store.SetUserTOTP(r.Context(), u.ID, ""); err != nil {
+			writeErr(w, http.StatusInternalServerError, "database error")
+			return
+		}
+		s.audit(r, "user.totp", u.Username, true, "reset by admin")
 	}
 	u, _ = s.Store.UserByID(r.Context(), u.ID)
 	writeJSON(w, http.StatusOK, u)

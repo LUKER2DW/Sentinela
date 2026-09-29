@@ -9,6 +9,14 @@ webrtc:
   # ICE on all interfaces (LAN now, tailscale0 later). No external STUN:
   # go2rtc advertises its host addresses, which is all a LAN/tailnet needs.
   listen: ":8555"
+  # Extra ICE candidates for the ADR-0019 trial (host candidates stay):
+  # - stun:8555 — the home's public IP (outbound STUN at start), for browsers
+  #   outside reaching the router's 8555 forward (P1);
+  # - 127.0.0.1:8555 — the Android app's local forwarder into its embedded
+  #   tailnet node (P2). Elsewhere nothing answers there and ICE moves on.
+  candidates:
+    - stun:8555
+    - 127.0.0.1:8555
 log:
   level: info
 

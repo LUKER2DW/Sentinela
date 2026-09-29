@@ -19,7 +19,11 @@ type User struct {
 	CreatedAt string `json:"created_at"`
 	// Cameras limits a non-admin user to these camera ids; empty = all.
 	Cameras []string `json:"cameras"`
-	PWHash  string   `json:"-"`
+	// TOTP reports whether two-step login is on (ADR-0019).
+	TOTP       bool   `json:"totp"`
+	PWHash     string `json:"-"`
+	TOTPSecret string `json:"-"`
+	TOTPStep   int64  `json:"-"`
 }
 
 // CanSee reports whether the user may see a camera (live, recordings,
@@ -70,29 +74,30 @@ func (s *Store) CreateFirstUser(ctx context.Context, username, pwHash string) (i
 func scanUser(row interface{ Scan(...any) error }) (*User, error) {
 	var u User
 	var cams string
-	if err := row.Scan(&u.ID, &u.Username, &u.PWHash, &u.Role, &u.CreatedAt, &cams); err != nil {
+	if err := row.Scan(&u.ID, &u.Username, &u.PWHash, &u.Role, &u.CreatedAt, &cams, &u.TOTPSecret, &u.TOTPStep); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
 		return nil, err
 	}
 	u.Cameras = splitCameras(cams)
+	u.TOTP = u.TOTPSecret != ""
 	return &u, nil
 }
 
 // UserByName looks a user up by username (case-insensitive).
 func (s *Store) UserByName(ctx context.Context, username string) (*User, error) {
-	return scanUser(s.db.QueryRowContext(ctx, `SELECT id,username,pw_hash,role,created_at,cameras FROM users WHERE username=?`, username))
+	return scanUser(s.db.QueryRowContext(ctx, `SELECT id,username,pw_hash,role,created_at,cameras,totp_secret,totp_step FROM users WHERE username=?`, username))
 }
 
 // UserByID looks a user up by id.
 func (s *Store) UserByID(ctx context.Context, id int64) (*User, error) {
-	return scanUser(s.db.QueryRowContext(ctx, `SELECT id,username,pw_hash,role,created_at,cameras FROM users WHERE id=?`, id))
+	return scanUser(s.db.QueryRowContext(ctx, `SELECT id,username,pw_hash,role,created_at,cameras,totp_secret,totp_step FROM users WHERE id=?`, id))
 }
 
 // ListUsers returns all users.
 func (s *Store) ListUsers(ctx context.Context) ([]User, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id,username,pw_hash,role,created_at,cameras FROM users ORDER BY username`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id,username,pw_hash,role,created_at,cameras,totp_secret,totp_step FROM users ORDER BY username`)
 	if err != nil {
 		return nil, err
 	}
@@ -127,6 +132,25 @@ func (s *Store) UpdateUserPassword(ctx context.Context, id int64, pwHash string)
 	return err
 }
 
+// SetUserTOTP turns two-step login on (secret) or off (”); off also
+// drops the user's 2FA sessions.
+func (s *Store) SetUserTOTP(ctx context.Context, id int64, secret string) error {
+	if err := s.execOne(ctx, `UPDATE users SET totp_secret=?, totp_step=0 WHERE id=?`, secret, id); err != nil {
+		return err
+	}
+	if secret == "" {
+		_, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE user_id=? AND mfa=1`, id)
+		return err
+	}
+	return nil
+}
+
+// UseTOTPStep records an accepted TOTP step. It fails if an equal or later
+// step was already used (a code is good once, even across racing logins).
+func (s *Store) UseTOTPStep(ctx context.Context, id, step int64) error {
+	return s.execOne(ctx, `UPDATE users SET totp_step=? WHERE id=? AND totp_step<?`, step, id, step)
+}
+
 // DeleteUser removes a user (sessions cascade).
 func (s *Store) DeleteUser(ctx context.Context, id int64) error {
 	return s.execOne(ctx, `DELETE FROM users WHERE id=?`, id)
@@ -158,12 +182,14 @@ type Session struct {
 	UserID    int64
 	CSRF      string
 	ExpiresAt time.Time
+	// MFA: created with two-step login; required in public zones (ADR-0019).
+	MFA bool
 }
 
 // CreateSession stores a session keyed by the token hash.
-func (s *Store) CreateSession(ctx context.Context, idHash []byte, userID int64, csrf string, expires time.Time, ua string) error {
-	_, err := s.db.ExecContext(ctx, `INSERT INTO sessions(id_hash,user_id,csrf,created_at,expires_at,user_agent) VALUES(?,?,?,?,?,?)`,
-		idHash, userID, csrf, Now(), FormatTime(expires), ua)
+func (s *Store) CreateSession(ctx context.Context, idHash []byte, userID int64, csrf string, expires time.Time, ua string, mfa bool) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO sessions(id_hash,user_id,csrf,created_at,expires_at,user_agent,mfa) VALUES(?,?,?,?,?,?,?)`,
+		idHash, userID, csrf, Now(), FormatTime(expires), ua, mfa)
 	return err
 }
 
@@ -173,9 +199,9 @@ func (s *Store) SessionByHash(ctx context.Context, idHash []byte) (*Session, *Us
 	var exp string
 	var u User
 	var cams string
-	err := s.db.QueryRowContext(ctx, `SELECT s.id_hash,s.user_id,s.csrf,s.expires_at,u.id,u.username,u.pw_hash,u.role,u.created_at,u.cameras
+	err := s.db.QueryRowContext(ctx, `SELECT s.id_hash,s.user_id,s.csrf,s.expires_at,s.mfa,u.id,u.username,u.pw_hash,u.role,u.created_at,u.cameras,u.totp_secret,u.totp_step
 		FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.id_hash=? AND s.expires_at>?`, idHash, Now()).
-		Scan(&sess.IDHash, &sess.UserID, &sess.CSRF, &exp, &u.ID, &u.Username, &u.PWHash, &u.Role, &u.CreatedAt, &cams)
+		Scan(&sess.IDHash, &sess.UserID, &sess.CSRF, &exp, &sess.MFA, &u.ID, &u.Username, &u.PWHash, &u.Role, &u.CreatedAt, &cams, &u.TOTPSecret, &u.TOTPStep)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil, ErrNotFound
 	}
@@ -184,6 +210,7 @@ func (s *Store) SessionByHash(ctx context.Context, idHash []byte) (*Session, *Us
 	}
 	sess.ExpiresAt = mustTime(exp)
 	u.Cameras = splitCameras(cams)
+	u.TOTP = u.TOTPSecret != ""
 	return &sess, &u, nil
 }
 
@@ -201,11 +228,13 @@ type DeviceSession struct {
 	ExpiresAt time.Time `json:"expires_at"`
 	UserAgent string    `json:"user_agent"`
 	Current   bool      `json:"current"`
+	// MFA: signed in with two-step login, i.e. from outside (ADR-0019).
+	MFA bool `json:"mfa"`
 }
 
 // UserSessions lists a user's live sessions, newest first.
 func (s *Store) UserSessions(ctx context.Context, userID int64) ([]DeviceSession, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT lower(hex(substr(id_hash,1,8))),created_at,expires_at,user_agent FROM sessions
+	rows, err := s.db.QueryContext(ctx, `SELECT lower(hex(substr(id_hash,1,8))),created_at,expires_at,user_agent,mfa FROM sessions
 		WHERE user_id=? AND expires_at>? ORDER BY created_at DESC`, userID, Now())
 	if err != nil {
 		return nil, err
@@ -215,7 +244,7 @@ func (s *Store) UserSessions(ctx context.Context, userID int64) ([]DeviceSession
 	for rows.Next() {
 		var d DeviceSession
 		var c, e string
-		if err := rows.Scan(&d.ID, &c, &e, &d.UserAgent); err != nil {
+		if err := rows.Scan(&d.ID, &c, &e, &d.UserAgent, &d.MFA); err != nil {
 			return nil, err
 		}
 		d.CreatedAt, d.ExpiresAt = mustTime(c), mustTime(e)

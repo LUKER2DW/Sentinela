@@ -27,6 +27,20 @@ ntfy:
   # public_url: https://sentinela.<tailnet>.ts.net:8443
   # url: http://127.0.0.1:2586     # where the server posts (loopback)
 
+# Remote access trial (ADR-0019). Everything off unless set. Requests on these
+# listeners need two-step login (enrolled at home) and see nothing else.
+remote:
+  # P3 Tailscale Funnel: scripts/setup-funnel.sh proxies :10000 to here.
+  # funnel_listen: 127.0.0.1:8081
+  # P1 port-forward + domain: router WAN 443 -> this port, 8555 tcp+udp -> 8555
+  # (scripts/setup-public.sh). Let's Encrypt certificate kept in /data/acme.
+  public:
+    # domain: casa.example.com.br
+    # listen: ":7443"
+    # email: you@example.com
+  # P2 app keys: TS_OAUTH_CLIENT_ID / TS_OAUTH_CLIENT_SECRET in secrets.env.
+  # app_tag: tag:sentinela-app
+
 cameras:
   - id: cam1                      # also the go2rtc stream name (cam1, cam1_sub)
     name: Frente

@@ -87,3 +87,39 @@ func TestPasswordPolicyMinimum(t *testing.T) {
 		t.Fatal("7 chars must be refused")
 	}
 }
+
+func TestTOTPRFC6238(t *testing.T) {
+	// RFC 6238 appendix B, SHA1 key "12345678901234567890" (8-digit values,
+	// last 6 digits here).
+	secret := b32.EncodeToString([]byte("12345678901234567890"))
+	cases := map[int64]string{59: "287082", 1111111109: "081804", 1234567890: "005924", 2000000000: "279037"}
+	for ts, want := range cases {
+		got, err := TOTPCode(secret, TOTPStep(time.Unix(ts, 0)))
+		if err != nil || got != want {
+			t.Errorf("t=%d: got %q, want %q (%v)", ts, got, want, err)
+		}
+	}
+}
+
+func TestVerifyTOTP(t *testing.T) {
+	secret := NewTOTPSecret()
+	now := time.Unix(1_800_000_000, 0)
+	prev, _ := TOTPCode(secret, TOTPStep(now)-1)
+	cur, _ := TOTPCode(secret, TOTPStep(now))
+	old, _ := TOTPCode(secret, TOTPStep(now)-3)
+	if st, ok := VerifyTOTP(secret, cur, now, 0); !ok || st != TOTPStep(now) {
+		t.Fatal("current code refused")
+	}
+	if _, ok := VerifyTOTP(secret, prev, now, 0); !ok {
+		t.Fatal("previous step refused")
+	}
+	if _, ok := VerifyTOTP(secret, cur, now, TOTPStep(now)); ok {
+		t.Fatal("code reused")
+	}
+	if _, ok := VerifyTOTP(secret, old, now, 0); ok {
+		t.Fatal("stale code accepted")
+	}
+	if _, ok := VerifyTOTP(secret, "12345", now, 0); ok {
+		t.Fatal("short code accepted")
+	}
+}

@@ -11,6 +11,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
 	"errors"
 	"flag"
 	"fmt"
@@ -27,6 +28,8 @@ import (
 	"syscall"
 	"time"
 	_ "time/tzdata" // night-mode schedules work even without host zoneinfo
+
+	"golang.org/x/crypto/acme/autocert"
 
 	"github.com/LUKER2DW/sentinela/internal/api"
 	"github.com/LUKER2DW/sentinela/internal/auth"
@@ -137,13 +140,27 @@ func serve(ctx context.Context, log *slog.Logger, cfgPath string) error {
 	go func() { defer wg.Done(); maintenance(ctx, log, cfg, st, srv) }()
 	go func() { defer wg.Done(); srv.WatchDetector(ctx) }()
 
-	hs := &http.Server{Addr: cfg.Listen, Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second,
-		IdleTimeout: 2 * time.Minute, MaxHeaderBytes: 64 << 10}
-	errc := make(chan error, 1)
-	go func() {
-		log.Info("sentinela serving", "addr", cfg.Listen, "version", version, "cameras", len(cfg.Cameras))
-		errc <- hs.ListenAndServe()
-	}()
+	servers := []*http.Server{{Addr: cfg.Listen, Handler: srv.Handler()}}
+	// ADR-0019 trial: public listeners, mandatory 2FA and the closed door.
+	if l := cfg.Remote.FunnelListen; l != "" {
+		servers = append(servers, &http.Server{Addr: l, Handler: srv.PublicHandler(api.ZoneFunnel)})
+	}
+	if p := cfg.Remote.Public; p.Domain != "" {
+		servers = append(servers, &http.Server{Addr: p.Listen, Handler: srv.PublicHandler(api.ZonePublic),
+			TLSConfig: publicTLS(cfg.DataDir, p.Domain, p.Email)})
+	}
+	errc := make(chan error, len(servers))
+	for _, hs := range servers {
+		hs.ReadHeaderTimeout, hs.IdleTimeout, hs.MaxHeaderBytes = 10*time.Second, 2*time.Minute, 64<<10
+		go func() {
+			log.Info("sentinela serving", "addr", hs.Addr, "tls", hs.TLSConfig != nil, "version", version, "cameras", len(cfg.Cameras))
+			if hs.TLSConfig != nil {
+				errc <- hs.ListenAndServeTLS("", "")
+			} else {
+				errc <- hs.ListenAndServe()
+			}
+		}()
+	}
 	select {
 	case err := <-errc:
 		if !errors.Is(err, http.ErrServerClosed) {
@@ -153,9 +170,25 @@ func serve(ctx context.Context, log *slog.Logger, cfgPath string) error {
 	}
 	shCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	_ = hs.Shutdown(shCtx)
+	for _, hs := range servers {
+		_ = hs.Shutdown(shCtx)
+	}
 	wg.Wait()
 	return nil
+}
+
+// publicTLS gets and renews a Let's Encrypt certificate for domain only
+// (TLS-ALPN-01 on the same port, so the router forwards just 443 → listen).
+func publicTLS(dataDir, domain, email string) *tls.Config {
+	m := &autocert.Manager{
+		Prompt:     autocert.AcceptTOS,
+		HostPolicy: autocert.HostWhitelist(domain),
+		Cache:      autocert.DirCache(filepath.Join(dataDir, "acme")),
+		Email:      email,
+	}
+	c := m.TLSConfig()
+	c.MinVersion = tls.VersionTLS12
+	return c
 }
 
 // maintenance purges sessions hourly and writes a nightly DB backup.

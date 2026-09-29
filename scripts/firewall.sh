@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Host firewall for the Sentinela server (docs/ARCHITECTURE.md §4). Idempotent.
-# Default deny inbound; LAN and tailnet allowances. Nothing is exposed to the WAN.
+# Default deny inbound; LAN and tailnet allowances. Nothing is exposed to the
+# WAN, except the ADR-0019 P1 trial ports while /etc/sentinela/public-access exists.
 #   sudo ./scripts/firewall.sh [LAN_CIDR]
 set -euo pipefail
 [[ $EUID -eq 0 ]] || { echo "run with sudo" >&2; exit 1; }
@@ -36,5 +37,13 @@ ufw allow in on tailscale0 to any port 22 proto tcp comment 'tailnet ssh' >/dev/
 # SMB over the tailnet only after per-user passwords >= 12 chars and the
 # owner's approval (PLAN Phase 9):
 #   ufw allow in on tailscale0 to any port 445 proto tcp comment 'tailnet smb'
+# Remote access trial P1 (ADR-0019): only while scripts/setup-public.sh has
+# left its marker. 7443 = the port-forwarded TLS listener (router WAN 443),
+# 8555 = WebRTC media. Any source: this is the internet-facing path.
+if [[ -f /etc/sentinela/public-access ]]; then
+  ufw allow 7443/tcp comment 'public https (ADR-0019 P1)' >/dev/null
+  ufw allow 8555/tcp comment 'public webrtc (ADR-0019 P1)' >/dev/null
+  ufw allow 8555/udp comment 'public webrtc (ADR-0019 P1)' >/dev/null
+fi
 ufw --force enable >/dev/null
 ufw status numbered

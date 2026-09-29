@@ -33,13 +33,17 @@ type Server struct {
 	Started time.Time
 	FFmpeg  string
 
-	tickets  *auth.Tickets
-	loginRL  *auth.Limiter
-	go2rtc   *url.URL
-	ctrl     map[string]*dvrip.Controller
-	hub      *Hub
-	stateMu  sync.Mutex
-	stateTTL map[string]cachedState
+	tickets     *auth.Tickets
+	loginRL     *auth.Limiter
+	acctRL      *auth.Limiter // per-account login attempts in public zones (ADR-0019)
+	totpPending pendingTOTP
+	tsHTTP      *http.Client // Tailscale API (app keys, ADR-0019 P2)
+	tsAPI       string
+	go2rtc      *url.URL
+	ctrl        map[string]*dvrip.Controller
+	hub         *Hub
+	stateMu     sync.Mutex
+	stateTTL    map[string]cachedState
 
 	snaps    snapshotter
 	tlSem    chan struct{} // one timelapse at a time
@@ -67,6 +71,7 @@ func New(cfg *config.Config, st *store.Store, web fs.FS, log *slog.Logger) (*Ser
 	}
 	s := &Server{Cfg: cfg, Store: st, Log: log, Web: web, Started: time.Now(), FFmpeg: "ffmpeg",
 		tickets: auth.NewTickets(60 * time.Second), loginRL: auth.NewLimiter(5, time.Minute),
+		acctRL: auth.NewLimiter(10, time.Hour), tsHTTP: &http.Client{Timeout: 15 * time.Second}, tsAPI: tailscaleAPI,
 		go2rtc: g, ctrl: map[string]*dvrip.Controller{}, hub: NewHub(), stateTTL: map[string]cachedState{},
 		tlSem: make(chan struct{}, 1)}
 	for i := range cfg.Cameras {
@@ -105,8 +110,20 @@ func (s *Server) Close() {
 	}
 }
 
-// Handler returns the root handler with all routes and middleware.
-func (s *Server) Handler() http.Handler {
+// Handler returns the root handler for the private listener (LAN, and the
+// tailnet through `tailscale serve` on loopback).
+func (s *Server) Handler() http.Handler { return s.handler("") }
+
+// PublicHandler serves a public listener (ZoneFunnel or ZonePublic,
+// ADR-0019): same routes, mandatory 2FA and the closed door.
+func (s *Server) PublicHandler(zone string) http.Handler {
+	if !PublicZone(zone) {
+		panic("api: PublicHandler needs a public zone") // programming error, caught at startup
+	}
+	return s.handler(zone)
+}
+
+func (s *Server) handler(zone string) http.Handler {
 	mux := http.NewServeMux()
 	viewer := func(h http.HandlerFunc) http.Handler { return s.require(auth.RoleViewer, h) }
 	operator := func(h http.HandlerFunc) http.Handler { return s.require(auth.RoleOperator, h) }
@@ -116,19 +133,24 @@ func (s *Server) Handler() http.Handler {
 
 	// Auth
 	mux.HandleFunc("GET /api/setup", s.setupStatus)
-	mux.HandleFunc("POST /api/setup", s.setup)
+	mux.HandleFunc("POST /api/setup", privateOnly(s.setup))
 	mux.HandleFunc("POST /api/login", s.login)
 	mux.HandleFunc("POST /api/logout", s.logout)
 	mux.Handle("GET /api/me", viewer(s.me))
 	mux.Handle("POST /api/me/password", viewer(s.changeOwnPassword))
 	mux.Handle("GET /api/me/sessions", viewer(s.mySessions))
 	mux.Handle("DELETE /api/me/sessions/{id}", viewer(s.revokeSession))
+	// Two-step login and the app's tailnet key (ADR-0019): home/tailnet only.
+	mux.Handle("POST /api/me/totp/setup", viewer(privateOnly(s.totpSetup)))
+	mux.Handle("POST /api/me/totp/enable", viewer(privateOnly(s.totpEnable)))
+	mux.Handle("POST /api/me/totp/disable", viewer(privateOnly(s.totpDisable)))
+	mux.Handle("POST /api/remote/app-key", viewer(privateOnly(s.appKey)))
 
 	// Users (admin)
 	mux.Handle("GET /api/users", admin(s.listUsers))
-	mux.Handle("POST /api/users", admin(s.createUser))
-	mux.Handle("PATCH /api/users/{id}", admin(s.updateUser))
-	mux.Handle("DELETE /api/users/{id}", admin(s.deleteUser))
+	mux.Handle("POST /api/users", admin(privateOnly(s.createUser)))
+	mux.Handle("PATCH /api/users/{id}", admin(privateOnly(s.updateUser)))
+	mux.Handle("DELETE /api/users/{id}", admin(privateOnly(s.deleteUser)))
 	mux.Handle("GET /api/audit", admin(s.listAudit))
 	mux.Handle("POST /api/cameras/discover", admin(s.discoverCameras))
 	mux.Handle("POST /api/cameras/test", admin(s.testCamera))
@@ -192,7 +214,7 @@ func (s *Server) Handler() http.Handler {
 	}))
 	mux.Handle("/", s.spa())
 
-	return s.recoverer(s.securityHeaders(s.logRequests(s.session(s.csrf(mux)))))
+	return s.recoverer(s.securityHeaders(withZone(zone, s.logRequests(s.session(s.closedDoor(s.csrf(mux)))))))
 }
 
 // ---------- helpers ----------

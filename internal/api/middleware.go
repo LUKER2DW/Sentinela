@@ -27,6 +27,7 @@ type ctxKey int
 const (
 	userKey ctxKey = iota
 	sessKey
+	zoneKey
 )
 
 func userFrom(r *http.Request) *store.User {
@@ -39,12 +40,16 @@ func sessionFrom(r *http.Request) *store.Session {
 	return s
 }
 
-// session attaches the logged-in user (if any) to the request context.
+// session attaches the logged-in user (if any) to the request context. In
+// public zones only sessions made with two-step login count (ADR-0019).
 func (s *Server) session(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		c, err := r.Cookie(sessionCookie)
 		if err == nil && c.Value != "" && len(c.Value) < 100 {
 			sess, u, err := s.Store.SessionByHash(r.Context(), auth.HashToken(c.Value))
+			if err == nil && PublicZone(zoneFrom(r)) && (!sess.MFA || !u.TOTP) {
+				err = store.ErrNotFound
+			}
 			if err == nil {
 				ctx := context.WithValue(r.Context(), userKey, u)
 				ctx = context.WithValue(ctx, sessKey, sess)
@@ -154,7 +159,7 @@ func (s *Server) logRequests(next http.Handler) http.Handler {
 			return
 		}
 		s.Log.Info("http", "method", r.Method, "path", redact.URL(r.URL.RequestURI()), "status", sw.code,
-			"bytes", sw.bytes, "ms", time.Since(start).Milliseconds(), "ip", clientIP(r))
+			"bytes", sw.bytes, "ms", time.Since(start).Milliseconds(), "ip", clientIP(r), "zone", zoneFrom(r))
 	})
 }
 
