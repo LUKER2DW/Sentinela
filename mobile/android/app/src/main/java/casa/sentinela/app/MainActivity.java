@@ -3,6 +3,7 @@ package casa.sentinela.app;
 import android.app.DownloadManager;
 import android.app.KeyguardManager;
 import android.content.Context;
+import android.content.Intent;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
@@ -33,6 +34,8 @@ import com.getcapacitor.BridgeActivity;
  *   the background, so a borrowed unlocked phone does not open the cameras;
  * - downloads (Nuvem files, exported clips) through Android's DownloadManager,
  *   carrying the session cookie only to the Sentinela server itself.
+ * Notifications come through UnifiedPush (PushBridge, SentinelaPushService);
+ * tapping one opens its page here.
  */
 public class MainActivity extends BridgeActivity {
     private static final long LOCK_AFTER_MS = 5 * 60 * 1000;
@@ -43,8 +46,26 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        registerPlugin(PushBridge.class);
         super.onCreate(savedInstanceState);
         installDownloads();
+        SentinelaPushService.createChannel(this);
+        openFromNotification(getIntent());
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        openFromNotification(intent);
+    }
+
+    /** A notification carries an in-app path such as "/#/events". */
+    private void openFromNotification(Intent intent) {
+        String path = intent == null ? null : intent.getStringExtra(SentinelaPushService.EXTRA_PATH);
+        if (path == null || !path.startsWith("/") || path.startsWith("//")) return;
+        intent.removeExtra(SentinelaPushService.EXTRA_PATH);
+        String server = getBridge().getServerUrl();
+        getBridge().getWebView().loadUrl(server.replaceAll("/+$", "") + path);
     }
 
     @Override

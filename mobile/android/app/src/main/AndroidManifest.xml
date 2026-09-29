@@ -25,6 +25,15 @@
 
         </activity>
 
+        <!-- Notifications from the ntfy app (UnifiedPush, ADR-0013). -->
+        <service
+            android:name=".SentinelaPushService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="org.unifiedpush.android.connector.PUSH_EVENT" />
+            </intent-filter>
+        </service>
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -44,6 +53,8 @@
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <!-- App lock (MainActivity). -->
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+    <!-- Event notifications (Android 13+ asks the user). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Downloads to the public Downloads folder on Android 9 and older. -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
 </manifest>

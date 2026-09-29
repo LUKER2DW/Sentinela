@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Notification icon: the lighthouse from web/public/icon.svg, white on transparent. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <group>
+        <path android:strokeColor="#FFFFFFFF" android:strokeWidth="3" android:strokeLineCap="round" android:strokeLineJoin="round"
+            android:pathData="M19.4,17.5 L19.3,12.4 Q24,11.3 28.7,12.5 L28.6,17.5" />
+        <path android:strokeColor="#FFFFFFFF" android:strokeWidth="3" android:strokeLineCap="round" android:strokeLineJoin="round"
+            android:pathData="M17.8,12.7 L24,7.3 L30.2,12.8" />
+        <path android:strokeColor="#FFFFFFFF" android:strokeWidth="3" android:strokeLineCap="round" android:strokeLineJoin="round"
+            android:pathData="M19.7,17.8 L17,36.5 M28.3,17.8 L31.2,36.6" />
+        <path android:strokeColor="#FFFFFFFF" android:strokeWidth="3" android:strokeLineCap="round" android:strokeLineJoin="round"
+            android:pathData="M18.6,27.3 Q24,26.2 29.6,27.5" />
+        <path android:strokeColor="#FFFFFFFF" android:strokeWidth="3" android:strokeLineCap="round" android:strokeLineJoin="round"
+            android:pathData="M8,40.5 q4,-3 8,0 t8,0 8,0 8,0" />
+        <path android:fillColor="#FFFFFFFF"
+            android:pathData="M24,13 a2,2 0 1,0 0.001,0 Z" />
+    </group>
+</vector>
