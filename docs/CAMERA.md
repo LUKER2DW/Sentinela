@@ -48,7 +48,9 @@ The ONVIF `GetStreamUri` result is authoritative; prefer it when it works.
 
 Message ids used by the driver: `1000` login, `1006` keepalive, `1020`
 SystemInfo, `1042` get config, `1040` set config, `1400` PTZ. Reads used:
-`SystemInfo`, `Camera.Param.[0]`, `Uart.PTZPreset` (list of `{Id, Name}`).
+`SystemInfo`, `Camera.Param.[0]`, `Uart.PTZPreset` (list of `{Id, Name}`),
+`NetWork.Nat` (only `NatEnable`, for the System page's cloud/P2P warning;
+never written — network config stays forbidden).
 
 PTZ request envelope (message `1400`), verified by v1 on this model:
 

@@ -33,6 +33,8 @@ export interface ControlState {
   day_night: DayNight | "";
   presets: Preset[];
   approved: boolean;
+  /** Vendor cloud (XMEye P2P) switch; absent when unreadable. */
+  cloud_p2p?: boolean;
 }
 
 export interface Segment {

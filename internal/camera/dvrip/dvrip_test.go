@@ -85,6 +85,8 @@ func (f *fakeCamera) handle(c net.Conn) {
 					cp[k] = v
 				}
 				f.reply(c, h, map[string]any{"Ret": 100, name: cp})
+			case "NetWork.Nat":
+				f.reply(c, h, map[string]any{"Ret": 100, name: map[string]any{"NatEnable": true, "Addr": "secu100.net"}})
 			case "Uart.PTZPreset":
 				f.reply(c, h, map[string]any{"Ret": 100, name: []any{[]any{map[string]any{"Id": float64(1), "Name": "Portao"}}}})
 			default:
@@ -150,6 +152,9 @@ func TestStateReadsLightDayNightPresets(t *testing.T) {
 	}
 	if !st.Approved || st.WhiteLight || st.DayNight != "auto" || len(st.Presets) != 1 || st.Presets[0].Name != "Portao" {
 		t.Fatalf("state=%+v", st)
+	}
+	if st.CloudP2P == nil || !*st.CloudP2P {
+		t.Fatalf("cloud_p2p=%v, want true", st.CloudP2P)
 	}
 }
 

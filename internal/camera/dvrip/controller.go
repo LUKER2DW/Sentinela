@@ -158,6 +158,10 @@ type State struct {
 	DayNight   string   `json:"day_night"`
 	Presets    []Preset `json:"presets"`
 	Approved   bool     `json:"approved"`
+	// CloudP2P is the vendor cloud (XMEye P2P) switch, NetWork.Nat.NatEnable;
+	// nil when it could not be read. Read-only: the UI warns while it is on
+	// (docs/CAMERA.md §4), turning it off is done in the camera's own UI.
+	CloudP2P *bool `json:"cloud_p2p,omitempty"`
 }
 
 // Preset is a native camera preset.
@@ -201,6 +205,13 @@ func (c *Controller) State(ctx context.Context) (*State, error) {
 		}
 		if p, err := conn.GetConfig(ctx, "Uart.PTZPreset"); err == nil {
 			st.Presets = parsePresets(p)
+		}
+		if p, err := conn.GetConfig(ctx, "NetWork.Nat"); err == nil {
+			if obj, ok := p.(map[string]any); ok {
+				if v, ok := obj["NatEnable"].(bool); ok {
+					st.CloudP2P = &v
+				}
+			}
 		}
 		return nil
 	})

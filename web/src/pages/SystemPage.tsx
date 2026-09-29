@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, get, type AuditEntry, type Role, type SystemInfo, type User, fetchSystem } from "../lib/api";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { api, get, type AuditEntry, type ControlState, type Role, type SystemInfo, type User, fetchSystem } from "../lib/api";
 import { useSession, useToast } from "../lib/session";
 import { fmtBytes, fmtDuration, fmtTime, relative, spanDays } from "../lib/time";
 import { useCameras } from "./LivePage";
@@ -42,6 +42,7 @@ export function SystemPage() {
       {s && (
         <div className="stack">
           <DiskWarning s={s} />
+          <CloudWarning />
           <div className="grid-3">
             <Storage s={s} />
             <Recorders s={s} />
@@ -197,6 +198,28 @@ function Backup({ b, now }: { b: SystemInfo["backup"]; now: string }) {
 // Volume id -> host mount point used by scripts/disk-health.sh.
 function volumeMount(id: string) {
   return ({ recordings: "/data", nuvem: "/srv/nas", backup: "/srv/backup" } as Record<string, string>)[id] ?? "";
+}
+
+/** Warns while a camera still talks to the vendor cloud (docs/CAMERA.md §4). */
+function CloudWarning() {
+  const cams = useCameras();
+  const states = useQueries({
+    queries: (cams.data ?? []).map((c) => ({
+      queryKey: ["control", c.id],
+      queryFn: () => get<ControlState>(`/api/cameras/${c.id}/control`),
+      staleTime: 5 * 60_000,
+      retry: 1,
+    })),
+  });
+  const on = (cams.data ?? []).filter((_, i) => states[i]?.data?.cloud_p2p === true);
+  if (!on.length) return null;
+  return (
+    <div className="notice error" role="alert">
+      <strong>Nuvem do fabricante ligada:</strong> {on.map((c) => c.name).join(", ")}{" "}
+      {on.length === 1 ? "ainda se conecta" : "ainda se conectam"} ao serviço P2P da XMEye pela internet. Desligue
+      “Nuvem”/“P2P” nas configurações de rede da câmera e bloqueie a saída dela para a internet no roteador.
+    </div>
+  );
 }
 
 function DiskWarning({ s }: { s: SystemInfo }) {
