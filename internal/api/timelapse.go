@@ -228,16 +228,6 @@ func (t *tlJobs) ready(dir, key string) string {
 	return ""
 }
 
-func (t *tlJobs) snapshot(key string) (tlJob, bool) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	j, ok := t.jobs[key]
-	if !ok {
-		return tlJob{}, false
-	}
-	return *j, true
-}
-
 func (t *tlJobs) update(key string, f func(j *tlJob)) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
