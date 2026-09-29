@@ -32,7 +32,7 @@ x-sentinela: &sentinela
 
 services:
   go2rtc:
-    image: alexxit/go2rtc:1.9.10@sha256:95ce2ab22f2c7d8eb4dae42e0856b8480daf22c7c632f4a0489d442caf2df158
+    image: alexxit/go2rtc:1.9.14@sha256:675c318b23c06fd862a61d262240c9a63436b4050d177ffc68a32710d9e05bae
     network_mode: host
     restart: unless-stopped
     read_only: true

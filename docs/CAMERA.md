@@ -173,3 +173,11 @@ Other findings:
 MSE audio: go2rtc converts PCMA → FLAC in-process for MSE (browsers cannot
 play PCMA in MP4). Video is untouched. This is a tiny audio re-encode inside
 go2rtc, not a video transcode, but it is not copy-only; see PLAN Phase 1.
+
+**Live latency (server, 2026-09-28):** camera → go2rtc → Chrome WebRTC is
+~0.8 s end to end; Chrome's jitter buffer holds ~0.4 s. The camera's OSD
+clock is **not** a latency reference: the camera ran 4.5 s behind the
+NTP-synced server (camera NTP not set) and the owner's PC 15.7 s ahead, which
+looked like "20 s of delay" next to a PC-time clock. The UI clock now follows
+the server's. Opening the view waits ≤ 2 s for a keyframe; go2rtc `preload`
+keeps `cam1` connected so the RTSP handshake is not added on top.

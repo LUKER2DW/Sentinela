@@ -12,6 +12,13 @@ webrtc:
 log:
   level: info
 
+# Keep the main stream connected so the live view opens without waiting for
+# the camera's RTSP handshake (only the ≤2 s keyframe wait is left). Costs one
+# of the camera's 3 RTSP sessions all the time: recorder + this + the SD
+# stream while someone watches it. Nothing else may pull RTSP (docs/CAMERA.md).
+preload:
+  cam1: "video&audio"
+
 streams:
   # Main: H.265 2560x1440 + PCMA. The dvrip source only connects when a
   # viewer talks (backchannel=1): two-way audio through the camera speaker.
