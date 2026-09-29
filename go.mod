@@ -2,6 +2,8 @@ module github.com/LUKER2DW/sentinela
 
 go 1.26.0
 
+toolchain go1.26.6
+
 require (
 	golang.org/x/crypto v0.57.0
 	gopkg.in/yaml.v3 v3.0.1
