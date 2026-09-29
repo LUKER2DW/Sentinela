@@ -73,26 +73,18 @@ function useHold(cameraId: string, speed: number, onError: (m: string) => void) 
     },
     "data-active": pressed === `${op}:${dir}` ? "true" : "false",
   });
-  return { bind, start, stop };
+  return { bind, start, stop, pressed };
 }
 
-// 3×3 pad, row by row; the middle is the lighthouse.
-const PAD: ({ dir: string; label: string } | null)[] = [
-  { dir: "up_left", label: "Cima e esquerda" },
-  { dir: "up", label: "Cima" },
-  { dir: "up_right", label: "Cima e direita" },
-  { dir: "left", label: "Esquerda" },
-  null,
-  { dir: "right", label: "Direita" },
-  { dir: "down_left", label: "Baixo e esquerda" },
-  { dir: "down", label: "Baixo" },
-  { dir: "down_right", label: "Baixo e direita" },
-];
-
-const SPEEDS = [
-  { v: 2, label: "Lento" },
-  { v: 4, label: "Normal" },
-  { v: 7, label: "Rápido" },
+const DIRS: { dir: string; label: string; angle: number }[] = [
+  { dir: "up", label: "Cima", angle: -90 },
+  { dir: "up_right", label: "Cima e direita", angle: -45 },
+  { dir: "right", label: "Direita", angle: 0 },
+  { dir: "down_right", label: "Baixo e direita", angle: 45 },
+  { dir: "down", label: "Baixo", angle: 90 },
+  { dir: "down_left", label: "Baixo e esquerda", angle: 135 },
+  { dir: "left", label: "Esquerda", angle: 180 },
+  { dir: "up_left", label: "Cima e esquerda", angle: -135 },
 ];
 
 // Keyboard: arrows (two at once = diagonals), + / − zoom, [ ] focus.
@@ -115,11 +107,16 @@ export function keyDir(held: Iterable<string>): string | null {
   return v && h ? `${v}_${h}` : v || h || null;
 }
 
+function speedLabel(v: number) {
+  return v <= 2 ? `Lento (${v})` : v >= 7 ? `Rápido (${v})` : `Normal (${v})`;
+}
+
 export function PtzPanel({ cameraId, canControl }: { cameraId: string; canControl: boolean }) {
   const toast = useToast();
   const [speed, setSpeed] = useState(4);
   const onError = useCallback((m: string) => toast(`PTZ: ${m}`, true), [toast]);
-  const { bind, start, stop } = useHold(cameraId, speed, onError);
+  const { bind, start, stop, pressed } = useHold(cameraId, speed, onError);
+  const moving = pressed?.startsWith("move:") ? DIRS.find((d) => `move:${d.dir}` === pressed) : undefined;
 
   useEffect(() => {
     if (!canControl) return;
@@ -172,49 +169,51 @@ export function PtzPanel({ cameraId, canControl }: { cameraId: string; canContro
           </span>
         )}
       </div>
-      <div className="ptz-body">
-        <div className="pad" role="group" aria-label="Direções">
-          {PAD.map((p, i) =>
-            p ? (
-              <button key={p.dir} className="pad-btn" aria-label={p.label} title={p.label} disabled={!canControl} {...bind("move", p.dir)}>
-                <Icon name={p.dir} />
-              </button>
-            ) : (
-              <div key={i} className="pad-hub" aria-hidden="true">
-                <LighthouseMark />
-              </div>
-            ),
-          )}
+      <div className={`dial${moving ? " moving" : ""}`} role="group" aria-label="Direções" style={moving ? ({ "--dir": `${moving.angle}deg` } as React.CSSProperties) : undefined}>
+        {DIRS.map(({ dir, label, angle }) => {
+          const rad = (angle * Math.PI) / 180;
+          return (
+            <button
+              key={dir}
+              style={{ left: `${50 + 36 * Math.cos(rad)}%`, top: `${50 + 36 * Math.sin(rad)}%` }}
+              aria-label={label}
+              title={label}
+              disabled={!canControl}
+              {...bind("move", dir)}
+            >
+              <Icon name={dir} />
+            </button>
+          );
+        })}
+        <div className="hub" aria-hidden="true">
+          <LighthouseMark />
         </div>
-        <div className="ptz-side">
-          <div className="field">
-            <span className="label-sm">Velocidade</span>
-            <div className="segmented small fill" role="group" aria-label="Velocidade">
-              {SPEEDS.map((x) => (
-                <button key={x.v} aria-pressed={speed === x.v} disabled={!canControl} onClick={() => setSpeed(x.v)}>
-                  {x.label}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="ptz-row">
-            <span className="label">Zoom</span>
-            <button className="btn icon small" aria-label="Afastar" title="Afastar (−)" disabled={!canControl} {...bind("zoom", "out")}>
-              <Icon name="minus" />
-            </button>
-            <button className="btn icon small" aria-label="Aproximar" title="Aproximar (+)" disabled={!canControl} {...bind("zoom", "in")}>
-              <Icon name="plus" />
-            </button>
-          </div>
-          <div className="ptz-row">
-            <span className="label">Foco</span>
-            <button className="btn icon small" aria-label="Foco perto" title="Foco perto ([)" disabled={!canControl} {...bind("focus", "near")}>
-              <Icon name="minus" />
-            </button>
-            <button className="btn icon small" aria-label="Foco longe" title="Foco longe (])" disabled={!canControl} {...bind("focus", "far")}>
-              <Icon name="plus" />
-            </button>
-          </div>
+      </div>
+
+      <label className="speed">
+        <span className="muted">Velocidade</span>
+        <input type="range" min={1} max={8} value={speed} onChange={(e) => setSpeed(Number(e.target.value))} disabled={!canControl} aria-valuetext={speedLabel(speed)} />
+        <span className="speed-val">{speedLabel(speed)}</span>
+      </label>
+
+      <div className="ptz-lens">
+        <div className="ptz-row">
+          <span className="label">Zoom</span>
+          <button className="btn icon small" aria-label="Afastar" title="Afastar (−)" disabled={!canControl} {...bind("zoom", "out")}>
+            <Icon name="minus" />
+          </button>
+          <button className="btn icon small" aria-label="Aproximar" title="Aproximar (+)" disabled={!canControl} {...bind("zoom", "in")}>
+            <Icon name="plus" />
+          </button>
+        </div>
+        <div className="ptz-row">
+          <span className="label">Foco</span>
+          <button className="btn icon small" aria-label="Foco perto" title="Foco perto ([)" disabled={!canControl} {...bind("focus", "near")}>
+            <Icon name="minus" />
+          </button>
+          <button className="btn icon small" aria-label="Foco longe" title="Foco longe (])" disabled={!canControl} {...bind("focus", "far")}>
+            <Icon name="plus" />
+          </button>
         </div>
       </div>
       {!canControl && <p className="muted small">Seu perfil só permite assistir.</p>}

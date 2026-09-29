@@ -1286,39 +1286,31 @@ table.table { width: 100%; border-collapse: collapse; }
 /* ---------- Ao vivo v2: columns end together, pad PTZ ---------- */
 .live-cols { align-items: stretch; grid-template-columns: minmax(0, 1fr) 340px; }
 @media (max-width: 1180px) { .live-cols { grid-template-columns: 1fr; } }
-.live-left, .live-right { display: flex; flex-direction: column; gap: 20px; }
+.live-left, .live-right { display: flex; flex-direction: column; gap: 24px; }
 /* The last card of each column takes the slack, so both bottoms line up. */
 .live-left > :last-child, .live-right > :last-child { flex: 1; }
 @media (max-width: 1180px) { .live-left > :last-child, .live-right > :last-child { flex: none; } }
-.today-stats { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
-.today-stats .stat b { font-size: 1.5rem; }
+/* Row 1: video + Hoje next to the controls (bottoms aligned); row 2: the numbers. */
+.live-cols > .today-stats { grid-column: 1; }
 .grid-cams.n1 { grid-template-columns: minmax(0, 1fr); max-width: 1100px; }
 .grid-cams.n2, .grid-cams.n4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .grid-cams.n3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 @media (max-width: 900px) { .grid-cams.n2, .grid-cams.n3, .grid-cams.n4 { grid-template-columns: 1fr; } }
 .page-head .segmented svg { width: 16px; height: 16px; }
 
-.ptz { display: block; }
-.ptz .card-head { margin-bottom: 14px; }
+.ptz { display: grid; justify-items: center; gap: 14px; }
+.ptz .card-head { justify-self: stretch; margin-bottom: 0; }
 .ptz-keys { display: inline-flex; align-items: center; gap: 6px; cursor: help; }
 .ptz-keys svg { width: 16px; height: 16px; }
-.ptz-body { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 16px; align-items: center; }
-.pad { display: grid; grid-template-columns: repeat(3, 44px); grid-template-rows: repeat(3, 44px); gap: 4px; touch-action: none; user-select: none; }
-.pad-btn { display: grid; place-items: center; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface-2); color: var(--muted);
-  cursor: pointer; transition: background-color 0.12s, color 0.12s, border-color 0.12s; }
-.pad-btn svg { width: 20px; height: 20px; }
-.pad-btn:hover:not(:disabled) { color: var(--text); border-color: var(--line-strong); background: var(--surface); }
-.pad-btn[data-active="true"] { background: var(--sea); border-color: var(--sea); color: var(--sea-ink); }
-.pad-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-.pad-hub { display: grid; place-items: center; border-radius: var(--r-sm); background: var(--sea-soft); overflow: hidden; }
-.pad-hub svg { width: 38px; height: 38px; margin-top: 4px; }
-.ptz-side { display: grid; gap: 10px; min-width: 0; }
-.label-sm { font-size: 0.82rem; color: var(--muted); }
-.segmented.fill { display: flex; }
-.segmented.fill button { flex: 1; justify-content: center; padding: 0 6px; }
-.ptz-side .ptz-row .btn.icon.small { width: 32px; }
-@media (max-width: 400px) { .ptz-body { grid-template-columns: 1fr; justify-items: center; } .ptz-side { width: 100%; } }
-@media (pointer: coarse) { .pad { grid-template-columns: repeat(3, 52px); grid-template-rows: repeat(3, 52px); } }
+/* The dial: a soft wedge points where the camera is turning. */
+.dial { width: 200px; height: 200px; }
+.dial.moving::after { inset: 8px; background: conic-gradient(from calc(var(--dir) + 67.5deg), color-mix(in srgb, var(--sea) 30%, transparent) 0 45deg, transparent 45deg);
+  -webkit-mask: radial-gradient(circle, transparent 38%, #000 39%); mask: radial-gradient(circle, transparent 38%, #000 39%); }
+.dial button { border-radius: var(--r-sm); }
+.dial button:focus-visible { outline-offset: 0; }
+.dial .hub { box-shadow: 0 1px 3px rgb(0 0 0 / 0.08); }
+.speed-val { min-width: 8.5ch; text-align: right; font-size: 0.88rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+@media (pointer: coarse) { .dial { width: 216px; height: 216px; } .dial button { width: 52px; height: 52px; margin: -26px 0 0 -26px; } }
 
 .presets.editing .chip { background: var(--coral-soft); color: var(--coral); }
 .chip.remove svg { width: 14px; height: 14px; }

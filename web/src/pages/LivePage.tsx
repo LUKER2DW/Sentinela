@@ -164,13 +164,13 @@ function Single({ cam, now }: { cam: Camera; now: number }) {
               onPick={(ms) => navigate("recordings", { cam: cam.id, t: new Date(ms).toISOString() })}
             />
             <RibbonLegend />
-            <TodayStats timeline={timeline.data} motion={motionToday} />
           </section>
         </div>
         <aside className="stack live-right">
           {!narrow && <PtzPanel cameraId={cam.id} canControl={can("operator")} />}
           <CameraSettings cameraId={cam.id} canControl={can("operator")} isAdmin={can("admin")} />
         </aside>
+        <TodayStats timeline={timeline.data} motion={motionToday} />
       </div>
     </>
   );
@@ -194,7 +194,7 @@ function TodayStats({ timeline, motion }: { timeline?: Timeline; motion: number 
   const hours = (timeline?.segments ?? []).reduce((a, x) => a + (new Date(x.end).getTime() - new Date(x.start).getTime()), 0) / 3_600_000;
   const days = sys.data ? recordingDays(sys.data) : null;
   return (
-    <div className="stat-row today-stats" aria-label="Resumo de hoje">
+    <section className="card stat-row today-stats" aria-label="Resumo de hoje">
       <div className="stat">
         <b>{hours.toFixed(1).replace(".", ",")} h</b>
         <span>gravadas hoje</span>
@@ -207,6 +207,6 @@ function TodayStats({ timeline, motion }: { timeline?: Timeline; motion: number 
         <b>{days === null ? "–" : days}</b>
         <span>{days === 1 ? "dia cabe no disco" : "dias cabem no disco"}</span>
       </div>
-    </div>
+    </section>
   );
 }
