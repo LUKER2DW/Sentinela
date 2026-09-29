@@ -102,10 +102,10 @@ export function AddCameraCard() {
           {r.known && <p className="notice">Esta câmera já está cadastrada como {r.known}.</p>}
           <ul className="check-list">
             <li className={r.onvif ? "ok" : "fail"}>
-              ONVIF: {r.onvif ? `${r.onvif.manufacturer} ${r.onvif.model}, firmware ${r.onvif.firmware}` : r.onvif_error}
+              Identificação (ONVIF): {r.onvif ? `${r.onvif.model}, firmware ${r.onvif.firmware}` : r.onvif_error}
             </li>
             <li className={r.model ? "ok" : "fail"}>
-              Controle (DVRIP): {r.model ? `${r.model}${r.control_approved ? ", PTZ e luz liberados" : ", modelo não verificado: só vídeo"}` : r.dvrip_error}
+              Senha e controle (DVRIP): {r.model ? `${r.model}${r.control_approved ? ", PTZ e luz liberados" : ", modelo não verificado: só vídeo"}` : r.dvrip_error}
             </li>
             {r.sessions.map((s, i) => (
               <li key={i} className={s.ok ? "ok" : "fail"}>

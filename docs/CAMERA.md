@@ -124,7 +124,14 @@ Other findings:
 - ONVIF `GetStreamUri` returns the XMEye form
   `rtsp://<host>:554/user=<u>_password=<p>_channel=0_stream=<0|1>&onvif=0.sdp?real_stream`.
   The §1.1 form (`&`-separated, `channel=1`) also works and is what go2rtc uses.
-- The DVRIP `EncryptType: "MD5"` Sofia hash login works (`Ret=100`).
+- The DVRIP `EncryptType: "MD5"` Sofia hash login works (`Ret=100`); a wrong
+  password answers `Ret=203`.
+- ONVIF `GetDeviceInformation` answers **without valid credentials** (seen
+  2026-09-29 with a wrong password): it does not prove the password; the
+  wizard relies on the DVRIP login and the RTSP pulls for that.
+- WS-Discovery: the camera answers a Probe unicast to the sender's port and
+  repeats the answer to `239.255.255.250:3702` (the server's ufw drops the
+  unicast copy; Sentinela listens on the group).
 - `NetWork.NetCommon` holds a wired static config `192.168.1.10/24`, gateway
   `192.168.1.1`, which does not match the address the camera answers on
   (`192.168.1.20`). The camera is probably on Wi-Fi/DHCP; confirm, and set a

@@ -48,6 +48,10 @@ func Discover(ctx context.Context, wait time.Duration) ([]Device, error) {
 	if _, err := conn.WriteToUDP([]byte(probe), dst); err != nil {
 		return nil, fmt.Errorf("discovery: send probe: %w", err)
 	}
+	// UDP multicast is lossy and some cameras ignore a probe that follows
+	// another closely: repeat it once after a second (same MessageID).
+	resend := time.AfterFunc(time.Second, func() { _, _ = conn.WriteToUDP([]byte(probe), dst) })
+	defer resend.Stop()
 	deadline := time.Now().Add(wait)
 	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
 		deadline = d
