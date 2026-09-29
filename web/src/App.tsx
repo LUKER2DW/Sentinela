@@ -209,7 +209,7 @@ function Shell() {
           ) : route.page === "events" ? (
             <EventsPage />
           ) : route.page === "nuvem" ? (
-            <NuvemPage />
+            <NuvemPage params={route.params} />
           ) : route.page === "system" ? (
             <SystemPage />
           ) : route.page === "relogio" ? (

@@ -8,11 +8,14 @@ const timeFmt = new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-d
 const hmFmt = new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit" });
 const dayFmt = new Intl.DateTimeFormat("pt-BR", { weekday: "long", day: "numeric", month: "long" });
 const shortDayFmt = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit" });
+const dateFmt = new Intl.DateTimeFormat("pt-BR", { day: "numeric", month: "short", year: "numeric" });
 
 export const fmtTime = (d: Date | string | number) => timeFmt.format(new Date(d));
 export const fmtHM = (d: Date | string | number) => hmFmt.format(new Date(d));
 export const fmtDay = (d: Date | string | number) => dayFmt.format(new Date(d));
 export const fmtShortDay = (d: Date | string | number) => shortDayFmt.format(new Date(d));
+/** "29 de set. de 2026": file dates in the Nuvem. */
+export const fmtDate = (d: Date | string | number) => dateFmt.format(new Date(d));
 
 /** Local midnight of the day containing d. */
 export function startOfDay(d: Date | number): Date {

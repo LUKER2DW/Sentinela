@@ -157,6 +157,7 @@ let csrf = "";
 export const setCsrf = (t: string) => {
   csrf = t;
 };
+export const getCsrf = () => csrf;
 
 type Listener = () => void;
 const unauthorizedListeners = new Set<Listener>();

@@ -4,6 +4,9 @@ import { fetchSystem, type DiskHealth, type Volume } from "../lib/api";
 import { fmtBytes } from "../lib/time";
 import { Icon } from "../components/Icon";
 import { Whale } from "../components/Doodles";
+import { FileBrowser } from "../components/FileBrowser";
+import { navigate } from "../lib/router";
+import { useSession } from "../lib/session";
 
 type OS = "windows" | "mac" | "iphone" | "android" | "linux";
 
@@ -75,13 +78,17 @@ export function VolumeMeter({ v, health }: { v: Volume; health?: DiskHealth }) {
   );
 }
 
-export function NuvemPage() {
+export function NuvemPage({ params }: { params: URLSearchParams }) {
+  const { can } = useSession();
+  const folder = params.get("p") ?? "";
+  // SMB works only at home; over Tailscale show the server's LAN address.
+  const remote = window.location.hostname.endsWith(".ts.net");
   const sys = useQuery({ queryKey: ["system"], queryFn: fetchSystem, refetchInterval: 30_000 });
   const [os, setOs] = useState<OS>(guessOS);
   const nas = (sys.data?.volumes ?? []).filter((v) => v.kind === "nas");
   const total = nas.reduce((a, v) => a + v.total, 0);
   const free = nas.reduce((a, v) => a + v.free, 0);
-  const ip = window.location.hostname;
+  const ip = remote ? "192.168.1.10" : window.location.hostname;
   const name = sys.data?.nas_host || "SENTINELA";
 
   const steps: Record<OS, React.ReactNode> = {
@@ -131,7 +138,7 @@ export function NuvemPage() {
       <header className="page-head">
         <div className="title">
           <h1>Nuvem</h1>
-          <span className="sub">Seus arquivos na rede de casa, na velocidade do cabo.</span>
+          <span className="sub">Seus arquivos em casa e no celular, sem nuvem de terceiros.</span>
         </div>
         <span className="pill">
           <span className={`dot ${nas.every((v) => v.mounted) && nas.length ? "ok" : "warn"}`} />
@@ -139,7 +146,9 @@ export function NuvemPage() {
         </span>
       </header>
 
-      <div className="grid-2">
+      <FileBrowser path={folder} canWrite={can("operator")} onNavigate={(p) => navigate("nuvem", p ? { p } : undefined)} />
+
+      <div className="grid-2" style={{ marginTop: 24 }}>
         <section className="card hero-card">
           <div className="hero-text">
             <h2>Espaço</h2>
@@ -162,7 +171,8 @@ export function NuvemPage() {
 
         <section className="card">
           <div className="card-head">
-            <h2>Conectar</h2>
+            <h2>Pastas de rede</h2>
+            <span className="pill">Só em casa</span>
           </div>
           <div className="segmented wrap" role="tablist" aria-label="Sistema do aparelho">
             {(Object.keys(OS_LABEL) as OS[]).map((k) => (
@@ -195,7 +205,8 @@ export function NuvemPage() {
           <ul className="tips">
             <li>Use cabo no computador: a Wi-Fi costuma ser o gargalo, não o servidor.</li>
             <li>A Nuvem não é backup. Guarde uma segunda cópia do que for importante.</li>
-            <li>Fora de casa o acesso será pelo Tailscale, sem abrir portas no roteador.</li>
+            <li>Fora de casa, use esta página pelo Tailscale: as pastas de rede (SMB) funcionam só na rede de casa.</li>
+            <li>Apagar aqui ou pela rede manda para a Lixeira, que guarda tudo por 30 dias.</li>
           </ul>
         </section>
       </div>
