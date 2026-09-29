@@ -36,16 +36,23 @@ func (s *Server) appKey(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
-	key, err := mintTailscaleKey(ctx, s.tsHTTP, s.tsAPI, rc.OAuthClientID, rc.OAuthClientSecret, rc.AppTag,
-		"Sentinela app ("+u.Username+")")
+	host := appHostname(u.Username)
+	// Key descriptions accept letters, digits, spaces and dashes only:
+	// "Sentinela app (admin)" came back 400 "description had invalid characters".
+	key, err := mintTailscaleKey(ctx, s.tsHTTP, s.tsAPI, rc.OAuthClientID, rc.OAuthClientSecret, rc.AppTag, host)
 	s.audit(r, "remote.app_key", u.Username, err == nil, "")
 	if err != nil {
 		s.Log.Warn("tailscale app key", "err", err)
 		writeErr(w, http.StatusBadGateway, "Tailscale refused the key request")
 		return
 	}
-	host := "sentinela-app-" + strings.Trim(appHostPattern.ReplaceAllString(strings.ToLower(u.Username), "-"), "-")
 	writeJSON(w, http.StatusOK, map[string]string{"key": key, "hostname": host})
+}
+
+// appHostname is the app's tailnet hostname for a user (also the key's
+// description): lowercase letters, digits and dashes only.
+func appHostname(username string) string {
+	return "sentinela-app-" + strings.Trim(appHostPattern.ReplaceAllString(strings.ToLower(username), "-"), "-")
 }
 
 // mintTailscaleKey exchanges the OAuth client for a token, then creates the

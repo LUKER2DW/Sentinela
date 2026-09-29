@@ -150,7 +150,9 @@ func TestAppKey(t *testing.T) {
 		t.Fatalf("app key = %d %s", code, body)
 	}
 	if gotAuth != "Bearer at-123" || !strings.Contains(gotBody, `"tags":["tag:sentinela-app"]`) ||
-		!strings.Contains(gotBody, `"reusable":false`) || !strings.Contains(gotBody, `"preauthorized":true`) {
+		!strings.Contains(gotBody, `"reusable":false`) || !strings.Contains(gotBody, `"preauthorized":true`) ||
+		// Tailscale rejects descriptions with anything but letters, digits, spaces and dashes.
+		!strings.Contains(gotBody, `"description":"sentinela-app-mae-silva"`) {
 		t.Fatalf("key request: auth=%q body=%s", gotAuth, gotBody)
 	}
 	// Never from outside.
