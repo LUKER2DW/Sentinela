@@ -220,107 +220,24 @@ function buildScene(): Paths {
       [352, 382],
     ], 1),
 
-    // sea
-    sea1: s.curve(wave(386, 3.2, -20, 420, 22)),
-    sea2: s.curve(wave(400, 2.8, -40, 440, 26), 1),
-    sea3: s.curve(wave(413, 2.4, -20, 420, 30), 1),
-    glitterR: [260, 292, 322, 352, 372].map((x, i) => s.line([x, 392 + (i % 2) * 7], [x + 10 + (i % 3) * 3, 392 + (i % 2) * 7], 1)).join(""),
-    glitterL: [30, 56, 82, 110, 130].map((x, i) => s.line([x, 393 + (i % 2) * 7], [x + 10 + (i % 3) * 3, 393 + (i % 2) * 7], 1)).join(""),
-    boat:
-      s.poly([
-        [48, 376],
-        [90, 376],
-        [83, 385],
-        [55, 385],
-      ]) +
-      s.line([69, 376], [69, 346]) +
-      s.poly(
-        [
-          [70.5, 348],
-          [86, 373],
-          [70.5, 373],
-        ],
-        false,
-      ) +
-      s.poly(
-        [
-          [67.5, 353],
-          [56, 373],
-          [67.5, 373],
-        ],
-        false,
-        1,
-      ),
-    beamEdges: s.line(L, [410, 76], 1) + s.line(L, [410, 160], 1),
-    gulls: [
-      [82, 92, 1],
-      [104, 78, 0.7],
-      [306, 58, 0.85],
-    ]
-      .map(([x, y, k]) =>
-        s.curve(
-          [
-            [x - 13 * k, y + 3 * k],
-            [x - 6 * k, y - 4 * k],
-            [x, y + 2 * k],
-            [x + 6 * k, y - 4.5 * k],
-            [x + 13 * k, y + 2.5 * k],
-          ],
-          1,
-        ),
-      )
-      .join("|"),
-    stars: [
-      [48, 40],
-      [132, 26],
-      [284, 30],
-      [352, 96],
-      [30, 150],
-      [364, 196],
-    ]
-      .map(([x, y]) => s.line([x - 3.5, y], [x + 3.5, y], 1) + s.line([x, y - 3.5], [x, y + 3.5], 1))
-      .join("|"),
   };
 }
 
 let scene: Paths | null = null;
 
-/** The detailed lighthouse scene (sign-in page). Decorative. */
-export function LighthouseScene({ className = "" }: { className?: string }) {
+/** Lamp centre of the lighthouse figure, in figure units (for beam and halo). */
+export const LAMP = L;
+
+/**
+ * The lighthouse on its rock with the keeper's house, in its own 400×420
+ * units. The sign-in panorama places, scales and lights it (beam and halo are
+ * drawn by the caller, behind and over the lantern respectively).
+ */
+export function LighthouseFigure({ halo }: { halo: React.ReactNode }) {
   scene ??= buildScene();
   const p = scene;
-  const id = useId().replace(/:/g, "");
   return (
-    <svg className={`lh-scene ${className}`} viewBox="0 0 400 420" aria-hidden="true">
-      <defs>
-        <linearGradient id={`beam-${id}`} gradientUnits="userSpaceOnUse" x1={L[0]} y1="0" x2="410" y2="0">
-          <stop offset="0" stopColor="var(--lamp)" stopOpacity="0.75" />
-          <stop offset="0.55" stopColor="var(--lamp)" stopOpacity="0.22" />
-          <stop offset="1" stopColor="var(--lamp)" stopOpacity="0" />
-        </linearGradient>
-        <radialGradient id={`halo-${id}`}>
-          <stop offset="0" stopColor="var(--lamp)" stopOpacity="0.9" />
-          <stop offset="0.4" stopColor="var(--lamp)" stopOpacity="0.35" />
-          <stop offset="1" stopColor="var(--lamp)" stopOpacity="0" />
-        </radialGradient>
-      </defs>
-
-      <g className="lh-stars">
-        {p.stars.split("|").map((d, i) => (
-          <path key={i} d={d} style={{ animationDelay: `${-i * 1.3}s` }} />
-        ))}
-      </g>
-      <g className="lh-gulls">
-        {p.gulls.split("|").map((d, i) => (
-          <path key={i} d={d} className={`g${i}`} />
-        ))}
-      </g>
-
-      <g className="lh-beam">
-        <path d={`M${L[0]} ${L[1] - 3}L410 76V160L${L[0]} ${L[1] + 3}Z`} fill={`url(#beam-${id})`} />
-        <path d={p.beamEdges} className="lh-beam-edge" />
-      </g>
-
+    <g className="lh-figure">
       <path d={p.smoke} className="lh-smoke" />
       <path d={p.houseFill} className="f-paper" />
       <path d={p.house} className="ink" />
@@ -339,7 +256,7 @@ export function LighthouseScene({ className = "" }: { className?: string }) {
       <path d={p.platformFill} className="f-paper" />
       <path d={p.corbels} className="ink thin" />
       <path d={p.glassFill} className="f-glass" />
-      <circle cx={L[0]} cy={L[1]} r="30" fill={`url(#halo-${id})`} className="lh-halo" />
+      {halo}
       <circle cx={L[0]} cy={L[1]} r="6.5" className="f-lamp" />
       <path d={p.lantern} className="ink thin" />
       <path d={p.platform} className="ink" />
@@ -353,17 +270,8 @@ export function LighthouseScene({ className = "" }: { className?: string }) {
       <path d={p.rockHatch} className="hatch-rock" />
       <path d={p.rocks} className="ink" />
       <path d={p.pebbles} className="ink thin" />
-
-      <g className="lh-boat">
-        <path d={p.boat} className="ink thin" />
-      </g>
-      <path d={p.glitterR} className="lh-glitter r" />
-      <path d={p.glitterL} className="lh-glitter l" />
       <path d={p.foam} className="ink thin lh-foam" />
-      <path d={p.sea1} className="ink lh-sea s1" />
-      <path d={p.sea2} className="ink thin lh-sea s2" />
-      <path d={p.sea3} className="ink thin lh-sea s3" />
-    </svg>
+    </g>
   );
 }
 
@@ -434,12 +342,26 @@ function buildMark(): Paths {
 let mark: Paths | null = null;
 
 /** Brand mark: the same lighthouse, small, with its turning beam. */
-export function LighthouseMark({ className = "", still = false }: { className?: string; still?: boolean }) {
+export function LighthouseMark({
+  className = "",
+  still = false,
+  at,
+}: {
+  className?: string;
+  still?: boolean;
+  /** Position inside a parent SVG (x, y, size), when nested in a scene. */
+  at?: [number, number, number];
+}) {
   mark ??= buildMark();
   const p = mark;
   const id = useId().replace(/:/g, "");
   return (
-    <svg className={`lh-mark${still ? " still" : ""} ${className}`} viewBox="0 0 48 48" aria-hidden="true">
+    <svg
+      className={`lh-mark${still ? " still" : ""} ${className}`}
+      viewBox="0 0 48 48"
+      aria-hidden="true"
+      {...(at ? { x: at[0], y: at[1], width: at[2], height: at[2], overflow: "visible" } : {})}
+    >
       <defs>
         <linearGradient id={`mb-${id}`} gradientUnits="userSpaceOnUse" x1={M[0]} y1="0" x2="50" y2="0">
           <stop offset="0" stopColor="var(--lamp)" stopOpacity="0.85" />

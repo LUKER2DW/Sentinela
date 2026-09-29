@@ -175,7 +175,8 @@ p { margin: 0; }
 .who-role { color: var(--faint); font-size: 0.8rem; }
 
 /* Ocean at the foot of the sidebar */
-.side-ocean { display: block; width: 100%; height: 92px; }
+.side-ocean { display: block; width: 100%; height: 116px; }
+.ocean .o-lighthouse .ink { stroke-width: 1.1; }
 .ocean .o-back { fill: var(--wave-3); }
 .ocean .o-mid { fill: var(--wave-2); }
 .ocean .o-front { fill: var(--wave-1); }
@@ -193,7 +194,14 @@ p { margin: 0; }
 .shell.collapsed .who { flex-direction: column; padding: 6px; margin: 0 10px 12px; }
 
 .main { position: relative; min-width: 0; padding: 32px var(--gutter) 48px; }
-.topbar { position: absolute; z-index: 5; top: 24px; right: var(--gutter); display: flex; gap: 8px; }
+.topbar { position: absolute; z-index: 5; top: 24px; right: var(--gutter); display: flex; gap: 8px; align-items: center; }
+.update-toast {
+  position: fixed; z-index: 40; left: 50%; bottom: 24px; transform: translateX(-50%); display: inline-flex; align-items: center; gap: 10px;
+  height: 44px; padding: 0 20px; border: 0; border-radius: 999px; background: var(--sea); color: var(--sea-ink); font-weight: 600;
+  box-shadow: var(--shadow-lift); cursor: pointer;
+}
+.update-toast svg { width: 18px; height: 18px; }
+@media (max-width: 760px) { .update-toast { bottom: calc(var(--tabbar) + 16px); } }
 .page { max-width: 1320px; margin: 0 auto; }
 
 @media (max-width: 1100px) {
@@ -374,6 +382,25 @@ input[type="range"]:disabled { opacity: 0.45; cursor: not-allowed; }
 }
 .player-tag .faint { color: rgb(241 239 234 / 0.6); }
 .player-tag.motion { left: auto; right: 16px; background: var(--coral); color: #fff; }
+.player-tag.motion + .delay-meter { top: 64px; }
+/* Delay meter: sits under the camera's own clock (top right of the frame),
+   sized with the video so both readings line up. */
+.player { container-type: inline-size; }
+.delay-meter {
+  position: absolute; top: 5.4cqw; right: 1.6cqw; display: grid; justify-items: end; gap: 4px; max-width: min(360px, 60%);
+  padding: 8px 32px 10px 12px; border-radius: var(--r-md); background: rgb(8 12 14 / 0.62); color: #f1efea;
+  backdrop-filter: blur(8px); text-align: right;
+}
+.dm-clock { font-size: clamp(15px, 2.4cqw, 30px); font-weight: 700; letter-spacing: 0.02em; line-height: 1.1; color: var(--lamp); }
+.dm-label { font-size: 0.78rem; color: rgb(241 239 234 / 0.8); }
+.dm-note { font-size: 0.74rem; color: rgb(241 239 234 / 0.6); }
+.dm-note a { color: #b0dbd8; }
+.dm-close { position: absolute; top: 4px; right: 4px; width: 24px; height: 24px; border: 0; border-radius: 6px; background: transparent; color: rgb(241 239 234 / 0.7); cursor: pointer; font-size: 1.1rem; line-height: 1; }
+.dm-close:hover { background: rgb(255 255 255 / 0.12); color: #fff; }
+@media (max-width: 760px) { .dm-note { display: none; } }
+.clock-page { min-height: 70vh; display: grid; place-content: center; justify-items: center; gap: 24px; text-align: center; }
+.clock-big { font-family: var(--serif); font-variation-settings: "SOFT" 100, "opsz" 72; font-size: clamp(3rem, 14vw, 9rem); line-height: 1; color: var(--sea-strong); }
+.clock-page p { max-width: 46ch; }
 
 /* PTZ dial */
 .ptz { display: grid; justify-items: center; gap: 16px; }
@@ -525,24 +552,46 @@ table.table { width: 100%; border-collapse: collapse; }
 @media (max-width: 760px) { .inline-form { grid-template-columns: 1fr; } }
 
 /* ---------- auth ---------- */
-.auth { min-height: 100%; display: grid; grid-template-columns: 1.1fr 1fr; background: var(--bg); }
-.auth-art { position: relative; display: grid; place-items: center; background: var(--bg-soft); border-right: 1px solid var(--line); overflow: hidden; }
-.auth-art .lh-scene { width: min(560px, 88%); max-height: 88vh; }
-.auth-panel { display: grid; place-items: center; padding: 32px 24px; position: relative; }
-.auth-card { width: min(380px, 100%); display: grid; gap: 24px; }
-.auth-head { display: grid; gap: 12px; }
-.auth-brand { display: flex; align-items: center; gap: 12px; margin-left: -8px; }
-.auth-brand .lh-mark { width: 60px; height: 60px; flex: none; }
-.auth-card h1 { font-size: 2.6rem; }
-.auth-card form { display: grid; gap: 16px; }
-.theme-btn.auth-top { position: absolute; top: 24px; right: 24px; }
+.auth { min-height: 100%; display: grid; grid-template-columns: 1.15fr 1fr; background: var(--bg); }
+.auth-art { position: relative; background: var(--bg-soft); border-right: 1px solid var(--line); overflow: hidden; }
+.auth-art .pano { position: absolute; inset: 0; width: 100%; height: 100%; }
+.auth-panel { position: relative; display: grid; place-items: center; align-content: center; gap: 24px; padding: 48px 24px; overflow: hidden; }
+.auth-card { position: relative; z-index: 1; width: min(400px, 100%); display: grid; gap: 28px; }
+.auth-head { display: grid; gap: 14px; }
+.auth-brand { display: flex; align-items: center; gap: 14px; margin-left: -8px; }
+.auth-brand .lh-mark { width: 64px; height: 64px; flex: none; }
+.auth-card h1 { font-size: 2.8rem; }
+.auth-lede { font-family: var(--serif); font-variation-settings: "SOFT" 100, "opsz" 24; font-size: 1.12rem; line-height: 1.5; color: var(--muted); max-width: 34ch; }
+.auth-form { position: relative; display: grid; gap: 16px; padding: 24px; border-radius: 18px; background: var(--surface); border: 1px solid var(--line); }
+.auth-compass { position: absolute; right: 32px; bottom: 32px; width: 170px; color: var(--doodle); opacity: 0.35; }
+.auth-anchor { position: absolute; left: 36px; top: 40px; width: 64px; color: var(--doodle); opacity: 0.35; transform: rotate(-14deg); }
+.theme-btn.auth-top { position: absolute; z-index: 2; top: 24px; right: 24px; }
 @media (max-width: 860px) {
-  .auth { grid-template-columns: 1fr; grid-template-rows: 220px 1fr; }
+  .auth { grid-template-columns: 1fr; grid-template-rows: 260px 1fr; }
   .auth-art { border-right: 0; border-bottom: 1px solid var(--line); }
-  .auth-art .lh-scene { width: auto; height: 210px; }
   .auth-brand .lh-mark { display: none; }
+  .auth-anchor { display: none; }
+  .auth-compass { width: 120px; right: 16px; bottom: 16px; }
+  .auth-form { padding: 20px; }
   .theme-btn.auth-top { top: 16px; right: 16px; }
 }
+
+/* decor (components/Decor.tsx) */
+.decor { display: block; overflow: visible; }
+.decor path { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.decor .decor-hatch { stroke-width: 1; opacity: 0.7; }
+.decor-letters text { fill: currentColor; stroke: none; font-family: var(--serif); font-size: 10px; font-weight: 600; text-anchor: middle; }
+.main > .page { position: relative; z-index: 1; }
+.bg-doodles { position: absolute; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; color: var(--doodle); }
+.bg-doodles .bd { position: absolute; opacity: 0.22; }
+.bd-gulls { width: 72px; top: 18px; left: 44%; }
+.bd-star { width: 46px; bottom: 36px; right: 22px; transform: rotate(18deg); }
+.bd-shell { width: 40px; bottom: 28px; left: 18px; transform: rotate(-12deg); }
+.bd-bottle { width: 44px; top: 46%; right: 6px; transform: rotate(24deg); }
+.bd-wave { width: 90px; top: 58%; left: 4px; }
+.bd-anchor { width: 38px; top: 132px; right: 8px; transform: rotate(10deg); }
+.bd-compass { width: 120px; bottom: -40px; left: 46%; opacity: 0.14 !important; }
+@media (max-width: 760px) { .bg-doodles { display: none; } }
 
 .dialog-backdrop { position: fixed; inset: 0; z-index: 50; background: rgb(22 26 28 / 0.45); display: grid; place-items: center; padding: 16px; backdrop-filter: blur(3px); }
 .dialog { width: min(440px, 100%); background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 24px; display: grid; gap: 16px; box-shadow: var(--shadow); }
@@ -554,9 +603,26 @@ table.table { width: 100%; border-collapse: collapse; }
 .cam-title h2 { margin-right: auto; }
 
 /* ---------- lighthouse (components/Lighthouse.tsx) ---------- */
-.lh-scene, .lh-mark { display: block; overflow: visible; }
-.lh-scene .ink, .lh-mark .ink { fill: none; stroke: var(--ink); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
-.lh-scene .ink.thin { stroke-width: 1.1; }
+.pano, .lh-mark { display: block; overflow: visible; }
+.pano .ink, .lh-mark .ink { fill: none; stroke: var(--ink); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.pano .ink.thin { stroke-width: 1.1; }
+.pano .faint-ink { opacity: 0.5; }
+.f-bg { fill: var(--bg-soft); }
+.pano-water { fill: var(--sea-soft); opacity: 0.55; }
+.pano-cloud { fill: var(--surface); fill-opacity: 0.55; stroke: var(--ink); stroke-width: 1.1; stroke-linecap: round; opacity: 0.55; }
+:root[data-theme="dark"] .pano-cloud { fill-opacity: 0.05; opacity: 0.4; }
+.pano-bird { fill: none; stroke: var(--muted); stroke-width: 1.3; stroke-linecap: round; }
+.pano-sun .ink { stroke: var(--amber); }
+.pano-moon .ink { stroke: var(--lamp); }
+.pano-moon { display: none; }
+:root[data-theme="dark"] .pano-moon { display: inline; }
+:root[data-theme="dark"] .pano-sun { display: none; }
+.pano-rays { transform-box: fill-box; transform-origin: center; }
+.pano-buoy-lamp { fill: var(--coral); }
+.pano-fish { fill: var(--coral); fill-opacity: 0.35; opacity: 0; }
+.pano-whale { opacity: 0.7; }
+.pano-back { opacity: 0.55; }
+.pano-back.b0 { opacity: 0.3; }
 .lh-mark .ink { stroke-width: 1.05; }
 .lh-mark .ink.thin { stroke-width: 0.75; }
 .f-paper { fill: var(--surface); }
@@ -577,8 +643,8 @@ table.table { width: 100%; border-collapse: collapse; }
 .lh-stars { display: none; }
 :root[data-theme="dark"] .lh-stars { display: inline; }
 :root[data-theme="dark"] .lh-gulls { display: none; }
-.lh-scene .lh-beam { transform-box: view-box; transform-origin: 200px 118px; opacity: 0.8; }
-.lh-scene .lh-halo { transform-box: view-box; transform-origin: 200px 118px; }
+.pano .lh-beam { transform-box: view-box; transform-origin: 336px 437.6px; opacity: 0.85; }
+.pano .lh-halo { transform-box: fill-box; transform-origin: center; }
 .lh-mark .lh-beam { transform-box: view-box; transform-origin: 24px 14px; opacity: 0.7; }
 .lh-mark .lh-lamp { transform-box: view-box; transform-origin: 24px 14px; }
 .lh-mark.still .lh-beam { opacity: 0.55; }
@@ -587,8 +653,44 @@ table.table { width: 100%; border-collapse: collapse; }
 @media (prefers-reduced-motion: no-preference) {
   /* The beam turns: full right, edge-on (bright, facing us), full left, edge-on behind (dim). */
   .lh-mark:not(.still) .lh-beam { animation: lh-sweep 7s linear infinite; }
-  .lh-scene .lh-beam { animation: lh-sweep 9s linear infinite; }
-  .lh-scene .lh-halo { animation: lh-flash 9s linear infinite; }
+  .pano .lh-beam { animation: lh-sweep 10s linear infinite; }
+  .pano .lh-halo { animation: lh-flash 10s linear infinite; }
+  .pano .lh-glitter.r { animation-duration: 10s; }
+  .pano .lh-glitter.l { animation-duration: 10s; }
+  .pano-rays { animation: spin 80s linear infinite; }
+  .pano-cloud { animation: pano-cloud 46s ease-in-out infinite alternate; }
+  .pano-cloud.c1 { animation-duration: 60s; animation-delay: -20s; }
+  .pano-cloud.c2 { animation-duration: 38s; animation-delay: -9s; }
+  @keyframes pano-cloud { from { transform: translateX(-24px); } to { transform: translateX(28px); } }
+  .pano-flock { animation: pano-flock 75s linear infinite; }
+  @keyframes pano-flock { from { transform: translate(-120px, 20px); } to { transform: translate(940px, -30px); } }
+  .pano-bird { transform-box: fill-box; transform-origin: center; animation: pano-flap 0.9s ease-in-out infinite alternate; }
+  @keyframes pano-flap { to { transform: scaleY(0.45); } }
+  .pano-steamer { animation: pano-steam 160s linear infinite; }
+  @keyframes pano-steam { from { transform: translateX(880px); } to { transform: translateX(-90px); } }
+  .pano-smoke { animation-duration: 5s; }
+  .pano-brig { transform-box: fill-box; transform-origin: 50% 100%; animation: pano-rock 7s ease-in-out infinite; }
+  @keyframes pano-rock { 0%, 100% { transform: rotate(-1.4deg) translateY(0); } 50% { transform: rotate(1.4deg) translateY(2px); } }
+  .pano-buoy { transform-box: fill-box; transform-origin: 50% 100%; animation: pano-rock 3.6s ease-in-out infinite; }
+  .pano-buoy-lamp { animation: pano-blink 3s steps(1) infinite; }
+  @keyframes pano-blink { 0%, 70% { opacity: 0.25; } 72%, 86% { opacity: 1; } }
+  .pano-sailboat { transform-box: fill-box; transform-origin: 50% 100%; animation: pano-rock 4.6s ease-in-out infinite; }
+  .pano-fish { transform-box: fill-box; animation: pano-jump 13s ease-in-out infinite; }
+  @keyframes pano-jump {
+    0%, 80% { opacity: 0; transform: translate(0, 16px) rotate(30deg); }
+    84% { opacity: 1; transform: translate(14px, -22px) rotate(-12deg); }
+    90% { opacity: 1; transform: translate(30px, -10px) rotate(28deg); }
+    94%, 100% { opacity: 0; transform: translate(40px, 18px) rotate(45deg); }
+  }
+  .pano-whale { animation: pano-whale 16s ease-in-out infinite; }
+  @keyframes pano-whale { 0%, 55%, 100% { opacity: 0; } 62%, 80% { opacity: 0.7; } }
+  .pano-back.b1 { animation: dd-sway 9s ease-in-out infinite; }
+  .pano-back.b2 { animation: dd-sway 7s ease-in-out infinite reverse; }
+  .pano-back.b3 { animation: dd-sway 8s ease-in-out infinite; }
+  .pano-front.f0 { animation: dd-sway 6s ease-in-out infinite reverse; }
+  .pano-front.f1 { animation: dd-sway 7s ease-in-out infinite; }
+  .pano-front.f2 { animation: dd-sway 5.5s ease-in-out infinite reverse; }
+  .pano-front.f3 { animation: dd-sway 6.5s ease-in-out infinite; }
   @keyframes lh-flash {
     0%, 100% { transform: scale(0.8); opacity: 0.7; }
     25% { transform: scale(1.6); opacity: 1; }
@@ -599,14 +701,10 @@ table.table { width: 100%; border-collapse: collapse; }
   .lh-glitter.l { animation: lh-glint-l 9s linear infinite; }
   @keyframes lh-glint-r { 0%, 100% { opacity: 0.9; } 12%, 88% { opacity: 0; } }
   @keyframes lh-glint-l { 0%, 38%, 62%, 100% { opacity: 0; } 50% { opacity: 0.9; } }
-  .lh-scene .lh-sea.s1 { animation: dd-sway 6s ease-in-out infinite; }
-  .lh-scene .lh-sea.s2 { animation: dd-sway 8s ease-in-out infinite reverse; }
-  .lh-scene .lh-sea.s3 { animation: dd-sway 10s ease-in-out infinite; }
   .lh-foam { animation: lh-foam 4s ease-in-out infinite; }
   @keyframes lh-foam { 50% { opacity: 0.25; } }
   .lh-smoke { animation: lh-smoke 7s ease-in-out infinite; }
   @keyframes lh-smoke { 0% { opacity: 0; transform: translateY(6px); } 40% { opacity: 0.55; } 100% { opacity: 0; transform: translate(4px, -10px); } }
-  .lh-boat { animation: dd-bob 5s ease-in-out infinite; transform-box: fill-box; transform-origin: 50% 90%; }
   .lh-stars path { animation: lh-twinkle 5s ease-in-out infinite; }
   @keyframes lh-twinkle { 50% { opacity: 0.2; } }
   .lh-gulls path { animation: dd-glide 8s ease-in-out infinite; }

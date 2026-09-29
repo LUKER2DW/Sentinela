@@ -1,6 +1,9 @@
-// Hand-drawn line doodles (ocean theme). Stroke-only, currentColor, slightly
-// wobbly paths so they read as sketches. Motion lives in CSS (.dd-*) and is
-// disabled under prefers-reduced-motion.
+import { Sketch, type Pt } from "../lib/sketch";
+import { LighthouseMark } from "./Lighthouse";
+
+// Empty-state and error doodles, drawn with the same hand (lib/sketch) as the
+// lighthouse: doubled wobbly strokes, pencil hachure. Paths are generated once.
+// Motion lives in CSS (.dd-*) and is disabled under prefers-reduced-motion.
 
 const stroke = {
   fill: "none",
@@ -10,37 +13,135 @@ const stroke = {
   strokeLinejoin: "round" as const,
 };
 
+const thin = { ...stroke, strokeWidth: 1.2 };
+
+function waveLine(y: number, amp: number, from: number, to: number, step: number): Pt[] {
+  const pts: Pt[] = [];
+  for (let x = from, i = 0; x <= to; x += step, i++) pts.push([x, y + (i % 2 ? amp : -amp)]);
+  return pts;
+}
+
+let boat: Record<string, string> | null = null;
+function boatPaths() {
+  const k = new Sketch(21, 0.7);
+  const hull: Pt[] = [
+    [24, 50],
+    [97, 49.5],
+    [88, 61],
+    [32, 61.5],
+  ];
+  return {
+    hull: k.poly(hull),
+    hullHatch: new Sketch(4, 0.5).hachure(hull, 3.6, -35),
+    mast: k.line([60, 50.5], [60.5, 12]) + k.poly(
+      [
+        [60.5, 13],
+        [68, 15.5],
+        [60.5, 18],
+      ],
+      false,
+      1,
+    ),
+    sails:
+      k.curve([
+        [61.5, 18],
+        [74, 30],
+        [84.5, 46],
+        [61.5, 47.5],
+      ]) +
+      k.curve([
+        [59, 22],
+        [48, 34],
+        [42, 46.5],
+        [58.8, 47.8],
+      ]),
+    sea1: k.curve(waveLine(68, 2.6, 4, 116, 9), 1),
+    sea2: k.curve(waveLine(76, 2, 18, 100, 9), 1),
+  };
+}
+
 export function Boat({ className = "" }: { className?: string }) {
+  boat ??= boatPaths();
   return (
     <svg className={`dd-boat ${className}`} viewBox="0 0 120 80" aria-hidden="true">
-      <g className="dd-bob" {...stroke}>
-        <path d="M24 50 Q60 58 97 49.5 L88 61 Q60 66 32 61.5 Z" />
-        <path d="M60 50.5 L60.5 14" />
-        <path d="M61 16 Q80 30 84.5 46 Q72 47.5 61.5 47.5" />
-        <path d="M59 20 Q46 33 42 46.5 Q51 47.8 58.8 47.8" />
+      <g className="dd-bob">
+        <path d={boat.hullHatch} {...thin} opacity={0.6} />
+        <path d={boat.hull} {...stroke} strokeWidth={1.5} />
+        <path d={boat.mast} {...stroke} strokeWidth={1.5} />
+        <path d={boat.sails} {...stroke} strokeWidth={1.5} />
       </g>
-      <g {...stroke} strokeWidth={1.8}>
-        <path className="dd-sway" d="M6 68 q9 -5 18 0 t18 0 t18 0 t18 0 t18 0 t18 0" />
-        <path className="dd-sway dd-sway-slow" d="M18 76 q9 -4 18 0 t18 0 t18 0 t18 0" opacity={0.55} />
-      </g>
+      <path className="dd-sway" d={boat.sea1} {...stroke} strokeWidth={1.6} />
+      <path className="dd-sway dd-sway-slow" d={boat.sea2} {...stroke} strokeWidth={1.4} opacity={0.55} />
     </svg>
   );
 }
 
+let fish: Record<string, string> | null = null;
+function fishPaths() {
+  const k = new Sketch(33, 0.6);
+  const body: Pt[] = [
+    [28, 35],
+    [38, 25],
+    [52, 22.5],
+    [66, 27],
+    [76, 33.5],
+    [66, 40.5],
+    [52, 45],
+    [38, 43],
+    [28, 35],
+  ];
+  return {
+    body: k.curve(body),
+    scales: new Sketch(8, 0.4).hachure(
+      [
+        [54, 26],
+        [66, 28],
+        [74, 33.5],
+        [66, 39.5],
+        [54, 42],
+      ],
+      3.2,
+      60,
+    ),
+    tail: k.poly([
+      [76, 33.5],
+      [92, 22],
+      [89, 34],
+      [92.5, 46],
+    ]),
+    gill: k.curve(
+      [
+        [49, 27],
+        [52.5, 34],
+        [49.5, 41],
+      ],
+      1,
+    ),
+    fin: k.curve(
+      [
+        [56, 23.5],
+        [60, 17],
+        [66, 26.5],
+      ],
+      1,
+    ),
+    bubbles: k.ellipse(20, 26, 2.6, 2.6, 1) + k.ellipse(13, 16, 1.8, 1.8, 1) + k.ellipse(17, 8, 1.2, 1.2, 1),
+  };
+}
+
 export function Fish({ className = "" }: { className?: string }) {
+  fish ??= fishPaths();
   return (
     <svg className={`dd-fish ${className}`} viewBox="0 0 120 70" aria-hidden="true">
-      <g className="dd-swim" {...stroke}>
-        <path d="M28 35 Q48 14 76 33.5 Q48 56 28 35 Z" />
-        <path d="M76 33.5 L92 22 Q89 34 92.5 46 Z" />
-        <circle cx="40" cy="32" r="1.8" fill="currentColor" stroke="none" />
-        <path d="M52 27 Q56 34 52.5 41" opacity={0.6} />
+      <g className="dd-swim">
+        <path d={fish.scales} {...thin} opacity={0.55} />
+        <path d={fish.body} {...stroke} strokeWidth={1.5} />
+        <path d={fish.tail} {...stroke} strokeWidth={1.5} />
+        <path d={fish.gill} {...stroke} strokeWidth={1.3} opacity={0.7} />
+        <path d={fish.fin} {...stroke} strokeWidth={1.3} />
+        <circle cx="38" cy="31" r="1.8" fill="currentColor" />
       </g>
-      <g {...stroke} strokeWidth={1.6} className="dd-bubbles">
-        <circle cx="20" cy="26" r="2.6" />
-        <circle cx="13" cy="16" r="1.8" />
-        <circle cx="17" cy="8" r="1.2" />
-      </g>
+      <path d={fish.bubbles} {...stroke} strokeWidth={1.3} className="dd-bubbles" />
     </svg>
   );
 }
@@ -77,10 +178,13 @@ function wavePath(y: number, amp: number, period: number, width = 480, height = 
 export function OceanScene({ className = "" }: { className?: string }) {
   return (
     <svg className={`ocean ${className}`} viewBox="0 0 240 120" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
+      <LighthouseMark at={[92, 8, 50]} className="o-lighthouse" />
       <path className="o-wave o-back" d={wavePath(46, 5, 60)} />
-      <g className="o-boat">
-        <path d="M150 44 Q162 49 175 44 L171 50 Q162 52.5 154 50 Z" />
-        <path d="M162.4 44.6 V28.5 L172 42.4 Z M161.6 31 L154.5 42.6 H161.6 Z" />
+      <g transform="translate(34 0)">
+        <g className="o-boat">
+          <path d="M150 44 Q162 49 175 44 L171 50 Q162 52.5 154 50 Z" />
+          <path d="M162.4 44.6 V28.5 L172 42.4 Z M161.6 31 L154.5 42.6 H161.6 Z" />
+        </g>
       </g>
       <path className="o-wave o-mid" d={wavePath(62, 6, 80)} />
       <g className="o-fish">
@@ -91,19 +195,90 @@ export function OceanScene({ className = "" }: { className?: string }) {
   );
 }
 
+let whale: Record<string, string> | null = null;
+function whalePaths() {
+  const k = new Sketch(55, 0.8);
+  return {
+    body: k.curve([
+      [22, 58],
+      [30, 40],
+      [58, 32],
+      [92, 34],
+      [112, 52],
+      [124, 60],
+      [134, 54],
+      [140, 44],
+    ]) +
+      k.curve([
+        [140, 44],
+        [141, 58],
+        [134, 64],
+        [140, 71],
+        [141, 80],
+        [130, 70],
+      ]) +
+      k.curve([
+        [130, 70],
+        [100, 76],
+        [60, 78],
+        [36, 72],
+        [22, 58],
+      ]),
+    belly: new Sketch(12, 0.5).hachure(
+      [
+        [34, 66],
+        [60, 71],
+        [96, 70],
+        [118, 66],
+        [100, 75],
+        [60, 77],
+        [38, 72],
+      ],
+      3.4,
+      -30,
+    ),
+    flipper: k.curve(
+      [
+        [62, 62],
+        [70, 72],
+        [80, 70],
+      ],
+      1,
+    ),
+    spout: k.curve(
+      [
+        [60, 30],
+        [57, 21],
+        [50, 16],
+      ],
+      1,
+    ) +
+      k.curve(
+        [
+          [60, 30],
+          [62, 19],
+          [70, 14],
+        ],
+        1,
+      ) +
+      k.line([60, 30], [60, 15], 1),
+    sea: k.curve(waveLine(88, 2.6, 6, 154, 10), 1),
+  };
+}
+
 /** A small whale, for the Nuvem page. */
 export function Whale({ className = "" }: { className?: string }) {
+  whale ??= whalePaths();
   return (
     <svg className={`dd-whale ${className}`} viewBox="0 0 160 100" aria-hidden="true">
-      <g className="dd-bob" {...stroke}>
-        <path d="M22 58 Q26 34 58 32 Q96 30 112 52 Q120 62 132 54 L140 44 Q142 58 134 64 Q140 70 141 80 L130 70 Q116 76 98 76 Q56 80 36 72 Q22 67 22 58 Z" />
-        <path d="M38 64 Q58 70 84 67" opacity={0.6} />
-        <circle cx="44" cy="50" r="2" fill="currentColor" stroke="none" />
-        <path d="M60 30 Q57 20 50 16 M60 30 Q62 18 70 14 M60 30 V16" className="dd-spout" />
+      <g className="dd-bob">
+        <path d={whale.belly} {...thin} opacity={0.55} />
+        <path d={whale.body} {...stroke} strokeWidth={1.5} />
+        <path d={whale.flipper} {...stroke} strokeWidth={1.4} />
+        <circle cx="44" cy="50" r="2" fill="currentColor" />
+        <path d={whale.spout} {...stroke} strokeWidth={1.4} className="dd-spout" />
       </g>
-      <g {...stroke} strokeWidth={1.8}>
-        <path className="dd-sway" d="M8 88 q10 -5 20 0 t20 0 t20 0 t20 0 t20 0 t20 0 t20 0" />
-      </g>
+      <path className="dd-sway" d={whale.sea} {...stroke} strokeWidth={1.6} />
     </svg>
   );
 }

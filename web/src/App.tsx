@@ -10,12 +10,14 @@ import { Icon } from "./components/Icon";
 import { OceanScene } from "./components/Doodles";
 import { LighthouseMark } from "./components/Lighthouse";
 import { ThemeToggle } from "./components/ThemeToggle";
+import { BgDoodles } from "./components/Decor";
 import { AuthPage } from "./pages/AuthPage";
 import { LivePage } from "./pages/LivePage";
 import { RecordingsPage } from "./pages/RecordingsPage";
 import { EventsPage } from "./pages/EventsPage";
 import { SystemPage } from "./pages/SystemPage";
 import { NuvemPage } from "./pages/NuvemPage";
+import { ClockPage } from "./components/DelayMeter";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { refetchOnWindowFocus: true, retry: 1, staleTime: 5_000 } },
@@ -23,9 +25,13 @@ const queryClient = new QueryClient({
 
 type Boot = { kind: "loading" } | { kind: "setup" } | { kind: "login" } | { kind: "ready"; user: User } | { kind: "down"; message: string };
 
+// Version the page was loaded with; a later deploy shows an "update" notice.
+let loadedVersion = "";
+
 async function bootstrap(): Promise<Boot> {
   try {
-    const s = await get<{ needs_setup: boolean }>("/api/setup");
+    const s = await get<{ needs_setup: boolean; version?: string }>("/api/setup");
+    loadedVersion ||= s.version ?? "";
     if (s.needs_setup) return { kind: "setup" };
     const me = await get<{ user: User; csrf: string }>("/api/me").catch(() => null);
     if (!me) return { kind: "login" };
@@ -93,6 +99,17 @@ const NAV = [
 
 const roleLabel = { admin: "Administrador", operator: "Operador", viewer: "Visualizador" } as const;
 
+/** True when the server runs a newer build than this page (auto deploy). */
+function useNewVersion(): boolean {
+  const q = useQuery({
+    queryKey: ["version"],
+    queryFn: () => get<{ version?: string }>("/api/setup"),
+    refetchInterval: 120_000,
+  });
+  const v = q.data?.version;
+  return !!v && !!loadedVersion && v !== loadedVersion;
+}
+
 /** Today's motion count, for the Eventos badge. */
 function useTodayEvents(): number {
   const today = startOfDay(useNow()).toISOString();
@@ -110,12 +127,14 @@ function Shell() {
   const qc = useQueryClient();
   const collapsed = useSidebarCollapsed();
   const eventsToday = useTodayEvents();
+  const updated = useNewVersion();
   // Keeps the UI clock on server time on every page (shared cache with the pages).
   useQuery({ queryKey: ["system"], queryFn: fetchSystem, refetchInterval: 60_000 });
   const active = useActiveEvents();
   const motionNow = Object.values(active).some((t) => t.length > 0);
   useEffect(() => {
-    document.title = `${NAV.find((n) => n.page === route.page)?.label ?? "Sentinela"} – Sentinela`;
+    const label = route.page === "relogio" ? "Relógio" : NAV.find((n) => n.page === route.page)?.label;
+    document.title = label ? `${label} – Sentinela` : "Sentinela";
   }, [route.page]);
 
   const badge = (page: string) => {
@@ -175,6 +194,12 @@ function Shell() {
         </div>
       </nav>
       <main className="main">
+        <BgDoodles />
+        {updated && (
+          <button className="update-toast" onClick={() => location.reload()}>
+            <Icon name="refresh" /> Nova versão do Sentinela. Atualizar a página
+          </button>
+        )}
         <div className="topbar">
           <ThemeToggle />
         </div>
@@ -187,6 +212,8 @@ function Shell() {
             <NuvemPage />
           ) : route.page === "system" ? (
             <SystemPage />
+          ) : route.page === "relogio" ? (
+            <ClockPage />
           ) : (
             <LivePage params={route.params} />
           )}

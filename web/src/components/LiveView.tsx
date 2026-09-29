@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { LivePlayer, canTalk, type PlayerStatus } from "../lib/player";
 import { Icon } from "./Icon";
 import { Boat } from "./Doodles";
+import { DelayMeter } from "./DelayMeter";
 
 interface Props {
   cameraId: string;
@@ -24,6 +25,7 @@ export function LiveView({ cameraId, cameraName, motion, allowTalk, compact, def
   const [status, setStatus] = useState<PlayerStatus>({ state: "connecting" });
   const [touch, setTouch] = useState(false);
   const [delay, setDelay] = useState<number | null>(null);
+  const [meter, setMeter] = useState(false);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -101,6 +103,8 @@ export function LiveView({ cameraId, cameraName, motion, allowTalk, compact, def
         </div>
       )}
 
+      {meter && status.state === "playing" && <DelayMeter cameraId={cameraId} onClose={() => setMeter(false)} />}
+
       {status.state !== "playing" && (
         <div className="player-overlay">
           <div className="stack-sm" style={{ justifyItems: "center" }}>
@@ -131,6 +135,15 @@ export function LiveView({ cameraId, cameraName, motion, allowTalk, compact, def
           </button>
         )}
         <span className="spacer" />
+        <button
+          className={`btn icon${meter ? " on" : ""}`}
+          onClick={() => setMeter((m) => !m)}
+          aria-pressed={meter}
+          aria-label="Medir atraso"
+          title="Medir atraso: compara o relógio da câmera com a hora certa"
+        >
+          <Icon name="timer" />
+        </button>
         {!compact && (
           <div className="segmented" role="group" aria-label="Qualidade">
             <button aria-pressed={stream === "main"} onClick={() => setStream("main")}>HD</button>

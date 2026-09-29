@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { api, type User } from "../lib/api";
-import { LighthouseMark, LighthouseScene } from "../components/Lighthouse";
+import { LighthouseMark } from "../components/Lighthouse";
+import { Panorama } from "../components/Panorama";
+import { Anchor, Compass } from "../components/Decor";
 import { PasswordField } from "../components/PasswordField";
 import { ThemeToggle } from "../components/ThemeToggle";
 
@@ -49,22 +51,24 @@ export function AuthPage({ mode, onDone, downMessage, onRetry }: Props) {
   return (
     <div className="auth">
       <div className="auth-art" aria-hidden="true">
-        <LighthouseScene />
+        <Panorama />
       </div>
       <div className="auth-panel">
         <ThemeToggle className="auth-top" />
+        <Compass className="auth-compass" />
+        <Anchor className="auth-anchor" />
         <div className="auth-card">
           <div className="auth-head">
             <div className="auth-brand">
               <LighthouseMark />
               <h1>Sentinela</h1>
             </div>
-            <p className="muted">
+            <p className="auth-lede">
               {downMessage
                 ? "O servidor não respondeu. Confira se ele está ligado e tente de novo."
                 : setup
-                  ? "Primeiro acesso. Crie a conta de administrador para proteger as câmeras."
-                  : "Entre para ver as câmeras de casa."}
+                  ? "Primeiro acesso. Crie a conta de administrador: ela protege as câmeras, as gravações e os arquivos."
+                  : "O farol da casa: câmeras ao vivo, gravações e a sua nuvem, num só lugar."}
             </p>
           </div>
           {downMessage ? (
@@ -72,7 +76,7 @@ export function AuthPage({ mode, onDone, downMessage, onRetry }: Props) {
               Tentar de novo
             </button>
           ) : (
-            <form onSubmit={submit}>
+            <form onSubmit={submit} className="auth-form">
               <div className="field">
                 <label htmlFor="u">Usuário</label>
                 <input id="u" className="input" autoComplete="username" autoCapitalize="none" spellCheck={false} value={username} onChange={(e) => setUsername(e.target.value)} required autoFocus={!setup} />
