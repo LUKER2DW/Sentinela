@@ -125,6 +125,12 @@ func (a Access) canChange(p string) bool {
 	return a.Admin || len(parts) > 1
 }
 
+// canRestore reports whether p is inside a's own recycle bin (it may be moved out).
+func (a Access) canRestore(p string) bool {
+	parts := strings.Split(p, "/")
+	return a.Write && a.ownRoot() != "" && len(parts) > 2 && parts[0] == Trash && parts[1] == a.ownRoot()
+}
+
 // Ensure creates the user's folder and the shared folder if missing.
 func (s *Share) Ensure(a Access) error {
 	for _, d := range []string{a.ownRoot(), Shared} {
@@ -233,7 +239,8 @@ func (s *Share) Mkdir(a Access, p string) error {
 	return mapErr(s.root.Mkdir(p, 0o775))
 }
 
-// Move renames a file or folder; the target must not exist.
+// Move renames a file or folder; the target must not exist. Moving out of
+// the user's own recycle bin restores it, recreating missing folders.
 func (s *Share) Move(a Access, from, to string) error {
 	from, err := Clean(from)
 	if err != nil {
@@ -242,7 +249,8 @@ func (s *Share) Move(a Access, from, to string) error {
 	if to, err = Clean(to); err != nil {
 		return err
 	}
-	if !a.canChange(from) || !a.canChange(to) || !validName(path.Base(to)) {
+	restore := a.canRestore(from)
+	if !(a.canChange(from) || restore) || !a.canChange(to) || !validName(path.Base(to)) {
 		return ErrForbidden
 	}
 	if from == to || strings.HasPrefix(to+"/", from+"/") {
@@ -250,6 +258,11 @@ func (s *Share) Move(a Access, from, to string) error {
 	}
 	if _, err := s.root.Lstat(to); err == nil {
 		return ErrExists
+	}
+	if restore {
+		if err := s.root.MkdirAll(path.Dir(to), 0o775); err != nil {
+			return mapErr(err)
+		}
 	}
 	return mapErr(s.root.Rename(from, to))
 }

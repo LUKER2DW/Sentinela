@@ -190,6 +190,12 @@ func TestDeleteMovesToBinAndMove(t *testing.T) {
 	if _, err := s.Delete(ana, dst); !errors.Is(err, ErrForbidden) {
 		t.Fatalf("delete inside bin: %v", err)
 	}
+	if err := s.Move(ana, ".lixeira/ana/ana/Fotos/a.jpg", "ana/Recuperado/a.jpg"); err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+	if err := s.Move(guest, ".lixeira/ana/ana/Fotos/a (2).jpg", "Compartilhado/a.jpg"); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("restore from another user's bin: %v", err)
+	}
 	if err := s.Mkdir(ana, "ana/Docs"); err != nil {
 		t.Fatal(err)
 	}
