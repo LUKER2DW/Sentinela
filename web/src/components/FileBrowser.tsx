@@ -20,6 +20,7 @@ import {
   mkdir,
   move,
   parentPath,
+  purge,
   remove,
   restorePath,
   saveText,
@@ -33,7 +34,7 @@ import {
   type TypeFilter,
 } from "../lib/nas";
 import { fmtBytes, fmtDate } from "../lib/time";
-import { useToast } from "../lib/session";
+import { useSession, useToast } from "../lib/session";
 import { useCompact } from "../lib/viewport";
 import { Icon } from "./Icon";
 
@@ -192,6 +193,7 @@ export function FileBrowser({
   const qc = useQueryClient();
   const toast = useToast();
   const compact = useCompact();
+  const admin = useSession().can("admin");
   const q = useQuery({ queryKey: ["nas", path], queryFn: () => listDir(path), retry: 0 });
   const user = q.data?.user ?? "";
   const writable = canWrite && (q.data?.can_write ?? false);
@@ -318,8 +320,11 @@ export function FileBrowser({
 
   const trash = async (paths: string[]) => {
     if (!paths.length) return;
-    const what = paths.length === 1 ? `“${baseName(paths[0])}”` : `${paths.length} itens`;
-    if (!window.confirm(`Mover ${what} para a lixeira? Ela guarda tudo por 30 dias.`)) return;
+    const what = paths.length === 1 ? `“${paths[0].includes("/") ? baseName(paths[0]) : label(paths[0], user)}”` : `${paths.length} itens`;
+    // Top-level folders (admins): the user's own and Compartilhado come back empty.
+    const top = paths.some((p) => !p.includes("/"));
+    const note = top ? " Pastas principais (a sua e a Compartilhado) voltam vazias." : "";
+    if (!window.confirm(`Mover ${what} para a lixeira, com tudo o que tem dentro? Ela guarda tudo por 30 dias.${note}`)) return;
     let done = 0;
     for (const p of paths) {
       try {
@@ -334,6 +339,24 @@ export function FileBrowser({
     if (done) toast(done === 1 ? "Movido para a lixeira." : `${done} itens movidos para a lixeira.`);
     setSelected([]);
     setPreview(null);
+  };
+
+  const myBin = `${TRASH}/${user}`;
+  const purgeForGood = async (paths: string[]) => {
+    const what = paths.length === 1 ? `“${baseName(paths[0])}”` : `${paths.length} itens`;
+    if (!window.confirm(`Apagar ${what} para sempre? Não dá para desfazer.`)) return;
+    for (const p of paths) {
+      if (!(await run(() => purge(p), "", [path, TRASH, myBin]))) return;
+    }
+    toast(paths.length === 1 ? "Apagado para sempre." : `${paths.length} itens apagados para sempre.`);
+    setSelected([]);
+  };
+  const emptyBin = async () => {
+    if (!window.confirm("Esvaziar a lixeira? Tudo o que está nela é apagado para sempre. Não dá para desfazer.")) return;
+    if (await run(() => purge(myBin), "Lixeira esvaziada.", [path, TRASH, myBin])) {
+      setSelected([]);
+      if (path.startsWith(`${myBin}/`)) onNavigate(TRASH);
+    }
   };
 
   const restore = async (paths: string[]) => {
@@ -397,6 +420,8 @@ export function FileBrowser({
   };
 
   const inShare = path !== "";
+  // At the share root only admins change folders (never the bin itself).
+  const canEdit = (paths: string[]) => writable && !inTrash && (inShare || admin) && !paths.includes(TRASH);
 
   // Commands for the selection (menu, selection bar and details pane share them).
   const commands = (paths: string[]): Cmd[] => {
@@ -407,10 +432,12 @@ export function FileBrowser({
       { id: "edit", label: "Editar texto", icon: "edit", run: () => openFile(paths[0], true), when: !!single && kindOf(single) === "text" && writable && !inTrash },
       { id: "download", label: "Baixar", icon: "download", run: () => download(paths.filter((p) => !byPath.get(p)?.dir)), when: paths.some((p) => !byPath.get(p)?.dir) },
       { id: "restore", label: "Restaurar", icon: "restore", run: () => void restore(paths), when: writable && binned },
-      { id: "rename", label: "Renomear", icon: "edit", run: () => setAsk({ kind: "rename", path: paths[0] }), when: writable && !!single && !inTrash && inShare },
-      { id: "move", label: "Mover para…", icon: "move", run: () => setMoving(paths), when: writable && paths.length > 0 && !inTrash && inShare },
+      { id: "rename", label: "Renomear", icon: "edit", run: () => setAsk({ kind: "rename", path: paths[0] }), when: !!single && canEdit(paths) && (inShare || paths[0] !== user) },
+      { id: "move", label: "Mover para…", icon: "move", run: () => setMoving(paths), when: paths.length > 0 && canEdit(paths) && inShare },
       { id: "details", label: "Detalhes", icon: "info", run: () => setDetails(paths[0]), when: !!single },
-      { id: "delete", label: "Apagar", icon: "trash", run: () => void trash(paths), danger: true, when: writable && paths.length > 0 && !inTrash && inShare },
+      { id: "delete", label: "Apagar", icon: "trash", run: () => void trash(paths), danger: true, when: paths.length > 0 && canEdit(paths) },
+      { id: "purge", label: "Apagar para sempre", icon: "trash", run: () => void purgeForGood(paths), danger: true, when: writable && paths.length > 0 && paths.every((p) => p.startsWith(`${myBin}/`)) },
+      { id: "empty", label: "Esvaziar lixeira", icon: "trash", run: () => void emptyBin(), danger: true, when: writable && paths.length === 1 && paths[0] === TRASH },
     ];
   };
   const folderCommands = (at: string): Cmd[] => [
@@ -422,14 +449,15 @@ export function FileBrowser({
   /** Commands for a node of the tree (any folder, or a file inside one). */
   const treeCommands = (p: string, dir: boolean): Cmd[] => {
     const top = !p.includes("/");
-    const editable = writable && !p.startsWith(TRASH) && !top;
+    const editable = writable && !p.startsWith(TRASH) && (!top || admin);
     if (dir)
       return [
         { id: "open", label: "Abrir", icon: "folder", run: () => onNavigate(p), when: true },
         ...folderCommands(p),
-        { id: "rename", label: "Renomear", icon: "edit", run: () => setAsk({ kind: "rename", path: p }), when: editable },
-        { id: "move", label: "Mover para…", icon: "move", run: () => setMoving([p]), when: editable },
+        { id: "rename", label: "Renomear", icon: "edit", run: () => setAsk({ kind: "rename", path: p }), when: editable && !(top && p === user) },
+        { id: "move", label: "Mover para…", icon: "move", run: () => setMoving([p]), when: editable && !top },
         { id: "delete", label: "Apagar", icon: "trash", run: () => void trash([p]), danger: true, when: editable },
+        { id: "empty", label: "Esvaziar lixeira", icon: "trash", run: () => void emptyBin(), danger: true, when: writable && (p === TRASH || p === myBin) },
       ];
     const k = kindOf({ name: p, dir: false });
     return [
@@ -475,7 +503,7 @@ export function FileBrowser({
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") {
         e.preventDefault();
         setSelected(entries.map((x) => joinPath(path, x.name)));
-      } else if (e.key === "Delete" && selected.length && writable && !inTrash && inShare) {
+      } else if (e.key === "Delete" && selected.length && canEdit(selected)) {
         void trash(selected);
       } else if (e.key === "F2" && selected.length === 1 && writable && !inTrash && inShare) {
         e.preventDefault();
@@ -658,6 +686,11 @@ export function FileBrowser({
               </button>
             )}
             <span className="grow" />
+            {inTrash && writable && (
+              <button className="btn small ghost danger" onClick={() => void emptyBin()}>
+                <Icon name="trash" /> Esvaziar lixeira
+              </button>
+            )}
             <span className="muted small num">{filtered ? `${entries.length} de ${all.length}` : `${all.length} ${all.length === 1 ? "item" : "itens"}`}</span>
           </div>
 
@@ -732,7 +765,7 @@ export function FileBrowser({
                         onContextMenu={(ev) => rowMenu(ev, p)}
                         {...target}
                       >
-                        {!compact && inShare && (
+                        {!compact && (inShare || admin) && (
                           <span
                             className="file-check"
                             role="checkbox"
@@ -750,7 +783,7 @@ export function FileBrowser({
                         <span className="file-name">{e.dir && !inShare ? label(e.name, user) : e.name}</span>
                         <span className="file-date muted small">{fmtDate(e.modified)}</span>
                         <span className="file-size muted small">{e.dir ? kindLabel.folder : `${kindLabel[kindOf(e)]} · ${fmtBytes(e.size)}`}</span>
-                        {inShare && (
+                        {(inShare || admin) && (
                           <button
                             className="btn ghost icon small file-more"
                             aria-label={`Ações para ${e.name}`}

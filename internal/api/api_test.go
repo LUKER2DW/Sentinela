@@ -349,6 +349,9 @@ func TestNuvemFileAPI(t *testing.T) {
 	if code, _, _ := viewer.do("GET", "/api/nas/file?path=dono/a.txt", ""); code != 403 {
 		t.Fatalf("viewer reads admin file = %d", code)
 	}
+	if code, _, _ := viewer.do("DELETE", "/api/nas/trash?path=.lixeira/dono", ""); code != 403 {
+		t.Fatalf("viewer purges someone's bin = %d", code)
+	}
 	if code, _, _ := viewer.do("PUT", "/api/nas/text?path=Compartilhado/x.txt", "x"); code != 403 {
 		t.Fatalf("viewer edit = %d", code)
 	}
@@ -364,6 +367,23 @@ func TestNuvemFileAPI(t *testing.T) {
 	}
 	if _, _, body := admin.do("GET", "/api/audit", ""); !strings.Contains(body, "nas.upload") || !strings.Contains(body, "nas.delete") {
 		t.Fatalf("audit = %s", body)
+	}
+	// Deleted for good: one item, then the whole bin (the folder stays).
+	if code, _, body := admin.do("DELETE", "/api/nas/trash?path=.lixeira/dono/dono/a.txt", ""); code != 200 {
+		t.Fatalf("purge item = %d %s", code, body)
+	}
+	if _, err := os.Stat(filepath.Join(share, ".lixeira", "dono", "dono", "a.txt")); !os.IsNotExist(err) {
+		t.Fatalf("purged item still there: %v", err)
+	}
+	if code, _, _ := admin.do("DELETE", "/api/nas/trash?path=.lixeira/dono", ""); code != 200 {
+		t.Fatalf("empty bin = %d", code)
+	}
+	if entries, err := os.ReadDir(filepath.Join(share, ".lixeira", "dono")); err != nil || len(entries) != 0 {
+		t.Fatalf("bin after emptying: %v %v", entries, err)
+	}
+	// Only inside one's own bin.
+	if code, _, _ := admin.do("DELETE", "/api/nas/trash?path=dono", ""); code != 403 {
+		t.Fatalf("purge outside the bin = %d", code)
 	}
 }
 

@@ -296,6 +296,30 @@ func (s *Share) Delete(a Access, p string) (string, error) {
 	return dst, nil
 }
 
+// Purge removes p for good from the user's own recycle bin: one item
+// inside .lixeira/<user>/, or the whole bin (emptied, the folder stays).
+func (s *Share) Purge(a Access, p string) error {
+	p, err := Clean(p)
+	if err != nil {
+		return err
+	}
+	own := a.ownRoot()
+	bin := path.Join(Trash, own)
+	if !a.Write || own == "" || (p != bin && !strings.HasPrefix(p, bin+"/")) {
+		return ErrForbidden
+	}
+	if _, err := s.root.Lstat(p); err != nil {
+		return mapErr(err)
+	}
+	if err := s.root.RemoveAll(p); err != nil {
+		return mapErr(err)
+	}
+	if p == bin {
+		return mapErr(s.root.MkdirAll(bin, 0o775))
+	}
+	return nil
+}
+
 // freeName returns p, or "name (2).ext", "name (3).ext"… if p exists.
 func (s *Share) freeName(p string) string {
 	ext := path.Ext(p)

@@ -219,6 +219,23 @@ func (s *Server) nasText(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
+// nasPurge deletes for good from the caller's recycle bin: DELETE
+// ?path=.lixeira/<user>/<item>, or ?path=.lixeira/<user> to empty it.
+func (s *Server) nasPurge(w http.ResponseWriter, r *http.Request) {
+	if !s.nasReady(w) {
+		return
+	}
+	p := r.URL.Query().Get("path")
+	err := s.nas.Purge(s.nasAccess(r), p)
+	clean, _ := nas.Clean(p)
+	s.audit(r, "nas.purge", clean, err == nil, "")
+	if err != nil {
+		s.nasErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
 func (s *Server) nasMkdir(w http.ResponseWriter, r *http.Request) {
 	if !s.nasReady(w) {
 		return

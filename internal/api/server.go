@@ -212,6 +212,7 @@ func (s *Server) handler(zone string) http.Handler {
 	mux.Handle("PUT /api/nas/text", operator(s.nasText))
 	mux.Handle("POST /api/nas/move", operator(s.nasMove))
 	mux.Handle("DELETE /api/nas/file", operator(s.nasDelete))
+	mux.Handle("DELETE /api/nas/trash", operator(s.nasPurge))
 
 	mux.Handle("/api/", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		writeErr(w, http.StatusNotFound, "not found")

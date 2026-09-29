@@ -93,6 +93,9 @@ export function matchesFilters(e: NasEntry, type: TypeFilter, date: DateFilter, 
   return true;
 }
 
+/** Deletes for good from one's own bin (an item, or the whole bin). */
+export const purge = (p: string) => api("DELETE", `/api/nas/trash?path=${encodeURIComponent(p)}`);
+
 export const remove = (p: string) => api<{ trash: string }>("DELETE", `/api/nas/file?path=${encodeURIComponent(p)}`);
 
 const IMAGE = /\.(jpe?g|png|gif|webp)$/i;
