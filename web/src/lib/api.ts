@@ -9,6 +9,8 @@ export interface User {
   username: string;
   role: Role;
   created_at: string;
+  /** Cameras a non-admin may see; empty = all. */
+  cameras: string[];
 }
 
 export interface Camera {

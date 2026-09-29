@@ -502,3 +502,61 @@ func TestDeviceSessionsRevoke(t *testing.T) {
 		t.Fatalf("own session lost: %d", code)
 	}
 }
+
+func TestPerCameraPermissions(t *testing.T) {
+	ts, srv := newTestServerWith(t, "")
+	srv.Cfg.Cameras = append(srv.Cfg.Cameras, srv.Cfg.Cameras[0])
+	srv.Cfg.Cameras[1].ID, srv.Cfg.Cameras[1].Name = "cam2", "Fundo"
+	ctx := context.Background()
+	at := time.Now().UTC().Add(-time.Hour)
+	if _, err := srv.Store.OpenEvent(ctx, "cam1", "motion", at, ""); err != nil {
+		t.Fatal(err)
+	}
+	ev2, err := srv.Store.OpenEvent(ctx, "cam2", "motion", at, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	admin := newClient(t, ts.URL)
+	admin.do("POST", "/api/setup", `{"username":"admin","password":"long enough pw"}`)
+	if code, _, _ := admin.do("POST", "/api/users", `{"username":"kid","password":"viewer password","role":"viewer","cameras":["nope"]}`); code != 400 {
+		t.Fatalf("unknown camera accepted: %d", code)
+	}
+	code, m, body := admin.do("POST", "/api/users", `{"username":"kid","password":"viewer password","role":"viewer","cameras":["cam2"]}`)
+	if code != 201 {
+		t.Fatalf("create = %d %s", code, body)
+	}
+	id := int64(m["id"].(float64))
+
+	kid := newClient(t, ts.URL)
+	kid.do("POST", "/api/login", `{"username":"kid","password":"viewer password"}`)
+	tests := []struct {
+		path string
+		want int
+	}{
+		{"/api/cameras/cam1/timeline?from=2026-01-01T00:00:00Z&to=2026-01-02T00:00:00Z", 404},
+		{"/api/cameras/cam2/timeline?from=2026-01-01T00:00:00Z&to=2026-01-02T00:00:00Z", 200},
+		{"/api/events?camera=cam1", 404},
+		{"/api/review?camera=cam1", 404},
+		{fmt.Sprintf("/api/events/%d/snapshot", ev2), 404}, // visible, but no picture
+	}
+	for _, tt := range tests {
+		if code, _, body := kid.do("GET", tt.path, ""); code != tt.want {
+			t.Errorf("GET %s = %d, want %d (%s)", tt.path, code, tt.want, body)
+		}
+	}
+	if _, _, body := kid.do("GET", "/api/cameras", ""); strings.Contains(body, "cam1") || !strings.Contains(body, "cam2") {
+		t.Errorf("camera list = %s", body)
+	}
+	if _, _, body := kid.do("GET", "/api/events", ""); strings.Contains(body, `"cam1"`) || !strings.Contains(body, `"cam2"`) {
+		t.Errorf("events = %s", body)
+	}
+
+	// Clearing the list gives back every camera.
+	if code, _, body := admin.do("PATCH", fmt.Sprintf("/api/users/%d", id), `{"cameras":[]}`); code != 200 {
+		t.Fatalf("patch = %d %s", code, body)
+	}
+	if _, _, body := kid.do("GET", "/api/cameras", ""); !strings.Contains(body, "cam1") {
+		t.Errorf("after clearing, camera list = %s", body)
+	}
+}

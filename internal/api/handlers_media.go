@@ -108,7 +108,7 @@ func (s *Server) segmentFile(w http.ResponseWriter, r *http.Request) (*store.Seg
 		return nil, ""
 	}
 	seg, err := s.Store.SegmentByID(r.Context(), id)
-	if err != nil {
+	if err != nil || !s.canSee(r, seg.CameraID) {
 		writeErr(w, http.StatusNotFound, "segment not found")
 		return nil, ""
 	}

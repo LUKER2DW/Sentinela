@@ -210,10 +210,29 @@ func (s *Server) healthz(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) camera(w http.ResponseWriter, r *http.Request) *config.Camera {
 	cam := s.Cfg.Camera(r.PathValue("id"))
-	if cam == nil {
+	if cam == nil || !s.canSee(r, cam.ID) {
 		writeErr(w, http.StatusNotFound, "camera not found")
+		return nil
 	}
 	return cam
+}
+
+// canSee reports whether the signed-in user may see a camera. Hidden
+// cameras answer 404, as if they did not exist.
+func (s *Server) canSee(r *http.Request, cameraID string) bool {
+	u := userFrom(r)
+	return u != nil && u.CanSee(cameraID)
+}
+
+// visibleEvents drops events of cameras the user may not see.
+func (s *Server) visibleEvents(r *http.Request, ev []store.Event) []store.Event {
+	out := ev[:0]
+	for _, e := range ev {
+		if s.canSee(r, e.CameraID) {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 func (s *Server) audit(r *http.Request, action, target string, ok bool, detail string) {

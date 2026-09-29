@@ -17,7 +17,25 @@ type User struct {
 	Username  string `json:"username"`
 	Role      string `json:"role"`
 	CreatedAt string `json:"created_at"`
-	PWHash    string `json:"-"`
+	// Cameras limits a non-admin user to these camera ids; empty = all.
+	Cameras []string `json:"cameras"`
+	PWHash  string   `json:"-"`
+}
+
+// CanSee reports whether the user may see a camera (live, recordings,
+// events, control). Admins see every camera.
+func (u *User) CanSee(cameraID string) bool {
+	return u.Role == "admin" || len(u.Cameras) == 0 || slices.Contains(u.Cameras, cameraID)
+}
+
+// joinCameras and splitCameras store the list as "a,b" (” = all).
+func joinCameras(ids []string) string { return strings.Join(ids, ",") }
+
+func splitCameras(s string) []string {
+	if s == "" {
+		return []string{}
+	}
+	return strings.Split(s, ",")
 }
 
 // CountUsers returns the number of users.
@@ -51,28 +69,30 @@ func (s *Store) CreateFirstUser(ctx context.Context, username, pwHash string) (i
 
 func scanUser(row interface{ Scan(...any) error }) (*User, error) {
 	var u User
-	if err := row.Scan(&u.ID, &u.Username, &u.PWHash, &u.Role, &u.CreatedAt); err != nil {
+	var cams string
+	if err := row.Scan(&u.ID, &u.Username, &u.PWHash, &u.Role, &u.CreatedAt, &cams); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
 		return nil, err
 	}
+	u.Cameras = splitCameras(cams)
 	return &u, nil
 }
 
 // UserByName looks a user up by username (case-insensitive).
 func (s *Store) UserByName(ctx context.Context, username string) (*User, error) {
-	return scanUser(s.db.QueryRowContext(ctx, `SELECT id,username,pw_hash,role,created_at FROM users WHERE username=?`, username))
+	return scanUser(s.db.QueryRowContext(ctx, `SELECT id,username,pw_hash,role,created_at,cameras FROM users WHERE username=?`, username))
 }
 
 // UserByID looks a user up by id.
 func (s *Store) UserByID(ctx context.Context, id int64) (*User, error) {
-	return scanUser(s.db.QueryRowContext(ctx, `SELECT id,username,pw_hash,role,created_at FROM users WHERE id=?`, id))
+	return scanUser(s.db.QueryRowContext(ctx, `SELECT id,username,pw_hash,role,created_at,cameras FROM users WHERE id=?`, id))
 }
 
 // ListUsers returns all users.
 func (s *Store) ListUsers(ctx context.Context) ([]User, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id,username,pw_hash,role,created_at FROM users ORDER BY username`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id,username,pw_hash,role,created_at,cameras FROM users ORDER BY username`)
 	if err != nil {
 		return nil, err
 	}
@@ -91,6 +111,11 @@ func (s *Store) ListUsers(ctx context.Context) ([]User, error) {
 // UpdateUserRole changes a user's role.
 func (s *Store) UpdateUserRole(ctx context.Context, id int64, role string) error {
 	return s.execOne(ctx, `UPDATE users SET role=? WHERE id=?`, role, id)
+}
+
+// UpdateUserCameras sets the cameras a user may see (empty = all).
+func (s *Store) UpdateUserCameras(ctx context.Context, id int64, cameras []string) error {
+	return s.execOne(ctx, `UPDATE users SET cameras=? WHERE id=?`, joinCameras(cameras), id)
 }
 
 // UpdateUserPassword changes a user's password hash and drops their sessions.
@@ -147,9 +172,10 @@ func (s *Store) SessionByHash(ctx context.Context, idHash []byte) (*Session, *Us
 	var sess Session
 	var exp string
 	var u User
-	err := s.db.QueryRowContext(ctx, `SELECT s.id_hash,s.user_id,s.csrf,s.expires_at,u.id,u.username,u.pw_hash,u.role,u.created_at
+	var cams string
+	err := s.db.QueryRowContext(ctx, `SELECT s.id_hash,s.user_id,s.csrf,s.expires_at,u.id,u.username,u.pw_hash,u.role,u.created_at,u.cameras
 		FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.id_hash=? AND s.expires_at>?`, idHash, Now()).
-		Scan(&sess.IDHash, &sess.UserID, &sess.CSRF, &exp, &u.ID, &u.Username, &u.PWHash, &u.Role, &u.CreatedAt)
+		Scan(&sess.IDHash, &sess.UserID, &sess.CSRF, &exp, &u.ID, &u.Username, &u.PWHash, &u.Role, &u.CreatedAt, &cams)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil, ErrNotFound
 	}
@@ -157,6 +183,7 @@ func (s *Store) SessionByHash(ctx context.Context, idHash []byte) (*Session, *Us
 		return nil, nil, err
 	}
 	sess.ExpiresAt = mustTime(exp)
+	u.Cameras = splitCameras(cams)
 	return &sess, &u, nil
 }
 

@@ -25,6 +25,9 @@ type cameraDTO struct {
 func (s *Server) listCameras(w http.ResponseWriter, r *http.Request) {
 	out := make([]cameraDTO, 0, len(s.Cfg.Cameras))
 	for _, c := range s.Cfg.Cameras {
+		if !s.canSee(r, c.ID) {
+			continue
+		}
 		out = append(out, cameraDTO{ID: c.ID, Name: c.Name, Recording: c.Recording(), RecordAudio: c.AudioRecording(), Retention: c.RetentionDays})
 	}
 	writeJSON(w, http.StatusOK, out)

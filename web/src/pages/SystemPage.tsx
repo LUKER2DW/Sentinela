@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, get, type AuditEntry, type ControlState, type Role, type SystemInfo, type User, fetchSystem } from "../lib/api";
+import { api, get, type AuditEntry, type Camera, type ControlState, type Role, type SystemInfo, type User, fetchSystem } from "../lib/api";
 import { useSession, useToast } from "../lib/session";
 import { fmtBytes, fmtDuration, fmtTime, relative, spanDays } from "../lib/time";
 import { useCameras } from "./LivePage";
@@ -367,6 +367,9 @@ function Users() {
     onSuccess: refresh,
     onError: (e: Error) => toast(e.message, true),
   });
+  const cams = useCameras();
+  const multiCam = (cams.data?.length ?? 0) > 1;
+  const [camsFor, setCamsFor] = useState<User | null>(null);
   const [resetFor, setResetFor] = useState<User | null>(null);
   const [resetPw, setResetPw] = useState("");
   const remove = useMutation({
@@ -384,6 +387,7 @@ function Users() {
             <tr>
               <th>Usuário</th>
               <th>Perfil</th>
+              {multiCam && <th>Câmeras</th>}
               <th />
             </tr>
           </thead>
@@ -400,6 +404,17 @@ function Users() {
                     ))}
                   </select>
                 </td>
+                {multiCam && (
+                  <td>
+                    {u.role === "admin" ? (
+                      <span className="muted">Todas</span>
+                    ) : (
+                      <button className="btn small ghost" onClick={() => setCamsFor(u)}>
+                        {u.cameras.length === 0 ? "Todas" : u.cameras.map((id) => cams.data?.find((c) => c.id === id)?.name ?? id).join(", ")}
+                      </button>
+                    )}
+                  </td>
+                )}
                 <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
                   <button
                     className="btn small ghost"
@@ -444,6 +459,24 @@ function Users() {
       <p className="faint" style={{ fontSize: "0.85rem", marginTop: 8 }}>
         Visualizador assiste. Operador também move a câmera, liga a luz e fala. Administrador também gerencia usuários.
       </p>
+      {camsFor && cams.data && (
+        <CameraAccessDialog
+          user={camsFor}
+          cameras={cams.data}
+          onClose={() => setCamsFor(null)}
+          onSave={(ids) =>
+            update.mutate(
+              { id: camsFor.id, body: { cameras: ids } },
+              {
+                onSuccess: () => {
+                  toast(`Câmeras de ${camsFor.username} atualizadas`);
+                  setCamsFor(null);
+                },
+              },
+            )
+          }
+        />
+      )}
       {resetFor && (
         <div className="dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="reset-title" onClick={(e) => e.target === e.currentTarget && setResetFor(null)}>
           <form
@@ -525,5 +558,36 @@ function Audit() {
         </table>
       </div>
     </section>
+  );
+}
+
+// Which cameras a non-admin user sees. Nothing ticked = every camera.
+function CameraAccessDialog({ user, cameras, onClose, onSave }: { user: User; cameras: Camera[]; onClose: () => void; onSave: (ids: string[]) => void }) {
+  const [picked, setPicked] = useState<string[]>(user.cameras);
+  const toggle = (id: string) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
+  return (
+    <div className="dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="cams-title" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <form
+        className="dialog"
+        onSubmit={(e) => {
+          e.preventDefault();
+          onSave(picked.length === cameras.length ? [] : picked);
+        }}
+      >
+        <h2 id="cams-title">Câmeras de {user.username}</h2>
+        <p className="muted">Ao vivo, gravações, eventos e avisos só das câmeras marcadas. Nenhuma marcada = todas.</p>
+        {cameras.map((c) => (
+          <label key={c.id} className="check-row">
+            <input type="checkbox" checked={picked.includes(c.id)} onChange={() => toggle(c.id)} /> {c.name}
+          </label>
+        ))}
+        <div className="dialog-actions">
+          <button type="button" className="btn ghost" onClick={onClose}>
+            Cancelar
+          </button>
+          <button className="btn primary">Salvar</button>
+        </div>
+      </form>
+    </div>
   );
 }

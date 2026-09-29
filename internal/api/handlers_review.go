@@ -20,7 +20,7 @@ func (s *Server) reviewItems(w http.ResponseWriter, r *http.Request) ([]review.I
 		to = v
 	}
 	cam := q.Get("camera")
-	if cam != "" && s.Cfg.Camera(cam) == nil {
+	if cam != "" && (s.Cfg.Camera(cam) == nil || !s.canSee(r, cam)) {
 		writeErr(w, http.StatusNotFound, "camera not found")
 		return nil, false
 	}
@@ -30,7 +30,7 @@ func (s *Server) reviewItems(w http.ResponseWriter, r *http.Request) ([]review.I
 		writeErr(w, http.StatusInternalServerError, "database error")
 		return nil, false
 	}
-	items := review.Group(ev, review.Gap, s.hasSnapshot)
+	items := review.Group(s.visibleEvents(r, ev), review.Gap, s.hasSnapshot)
 	kept := items[:0]
 	for _, it := range items {
 		if !it.Start.Before(from) {

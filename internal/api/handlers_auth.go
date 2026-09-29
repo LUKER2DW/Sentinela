@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -189,7 +190,8 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
-		Role     string `json:"role"`
+		Role     string   `json:"role"`
+		Cameras  []string `json:"cameras"`
 	}
 	if err := readJSON(r, &body); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -197,6 +199,10 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
 	}
 	if !usernamePattern.MatchString(body.Username) || !auth.ValidRole(body.Role) {
 		writeErr(w, http.StatusBadRequest, "invalid username or role")
+		return
+	}
+	if err := s.validCameras(body.Cameras); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	hash, err := auth.HashPassword(body.Password)
@@ -209,7 +215,13 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, "username already exists")
 		return
 	}
-	s.audit(r, "user.create", body.Username, true, body.Role)
+	if len(body.Cameras) > 0 {
+		if err := s.Store.UpdateUserCameras(r.Context(), id, body.Cameras); err != nil {
+			writeErr(w, http.StatusInternalServerError, "database error")
+			return
+		}
+	}
+	s.audit(r, "user.create", body.Username, true, body.Role+" cameras="+strings.Join(body.Cameras, ","))
 	u, _ := s.Store.UserByID(r.Context(), id)
 	writeJSON(w, http.StatusCreated, u)
 }
@@ -249,8 +261,9 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Role     *string `json:"role"`
-		Password *string `json:"password"`
+		Role     *string   `json:"role"`
+		Password *string   `json:"password"`
+		Cameras  *[]string `json:"cameras"`
 	}
 	if err := readJSON(r, &body); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -273,6 +286,17 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request) {
 		}
 		s.audit(r, "user.role", u.Username, true, *body.Role)
 	}
+	if body.Cameras != nil {
+		if err := s.validCameras(*body.Cameras); err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if err := s.Store.UpdateUserCameras(r.Context(), u.ID, *body.Cameras); err != nil {
+			writeErr(w, http.StatusInternalServerError, "database error")
+			return
+		}
+		s.audit(r, "user.cameras", u.Username, true, strings.Join(*body.Cameras, ","))
+	}
 	if body.Password != nil {
 		hash, err := auth.HashPassword(*body.Password)
 		if err != nil {
@@ -287,6 +311,18 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request) {
 	}
 	u, _ = s.Store.UserByID(r.Context(), u.ID)
 	writeJSON(w, http.StatusOK, u)
+}
+
+// validCameras accepts an empty list (all cameras) or known, unique ids.
+func (s *Server) validCameras(ids []string) error {
+	seen := map[string]bool{}
+	for _, id := range ids {
+		if s.Cfg.Camera(id) == nil || seen[id] {
+			return fmt.Errorf("unknown or repeated camera %q", id)
+		}
+		seen[id] = true
+	}
+	return nil
 }
 
 func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request) {

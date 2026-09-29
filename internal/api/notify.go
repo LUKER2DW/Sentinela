@@ -133,7 +133,7 @@ func (s *Server) notify(ctx context.Context, cameraID, typ string, eventID int64
 	if s.hasSnapshot(store.Event{ID: eventID, CameraID: cameraID}) {
 		msg["image"] = fmt.Sprintf("/api/events/%d/snapshot", eventID)
 	}
-	s.sendAll(ctx, 0, msg)
+	s.sendAll(ctx, 0, cameraID, msg)
 }
 
 func eventTitle(typ string) string {
@@ -153,15 +153,30 @@ func eventTitle(typ string) string {
 }
 
 // sendAll pushes msg to every subscription (of userID, or everyone when 0).
-func (s *Server) sendAll(ctx context.Context, userID int64, msg map[string]any) int {
+// With a cameraID, users who may not see that camera are skipped.
+func (s *Server) sendAll(ctx context.Context, userID int64, cameraID string, msg map[string]any) int {
 	subs, err := s.Store.PushSubs(ctx, userID)
 	if err != nil {
 		s.Log.Warn("push: list subscriptions", "err", err)
 		return 0
 	}
+	allowed := map[int64]bool{}
+	if cameraID != "" {
+		users, err := s.Store.ListUsers(ctx)
+		if err != nil {
+			s.Log.Warn("push: list users", "err", err)
+			return 0
+		}
+		for _, u := range users {
+			allowed[u.ID] = u.CanSee(cameraID)
+		}
+	}
 	payload, _ := json.Marshal(msg)
 	sent := 0
 	for _, p := range subs {
+		if cameraID != "" && !allowed[p.UserID] {
+			continue
+		}
 		err := s.push.sender.Send(ctx, push.Subscription{Endpoint: p.Endpoint, P256dh: p.P256dh, Auth: p.Auth}, payload, 10*time.Minute)
 		switch {
 		case err == nil:
@@ -242,7 +257,7 @@ func (s *Server) pushTest(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusServiceUnavailable, "notifications not available")
 		return
 	}
-	n := s.sendAll(r.Context(), userFrom(r).ID, map[string]any{
+	n := s.sendAll(r.Context(), userFrom(r).ID, "", map[string]any{
 		"title": "Sentinela", "body": "Notificações funcionando neste aparelho.", "tag": "sentinela-test", "url": "/#/events",
 	})
 	writeJSON(w, http.StatusOK, map[string]int{"sent": n})

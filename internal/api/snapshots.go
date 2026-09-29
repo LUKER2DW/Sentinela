@@ -115,7 +115,7 @@ func (s *Server) eventSnapshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	e, err := s.Store.EventByID(r.Context(), id)
-	if err != nil {
+	if err != nil || !s.canSee(r, e.CameraID) {
 		writeErr(w, http.StatusNotFound, "event not found")
 		return
 	}

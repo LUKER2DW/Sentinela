@@ -30,7 +30,7 @@ func (s *Server) listEvents(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	cam := q.Get("camera")
-	if cam != "" && s.Cfg.Camera(cam) == nil {
+	if cam != "" && (s.Cfg.Camera(cam) == nil || !s.canSee(r, cam)) {
 		writeErr(w, http.StatusNotFound, "camera not found")
 		return
 	}
@@ -39,6 +39,7 @@ func (s *Server) listEvents(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "database error")
 		return
 	}
+	ev = s.visibleEvents(r, ev)
 	for i := range ev {
 		ev[i].Snapshot = s.hasSnapshot(ev[i])
 	}
@@ -113,6 +114,9 @@ func (s *Server) eventStream(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprint(w, ": ping\n\n")
 			fl.Flush()
 		case e := <-c:
+			if !s.canSee(r, e.CameraID) {
+				continue
+			}
 			b, _ := json.Marshal(e)
 			fmt.Fprintf(w, "event: camera\ndata: %s\n\n", b)
 			fl.Flush()
