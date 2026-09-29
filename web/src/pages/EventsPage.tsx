@@ -7,6 +7,7 @@ import { eventLabel, fmtDay, fmtDuration, fmtHM, startOfDay, useNow } from "../l
 import { useCameras } from "./LivePage";
 import { Fish } from "../components/Doodles";
 import { Icon } from "../components/Icon";
+import { ModeSwitch } from "../components/Notifications";
 
 type Severity = "" | "alert" | "detection";
 
@@ -96,6 +97,7 @@ export function EventsPage() {
           <Icon name="eye" /> Não vistos
         </button>
         <span className="grow" />
+        <ModeSwitch compact />
         {unseen > 0 && (
           <button className="btn small" disabled={seen.isPending} onClick={() => seen.mutate({ all: true })}>
             <Icon name="check" /> Marcar tudo como visto

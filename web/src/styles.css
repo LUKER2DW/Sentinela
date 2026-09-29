@@ -882,3 +882,14 @@ table.table { width: 100%; border-collapse: collapse; }
   .review-new { top: 6px; left: 6px; font-size: 0.72rem; }
 }
 .review-tags .tag { padding: 2px 10px; border-radius: 999px; background: var(--surface-2); font-size: 0.85rem; }
+
+/* ---------- notifications ---------- */
+.row-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 4px; }
+.card-sub { font-size: 1rem; margin: 20px 0 10px; }
+.mode-switch { display: grid; gap: 8px; justify-items: start; }
+.mode-switch.compact { display: flex; align-items: center; }
+.mode-switch .segmented button { min-width: 64px; }
+.small-pill { font-size: 0.8rem; height: 26px; }
+.night-row { display: grid; gap: 6px; margin-top: 12px; }
+.night-range { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.night-range .input { width: 7.5em; height: 36px; }
