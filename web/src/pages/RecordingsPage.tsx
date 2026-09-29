@@ -5,11 +5,13 @@ import { navigate } from "../lib/router";
 import { useSession, useToast } from "../lib/session";
 import { DAY_MS, addDays, eventLabel, fmtDay, fmtHM, fmtTime, sameDay, startOfDay, useNow } from "../lib/time";
 import { DayRibbon, RibbonLegend } from "../components/DayRibbon";
+import { TimeRuler } from "../components/TimeRuler";
 import { Icon } from "../components/Icon";
 import { Boat, Fish } from "../components/Doodles";
 import { useCameras } from "./LivePage";
 import { findSegment } from "../lib/segments";
 import { TimelapseCard } from "../components/Timelapse";
+import { usePinchZoom } from "../lib/pinch";
 
 const SPEEDS = [1, 2, 4, 8];
 
@@ -43,6 +45,12 @@ export function RecordingsPage({ params }: { params: URLSearchParams }) {
   };
 
   const cam = cams.data?.find((c) => c.id === camId);
+  // Playback position (for the ruler to follow) and the ruler's window.
+  // Stamped with the pick it belongs to, so a new pick starts from requested.
+  const pick = `${camId}-${requested}`;
+  const [play, setPlay] = useState<{ pick: string; ms: number } | null>(null);
+  const playPos = play?.pick === pick ? play.ms : null;
+  const [view, setView] = useState<[number, number] | null>(null);
 
   return (
     <>
@@ -89,14 +97,23 @@ export function RecordingsPage({ params }: { params: URLSearchParams }) {
           cursor={requested}
           now={now}
           onPick={(ms) => go(ms)}
+          view={view}
           label="Linha do tempo do dia. Clique para assistir a partir desse horário."
+        />
+        <TimeRuler
+          dayStart={dayStart}
+          data={timeline.data}
+          cursor={playPos ?? requested}
+          now={now}
+          onPick={(ms) => go(ms)}
+          onView={(a, b) => setView((v) => (v && Math.abs(v[0] - a) < 1000 && Math.abs(v[1] - b) < 1000 ? v : [a, b]))}
         />
         <RibbonLegend />
       </section>
 
       <div className="two-col">
         {camId && timeline.data ? (
-          <Playback key={`${camId}-${requested}`} camId={camId} camName={cam?.name ?? camId} segments={timeline.data.segments} requested={requested} onJump={go} />
+          <Playback key={`${camId}-${requested}`} camId={camId} camName={cam?.name ?? camId} segments={timeline.data.segments} requested={requested} onJump={go} onPos={(ms) => setPlay({ pick, ms })} />
         ) : (
           <div className="player" />
         )}
@@ -115,12 +132,14 @@ function Playback({
   segments,
   requested,
   onJump,
+  onPos,
 }: {
   camId: string;
   camName: string;
   segments: Segment[];
   requested: number | null;
   onJump: (ms: number) => void;
+  onPos: (ms: number) => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -146,6 +165,16 @@ function Playback({
   useEffect(() => {
     if (videoRef.current) videoRef.current.playbackRate = speed;
   }, [speed, current]);
+
+  const fullscreen = () => {
+    const el = wrapRef.current;
+    if (document.fullscreenElement) void document.exitFullscreen();
+    else if (el?.requestFullscreen) void el.requestFullscreen().catch(() => {});
+    else (videoRef.current as HTMLVideoElement & { webkitEnterFullscreen?: () => void })?.webkitEnterFullscreen?.();
+  };
+  // Phones: pinch to zoom into the picture, double-tap for fullscreen/reset.
+  const pz = usePinchZoom(wrapRef, fullscreen);
+  const lastPointer = useRef("mouse");
 
   const protect = useMutation({
     mutationFn: (p: boolean) => api("PUT", `/api/recordings/${current!.seg.id}/protected`, { protected: p }),
@@ -181,25 +210,28 @@ function Playback({
     const v = videoRef.current;
     if (!v || pos === null) return;
     const t = v.currentTime + sec;
-    if (t >= 0 && t < (v.duration || 0) - 0.5) v.currentTime = t;
+    // A file opened at an offset holds nothing before it: reload further back.
+    if (t >= current.offset && t < (v.duration || 0) - 0.5) v.currentTime = t;
     else onJump(pos + sec * 1000);
   };
-  const fullscreen = () => {
-    const el = wrapRef.current;
-    if (document.fullscreenElement) void document.exitFullscreen();
-    else if (el?.requestFullscreen) void el.requestFullscreen().catch(() => {});
-    else (videoRef.current as HTMLVideoElement & { webkitEnterFullscreen?: () => void })?.webkitEnterFullscreen?.();
-  };
-
   const gapNote = requested < segStart - 5000 ? `Sem gravação às ${fmtHM(requested)}; começando às ${fmtHM(segStart)}.` : "";
 
   return (
     <div>
-      <div className="player" ref={wrapRef} onDoubleClick={fullscreen}>
+      <div className={`player${pz.zoomed ? " zoomed" : ""}`} ref={wrapRef}
+        // A touch double-tap also fires dblclick: only the mouse's counts here.
+        onPointerDownCapture={(e) => (lastPointer.current = e.pointerType)}
+        onDoubleClick={() => lastPointer.current === "mouse" && fullscreen()}
+        {...pz.handlers}
+      >
         <video
           key={current.seg.id}
           ref={videoRef}
-          src={`/api/recordings/${current.seg.id}`}
+          style={pz.style}
+          // ?at: the server starts the file at the keyframe before the offset
+          // (one request instead of one per fragment up to it).
+          src={`/api/recordings/${current.seg.id}${current.offset > 2 ? `?at=${current.offset.toFixed(1)}` : ""}`}
+          preload="auto"
           playsInline
           autoPlay
           controls={false}
@@ -212,7 +244,11 @@ function Playback({
           }}
           onPlay={() => setPlaying(true)}
           onPause={() => setPlaying(false)}
-          onTimeUpdate={(e) => setPos(segStart + e.currentTarget.currentTime * 1000)}
+          onTimeUpdate={(e) => {
+            const ms = segStart + e.currentTarget.currentTime * 1000;
+            setPos(ms);
+            onPos(ms);
+          }}
           onEnded={() => {
             if (nextSeg) setCurrent({ seg: nextSeg, offset: 0 });
             else setPlaying(false);

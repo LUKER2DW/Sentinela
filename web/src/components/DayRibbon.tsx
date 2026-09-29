@@ -12,9 +12,11 @@ interface Props {
   now: number;
   onPick?: (ms: number) => void;
   label: string;
+  /** The detailed ruler's visible window, outlined on the ribbon. */
+  view?: [number, number] | null;
 }
 
-export function DayRibbon({ dayStart, data, cursor, now, onPick, label }: Props) {
+export function DayRibbon({ dayStart, data, cursor, now, onPick, label, view }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const [hover, setHover] = useState<number | null>(null);
   const t0 = dayStart.getTime();
@@ -101,6 +103,7 @@ export function DayRibbon({ dayStart, data, cursor, now, onPick, label }: Props)
           <div key={e.id} className="ev" style={{ left: pct(e.a), width: width(e.a, e.b) }} />
         ))}
         {showNow && <div className="now" style={{ left: pct(now) }} />}
+        {view && <div className="view-window" style={{ left: pct(view[0]), width: width(view[0], view[1]) }} />}
         {hover !== null && <div className="hover-line" style={{ left: pct(hover) }} />}
         {cursor != null && cursor >= t0 && cursor < t1 && (
           <>
@@ -132,6 +135,7 @@ export function DayRibbon({ dayStart, data, cursor, now, onPick, label }: Props)
           ))}
         </div>
       )}
+      <div className="ribbon-ticks" aria-hidden="true" />
       <div className="ribbon-scale" aria-hidden="true">
         {[0, 3, 6, 9, 12, 15, 18, 21, 24].map((h) => (
           <span key={h} className={h % 6 ? "minor" : undefined} style={{ left: `clamp(8px, ${(h / 24) * 100}%, calc(100% - 10px))` }}>
