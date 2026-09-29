@@ -76,6 +76,11 @@ server set to `https://sentinela.<tailnet>.ts.net:8443`
    chrony (camera NTP) and the SMART timer, then starts the stack.
 3. Set the share password once: `sudo smbpasswd -a ana`.
 4. Open `http://<server-ip>:8080`; the first visit creates the admin account.
+5. `sudo ./scripts/optimize-host.sh`: removes what an NVR never uses (snap/LXD,
+   cloud-init, VMware tools, multipath/iSCSI, fwupd…), makes Docker and Samba
+   wait for the data disks, enables the hardware watchdog and reboot-on-panic,
+   caps the journal, and lists what starts at boot. Then reboot once.
+   In the BIOS, set "After power failure" to **Power On**.
 
 The camera password must not contain `& ? / # %` or spaces (the camera reads
 it literally from the RTSP URL). Nothing else (VLC, vendor apps) should pull
