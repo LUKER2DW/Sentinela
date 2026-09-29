@@ -1,19 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, get, type Segment, type Timeline } from "../lib/api";
+import { api, get, type CamEvent, type Segment, type Timeline } from "../lib/api";
 import { navigate } from "../lib/router";
 import { useSession, useToast } from "../lib/session";
-import { DAY_MS, addDays, eventLabel, fmtDay, fmtHM, fmtTime, sameDay, startOfDay, useNow } from "../lib/time";
+import { DAY_MS, addDays, eventLabel, fmtBytes, fmtDay, fmtDuration, fmtHM, fmtTime, mergeRanges, sameDay, startOfDay, useNow } from "../lib/time";
 import { DayRibbon, RibbonLegend } from "../components/DayRibbon";
 import { TimeRuler } from "../components/TimeRuler";
 import { Icon } from "../components/Icon";
 import { Boat, Fish } from "../components/Doodles";
 import { useCameras } from "./LivePage";
 import { findSegment } from "../lib/segments";
-import { TimelapseCard } from "../components/Timelapse";
+import { TimelapsePanel } from "../components/Timelapse";
 import { usePinchZoom } from "../lib/pinch";
+import { grabFrame, saveBlob, stamp } from "../lib/capture";
 
-const SPEEDS = [1, 2, 4, 8];
+const SPEEDS = [1, 2, 4, 8, 16];
 
 function toDateInput(d: Date) {
   const p = (n: number) => String(n).padStart(2, "0");
@@ -51,13 +52,14 @@ export function RecordingsPage({ params }: { params: URLSearchParams }) {
   const [play, setPlay] = useState<{ pick: string; ms: number } | null>(null);
   const playPos = play?.pick === pick ? play.ms : null;
   const [view, setView] = useState<[number, number] | null>(null);
+  const events = useMemo(() => [...(timeline.data?.events ?? [])].sort((a, b) => a.start.localeCompare(b.start)), [timeline.data]);
 
   return (
     <>
       <header className="page-head">
         <div className="title">
           <h1>Gravações</h1>
-          <span className="sub">Escolha um horário na faixa para assistir.</span>
+          <span className="sub">Escolha um horário na faixa ou um evento ao lado para assistir.</span>
         </div>
         {cams.data && cams.data.length > 1 && (
           <select className="input" value={camId} onChange={(e) => navigate("recordings", { cam: e.target.value })} aria-label="Câmera">
@@ -87,10 +89,15 @@ export function RecordingsPage({ params }: { params: URLSearchParams }) {
               if (y) go(null, new Date(y, m - 1, d));
             }}
           />
+          {!sameDay(dayStart, new Date(now)) && (
+            <button className="btn small ghost" onClick={() => go(null, new Date(now))}>
+              Hoje
+            </button>
+          )}
         </div>
       </header>
 
-      <section className="card" style={{ marginBottom: 24 }}>
+      <section className="card rec-timeline">
         <DayRibbon
           dayStart={dayStart}
           data={timeline.data}
@@ -111,17 +118,154 @@ export function RecordingsPage({ params }: { params: URLSearchParams }) {
         <RibbonLegend />
       </section>
 
-      <div className="two-col">
-        {camId && timeline.data ? (
-          <Playback key={`${camId}-${requested}`} camId={camId} camName={cam?.name ?? camId} segments={timeline.data.segments} requested={requested} onJump={go} onPos={(ms) => setPlay({ pick, ms })} />
-        ) : (
-          <div className="player" />
-        )}
-        <aside className="stack">
-          <DayEvents timeline={timeline.data} onPick={(ms) => go(ms)} />
-          {camId && <TimelapseCard key={`${camId}-${from}`} camId={camId} dayStart={dayStart} now={now} />}
+      <div className="rec-layout">
+        <div className="rec-main">
+          {camId && timeline.data ? (
+            <Playback
+              key={`${camId}-${requested}`}
+              camId={camId}
+              camName={cam?.name ?? camId}
+              segments={timeline.data.segments}
+              events={events}
+              requested={requested}
+              onJump={go}
+              onPos={(ms) => setPlay({ pick, ms })}
+            />
+          ) : (
+            <div className="player" />
+          )}
+        </div>
+        <aside className="rec-side">
+          <SidePanel timeline={timeline.data} events={events} camId={camId} dayStart={dayStart} now={now} cursor={playPos ?? requested} onPick={(ms) => go(ms)} />
         </aside>
       </div>
+
+    </>
+  );
+}
+
+type Tab = "events" | "timelapse" | "summary";
+
+function SidePanel({
+  timeline,
+  events,
+  camId,
+  dayStart,
+  now,
+  cursor,
+  onPick,
+}: {
+  timeline?: Timeline;
+  events: CamEvent[];
+  camId?: string;
+  dayStart: Date;
+  now: number;
+  cursor: number | null;
+  onPick: (ms: number) => void;
+}) {
+  const [tab, setTab] = useState<Tab>("events");
+  return (
+    <section className="card side-card">
+      <div className="side-tabs" role="tablist" aria-label="Painel">
+        <button role="tab" aria-selected={tab === "events"} onClick={() => setTab("events")}>
+          Eventos <span className="count">{events.length}</span>
+        </button>
+        <button role="tab" aria-selected={tab === "timelapse"} onClick={() => setTab("timelapse")}>
+          Timelapse
+        </button>
+        <button role="tab" aria-selected={tab === "summary"} onClick={() => setTab("summary")}>
+          Resumo
+        </button>
+      </div>
+      <div className="side-body" role="tabpanel">
+        {tab === "events" && <DayEvents events={events} cursor={cursor} onPick={onPick} />}
+        {tab === "timelapse" && camId && <TimelapsePanel key={`${camId}-${dayStart.getTime()}`} camId={camId} dayStart={dayStart} now={now} />}
+        {tab === "summary" && <DaySummary timeline={timeline} dayStart={dayStart} now={now} />}
+      </div>
+    </section>
+  );
+}
+
+function DayEvents({ events, cursor, onPick }: { events: CamEvent[]; cursor: number | null; onPick: (ms: number) => void }) {
+  const [type, setType] = useState("");
+  const types = useMemo(() => [...new Set(events.map((e) => eventLabel[e.type] ?? e.type))], [events]);
+  const shown = [...events].reverse().filter((e) => !type || (eventLabel[e.type] ?? e.type) === type);
+  if (events.length === 0)
+    return (
+      <div className="empty compact-empty">
+        <Fish />
+        <p>Nenhum evento neste dia.</p>
+      </div>
+    );
+  return (
+    <>
+      {types.length > 1 && (
+        <div className="chip-row" role="group" aria-label="Tipo de evento">
+          <button className={`chip small${type === "" ? " on" : ""}`} onClick={() => setType("")}>
+            Todos
+          </button>
+          {types.map((t) => (
+            <button key={t} className={`chip small${type === t ? " on" : ""}`} onClick={() => setType(t)}>
+              {t}
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="side-scroll">
+        {shown.map((e) => {
+          const a = new Date(e.start).getTime();
+          const b = e.end ? new Date(e.end).getTime() : a;
+          const playing = cursor !== null && cursor >= a - 5000 && cursor <= b + 5000;
+          return (
+            <button key={e.id} className={`event-row${playing ? " on" : ""}`} onClick={() => onPick(a - 5000)}>
+              <span className="when">{fmtTime(e.start)}</span>
+              <span className={`tag ${e.type}`}>{eventLabel[e.type] ?? e.type}</span>
+              {e.end && <span className="muted small">{fmtDuration(b - a)}</span>}
+            </button>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
+function DaySummary({ timeline, dayStart, now }: { timeline?: Timeline; dayStart: Date; now: number }) {
+  const segs = timeline?.segments ?? [];
+  const t0 = dayStart.getTime();
+  const end = Math.min(t0 + DAY_MS, now);
+  const covered = mergeRanges(segs.map((s) => [new Date(s.start).getTime(), new Date(s.end).getTime()] as [number, number]));
+  const recorded = covered.reduce((a, [x, y]) => a + Math.max(0, Math.min(y, end) - Math.max(x, t0)), 0);
+  // Holes over a minute between recorded stretches (camera offline, restarts).
+  const gaps = covered.slice(1).filter((r, i) => r[0] - covered[i][1] > 60_000).length;
+  const bytes = segs.reduce((a, s) => a + s.bytes, 0);
+  const counts = new Map<string, number>();
+  for (const e of timeline?.events ?? []) counts.set(eventLabel[e.type] ?? e.type, (counts.get(eventLabel[e.type] ?? e.type) ?? 0) + 1);
+  return (
+    <dl className="kv summary-kv">
+      <dt>Gravado</dt>
+      <dd>
+        {(recorded / 3600_000).toFixed(1).replace(".", ",")} h de {((end - t0) / 3600_000).toFixed(1).replace(".", ",")} h
+      </dd>
+      <dt>Falhas</dt>
+      <dd>{gaps === 0 ? "nenhuma" : `${gaps} ${gaps === 1 ? "interrupção" : "interrupções"}`}</dd>
+      <dt>Arquivos</dt>
+      <dd>
+        {segs.length} · {fmtBytes(bytes)}
+      </dd>
+      <dt>Protegidos</dt>
+      <dd>{segs.filter((s) => s.protected).length}</dd>
+      {[...counts.entries()].map(([k, v]) => (
+        <FragmentRow key={k} k={k} v={v} />
+      ))}
+    </dl>
+  );
+}
+
+function FragmentRow({ k, v }: { k: string; v: number }) {
+  return (
+    <>
+      <dt>{k}</dt>
+      <dd>{v}</dd>
     </>
   );
 }
@@ -130,6 +274,7 @@ function Playback({
   camId,
   camName,
   segments,
+  events,
   requested,
   onJump,
   onPos,
@@ -137,6 +282,7 @@ function Playback({
   camId: string;
   camName: string;
   segments: Segment[];
+  events: CamEvent[];
   requested: number | null;
   onJump: (ms: number) => void;
   onPos: (ms: number) => void;
@@ -145,9 +291,11 @@ function Playback({
   const wrapRef = useRef<HTMLDivElement>(null);
   const [speed, setSpeed] = useState(1);
   const [playing, setPlaying] = useState(false);
+  const [muted, setMuted] = useState(true);
   const [pos, setPos] = useState<number | null>(requested);
   const [error, setError] = useState("");
-  const [exportOpen, setExportOpen] = useState(false);
+  const [exportRange, setExportRange] = useState<{ from: number; to?: number } | null>(null);
+  const [clipFrom, setClipFrom] = useState<number | null>(null);
   const { can } = useSession();
   const toast = useToast();
   const qc = useQueryClient();
@@ -165,6 +313,9 @@ function Playback({
   useEffect(() => {
     if (videoRef.current) videoRef.current.playbackRate = speed;
   }, [speed, current]);
+  useEffect(() => {
+    if (videoRef.current) videoRef.current.muted = muted;
+  }, [muted, current]);
 
   const fullscreen = () => {
     const el = wrapRef.current;
@@ -186,12 +337,59 @@ function Playback({
     onError: (e: Error) => toast(e.message, true),
   });
 
+  // ±10 s: seek inside the loaded file; cross into the next/previous file via the timeline.
+  const skip = (sec: number) => {
+    const v = videoRef.current;
+    if (!v || pos === null || !current) return;
+    const t = v.currentTime + sec;
+    // A file opened at an offset holds nothing before it: reload further back.
+    if (t >= current.offset && t < (v.duration || 0) - 0.5) v.currentTime = t;
+    else onJump(pos + sec * 1000);
+  };
+  const toggle = () => {
+    const v = videoRef.current;
+    if (!v) return;
+    if (v.paused) void v.play();
+    else v.pause();
+  };
+  const prevEvent = pos !== null ? [...events].reverse().find((e) => new Date(e.start).getTime() < pos - 8000) : undefined;
+  const nextEvent = pos !== null ? events.find((e) => new Date(e.start).getTime() > pos + 2000) : undefined;
+
+  // Keyboard: space plays/pauses, arrows skip 10 s, F fullscreen.
+  const keys = useRef({ toggle, skip, fullscreen });
+  useEffect(() => {
+    keys.current = { toggle, skip, fullscreen };
+  });
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement;
+      if (t.closest("input, select, textarea, [contenteditable], dialog, .dialog") || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key === " " && !t.closest("button")) {
+        e.preventDefault();
+        keys.current.toggle();
+      } else if (e.key === "ArrowLeft") keys.current.skip(-10);
+      else if (e.key === "ArrowRight") keys.current.skip(10);
+      else if (e.key === "f") keys.current.fullscreen();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const snapshot = () => {
+    const v = videoRef.current;
+    if (!v || pos === null) return;
+    grabFrame(v)
+      .then((b) => saveBlob(b, `sentinela-${camId}-${stamp(new Date(pos))}.jpg`))
+      .then(() => toast("Imagem salva no aparelho."))
+      .catch((e: Error) => e.name !== "AbortError" && toast(e.message, true));
+  };
+
   if (requested === null)
     return (
       <div className="player">
         <div className="player-overlay">
           <Boat />
-          <p>Clique na faixa acima para assistir a partir de um horário.</p>
+          <p>Clique na faixa acima ou num evento para assistir a partir de um horário.</p>
         </div>
       </div>
     );
@@ -205,20 +403,13 @@ function Playback({
       </div>
     );
 
-  // ±10 s: seek inside the loaded file; cross into the next/previous file via the timeline.
-  const skip = (sec: number) => {
-    const v = videoRef.current;
-    if (!v || pos === null) return;
-    const t = v.currentTime + sec;
-    // A file opened at an offset holds nothing before it: reload further back.
-    if (t >= current.offset && t < (v.duration || 0) - 0.5) v.currentTime = t;
-    else onJump(pos + sec * 1000);
-  };
   const gapNote = requested < segStart - 5000 ? `Sem gravação às ${fmtHM(requested)}; começando às ${fmtHM(segStart)}.` : "";
 
   return (
-    <div>
-      <div className={`player${pz.zoomed ? " zoomed" : ""}`} ref={wrapRef}
+    <div className="playback">
+      <div
+        className={`player${pz.zoomed ? " zoomed" : ""}`}
+        ref={wrapRef}
         // A touch double-tap also fires dblclick: only the mouse's counts here.
         onPointerDownCapture={(e) => (lastPointer.current = e.pointerType)}
         onDoubleClick={() => lastPointer.current === "mouse" && fullscreen()}
@@ -234,12 +425,14 @@ function Playback({
           preload="auto"
           playsInline
           autoPlay
+          muted
           controls={false}
           aria-label={`Gravação de ${camName}`}
           onLoadedMetadata={(e) => {
             const v = e.currentTarget;
             v.currentTime = current.offset;
             v.playbackRate = speed;
+            v.muted = muted;
             void v.play().catch(() => setPlaying(false));
           }}
           onPlay={() => setPlaying(true)}
@@ -264,18 +457,24 @@ function Playback({
             <p>{error}</p>
           </div>
         )}
-        <div className="player-bar always">
-          <button
-            className="btn icon"
-            aria-label={playing ? "Pausar" : "Reproduzir"}
-            onClick={() => {
-              const v = videoRef.current;
-              if (!v) return;
-              if (v.paused) void v.play();
-              else v.pause();
-            }}
-          >
+        <div className="player-tag">
+          <span className="num">{pos ? fmtTime(pos) : "--:--:--"}</span>
+          {speed !== 1 && <span className="faint">{speed}×</span>}
+        </div>
+        {clipFrom !== null && (
+          <div className="player-tag rec-tag" role="status">
+            <Icon name="scissors" /> Trecho desde {fmtTime(clipFrom)}
+          </div>
+        )}
+        <div className="player-bar">
+          <button className="btn icon" aria-label={playing ? "Pausar" : "Reproduzir"} title="Reproduzir/pausar (espaço)" onClick={toggle}>
             <Icon name={playing ? "pause" : "play"} />
+          </button>
+          <button className="btn skip" aria-label="Voltar 10 segundos" title="Voltar 10 s (←)" onClick={() => skip(-10)}>
+            −10
+          </button>
+          <button className="btn skip" aria-label="Avançar 10 segundos" title="Avançar 10 s (→)" onClick={() => skip(10)}>
+            +10
           </button>
           <div className="segmented" role="group" aria-label="Velocidade">
             {SPEEDS.map((s) => (
@@ -285,33 +484,69 @@ function Playback({
             ))}
           </div>
           <span className="spacer" />
-          <button className="btn skip" aria-label="Voltar 10 segundos" title="Voltar 10 s" onClick={() => skip(-10)}>
-            −10
+          <button className="btn icon" onClick={() => setMuted((m) => !m)} aria-label={muted ? "Ativar som" : "Silenciar"} title={muted ? "Ativar som" : "Silenciar"}>
+            <Icon name={muted ? "mute" : "sound"} />
           </button>
-          <button className="btn skip" aria-label="Avançar 10 segundos" title="Avançar 10 s" onClick={() => skip(10)}>
-            +10
-          </button>
-          <button className="btn icon" onClick={fullscreen} aria-label="Tela cheia" title="Tela cheia">
+          <button className="btn icon" onClick={fullscreen} aria-label="Tela cheia" title="Tela cheia (F)">
             <Icon name="fullscreen" />
           </button>
         </div>
       </div>
 
-      <div className="under-player">
-        <span className="playhead">{pos ? fmtTime(pos) : "--:--:--"}</span>
-        {gapNote && <span className="muted">{gapNote}</span>}
-        <span className="grow" />
-        {can("operator") && (
-          <button className={`btn${current.seg.protected ? " on" : ""}`} onClick={() => protect.mutate(!current.seg.protected)} title="Trechos protegidos não são apagados pela limpeza automática">
-            <Icon name="shield" /> {current.seg.protected ? "Protegido" : "Proteger trecho"}
+      <div className="rec-toolbar">
+        <div className="rec-toolbar-group">
+          <button className="btn small" disabled={!prevEvent} onClick={() => prevEvent && onJump(new Date(prevEvent.start).getTime() - 5000)} title="Evento anterior">
+            <Icon name="skipBack" /> <span className="hide-sm">Evento anterior</span>
           </button>
-        )}
-        <button className="btn primary" onClick={() => setExportOpen(true)}>
-          <Icon name="download" /> Exportar
-        </button>
+          <button className="btn small" disabled={!nextEvent} onClick={() => nextEvent && onJump(new Date(nextEvent.start).getTime() - 5000)} title="Próximo evento">
+            <span className="hide-sm">Próximo evento</span> <Icon name="skipFwd" />
+          </button>
+        </div>
+        {gapNote && <span className="muted small">{gapNote}</span>}
+        <span className="grow" />
+        <div className="rec-toolbar-group">
+          <button className="btn small" onClick={snapshot} title="Salvar a imagem na tela como JPEG">
+            <Icon name="camera" /> Imagem
+          </button>
+          {clipFrom === null ? (
+            <button className="btn small" onClick={() => pos && setClipFrom(pos)} title="Marca o começo; toque de novo no fim para salvar o trecho">
+              <Icon name="scissors" /> Marcar trecho
+            </button>
+          ) : (
+            <>
+              <button
+                className="btn small on"
+                disabled={!pos || pos <= clipFrom}
+                onClick={() => {
+                  if (!pos) return;
+                  setExportRange({ from: clipFrom, to: pos });
+                  setClipFrom(null);
+                }}
+                title="Termina o trecho aqui e salva no aparelho"
+              >
+                <Icon name="download" /> Salvar trecho{pos && pos > clipFrom ? ` (${fmtDuration(pos - clipFrom)})` : ""}
+              </button>
+              <button className="btn small ghost" onClick={() => setClipFrom(null)} aria-label="Cancelar trecho">
+                <Icon name="x" />
+              </button>
+            </>
+          )}
+          {can("operator") && (
+            <button
+              className={`btn small${current.seg.protected ? " on" : ""}`}
+              onClick={() => protect.mutate(!current.seg.protected)}
+              title="Trechos protegidos não são apagados pela limpeza automática"
+            >
+              <Icon name="shield" /> {current.seg.protected ? "Protegido" : "Proteger"}
+            </button>
+          )}
+          <button className="btn small primary" onClick={() => pos && setExportRange({ from: pos })}>
+            <Icon name="download" /> Exportar
+          </button>
+        </div>
       </div>
 
-      {exportOpen && pos && <ExportDialog camId={camId} start={pos} onClose={() => setExportOpen(false)} />}
+      {exportRange && <ExportDialog camId={camId} range={exportRange} onClose={() => setExportRange(null)} />}
     </div>
   );
 }
@@ -331,52 +566,60 @@ async function shareClip(url: string, name: string): Promise<boolean> {
   return true;
 }
 
-function ExportDialog({ camId, start, onClose }: { camId: string; start: number; onClose: () => void }) {
+/** Export: an exact marked stretch, or a few minutes around the playhead. */
+function ExportDialog({ camId, range, onClose }: { camId: string; range: { from: number; to?: number }; onClose: () => void }) {
   const toast = useToast();
   const [sharing, setSharing] = useState(false);
+  const exact = range.to !== undefined;
   const [minutes, setMinutes] = useState(5);
   const [back, setBack] = useState(1);
-  const from = new Date(start - back * 60_000);
-  const to = new Date(from.getTime() + minutes * 60_000);
+  const from = new Date(exact ? range.from : range.from - back * 60_000);
+  const to = new Date(exact ? range.to! : from.getTime() + minutes * 60_000);
   const url = `/api/cameras/${encodeURIComponent(camId)}/export?from=${from.toISOString()}&to=${to.toISOString()}`;
+  const lengthMin = (to.getTime() - from.getTime()) / 60_000;
   return (
     <div className="dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="exp-title" onClick={onClose}>
       <div className="dialog" onClick={(e) => e.stopPropagation()}>
-        <h2 id="exp-title">Exportar vídeo</h2>
-        <div className="field">
-          <label>Começar</label>
-          <div className="segmented">
-            {[0, 1, 5].map((b) => (
-              <button key={b} aria-pressed={back === b} onClick={() => setBack(b)}>
-                {b === 0 ? "No horário atual" : `${b} min antes`}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="field">
-          <label>Duração</label>
-          <div className="segmented">
-            {[1, 5, 10, 30].map((m) => (
-              <button key={m} aria-pressed={minutes === m} onClick={() => setMinutes(m)}>
-                {m} min
-              </button>
-            ))}
-          </div>
-        </div>
+        <h2 id="exp-title">{exact ? "Salvar trecho" : "Exportar vídeo"}</h2>
+        {!exact && (
+          <>
+            <div className="field">
+              <label>Começar</label>
+              <div className="segmented">
+                {[0, 1, 5].map((b) => (
+                  <button key={b} aria-pressed={back === b} onClick={() => setBack(b)}>
+                    {b === 0 ? "No horário atual" : `${b} min antes`}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="field">
+              <label>Duração</label>
+              <div className="segmented">
+                {[1, 5, 10, 30].map((m) => (
+                  <button key={m} aria-pressed={minutes === m} onClick={() => setMinutes(m)}>
+                    {m} min
+                  </button>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
         <p className="muted">
-          De {fmtTime(from)} até {fmtTime(to)}. O arquivo MP4 é montado sem perda de qualidade.
+          De {fmtTime(from)} até {fmtTime(to)} ({fmtDuration(to.getTime() - from.getTime())}). O arquivo MP4 é montado da gravação original, sem perda de
+          qualidade.
         </p>
         <div className="dialog-actions">
           <button className="btn ghost" onClick={onClose}>
             Cancelar
           </button>
-          {"share" in navigator && minutes <= SHARE_MAX_MIN && (
+          {"share" in navigator && lengthMin <= SHARE_MAX_MIN && (
             <button
               className="btn"
               disabled={sharing}
               onClick={() => {
                 setSharing(true);
-                const name = `sentinela-${camId}-${toDateInput(from)}-${fmtHM(from).replace(":", "h")}.mp4`;
+                const name = `sentinela-${camId}-${stamp(from)}.mp4`;
                 shareClip(url, name)
                   .then((ok) => (ok ? onClose() : toast("Este aparelho não compartilha vídeos; use Baixar.", true)))
                   .catch((e: Error) => e.name !== "AbortError" && toast(`Compartilhar: ${e.message}`, true))
@@ -392,37 +635,5 @@ function ExportDialog({ camId, start, onClose }: { camId: string; start: number;
         </div>
       </div>
     </div>
-  );
-}
-
-function DayEvents({ timeline, onPick }: { timeline?: Timeline; onPick: (ms: number) => void }) {
-  const events = [...(timeline?.events ?? [])].sort((a, b) => b.start.localeCompare(a.start));
-  const hours = useMemo(() => {
-    const total = (timeline?.segments ?? []).reduce((acc, s) => acc + (new Date(s.end).getTime() - new Date(s.start).getTime()), 0);
-    return total / 3600_000;
-  }, [timeline]);
-  return (
-    <section className="card">
-      <h2>Neste dia</h2>
-      <p className="muted" style={{ marginBottom: 8 }}>
-        {hours.toFixed(1).replace(".", ",")} h gravadas
-        {events.length ? `, ${events.length} ${events.length === 1 ? "evento" : "eventos"}` : ""}
-      </p>
-      {events.length === 0 ? (
-        <div className="empty" style={{ padding: "16px 0 0" }}>
-          <Fish />
-          <p>Nenhum movimento neste dia.</p>
-        </div>
-      ) : (
-        <div className="scroll">
-          {events.map((e) => (
-            <button key={e.id} className="list-row" onClick={() => onPick(new Date(e.start).getTime() - 5000)}>
-              <span className="when">{fmtHM(e.start)}</span>
-              <span className="tag">{eventLabel[e.type] ?? e.type}</span>
-            </button>
-          ))}
-        </div>
-      )}
-    </section>
   );
 }

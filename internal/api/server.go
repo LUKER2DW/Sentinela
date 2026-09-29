@@ -47,6 +47,7 @@ type Server struct {
 
 	snaps    snapshotter
 	tlSem    chan struct{} // one timelapse at a time
+	tl       tlJobs        // timelapses being written to disk
 	det      detectorState // object detector sidecar (ADR-0016)
 	frames   frameCache
 	wizardMu sync.Mutex // one camera search/test at a time
@@ -172,6 +173,7 @@ func (s *Server) handler(zone string) http.Handler {
 	mux.Handle("PUT /api/recordings/{seg}/protected", operator(s.protectSegment))
 	mux.Handle("GET /api/cameras/{id}/export", viewer(s.export))
 	mux.Handle("GET /api/cameras/{id}/timelapse", viewer(s.timelapse))
+	mux.Handle("GET /api/cameras/{id}/timelapse/prepare", viewer(s.timelapsePrepare))
 	mux.Handle("GET /api/cameras/{id}/frame.jpeg", viewer(s.frame))
 	mux.Handle("GET /api/cameras/{id}/detection", viewer(s.getDetection))
 	mux.Handle("PUT /api/cameras/{id}/detection", operator(s.putDetection))
