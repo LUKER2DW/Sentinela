@@ -67,6 +67,36 @@ func TestSegmentsOverlap(t *testing.T) {
 	}
 }
 
+func TestGapsSince(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	t0 := time.Date(2026, 9, 29, 0, 0, 0, 0, time.UTC)
+	add := func(path string, from, to time.Duration) {
+		t.Helper()
+		if err := s.UpsertSegment(ctx, Segment{CameraID: "cam1", Start: t0.Add(from), End: t0.Add(to), Path: path, Bytes: 1}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	add("a", 0, 300*time.Second)
+	add("b", 301*time.Second, 600*time.Second)  // 1 s: segment boundary, not a gap
+	add("c", 550*time.Second, 900*time.Second)  // overlaps b
+	add("d", 960*time.Second, 1200*time.Second) // 60 s hole after c
+	gaps, err := s.GapsSince(ctx, "cam1", t0.Add(-time.Hour), 30*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(gaps) != 1 || !gaps[0].From.Equal(t0.Add(900*time.Second)) || !gaps[0].To.Equal(t0.Add(960*time.Second)) {
+		t.Fatalf("gaps=%+v", gaps)
+	}
+	st := RecorderStatus{CameraID: "cam1", State: "recording", Since: t0, Heartbeat: t0, Restarts: 7, Restarts1h: 3}
+	if err := s.PutRecorderStatus(ctx, st); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.ListRecorderStatus(ctx); len(got) != 1 || got[0].Restarts1h != 3 {
+		t.Fatalf("status=%+v", got)
+	}
+}
+
 func TestEventsLifecycle(t *testing.T) {
 	s := openTest(t)
 	ctx := context.Background()

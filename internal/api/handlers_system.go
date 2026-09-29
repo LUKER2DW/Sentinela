@@ -185,6 +185,27 @@ func (s *Server) system(w http.ResponseWriter, r *http.Request) {
 			daily[c.ID] = int64(float64(b) / secs * 86400)
 		}
 	}
+	// Recording holes longer than 30 s in the last 24 h (gap alert).
+	type gapsDTO struct {
+		Count   int         `json:"count"`
+		Longest float64     `json:"longest_secs"`
+		Recent  []store.Gap `json:"recent"`
+	}
+	gaps := map[string]gapsDTO{}
+	for _, c := range s.Cfg.Cameras {
+		if !c.Recording() {
+			continue
+		}
+		g, err := s.Store.GapsSince(ctx, c.ID, time.Now().Add(-24*time.Hour), gapAlert)
+		if err != nil {
+			continue
+		}
+		d := gapsDTO{Count: len(g), Recent: g[max(0, len(g)-5):]}
+		for _, x := range g {
+			d.Longest = max(d.Longest, x.To.Sub(x.From).Seconds())
+		}
+		gaps[c.ID] = d
+	}
 	type volumeDTO struct {
 		config.Volume
 		sysinfo.Disk
@@ -213,6 +234,7 @@ func (s *Server) system(w http.ResponseWriter, r *http.Request) {
 		"segment_secs": s.Cfg.Recording.SegmentSeconds,
 		"storage":      stats,
 		"daily_bytes":  daily,
+		"gaps_24h":     gaps,
 		"recorders":    recs,
 		"go2rtc":       g2r,
 		"go2rtc_error": g2rErr,
@@ -222,6 +244,9 @@ func (s *Server) system(w http.ResponseWriter, r *http.Request) {
 		"backup":       backup,
 	})
 }
+
+// gapAlert is the shortest recording hole reported on the System page.
+const gapAlert = 30 * time.Second
 
 // hostJSON reads a small JSON file written by a host timer; nil if absent or invalid.
 func hostJSON(path string) json.RawMessage {

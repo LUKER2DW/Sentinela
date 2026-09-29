@@ -42,6 +42,7 @@ export function SystemPage() {
       {s && (
         <div className="stack">
           <DiskWarning s={s} />
+          <RecordingWarning s={s} />
           <CloudWarning />
           <div className="grid-3">
             <Storage s={s} />
@@ -109,7 +110,9 @@ function Recorders({ s }: { s: SystemInfo }) {
                 <strong>{c.name}</strong>
                 <p className="muted small">
                   {r ? `Desde ${fmtTime(r.since)}, ${r.restarts} ${r.restarts === 1 ? "reinício" : "reinícios"}` : "Aguardando o gravador"}
+                  {r && r.restarts_1h > 0 && ` (${r.restarts_1h} na última hora)`}
                 </p>
+                <p className="muted small">{gapText(s.gaps_24h?.[c.id])}</p>
                 {r?.last_error && !ok && <p className="notice error small">{r.last_error}</p>}
               </div>
               <span className="pill">
@@ -218,6 +221,37 @@ function CloudWarning() {
       <strong>Nuvem do fabricante ligada:</strong> {on.map((c) => c.name).join(", ")}{" "}
       {on.length === 1 ? "ainda se conecta" : "ainda se conectam"} ao serviço P2P da XMEye pela internet. Desligue
       “Nuvem”/“P2P” nas configurações de rede da câmera e bloqueie a saída dela para a internet no roteador.
+    </div>
+  );
+}
+
+/** Reconnect storm: this many reconnects in one hour (matches the recorder log). */
+const STORM = 5;
+
+function gapText(g: SystemInfo["gaps_24h"][string] | undefined) {
+  if (!g) return "";
+  if (g.count === 0) return "Sem falhas nas últimas 24 h";
+  return `${g.count} ${g.count === 1 ? "falha" : "falhas"} nas últimas 24 h (maior: ${fmtDuration(g.longest_secs * 1000)})`;
+}
+
+/** Gap alert: holes > 30 s in the last 24 h, or a reconnect storm right now. */
+function RecordingWarning({ s }: { s: SystemInfo }) {
+  const cams = useCameras();
+  const name = (id: string) => cams.data?.find((c) => c.id === id)?.name ?? id;
+  const gaps = Object.entries(s.gaps_24h ?? {}).filter(([, g]) => g.count > 0);
+  const storms = s.recorders.filter((r) => r.restarts_1h >= STORM);
+  if (!gaps.length && !storms.length) return null;
+  return (
+    <div className="notice error" role="alert">
+      <strong>Gravação com falhas:</strong>{" "}
+      {[
+        ...gaps.map(([id, g]) => {
+          const last = g.recent[g.recent.length - 1];
+          return `${name(id)} ficou sem gravar ${g.count}× nas últimas 24 h (a última de ${fmtTime(last.from)} a ${fmtTime(last.to)})`;
+        }),
+        ...storms.map((r) => `${name(r.camera_id)} reconectou ${r.restarts_1h}× na última hora`),
+      ].join("; ")}
+      . Veja se a câmera está ligada e na rede; a gravação continua sozinha quando ela volta.
     </div>
   );
 }

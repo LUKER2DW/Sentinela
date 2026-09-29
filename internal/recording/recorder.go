@@ -68,7 +68,12 @@ type Recorder struct {
 	mu      sync.Mutex
 	status  store.RecorderStatus
 	lastErr string
+	// restartsAt holds reconnect times of the last hour (reconnect storms).
+	restartsAt []time.Time
 }
+
+// stormRestarts reconnects in one hour are logged as a reconnect storm.
+const stormRestarts = 5
 
 // NewRecorder returns a recorder for cam writing under root/<cam.ID>.
 func NewRecorder(cam *config.Camera, rec config.Recording, root string, st *store.Store, log *slog.Logger) *Recorder {
@@ -92,6 +97,7 @@ func (r *Recorder) heartbeat() {
 	st.CameraID = r.Cam.ID
 	st.Heartbeat = r.now()
 	st.LastError = r.lastErr
+	st.Restarts1h = r.recentRestartsLocked()
 	r.mu.Unlock()
 	// Best effort: recording must not depend on the database (ADR-0007).
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -132,7 +138,12 @@ func (r *Recorder) Run(ctx context.Context) {
 			r.fail(err)
 			r.mu.Lock()
 			r.status.Restarts++
+			r.restartsAt = append(r.restartsAt, r.now())
+			recent := r.recentRestartsLocked()
 			r.mu.Unlock()
+			if recent == stormRestarts {
+				r.Log.Warn("recorder reconnect storm", "restarts_1h", recent)
+			}
 		}
 		r.setState("backoff")
 		select {
@@ -142,6 +153,17 @@ func (r *Recorder) Run(ctx context.Context) {
 		backoff = min(backoff*2, 30*time.Second)
 	}
 	r.setState("stopped")
+}
+
+// recentRestartsLocked drops reconnects older than an hour and counts the rest.
+func (r *Recorder) recentRestartsLocked() int {
+	cut := r.now().Add(-time.Hour)
+	i := 0
+	for i < len(r.restartsAt) && r.restartsAt[i].Before(cut) {
+		i++
+	}
+	r.restartsAt = r.restartsAt[i:]
+	return len(r.restartsAt)
 }
 
 func (r *Recorder) fail(err error) {

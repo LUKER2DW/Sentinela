@@ -342,6 +342,39 @@ func (s *Store) RateSince(ctx context.Context, cameraID string, t time.Time) (by
 	return bytes, seconds, rows.Err()
 }
 
+// Gap is a stretch without recording between two segments.
+type Gap struct {
+	From time.Time `json:"from"`
+	To   time.Time `json:"to"`
+}
+
+// GapsSince returns holes longer than minGap between the camera's segments
+// that end after t, oldest first. Overlapping segments are merged.
+func (s *Store) GapsSince(ctx context.Context, cameraID string, t time.Time, minGap time.Duration) ([]Gap, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT start_utc,end_utc FROM segments WHERE camera_id=? AND end_utc>? ORDER BY start_utc`,
+		cameraID, FormatTime(t))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Gap{}
+	var prevEnd time.Time
+	for rows.Next() {
+		var st, en string
+		if err := rows.Scan(&st, &en); err != nil {
+			return nil, err
+		}
+		start, end := mustTime(st), mustTime(en)
+		if !prevEnd.IsZero() && start.Sub(prevEnd) > minGap {
+			out = append(out, Gap{From: prevEnd, To: start})
+		}
+		if end.After(prevEnd) {
+			prevEnd = end
+		}
+	}
+	return out, rows.Err()
+}
+
 // ---------- events ----------
 
 // Event is a camera event such as motion.
@@ -493,22 +526,24 @@ type RecorderStatus struct {
 	Since       time.Time `json:"since"`
 	Heartbeat   time.Time `json:"heartbeat"`
 	Restarts    int       `json:"restarts"`
+	Restarts1h  int       `json:"restarts_1h"`
 	LastError   string    `json:"last_error"`
 	CurrentFile string    `json:"current_file"`
 }
 
 // PutRecorderStatus upserts the status row. LastError must be redacted.
 func (s *Store) PutRecorderStatus(ctx context.Context, st RecorderStatus) error {
-	_, err := s.db.ExecContext(ctx, `INSERT INTO recorder_status(camera_id,state,since_utc,heartbeat_utc,restarts,last_error,current_file)
-		VALUES(?,?,?,?,?,?,?) ON CONFLICT(camera_id) DO UPDATE SET state=excluded.state, since_utc=excluded.since_utc,
-		heartbeat_utc=excluded.heartbeat_utc, restarts=excluded.restarts, last_error=excluded.last_error, current_file=excluded.current_file`,
-		st.CameraID, st.State, FormatTime(st.Since), FormatTime(st.Heartbeat), st.Restarts, st.LastError, st.CurrentFile)
+	_, err := s.db.ExecContext(ctx, `INSERT INTO recorder_status(camera_id,state,since_utc,heartbeat_utc,restarts,restarts_1h,last_error,current_file)
+		VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(camera_id) DO UPDATE SET state=excluded.state, since_utc=excluded.since_utc,
+		heartbeat_utc=excluded.heartbeat_utc, restarts=excluded.restarts, restarts_1h=excluded.restarts_1h,
+		last_error=excluded.last_error, current_file=excluded.current_file`,
+		st.CameraID, st.State, FormatTime(st.Since), FormatTime(st.Heartbeat), st.Restarts, st.Restarts1h, st.LastError, st.CurrentFile)
 	return err
 }
 
 // ListRecorderStatus returns all recorder status rows.
 func (s *Store) ListRecorderStatus(ctx context.Context) ([]RecorderStatus, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT camera_id,state,since_utc,heartbeat_utc,restarts,last_error,current_file FROM recorder_status ORDER BY camera_id`)
+	rows, err := s.db.QueryContext(ctx, `SELECT camera_id,state,since_utc,heartbeat_utc,restarts,restarts_1h,last_error,current_file FROM recorder_status ORDER BY camera_id`)
 	if err != nil {
 		return nil, err
 	}
@@ -517,7 +552,7 @@ func (s *Store) ListRecorderStatus(ctx context.Context) ([]RecorderStatus, error
 	for rows.Next() {
 		var st RecorderStatus
 		var since, hb string
-		if err := rows.Scan(&st.CameraID, &st.State, &since, &hb, &st.Restarts, &st.LastError, &st.CurrentFile); err != nil {
+		if err := rows.Scan(&st.CameraID, &st.State, &since, &hb, &st.Restarts, &st.Restarts1h, &st.LastError, &st.CurrentFile); err != nil {
 			return nil, err
 		}
 		st.Since, st.Heartbeat = mustTime(since), mustTime(hb)

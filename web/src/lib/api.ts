@@ -65,6 +65,8 @@ export interface RecorderStatus {
   since: string;
   heartbeat: string;
   restarts: number;
+  /** Reconnects in the last hour; ≥ 5 is a reconnect storm. */
+  restarts_1h: number;
   last_error: string;
   current_file: string;
 }
@@ -98,6 +100,8 @@ export interface SystemInfo {
   segment_secs: number;
   storage: { camera_id: string; count: number; bytes: number; oldest: string; newest: string }[];
   daily_bytes: Record<string, number>;
+  /** Recording holes > 30 s in the last 24 h, per camera. */
+  gaps_24h: Record<string, { count: number; longest_secs: number; recent: { from: string; to: string }[] }>;
   recorders: RecorderStatus[];
   go2rtc: Record<string, { online: boolean; consumers: number }> | null;
   go2rtc_error: string;
