@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type DragEvent, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError } from "../lib/api";
+import { usePinchZoom } from "../lib/pinch";
 import {
   TRASH,
   baseName,
@@ -442,7 +443,7 @@ function ItemSheet(props: {
           <Icon name="x" />
         </button>
       </div>
-      {!entry.dir && isImage(entry.name) && <img className="preview" src={src} alt={entry.name} />}
+      {!entry.dir && isImage(entry.name) && <ZoomImage src={src} alt={entry.name} />}
       {!entry.dir && isVideo(entry.name) && <video className="preview" src={src} controls playsInline preload="metadata" />}
       {!entry.dir && isAudio(entry.name) && <audio src={src} controls preload="metadata" />}
       <p className="muted small">
@@ -489,6 +490,17 @@ function ItemSheet(props: {
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+/** Photo preview: pinch to zoom and pan on phones, double-tap to reset. */
+function ZoomImage({ src, alt }: { src: string; alt: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const pz = usePinchZoom(ref);
+  return (
+    <div ref={ref} className={`zoom-frame${pz.zoomed ? " zoomed" : ""}`} {...pz.handlers}>
+      <img className="preview" src={src} alt={alt} style={pz.style} draggable={false} />
     </div>
   );
 }

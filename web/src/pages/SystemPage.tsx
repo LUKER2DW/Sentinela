@@ -150,9 +150,8 @@ function PhoneSections({ s, admin }: { s: SystemInfo; admin: boolean }) {
           </button>
         </div>
       </div>
-      <DiskWarning s={s} />
-      <RecordingWarning s={s} />
-      <CloudWarning />
+      {/* No disk/recording/cloud warnings on phones (owner, 2026-09-29):
+          they get a page of their own later. */}
       <div className="section-tabs" role="tablist" aria-label="Seções">
         {SECTIONS.map((x) => (
           <button key={x.id} role="tab" aria-selected={section === x.id} onClick={() => pick(x.id)}>

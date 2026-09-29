@@ -86,6 +86,7 @@ export const dayNightLabel: Record<string, string> = {
 export const eventLabel: Record<string, string> = {
   motion: "Movimento",
   human: "Pessoa",
+  person: "Pessoa",
   vehicle: "Veículo",
   animal: "Animal",
   tamper: "Obstrução",

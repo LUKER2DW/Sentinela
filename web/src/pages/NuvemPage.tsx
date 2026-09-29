@@ -1,3 +1,4 @@
+import { useCompact } from "../lib/viewport";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchSystem, type DiskHealth, type Volume } from "../lib/api";
@@ -80,6 +81,7 @@ export function VolumeMeter({ v, health }: { v: Volume; health?: DiskHealth }) {
 
 export function NuvemPage({ params }: { params: URLSearchParams }) {
   const { can } = useSession();
+  const compact = useCompact();
   const folder = params.get("p") ?? "";
   // SMB works only at home; over Tailscale show the server's LAN address.
   const remote = window.location.hostname.endsWith(".ts.net");
@@ -146,7 +148,7 @@ export function NuvemPage({ params }: { params: URLSearchParams }) {
         </span>
       </header>
 
-      <FileBrowser path={folder} canWrite={can("operator")} onNavigate={(p) => navigate("nuvem", p ? { p } : undefined)} />
+      <FileBrowser path={folder} canWrite={can("operator")} onNavigate={(p) => navigate("nuvem", p ? { p } : undefined, { push: true })} />
 
       <div className="grid-2" style={{ marginTop: 24 }}>
         <section className="card hero-card">
@@ -169,6 +171,10 @@ export function NuvemPage({ params }: { params: URLSearchParams }) {
           <Whale className="hero-doodle" />
         </section>
 
+        {/* Phones: files and space only (owner, 2026-09-29). Network shares
+            are for computers at home. */}
+        {!compact && (
+          <>
         <section className="card">
           <div className="card-head">
             <h2>Pastas de rede</h2>
@@ -209,6 +215,8 @@ export function NuvemPage({ params }: { params: URLSearchParams }) {
             <li>Apagar aqui ou pela rede manda para a Lixeira, que guarda tudo por 30 dias.</li>
           </ul>
         </section>
+          </>
+        )}
       </div>
     </>
   );

@@ -1124,3 +1124,92 @@ table.table { width: 100%; border-collapse: collapse; }
   .auth-card > :nth-child(2) { animation-delay: 0.08s; }
   .auth-art .pano { animation: fade-in 0.8s ease both; }
 }
+
+/* ---------- detailed time ruler (Gravações) ---------- */
+.ruler-wrap { margin-top: 14px; }
+.ruler-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.ruler-head .grow { flex: 1; }
+.ruler-time { font-family: var(--serif); font-variation-settings: "SOFT" 100, "opsz" 36; font-size: 1.35rem; line-height: 1;
+  font-variant-numeric: tabular-nums; transition: color 0.15s; }
+.ruler-time.scrubbing { color: var(--sea-strong); }
+.ruler-zoom button { min-width: 40px; }
+.ruler-zoom svg { width: 16px; height: 16px; }
+.ruler-frame { position: relative; border-radius: var(--r-md); border: 1px solid var(--line); background: var(--surface-2); overflow: hidden; }
+.ruler { display: flex; height: 88px; overflow-x: auto; overflow-y: hidden; cursor: grab; touch-action: pan-x; overscroll-behavior-x: contain; }
+.ruler:active { cursor: grabbing; }
+/* Half a screen of blank on each side: 00:00 and now can reach the needle. */
+.ruler::before, .ruler::after { content: ""; flex: 0 0 50%; }
+.ruler-track {
+  position: relative; flex: none; height: 100%;
+  /* | | | | ticks: minor, 15 min and hour marks, drawn from the top edge. */
+  background:
+    linear-gradient(90deg, var(--muted) 0 1.5px, transparent 1.5px) 0 0 / var(--hour) 26px repeat-x,
+    linear-gradient(90deg, var(--faint) 0 1px, transparent 1px) 0 0 / var(--mid) 17px repeat-x,
+    linear-gradient(90deg, var(--line-strong) 0 1px, transparent 1px) 0 0 / var(--minor) 10px repeat-x;
+}
+.ruler-label { position: absolute; top: 25px; transform: translateX(-50%); font-size: 0.78rem; font-weight: 600; color: var(--muted);
+  font-variant-numeric: tabular-nums; white-space: nowrap; pointer-events: none; }
+.ruler-label.half { font-weight: 500; color: var(--faint); }
+.ruler-cov { position: absolute; bottom: 10px; height: 16px; border-radius: 4px; background: var(--sea); opacity: 0.8; }
+.ruler-ev { position: absolute; bottom: 30px; height: 6px; border-radius: 4px; background: var(--coral); }
+.ruler-future { position: absolute; top: 0; bottom: 0; right: 0;
+  background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--line-strong) 60%, transparent) 0 2px, transparent 2px 7px); }
+.ruler-track::before { content: ""; position: absolute; inset: auto 0 10px 0; height: 16px;
+  background: repeating-linear-gradient(135deg, var(--line) 0 2px, transparent 2px 7px); }
+.ruler-needle { position: absolute; top: 0; bottom: 0; left: 50%; width: 2px; margin-left: -1px; background: var(--text); pointer-events: none; }
+.ruler-needle::before { content: ""; position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+  border: 6px solid transparent; border-top-color: var(--text); border-bottom: 0; }
+.ruler-frame::before, .ruler-frame::after { content: ""; position: absolute; top: 0; bottom: 0; width: 28px; z-index: 1; pointer-events: none; }
+.ruler-frame::before { left: 0; background: linear-gradient(90deg, var(--surface-2), transparent); }
+.ruler-frame::after { right: 0; background: linear-gradient(-90deg, var(--surface-2), transparent); }
+/* The ruler's window on the day ribbon, and hour ticks under the ribbon. */
+.ribbon .view-window { position: absolute; top: 2px; bottom: 2px; min-width: 6px; border: 2px solid var(--sea-strong); border-radius: 6px;
+  background: color-mix(in srgb, var(--sea) 10%, transparent); pointer-events: none; transition: left 0.2s, width 0.2s; }
+.ribbon-ticks { height: 7px; margin-top: 3px;
+  background:
+    linear-gradient(90deg, var(--muted) 0 1.5px, transparent 1.5px) 0 0 / calc(25% - 0.4px) 7px repeat-x,
+    linear-gradient(90deg, var(--line-strong) 0 1px, transparent 1px) 0 0 / calc(100% / 24 - 0.05px) 4px repeat-x; }
+.ribbon-scale { margin-top: 2px; }
+@media (max-width: 760px) {
+  .ribbon { height: 60px; }
+  .ribbon .ev { top: 28px; bottom: 18px; }
+  .ruler { height: 80px; }
+}
+
+/* ---------- scrollbars: none vertical, a hairline where rows scroll sideways ---------- */
+.hscroll, .section-tabs, .review-bar, .page-head .segmented, .player-bar { scrollbar-width: auto; }
+.hscroll::-webkit-scrollbar, .section-tabs::-webkit-scrollbar, .review-bar::-webkit-scrollbar,
+.page-head .segmented::-webkit-scrollbar, .player-bar::-webkit-scrollbar { display: block; width: 0; height: 3px; }
+.hscroll::-webkit-scrollbar-thumb, .section-tabs::-webkit-scrollbar-thumb, .review-bar::-webkit-scrollbar-thumb,
+.page-head .segmented::-webkit-scrollbar-thumb, .player-bar::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--muted) 45%, transparent); border-radius: 3px; }
+.hscroll::-webkit-scrollbar-track, .section-tabs::-webkit-scrollbar-track, .review-bar::-webkit-scrollbar-track,
+.page-head .segmented::-webkit-scrollbar-track, .player-bar::-webkit-scrollbar-track { background: transparent; margin-inline: 12px; }
+.ruler::-webkit-scrollbar-track { margin-inline: 24px; }
+
+/* ---------- phone: feels like an app, not a web page ---------- */
+@media (max-width: 760px) {
+  /* The tab bar is 64 px plus the gesture bar: keep the page end above both. */
+  .main { padding-bottom: calc(var(--tabbar) + env(safe-area-inset-bottom) + 28px); }
+  .toast, .update-toast { bottom: calc(var(--tabbar) + env(safe-area-inset-bottom) + 16px); }
+  /* Player controls fit the width: no clipped fullscreen button. */
+  .player-bar { overflow-x: auto; flex-wrap: nowrap; }
+  .player-bar > * { flex: none; }
+  .player-bar .segmented button { min-width: 36px; padding: 0 8px; }
+  .player-bar .btn.skip { min-width: 40px; padding: 0 6px; }
+  .player-bar .segmented button.hide-sm { display: none; }
+  .under-player .btn.primary { flex: 1; justify-content: center; }
+  .scroll { max-height: none; overflow: visible; }
+  .under-player .playhead { display: none; }
+}
+@media (pointer: coarse) {
+  html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; overscroll-behavior-y: none; }
+  body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+  input, textarea, select, [contenteditable="true"], .copy-line, .totp-secret, .selectable { -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }
+  img, svg, a, video { -webkit-user-drag: none; }
+  /* Pages never zoom; the players and photos zoom themselves. */
+  html, body { touch-action: pan-x pan-y; }
+  button, a, .nav-item, .chip, .list-row, .review-item { touch-action: manipulation; }
+}
+.zoom-frame { overflow: hidden; border-radius: var(--r-md); touch-action: pan-y; }
+.zoom-frame.zoomed { touch-action: none; }
+.zoom-frame img { display: block; transform-origin: center; will-change: transform; }

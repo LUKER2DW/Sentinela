@@ -35,6 +35,18 @@ export function href(page: string, params?: Record<string, string>): string {
   return `#/${page}${q ? `?${q}` : ""}`;
 }
 
-export function navigate(page: string, params?: Record<string, string>) {
-  window.location.hash = href(page, params);
+/**
+ * Goes to a page. Staying on the same page (a new time on the timeline, a
+ * folder in the Nuvem…) replaces the history entry, so the phone's back
+ * button returns to the previous page instead of every pick.
+ */
+export function navigate(page: string, params?: Record<string, string>, opts?: { push?: boolean }) {
+  const to = href(page, params);
+  if (!opts?.push && page === current.page) {
+    history.replaceState(history.state, "", to);
+    current = parse();
+    listeners.forEach((l) => l());
+  } else {
+    window.location.hash = to;
+  }
 }
