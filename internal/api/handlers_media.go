@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/LUKER2DW/sentinela/internal/recording"
 	"github.com/LUKER2DW/sentinela/internal/store"
 )
 
@@ -142,6 +143,16 @@ func (s *Server) recording(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "video/mp4")
 	w.Header().Set("Cache-Control", "private, max-age=60")
+	// ?at=seconds: start at the keyframe before that instant, so the player
+	// does not walk every fragment up to it one range request at a time.
+	if at, err := strconv.ParseFloat(r.URL.Query().Get("at"), 64); err == nil && at > 1 && at < 86400 {
+		if idx, err := recording.ReadFragIndex(f, info.Size()); err == nil {
+			if rs, _, _ := idx.Splice(f, time.Duration(at*float64(time.Second))); rs != nil {
+				http.ServeContent(w, r, filepath.Base(path), info.ModTime(), rs)
+				return
+			}
+		}
+	}
 	http.ServeContent(w, r, filepath.Base(path), info.ModTime(), f)
 }
 
