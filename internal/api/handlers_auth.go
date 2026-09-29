@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"net/http"
 	"regexp"
@@ -109,6 +110,36 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 	}
 	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: "", Path: "/", MaxAge: -1, HttpOnly: true,
 		Secure: s.Cfg.SecureCookies || isHTTPS(r), SameSite: http.SameSiteStrictMode})
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// mySessions lists the caller's devices (Account page, Stage B2).
+func (s *Server) mySessions(w http.ResponseWriter, r *http.Request) {
+	list, err := s.Store.UserSessions(r.Context(), userFrom(r).ID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "database error")
+		return
+	}
+	cur := hex.EncodeToString(sessionFrom(r).IDHash[:8])
+	for i := range list {
+		list[i].Current = list[i].ID == cur
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+
+// revokeSession signs one of the caller's devices out.
+func (s *Server) revokeSession(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if len(id) != 16 {
+		writeErr(w, http.StatusBadRequest, "invalid session id")
+		return
+	}
+	err := s.Store.DeleteUserSession(r.Context(), userFrom(r).ID, id)
+	s.audit(r, "session.revoke", id, err == nil, "")
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "session not found")
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 

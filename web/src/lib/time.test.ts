@@ -60,3 +60,13 @@ describe("spanDays", () => {
     ).toBe(15);
   });
 });
+
+import { deviceName } from "../components/Devices";
+
+describe("deviceName", () => {
+  it("names the app and browsers", () => {
+    expect(deviceName("Mozilla/5.0 (Linux; Android 14) Chrome/140 Mobile SentinelaApp/1")).toBe("App no Android");
+    expect(deviceName("Mozilla/5.0 (Windows NT 10.0) AppleWebKit Chrome/140 Safari/537 Edg/140")).toBe("Edge no Windows");
+    expect(deviceName("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0) Safari/604")).toBe("Safari no iPhone");
+  });
+});

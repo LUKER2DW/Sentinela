@@ -107,6 +107,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/logout", s.logout)
 	mux.Handle("GET /api/me", viewer(s.me))
 	mux.Handle("POST /api/me/password", viewer(s.changeOwnPassword))
+	mux.Handle("GET /api/me/sessions", viewer(s.mySessions))
+	mux.Handle("DELETE /api/me/sessions/{id}", viewer(s.revokeSession))
 
 	// Users (admin)
 	mux.Handle("GET /api/users", admin(s.listUsers))

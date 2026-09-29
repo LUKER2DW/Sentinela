@@ -470,3 +470,31 @@ func TestPushSubscribeAndMode(t *testing.T) {
 		t.Fatalf("set mode = %d %v", code, m)
 	}
 }
+
+func TestDeviceSessionsRevoke(t *testing.T) {
+	ts, _ := newTestServer(t)
+	phone := newClient(t, ts.URL)
+	phone.do("POST", "/api/setup", `{"username":"admin","password":"long enough pw"}`)
+	pc := newClient(t, ts.URL)
+	pc.do("POST", "/api/login", `{"username":"admin","password":"long enough pw"}`)
+	var list []map[string]any
+	_, _, body := pc.do("GET", "/api/me/sessions", "")
+	if err := json.Unmarshal([]byte(body), &list); err != nil || len(list) != 2 {
+		t.Fatalf("sessions = %s", body)
+	}
+	var other string
+	for _, s := range list {
+		if s["current"] != true {
+			other = s["id"].(string)
+		}
+	}
+	if code, _, _ := pc.do("DELETE", "/api/me/sessions/"+other, ""); code != 200 {
+		t.Fatalf("revoke = %d", code)
+	}
+	if code, _, _ := phone.do("GET", "/api/me", ""); code != 401 {
+		t.Fatalf("revoked phone still logged in: %d", code)
+	}
+	if code, _, _ := pc.do("GET", "/api/me", ""); code != 200 {
+		t.Fatalf("own session lost: %d", code)
+	}
+}

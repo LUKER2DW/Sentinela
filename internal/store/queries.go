@@ -166,6 +166,42 @@ func (s *Store) DeleteSession(ctx context.Context, idHash []byte) error {
 	return err
 }
 
+// DeviceSession is a session as shown to its owner. ID is the first 8 bytes
+// of the token hash in hex: enough to pick one, useless to log in with.
+type DeviceSession struct {
+	ID        string    `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	ExpiresAt time.Time `json:"expires_at"`
+	UserAgent string    `json:"user_agent"`
+	Current   bool      `json:"current"`
+}
+
+// UserSessions lists a user's live sessions, newest first.
+func (s *Store) UserSessions(ctx context.Context, userID int64) ([]DeviceSession, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT lower(hex(substr(id_hash,1,8))),created_at,expires_at,user_agent FROM sessions
+		WHERE user_id=? AND expires_at>? ORDER BY created_at DESC`, userID, Now())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []DeviceSession{}
+	for rows.Next() {
+		var d DeviceSession
+		var c, e string
+		if err := rows.Scan(&d.ID, &c, &e, &d.UserAgent); err != nil {
+			return nil, err
+		}
+		d.CreatedAt, d.ExpiresAt = mustTime(c), mustTime(e)
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
+// DeleteUserSession removes one of a user's sessions by its short id.
+func (s *Store) DeleteUserSession(ctx context.Context, userID int64, id string) error {
+	return s.execOne(ctx, `DELETE FROM sessions WHERE user_id=? AND lower(hex(substr(id_hash,1,8)))=?`, userID, id)
+}
+
 // PurgeExpiredSessions deletes expired sessions.
 func (s *Store) PurgeExpiredSessions(ctx context.Context) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE expires_at<=?`, Now())

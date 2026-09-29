@@ -7,6 +7,7 @@ import { useCameras } from "./LivePage";
 import { VolumeMeter } from "./NuvemPage";
 import { PasswordField } from "../components/PasswordField";
 import { NotificationsCard } from "../components/Notifications";
+import { DevicesCard } from "../components/Devices";
 
 const roleLabel: Record<Role, string> = { admin: "Administrador", operator: "Operador", viewer: "Visualizador" };
 const stateLabel: Record<string, string> = {
@@ -53,6 +54,7 @@ export function SystemPage() {
             <Server s={s} />
             <Account />
             <NotificationsCard />
+            <DevicesCard />
           </div>
           {can("admin") && <Users />}
           {can("admin") && <Audit />}
