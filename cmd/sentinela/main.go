@@ -133,8 +133,9 @@ func serve(ctx context.Context, log *slog.Logger, cfgPath string) error {
 		wg.Add(1)
 		go func() { defer wg.Done(); w.Run(ctx) }()
 	}
-	wg.Add(1)
+	wg.Add(2)
 	go func() { defer wg.Done(); maintenance(ctx, log, cfg, st, srv) }()
+	go func() { defer wg.Done(); srv.WatchDetector(ctx) }()
 
 	hs := &http.Server{Addr: cfg.Listen, Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout: 2 * time.Minute, MaxHeaderBytes: 64 << 10}

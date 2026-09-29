@@ -17,3 +17,4 @@ mobile/build/
 *.aab
 *.jks
 *.keystore
+detector/.export/

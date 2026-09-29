@@ -188,8 +188,8 @@ func (s *Server) listUsers(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Username string `json:"username"`
-		Password string `json:"password"`
+		Username string   `json:"username"`
+		Password string   `json:"password"`
 		Role     string   `json:"role"`
 		Cameras  []string `json:"cameras"`
 	}

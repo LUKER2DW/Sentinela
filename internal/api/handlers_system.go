@@ -249,6 +249,7 @@ func (s *Server) system(w http.ResponseWriter, r *http.Request) {
 		"nas_host":     s.Cfg.NASHost,
 		"disk_health":  health,
 		"backup":       backup,
+		"detector":     s.detectorInfo(),
 	})
 }
 

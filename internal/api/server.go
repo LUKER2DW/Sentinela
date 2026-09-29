@@ -43,7 +43,9 @@ type Server struct {
 
 	snaps    snapshotter
 	tlSem    chan struct{} // one timelapse at a time
-	wizardMu sync.Mutex    // one camera search/test at a time
+	det      detectorState // object detector sidecar (ADR-0016)
+	frames   frameCache
+	wizardMu sync.Mutex // one camera search/test at a time
 	push     notifier
 
 	// Nuvem file API (ADR-0012); nil when the share is not mounted.
@@ -71,6 +73,12 @@ func New(cfg *config.Config, st *store.Store, web fs.FS, log *slog.Logger) (*Ser
 		cam := &cfg.Cameras[i]
 		addr := hostPort(cam.Host, cam.DVRIPPort)
 		s.ctrl[cam.ID] = dvrip.NewController(addr, cam.User, cam.Password, cam.InvertPanTilt, log.With("camera", cam.ID))
+	}
+	s.det.motion, s.det.open = map[string]bool{}, map[string]int64{}
+	if tok, err := loadDetectorToken(cfg.DataDir); err != nil {
+		log.Warn("object detector disabled: token", "err", err)
+	} else {
+		s.det.token = tok
 	}
 	s.openNAS()
 	if keys, err := push.LoadOrCreateKeys(filepath.Join(cfg.DataDir, "push", "vapid.json")); err != nil {
@@ -142,6 +150,15 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("PUT /api/recordings/{seg}/protected", operator(s.protectSegment))
 	mux.Handle("GET /api/cameras/{id}/export", viewer(s.export))
 	mux.Handle("GET /api/cameras/{id}/timelapse", viewer(s.timelapse))
+	mux.Handle("GET /api/cameras/{id}/frame.jpeg", viewer(s.frame))
+	mux.Handle("GET /api/cameras/{id}/detection", viewer(s.getDetection))
+	mux.Handle("PUT /api/cameras/{id}/detection", operator(s.putDetection))
+
+	// Object detector sidecar (loopback + token, ADR-0016).
+	mux.Handle("GET /internal/detector/config", s.detectorOnly(s.detectorConfig))
+	mux.Handle("GET /internal/detector/motion", s.detectorOnly(s.detectorMotion))
+	mux.Handle("POST /internal/detector/event", s.detectorOnly(s.detectorEvent))
+	mux.Handle("POST /internal/detector/status", s.detectorOnly(s.detectorStatus))
 
 	// Events and system
 	mux.Handle("GET /api/events", viewer(s.listEvents))

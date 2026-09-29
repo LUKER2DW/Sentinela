@@ -106,6 +106,12 @@ func (s *Server) notify(ctx context.Context, cameraID, typ string, eventID int64
 	if s.push.sender == nil || !Notifies(s.modeSettings(ctx).Effective(s.localNow()), typ) {
 		return
 	}
+	// With the object detector running, plain motion (trees, shadows, cars
+	// on the street) stays on the timeline; people and objects in the
+	// zones notify instead (ADR-0016).
+	if typ == "motion" && s.detectorHealthy() && s.detection(ctx, cameraID).Enabled {
+		return
+	}
 	s.push.mu.Lock()
 	if s.push.last == nil {
 		s.push.last = map[string]time.Time{}
@@ -148,6 +154,10 @@ func eventTitle(typ string) string {
 		return "Entrada na área"
 	case "tamper":
 		return "Câmera mexida"
+	case "vehicle":
+		return "Veículo"
+	case "animal":
+		return "Animal"
 	}
 	return "Evento"
 }

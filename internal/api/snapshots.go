@@ -30,16 +30,29 @@ type snapshotter struct {
 }
 
 // HandleEvent receives ONVIF event transitions: live push to browsers, a
-// snapshot when an event starts, then a notification (ADR-0013).
+// snapshot when an event starts, then a notification (ADR-0013). Motion
+// also wakes the object detector (ADR-0016).
 func (s *Server) HandleEvent(cameraID, typ string, eventID int64, active bool, at time.Time) {
-	s.hub.Publish(LiveEvent{CameraID: cameraID, Type: typ, Active: active, At: at.UTC()})
+	if typ == "motion" {
+		s.noteMotion(cameraID, active)
+	}
 	if !active {
+		s.hub.Publish(LiveEvent{CameraID: cameraID, Type: typ, Active: false, At: at.UTC()})
 		return
 	}
+	s.eventStarted(cameraID, typ, eventID, at, false)
+}
+
+// eventStarted publishes a new event, takes a snapshot unless the caller
+// already stored one, then notifies.
+func (s *Server) eventStarted(cameraID, typ string, eventID int64, at time.Time, haveSnapshot bool) {
+	s.hub.Publish(LiveEvent{CameraID: cameraID, Type: typ, Active: true, At: at.UTC()})
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), snapshotTimeout+5*time.Second)
 		defer cancel()
-		s.takeSnapshot(ctx, cameraID, eventID)
+		if !haveSnapshot {
+			s.takeSnapshot(ctx, cameraID, eventID)
+		}
 		s.notify(ctx, cameraID, typ, eventID, at)
 	}()
 }
@@ -60,26 +73,46 @@ func (s *Server) takeSnapshot(ctx context.Context, cameraID string, eventID int6
 	s.snaps.last[cameraID] = time.Now()
 	s.snaps.mu.Unlock()
 
-	if err := s.fetchSnapshot(ctx, cameraID, eventID); err != nil {
+	ctx, cancel := context.WithTimeout(ctx, snapshotTimeout)
+	defer cancel()
+	b, err := s.grabFrame(ctx, cameraID)
+	if err == nil {
+		err = s.saveSnapshot(cameraID, eventID, b)
+	}
+	if err != nil {
 		s.Log.Warn("event snapshot failed", "camera", cameraID, "event", eventID, "err", err)
 	}
 }
 
-func (s *Server) fetchSnapshot(ctx context.Context, cameraID string, eventID int64) error {
-	ctx, cancel := context.WithTimeout(ctx, snapshotTimeout)
-	defer cancel()
+// grabFrame asks go2rtc for one substream keyframe as JPEG.
+func (s *Server) grabFrame(ctx context.Context, cameraID string) ([]byte, error) {
 	u := s.go2rtc.String() + "/api/frame.jpeg?src=" + cameraID + "_sub"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return errors.New("go2rtc unreachable")
+		return nil, errors.New("go2rtc unreachable")
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("go2rtc: HTTP %d", resp.StatusCode)
+		return nil, fmt.Errorf("go2rtc: HTTP %d", resp.StatusCode)
+	}
+	b, err := io.ReadAll(io.LimitReader(resp.Body, snapshotMax+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(b) == 0 || len(b) > snapshotMax {
+		return nil, fmt.Errorf("unexpected snapshot size %d", len(b))
+	}
+	return b, nil
+}
+
+// saveSnapshot stores an event picture atomically.
+func (s *Server) saveSnapshot(cameraID string, eventID int64, jpg []byte) error {
+	if len(jpg) == 0 || len(jpg) > snapshotMax {
+		return fmt.Errorf("unexpected snapshot size %d", len(jpg))
 	}
 	dst := s.snapshotPath(cameraID, eventID)
 	if err := os.MkdirAll(filepath.Dir(dst), 0o750); err != nil {
@@ -90,15 +123,12 @@ func (s *Server) fetchSnapshot(ctx context.Context, cameraID string, eventID int
 		return err
 	}
 	defer os.Remove(tmp.Name())
-	n, err := io.Copy(tmp, io.LimitReader(resp.Body, snapshotMax+1))
+	_, err = tmp.Write(jpg)
 	if cerr := tmp.Close(); err == nil {
 		err = cerr
 	}
 	if err != nil {
 		return err
-	}
-	if n == 0 || n > snapshotMax {
-		return fmt.Errorf("unexpected snapshot size %d", n)
 	}
 	return os.Rename(tmp.Name(), dst)
 }
