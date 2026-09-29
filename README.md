@@ -39,6 +39,15 @@ Builds the image on the PC, streams it to the server over SSH (key
 three containers and waits for the health check (~1–2 min). Override the
 target with `SENTINELA_HOST=user@host`.
 
+## Auto deploy (push to GitHub)
+
+The server checks `main` on GitHub every 2 minutes. A new commit is built on
+the server, deployed, health-checked, and rolled back if unhealthy
+([ADR-0009](docs/adr/0009-pull-auto-deploy.md)). One-time setup on the
+server: `sudo /opt/sentinela/scripts/setup-autodeploy.sh` (prints a
+read-only deploy key to add on GitHub). Watch it with
+`journalctl -u sentinela-autodeploy -f`.
+
 ## Install on a fresh server (Ubuntu 22.04)
 
 1. Mount the recordings disk at `/data` (and the NAS disk at `/srv/nas` if

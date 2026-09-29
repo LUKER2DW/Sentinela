@@ -1,0 +1,13 @@
+[Unit]
+Description=Sentinela auto deploy (poll GitHub, build, restart, roll back)
+Wants=network-online.target docker.service
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/sentinela-autodeploy
+# Low priority for the git/tar work; the image build itself runs inside dockerd.
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+TimeoutStartSec=45min
