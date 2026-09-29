@@ -121,6 +121,7 @@ function Playback({
   onJump: (ms: number) => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
   const [speed, setSpeed] = useState(1);
   const [playing, setPlaying] = useState(false);
   const [pos, setPos] = useState<number | null>(requested);
@@ -173,11 +174,26 @@ function Playback({
       </div>
     );
 
+  // ±10 s: seek inside the loaded file; cross into the next/previous file via the timeline.
+  const skip = (sec: number) => {
+    const v = videoRef.current;
+    if (!v || pos === null) return;
+    const t = v.currentTime + sec;
+    if (t >= 0 && t < (v.duration || 0) - 0.5) v.currentTime = t;
+    else onJump(pos + sec * 1000);
+  };
+  const fullscreen = () => {
+    const el = wrapRef.current;
+    if (document.fullscreenElement) void document.exitFullscreen();
+    else if (el?.requestFullscreen) void el.requestFullscreen().catch(() => {});
+    else (videoRef.current as HTMLVideoElement & { webkitEnterFullscreen?: () => void })?.webkitEnterFullscreen?.();
+  };
+
   const gapNote = requested < segStart - 5000 ? `Sem gravação às ${fmtHM(requested)}; começando às ${fmtHM(segStart)}.` : "";
 
   return (
     <div>
-      <div className="player">
+      <div className="player" ref={wrapRef} onDoubleClick={fullscreen}>
         <video
           key={current.seg.id}
           ref={videoRef}
@@ -225,17 +241,20 @@ function Playback({
           </button>
           <div className="segmented" role="group" aria-label="Velocidade">
             {SPEEDS.map((s) => (
-              <button key={s} aria-pressed={speed === s} onClick={() => setSpeed(s)}>
+              <button key={s} aria-pressed={speed === s} onClick={() => setSpeed(s)} className={s > 4 ? "hide-sm" : undefined}>
                 {s}×
               </button>
             ))}
           </div>
           <span className="spacer" />
-          <button className="btn icon" aria-label="Voltar 10 segundos" title="Voltar 10 s" onClick={() => pos && onJump(pos - 10_000)}>
-            <Icon name="chevronLeft" />
+          <button className="btn skip" aria-label="Voltar 10 segundos" title="Voltar 10 s" onClick={() => skip(-10)}>
+            −10
           </button>
-          <button className="btn icon" aria-label="Avançar 30 segundos" title="Avançar 30 s" onClick={() => pos && onJump(pos + 30_000)}>
-            <Icon name="chevronRight" />
+          <button className="btn skip" aria-label="Avançar 10 segundos" title="Avançar 10 s" onClick={() => skip(10)}>
+            +10
+          </button>
+          <button className="btn icon" onClick={fullscreen} aria-label="Tela cheia" title="Tela cheia">
+            <Icon name="fullscreen" />
           </button>
         </div>
       </div>
@@ -259,7 +278,24 @@ function Playback({
   );
 }
 
+// Clips shared through the phone's share sheet are fetched into memory first:
+// keep them short (5 min of main stream is ~70 MB).
+const SHARE_MAX_MIN = 5;
+
+async function shareClip(url: string, name: string): Promise<boolean> {
+  const nav = navigator as Navigator & { canShare?: (d: ShareData) => boolean };
+  if (!nav.share || !nav.canShare) return false;
+  const res = await fetch(url, { credentials: "same-origin" });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const file = new File([await res.blob()], name, { type: "video/mp4" });
+  if (!nav.canShare({ files: [file] })) return false;
+  await nav.share({ files: [file], title: name });
+  return true;
+}
+
 function ExportDialog({ camId, start, onClose }: { camId: string; start: number; onClose: () => void }) {
+  const toast = useToast();
+  const [sharing, setSharing] = useState(false);
   const [minutes, setMinutes] = useState(5);
   const [back, setBack] = useState(1);
   const from = new Date(start - back * 60_000);
@@ -296,6 +332,22 @@ function ExportDialog({ camId, start, onClose }: { camId: string; start: number;
           <button className="btn ghost" onClick={onClose}>
             Cancelar
           </button>
+          {"share" in navigator && minutes <= SHARE_MAX_MIN && (
+            <button
+              className="btn"
+              disabled={sharing}
+              onClick={() => {
+                setSharing(true);
+                const name = `sentinela-${camId}-${toDateInput(from)}-${fmtHM(from).replace(":", "h")}.mp4`;
+                shareClip(url, name)
+                  .then((ok) => (ok ? onClose() : toast("Este aparelho não compartilha vídeos; use Baixar.", true)))
+                  .catch((e: Error) => e.name !== "AbortError" && toast(`Compartilhar: ${e.message}`, true))
+                  .finally(() => setSharing(false));
+              }}
+            >
+              <Icon name="share" /> {sharing ? "Preparando…" : "Compartilhar"}
+            </button>
+          )}
           <a className="btn primary" href={url} download onClick={() => window.setTimeout(onClose, 300)}>
             <Icon name="download" /> Baixar MP4
           </a>
