@@ -1,4 +1,4 @@
-# ADR-0009: Pull-based auto deploy from GitHub
+# ADR-0009: Auto deploy from GitHub without inbound access
 
 Status: Accepted · 2026-09-28 (owner request)
 
@@ -9,10 +9,19 @@ own. The server is LAN-only (AGENTS.md §2.5): nothing may call into it from
 the internet, so a GitHub webhook or an Actions runner pushing to it is out.
 
 ## Decision
-- The server **pulls**: `sentinela-autodeploy.timer` runs every 2 minutes and
-  `git fetch`es `main` over SSH with a **read-only deploy key**
-  (`/etc/sentinela/deploy_key`, root 0600). No inbound port, no registry, no
-  token with write access.
+- **Trigger: a GitHub Actions self-hosted runner** on the server
+  (`.github/workflows/deploy.yml`, label `sentinela`). The runner keeps an
+  outbound long-poll to GitHub, so a push starts the job within seconds and
+  no port is opened. It runs as `gh-runner` (no shell, no docker group) whose
+  only privilege is one sudoers rule: `sentinela-autodeploy --wait`. A
+  workflow can therefore only ask the server to deploy what is on `main`.
+  Installed by `scripts/setup-runner.sh` (pinned version + SHA-256; the
+  one-time registration token is piped on stdin).
+- **Fallback:** `sentinela-autodeploy.timer` checks every 15 minutes in case
+  the runner is down. A lock serialises both.
+- The deployer `git fetch`es `main` over SSH with a **read-only deploy key**
+  (`/etc/sentinela/deploy_key`, root 0600). No registry, no token with write
+  access on the server.
 - On a new head it builds the image **on the server** (same Dockerfile),
   ships `deploy/` + `scripts/`, restarts with `compose up
   --no-build`, and waits for the health check. Unhealthy → retag
@@ -25,7 +34,7 @@ the internet, so a GitHub webhook or an Actions runner pushing to it is out.
   only acts when GitHub's head changes.
 
 ## Consequences
-+ Push to `main` → live in ~5–15 min (first build longer: Go and npm caches
++ Push to `main` → build starts in seconds, live in ~5 min (first build longer: Go and npm caches
   are cold). Recording keeps running during the build; the recorder
   container restarts for a few seconds when the image changes, as with any
   deploy.
@@ -35,4 +44,7 @@ the internet, so a GitHub webhook or an Actions runner pushing to it is out.
 − Anyone who can push to `main` can run code on the server: write access to
   the repository is as sensitive as SSH access. Keep the repo private and
   2FA on.
-− One more host unit to know about: `journalctl -u sentinela-autodeploy`.
+− Two more host services: the runner (~80 MB RSS idle, ~0 % CPU;
+  self-update is disabled, so bump `VER`/`SHA` in `setup-runner.sh`) and the
+  fallback timer. Logs: the repo's Actions tab, or
+  `journalctl -u sentinela-autodeploy`.

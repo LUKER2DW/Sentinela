@@ -41,12 +41,17 @@ target with `SENTINELA_HOST=user@host`.
 
 ## Auto deploy (push to GitHub)
 
-The server checks `main` on GitHub every 2 minutes. A new commit is built on
-the server, deployed, health-checked, and rolled back if unhealthy
-([ADR-0009](docs/adr/0009-pull-auto-deploy.md)). One-time setup on the
-server: `sudo /opt/sentinela/scripts/setup-autodeploy.sh` (prints a
-read-only deploy key to add on GitHub). Watch it with
-`journalctl -u sentinela-autodeploy -f`.
+A push to `main` starts the `deploy` workflow on the server's self-hosted
+runner: it builds on the server, restarts, health-checks and rolls back if
+unhealthy ([ADR-0009](docs/adr/0009-pull-auto-deploy.md)). No port is
+opened; a 15-minute timer is the fallback. One-time setup on the server:
+
+1. `sudo /opt/sentinela/scripts/setup-autodeploy.sh` (prints a read-only
+   deploy key to add on GitHub).
+2. From the dev PC (the token goes straight through the pipe):
+   `gh api -X POST repos/LUKER2DW/Sentinela/actions/runners/registration-token --jq .token | ssh -i ~/.ssh/id_ed25519_sentinela ana@192.168.1.10 'sudo /opt/sentinela/scripts/setup-runner.sh'`
+
+Follow deploys in the repo's Actions tab or `journalctl -u sentinela-autodeploy -f`.
 
 ## Install on a fresh server (Ubuntu 22.04)
 

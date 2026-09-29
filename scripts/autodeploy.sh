@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Pull-based auto deploy (ADR-0009). Run by sentinela-autodeploy.timer as root.
+# Auto deploy (ADR-0009). Run as root by the GitHub Actions self-hosted runner
+# on every push (`--wait`, via a single sudoers rule) and by a slow fallback
+# timer (sentinela-autodeploy.timer) in case the runner is down.
 #
 # Polls GitHub; when the branch head changes it builds the image on this
 # server, ships deploy/ + scripts/ to /opt/sentinela, restarts the stack and
@@ -18,7 +20,11 @@ KEY=/etc/sentinela/deploy_key
 export GIT_SSH_COMMAND="ssh -i $KEY -o IdentitiesOnly=yes -o UserKnownHostsFile=/etc/sentinela/known_hosts -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15"
 
 exec 9>/run/sentinela-autodeploy.lock
-flock -n 9 || exit 0
+if [[ "${1:-}" == "--wait" ]]; then
+  flock 9 # runner: wait for a timer run in progress, then check again
+else
+  flock -n 9 || exit 0
+fi
 
 log() { echo "autodeploy: $*"; }
 compose() { (cd "$APP/deploy" && docker compose "$@"); }
