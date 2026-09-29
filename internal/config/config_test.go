@@ -33,7 +33,7 @@ func TestValidate(t *testing.T) {
 		"ntfy http":     "ntfy: {public_url: 'http://s.ts.net:8443'}",
 		"ntfy path":     "ntfy: {public_url: 'https://s.ts.net:8443/ntfy'}",
 		"funnel on lan": "remote: {funnel_listen: '0.0.0.0:8081'}",
-		"public ip":     "remote: {public: {domain: '203.0.113.7'}}",
+		"public lan ip": "remote: {public: {domain: '192.168.1.10'}}",
 		"public tag":    "remote: {app_tag: 'sentinela-app'}",
 	}
 	for name, y := range cases {

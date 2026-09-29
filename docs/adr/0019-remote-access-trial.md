@@ -61,6 +61,14 @@ the QR code is drawn by `rsc.io/qr` (BSD-3, no dependencies). Passkeys
   home's public address (outbound STUN only).
 - Needs a domain whose A record points at home; a changing IP needs the
   registrar's or the router's dynamic DNS (chosen with the owner).
+- **No domain (2026-09-29, owner):** the home has a fixed public IP, so
+  `remote.public.domain` may be that IP. Let's Encrypt signs IP addresses
+  only with its `shortlived` profile (160 h), which autocert cannot request,
+  so `internal/publiccert` uses `github.com/go-acme/lego/v4` (MIT; pulls
+  go-jose, miekg/dns, backoff): TLS-ALPN-01 on the same listener, EC key,
+  renewal with a third of the lifetime left, files in `/data/acme/ip`
+  (0600). Browsers and the app open `https://<ip>` with a valid certificate,
+  no warning. Router: the same two forwards.
 - **CGNAT check first:** if the router's WAN IP differs from the public IP,
   port-forwarding cannot work (ask the ISP for a public IP, or IPv6).
 

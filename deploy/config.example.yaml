@@ -35,7 +35,7 @@ remote:
   # P1 port-forward + domain: router WAN 443 -> this port, 8555 tcp+udp -> 8555
   # (scripts/setup-public.sh). Let's Encrypt certificate kept in /data/acme.
   public:
-    # domain: casa.example.com.br
+    # domain: casa.example.com.br     # or the fixed public IP, e.g. 203.0.113.7
     # listen: ":7443"
     # email: you@example.com
   # P2 app keys: TS_OAUTH_CLIENT_ID / TS_OAUTH_CLIENT_SECRET in secrets.env.

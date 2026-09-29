@@ -62,6 +62,9 @@ type Remote struct {
 
 // PublicTLS is the port-forwarded HTTPS listener (P1). Empty Domain = off.
 type PublicTLS struct {
+	// Domain is a DNS name, or the home's fixed public IP (no domain): the
+	// certificate is then a 6-day Let's Encrypt IP certificate, renewed
+	// automatically (internal/publiccert).
 	Domain string `yaml:"domain"`
 	Listen string `yaml:"listen"`
 	// Email for Let's Encrypt expiry notices (optional).
@@ -211,8 +214,13 @@ func (c *Config) validate() error {
 		}
 	}
 	if d := c.Remote.Public.Domain; d != "" {
-		if !validHostname(d) || !strings.Contains(d, ".") || net.ParseIP(d) != nil {
-			errs = append(errs, errors.New("remote.public.domain must be a DNS name"))
+		if ip := net.ParseIP(d); ip != nil {
+			// A fixed public IP instead of a name (short-lived IP certificate).
+			if !ip.IsGlobalUnicast() || ip.IsPrivate() || ip.IsLoopback() {
+				errs = append(errs, errors.New("remote.public.domain: an IP must be the home's public address"))
+			}
+		} else if !validHostname(d) || !strings.Contains(d, ".") {
+			errs = append(errs, errors.New("remote.public.domain must be a DNS name or the fixed public IP"))
 		}
 		if _, _, err := net.SplitHostPort(c.Remote.Public.Listen); err != nil {
 			errs = append(errs, errors.New("remote.public.listen must be host:port"))

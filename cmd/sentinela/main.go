@@ -35,6 +35,7 @@ import (
 	"github.com/LUKER2DW/sentinela/internal/auth"
 	"github.com/LUKER2DW/sentinela/internal/camera/onvif"
 	"github.com/LUKER2DW/sentinela/internal/config"
+	"github.com/LUKER2DW/sentinela/internal/publiccert"
 	"github.com/LUKER2DW/sentinela/internal/recording"
 	"github.com/LUKER2DW/sentinela/internal/store"
 	"github.com/LUKER2DW/sentinela/web"
@@ -146,8 +147,17 @@ func serve(ctx context.Context, log *slog.Logger, cfgPath string) error {
 		servers = append(servers, &http.Server{Addr: l, Handler: srv.PublicHandler(api.ZoneFunnel)})
 	}
 	if p := cfg.Remote.Public; p.Domain != "" {
-		servers = append(servers, &http.Server{Addr: p.Listen, Handler: srv.PublicHandler(api.ZonePublic),
-			TLSConfig: publicTLS(cfg.DataDir, p.Domain, p.Email)})
+		var tc *tls.Config
+		if ip := net.ParseIP(p.Domain); ip != nil {
+			// No domain: a short-lived Let's Encrypt certificate for the fixed IP.
+			m := &publiccert.Manager{IP: ip.String(), Email: p.Email, Dir: filepath.Join(cfg.DataDir, "acme", "ip"), Log: log}
+			wg.Add(1)
+			go func() { defer wg.Done(); m.Run(ctx) }()
+			tc = m.TLSConfig()
+		} else {
+			tc = publicTLS(cfg.DataDir, p.Domain, p.Email)
+		}
+		servers = append(servers, &http.Server{Addr: p.Listen, Handler: srv.PublicHandler(api.ZonePublic), TLSConfig: tc})
 	}
 	errc := make(chan error, len(servers))
 	for _, hs := range servers {

@@ -4,7 +4,8 @@
 # enable: opens 7443/tcp and 8555/tcp+udp to any source in ufw (marker
 #   /etc/sentinela/public-access, kept by scripts/firewall.sh).
 # The owner does the rest: remote.public.domain in /etc/sentinela/config.yaml
-# (then redeploy), an A record for that domain pointing at home, and on the
+# (then redeploy) — a domain with an A record pointing at home, or the fixed
+# public IP itself (6-day IP certificate, internal/publiccert) — and on the
 # router WAN 443/tcp -> <server>:7443 and WAN 8555/tcp+udp -> <server>:8555.
 # Nobody can log in from outside before enrolling two-step login at home.
 set -euo pipefail
@@ -35,6 +36,6 @@ if ss -tln | grep -q ':7443 '; then echo "listener :7443: up"; else echo "listen
 # CGNAT check: the public IP seen from outside must be the router's WAN IP.
 pub="$(curl -fsS --max-time 5 https://api.ipify.org || true)"
 echo "public IP seen from outside: ${pub:-unknown} (compare with the router's WAN IP; different = CGNAT)"
-if [[ -n "$domain" ]]; then
+if [[ -n "$domain" && ! "$domain" =~ ^[0-9.]+$ && "$domain" != *:* ]]; then
   echo "DNS $domain -> $(getent ahostsv4 "$domain" | awk 'NR==1{print $1}')"
 fi
