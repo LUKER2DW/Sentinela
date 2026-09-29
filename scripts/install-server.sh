@@ -72,7 +72,7 @@ if ! mountpoint -q "${DATA}"; then
   warn "Mount the recordings disk at ${DATA} first (docs/ARCHITECTURE.md §6), or set SENTINELA_ALLOW_ROOT_DATA=1."
   [[ "${SENTINELA_ALLOW_ROOT_DATA:-0}" == 1 ]] || exit 1
 fi
-install -d -m 0750 -o 1000 -g 1000 "${DATA}/recordings" "${DATA}/db" "${DATA}/backup"
+install -d -m 0750 -o 1000 -g 1000 "${DATA}/recordings" "${DATA}/db" "${DATA}/backup" "${DATA}/detector"
 chown 1000:1000 "${DATA}"   # top level only: never walk every recording
 df -h "${DATA}" | tail -1
 
@@ -104,6 +104,7 @@ export SENTINELA_VERSION
 docker compose pull -q go2rtc
 if docker image inspect sentinela:local >/dev/null 2>&1 && [[ "${SENTINELA_BUILD:-0}" != 1 ]]; then
   echo "using existing image sentinela:local (SENTINELA_BUILD=1 rebuilds here)"
+  docker image inspect sentinela-detector:local >/dev/null 2>&1 || docker compose build detector
   docker compose up -d --no-build --remove-orphans
 else
   docker compose up -d --build --remove-orphans

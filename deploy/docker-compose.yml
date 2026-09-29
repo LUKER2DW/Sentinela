@@ -76,6 +76,30 @@ services:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
 
+  # Object detector (ADR-0016): wakes on the camera's motion events, reads
+  # substream keyframes from go2rtc's loopback restream, runs YOLO26n and
+  # reports to the API on loopback. Hard-capped at 15 % of one core; nothing
+  # depends on it. /data/detector holds the shared token (created by serve).
+  detector:
+    build: ../detector
+    image: sentinela-detector:local
+    network_mode: host
+    user: "1000:1000"
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      TZ: UTC
+    volumes:
+      - /data/detector:/data/detector:ro
+    tmpfs: [/tmp]
+    cpus: 0.15
+    mem_limit: 192m
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
   # Independent of the API and go2rtc (ADR-0007): pulls RTSP from the camera.
   recorder:
     <<: *sentinela

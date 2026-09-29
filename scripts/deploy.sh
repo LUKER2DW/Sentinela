@@ -25,6 +25,9 @@ fi
 echo "==> build sentinela:${VERSION}"
 docker build -q -t sentinela:local -t "sentinela:${VERSION}" --build-arg VERSION="${VERSION}" . >/dev/null
 
+echo "==> build sentinela-detector"
+docker build -q -t sentinela-detector:local detector >/dev/null
+
 echo "==> ship deploy files"
 # shellcheck disable=SC2016 # $USER expands on the server
 "${SSH[@]}" 'sudo install -d -o "$USER" -g "$USER" /opt/sentinela'
@@ -33,7 +36,16 @@ git ls-files -z deploy scripts | tar --null -T - -cf - | "${SSH[@]}" 'tar -m -x 
 echo "==> ship image ($(docker image inspect sentinela:local --format '{{.Size}}' | awk '{printf "%.0f MB", $1/1e6}'))"
 docker save sentinela:local | gzip -1 | "${SSH[@]}" 'gunzip | docker load -q'
 
+# The detector image is large (~500 MB) and rarely changes: ship it only
+# when the server has a different build.
+DET_ID="$(docker image inspect sentinela-detector:local --format '{{.Id}}')"
+if [[ "$("${SSH[@]}" "docker image inspect sentinela-detector:local --format '{{.Id}}' 2>/dev/null")" != "$DET_ID" ]]; then
+  echo "==> ship detector image"
+  docker save sentinela-detector:local | gzip -1 | "${SSH[@]}" 'gunzip | docker load -q'
+fi
+
 echo "==> restart stack"
+"${SSH[@]}" 'sudo install -d -o 1000 -g 1000 -m 0750 /data/detector'
 # go2rtc mounts the extra-cameras file: it must exist (else docker makes a directory).
 "${SSH[@]}" 'sudo test -f /etc/sentinela/go2rtc-cameras.yaml || echo "# cameras added by scripts/add-camera.sh" | sudo install -m 0644 /dev/stdin /etc/sentinela/go2rtc-cameras.yaml'
 "${SSH[@]}" "cd /opt/sentinela/deploy && sudo docker compose pull -q go2rtc && sudo SENTINELA_VERSION=${VERSION} docker compose up -d --no-build --remove-orphans && docker image prune -f >/dev/null"
