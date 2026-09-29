@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, fetchSystem, get, onUnauthorized, setCsrf, type CamEvent, type User } from "./lib/api";
+import { api, fetchSystem, get, onUnauthorized, setCsrf, type ReviewList, type User } from "./lib/api";
 import { href, useRoute } from "./lib/router";
 import { SessionProvider, ToastProvider, useSession } from "./lib/session";
 import { LiveEventsProvider, useActiveEvents } from "./lib/liveEvents";
@@ -110,15 +110,15 @@ function useNewVersion(): boolean {
   return !!v && !!loadedVersion && v !== loadedVersion;
 }
 
-/** Today's motion count, for the Eventos badge. */
-function useTodayEvents(): number {
-  const today = startOfDay(useNow()).toISOString();
+/** Today's unseen review items, for the Eventos badge (matches "Hoje"). */
+function useUnseenEvents(): number {
+  const since = startOfDay(useNow()).toISOString();
   const q = useQuery({
-    queryKey: ["events", "badge", today],
-    queryFn: () => get<CamEvent[]>(`/api/events?from=${today}`),
+    queryKey: ["review", "badge", since],
+    queryFn: () => get<ReviewList>(`/api/review?from=${since}&unseen=1`),
     refetchInterval: 60_000,
   });
-  return q.data?.length ?? 0;
+  return q.data?.unseen ?? 0;
 }
 
 function Shell() {
@@ -126,7 +126,7 @@ function Shell() {
   const { user, logout } = useSession();
   const qc = useQueryClient();
   const collapsed = useSidebarCollapsed();
-  const eventsToday = useTodayEvents();
+  const eventsToday = useUnseenEvents();
   const updated = useNewVersion();
   // Keeps the UI clock on server time on every page (shared cache with the pages).
   useQuery({ queryKey: ["system"], queryFn: fetchSystem, refetchInterval: 60_000 });

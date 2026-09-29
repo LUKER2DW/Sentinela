@@ -54,6 +54,24 @@ export interface CamEvent {
   end?: string;
 }
 
+/** A group of events (internal/review): what the Eventos page lists. */
+export interface ReviewItem {
+  id: number;
+  camera_id: string;
+  start: string;
+  end?: string;
+  types: string[];
+  severity: "alert" | "detection";
+  events: number;
+  snapshot_event?: number;
+  seen: boolean;
+}
+
+export interface ReviewList {
+  items: ReviewItem[];
+  unseen: number;
+}
+
 export interface Timeline {
   segments: Segment[];
   events: CamEvent[];
