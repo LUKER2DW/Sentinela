@@ -52,6 +52,47 @@ export const fileUrl = (p: string, download = false) => `/api/nas/file?path=${en
 export const thumbUrl = (p: string) => `/api/nas/thumb?path=${encodeURIComponent(p)}`;
 export const mkdir = (p: string) => api("POST", "/api/nas/mkdir", { path: p });
 export const move = (from: string, to: string) => api("POST", "/api/nas/move", { from, to });
+/** Overwrites a plain-text file (the viewer's editor). */
+export async function saveText(p: string, text: string): Promise<void> {
+  const res = await fetch(`/api/nas/text?path=${encodeURIComponent(p)}`, {
+    method: "PUT",
+    body: text,
+    headers: { "X-CSRF-Token": getCsrf(), "Content-Type": "text/plain; charset=utf-8" },
+    credentials: "same-origin",
+  });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new ApiError(res.status, data.error ?? `HTTP ${res.status}`);
+  }
+}
+
+/** Creates an empty file (a zero-byte upload). */
+export const createEmpty = (p: string) => uploadFile(new File([], baseName(p)), p, () => {}, new AbortController().signal);
+
+export type TypeFilter = "" | "folder" | "image" | "video" | "audio" | "doc" | "other";
+export type DateFilter = "" | "today" | "7d" | "30d" | "year";
+
+/** Explorer filters: type group and modification date. */
+export function matchesFilters(e: NasEntry, type: TypeFilter, date: DateFilter, now = Date.now()): boolean {
+  if (type) {
+    const k = kindOf(e);
+    const group = k === "pdf" || k === "text" ? "doc" : k === "archive" || k === "file" ? "other" : k;
+    if (group !== type) return false;
+  }
+  if (date) {
+    const t = new Date(e.modified).getTime();
+    const d = new Date(now);
+    const since =
+      date === "today"
+        ? new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+        : date === "year"
+          ? new Date(d.getFullYear(), 0, 1).getTime()
+          : now - (date === "7d" ? 7 : 30) * 86_400_000;
+    if (t < since) return false;
+  }
+  return true;
+}
+
 export const remove = (p: string) => api<{ trash: string }>("DELETE", `/api/nas/file?path=${encodeURIComponent(p)}`);
 
 const IMAGE = /\.(jpe?g|png|gif|webp)$/i;

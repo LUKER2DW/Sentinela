@@ -33,6 +33,17 @@ describe("nas kinds and sorting", async () => {
     expect(out).toEqual(["alpha", "Zeta", "b2.txt", "b10.txt"]);
     expect(sortEntries([e("a", false, 5), e("b", false, 9)], "size", false)[0].name).toBe("b");
   });
+  it("filters by type group and date", async () => {
+    const { matchesFilters } = await import("./nas");
+    const now = new Date(2026, 8, 29, 12).getTime();
+    const f = (name: string, daysAgo: number, dir = false) => ({ name, dir, size: 1, modified: new Date(now - daysAgo * 86_400_000).toISOString() });
+    expect(matchesFilters(f("a.pdf", 0), "doc", "", now)).toBe(true);
+    expect(matchesFilters(f("a.txt", 0), "image", "", now)).toBe(false);
+    expect(matchesFilters(f("a.zip", 0), "other", "", now)).toBe(true);
+    expect(matchesFilters(f("a.jpg", 3), "", "7d", now)).toBe(true);
+    expect(matchesFilters(f("a.jpg", 3), "", "today", now)).toBe(false);
+    expect(matchesFilters(f("Fotos", 40, true), "folder", "30d", now)).toBe(false);
+  });
   it("refuses moving a folder into itself", () => {
     expect(inside("ana/Fotos/2024", "ana/Fotos")).toBe(true);
     expect(inside("ana/Fotos", "ana/Fotos")).toBe(true);

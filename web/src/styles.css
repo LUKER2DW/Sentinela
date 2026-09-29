@@ -1622,3 +1622,84 @@ table.table { width: 100%; border-collapse: collapse; }
 .account-id > div:nth-child(2) { flex: 1; min-width: 200px; display: grid; gap: 2px; }
 .account-hero-actions { display: flex; gap: 8px; }
 .account-grid { align-items: start; }
+
+/* ---------- Nuvem v3: VS Code-like explorer, filters, details pane, editor ---------- */
+.explorer { grid-template-columns: 260px minmax(0, 1fr); height: calc(100dvh - 250px); min-height: 480px; }
+.explorer.with-pane { grid-template-columns: 260px minmax(0, 1fr) 300px; }
+.explorer-main { overflow-y: auto; }
+.tree { display: flex; flex-direction: column; padding: 0; overflow: hidden; }
+.tree-bar { display: flex; align-items: center; gap: 2px; padding: 8px 8px 8px 12px; border-bottom: 1px solid var(--line); flex: none; }
+.tree-title { flex: 1; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.tree-tool { width: 28px; height: 28px; display: grid; place-items: center; border: 0; border-radius: var(--r-xs); background: none; color: var(--muted); cursor: pointer; }
+.tree-tool svg { width: 16px; height: 16px; }
+.tree-tool:hover:not(:disabled) { background: var(--surface-2); color: var(--text); }
+.tree-tool:disabled { opacity: 0.35; cursor: not-allowed; }
+.tree-scroll { flex: 1; min-height: 0; overflow: auto; padding: 6px 4px 12px; scrollbar-width: thin; }
+.tree-row { min-height: 28px; border-radius: var(--r-xs); }
+.tree-name { height: 28px; font-size: 0.88rem; gap: 6px; padding: 0 4px; }
+.tree-twist { width: 18px; height: 24px; }
+.tree-ico { display: grid; place-items: center; width: 18px; flex: none; }
+.tree-ico svg { width: 16px; height: 16px; color: var(--muted); }
+.tree-ico.dir svg, .tree-ico.top svg { color: var(--amber); }
+.tree-ico.top svg { color: var(--sea); }
+.tree-ico.k-image svg { color: var(--kelp); }
+.tree-ico.k-video svg, .tree-ico.k-pdf svg { color: var(--coral); }
+.tree-ico.k-audio svg { color: #b48fd6; }
+.tree-ico.k-text svg { color: var(--sea); }
+.tree-ico.k-archive svg { color: var(--amber); }
+.tree-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tree-row.file-row .tree-name { color: var(--muted); }
+.tree-row.file-row.on { background: var(--sea-soft); }
+.tree-row.file-row.on .tree-name { color: var(--text); }
+.tree-empty { padding: 2px 0; font-style: italic; }
+.tree-name svg { color: inherit; }
+
+.filter-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.filter-row .grow { flex: 1; }
+.filter-chip { position: relative; display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 8px 0 10px; border: 1px solid var(--line); border-radius: var(--r-sm);
+  background: var(--surface); color: var(--muted); font-size: 0.85rem; cursor: pointer; }
+.filter-chip:hover { border-color: var(--line-strong); color: var(--text); }
+.filter-chip.on { border-color: var(--sea); background: var(--sea-soft); color: var(--sea-strong); font-weight: 600; }
+.filter-chip select { appearance: none; -webkit-appearance: none; border: 0; background: none; color: inherit; font: inherit; padding: 0 16px 0 0; margin-right: -16px; cursor: pointer; outline: none; }
+.filter-chip svg { width: 14px; height: 14px; pointer-events: none; }
+
+.details-pane { border-left: 1px solid var(--line); background: var(--bg-soft); padding: 14px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+.pane-preview { display: grid; place-items: center; aspect-ratio: 4 / 3; border-radius: var(--r-md); background: var(--surface-2); overflow: hidden; flex: none; }
+.pane-preview.k-video, .pane-preview.k-image { background: var(--video); }
+.pane-preview img, .pane-preview video { width: 100%; height: 100%; object-fit: contain; display: block; }
+.pane-preview iframe { width: 100%; height: 100%; border: 0; background: #fff; }
+.pane-preview audio { width: 92%; }
+.pane-text { margin: 0; width: 100%; height: 100%; padding: 10px; overflow: hidden; font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace; font-size: 0.72rem;
+  line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--muted); background: var(--surface); }
+.pane-title { font-size: 1rem; overflow-wrap: anywhere; }
+.pane-kv { gap: 6px 12px; font-size: 0.88rem; }
+.pane-kv dd { overflow-wrap: anywhere; }
+.pane-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.video-thumb { position: relative; display: grid; place-items: center; background: var(--video); overflow: hidden; }
+.video-thumb video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.video-thumb svg { position: relative; width: 28px; height: 28px; padding: 6px; border-radius: 50%; background: rgb(8 12 14 / 0.55); color: #fff; fill: #fff; }
+.file-icon { position: relative; }
+.file-ext { position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%); padding: 1px 6px; border-radius: var(--r-xs); background: var(--surface);
+  font-size: 0.66rem; font-weight: 700; letter-spacing: 0.04em; color: var(--muted); border: 1px solid var(--line); }
+.file-icon.k-audio { color: #b48fd6; }
+.file-icon.k-text { color: var(--sea); }
+.file-list.grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
+.file-list.list .file-size { white-space: nowrap; }
+.file-head, .file-list.list .file { grid-template-columns: 28px 36px minmax(0, 1fr) 140px 150px 36px; }
+
+.text-editor { width: 100%; height: 100%; display: flex; flex-direction: column; min-height: 0; }
+.editor-bar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--surface); flex: none; }
+.editor-bar .grow { flex: 1; }
+.text-editor .viewer-text { flex: 1; min-height: 0; }
+textarea.viewer-text.editing { border: 0; outline: none; resize: none; background: var(--surface); }
+
+@media (max-width: 1280px) { .explorer.with-pane { grid-template-columns: 230px minmax(0, 1fr) 260px; } }
+@media (max-width: 1100px) {
+  .explorer, .explorer.with-pane { grid-template-columns: 1fr; height: auto; min-height: 60vh; }
+  .details-pane { display: none; }
+  .explorer-main { overflow: visible; }
+}
+@media (max-width: 1000px) {
+  .file-head, .file-list.list .file { grid-template-columns: 28px 36px minmax(0, 1fr) 120px 36px; }
+}

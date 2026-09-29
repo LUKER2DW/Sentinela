@@ -5,26 +5,32 @@ import { usePinchZoom } from "../lib/pinch";
 import {
   TRASH,
   baseName,
+  createEmpty,
   crumbs,
   fileUrl,
   hasThumb,
   inside,
+  isImage,
   joinPath,
   kindLabel,
   kindOf,
   label,
   listDir,
+  matchesFilters,
   mkdir,
   move,
   parentPath,
   remove,
   restorePath,
+  saveText,
   sortEntries,
   thumbUrl,
   uploadFile,
+  type DateFilter,
   type Kind,
   type NasEntry,
   type SortKey,
+  type TypeFilter,
 } from "../lib/nas";
 import { fmtBytes, fmtDate } from "../lib/time";
 import { useToast } from "../lib/session";
@@ -33,20 +39,23 @@ import { Icon } from "./Icon";
 
 type View = "list" | "grid";
 const VIEW_KEY = "sentinela.nuvem.view";
+const PANE_KEY = "sentinela.nuvem.details";
 // Items dragged inside the Nuvem carry their paths under this type.
 const DRAG_TYPE = "application/x-sentinela-nuvem";
+// Small images (GIF/WebP, no server thumbnail) are shown as they are.
+const INLINE_THUMB_MAX = 3 << 20;
 
-function loadView(): View {
+function loadPref(key: string, fallback: string): string {
   try {
-    return localStorage.getItem(VIEW_KEY) === "grid" ? "grid" : "list";
+    return localStorage.getItem(key) ?? fallback;
   } catch {
-    return "list";
+    return fallback;
   }
 }
 
-function saveView(v: View) {
+function savePref(key: string, v: string) {
   try {
-    localStorage.setItem(VIEW_KEY, v);
+    localStorage.setItem(key, v);
   } catch {
     /* private mode: not remembered */
   }
@@ -68,7 +77,7 @@ const errText = (e: unknown) => {
   if (e instanceof ApiError) {
     if (e.status === 409) return "Já existe um item com esse nome aqui.";
     if (e.status === 403) return "Você não tem permissão para isso.";
-    if (e.status === 413) return "Arquivo grande demais (máximo 4 GB).";
+    if (e.status === 413) return "Arquivo grande demais.";
     if (e.status === 507) return "Não há espaço livre na Nuvem.";
     if (e.status === 503) return "A Nuvem não está disponível neste servidor.";
     if (e.status === 404) return "O item não existe mais.";
@@ -92,23 +101,78 @@ function entryIcon(e: NasEntry) {
   return kindIcon[kindOf(e)];
 }
 
-function Thumb({ path, entry }: { path: string; entry: NasEntry }) {
-  const [failed, setFailed] = useState(false);
-  if (!entry.dir && hasThumb(entry.name) && !failed) {
-    return <img className="file-thumb" src={thumbUrl(path)} alt="" loading="lazy" decoding="async" onError={() => setFailed(true)} draggable={false} />;
-  }
+/** Shows a video's first frame only once it scrolls into view. */
+function VideoThumb({ src }: { src: string }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const [seen, setSeen] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || seen) return;
+    const io = new IntersectionObserver((es) => es.some((e) => e.isIntersecting) && setSeen(true), { rootMargin: "100px" });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [seen]);
   return (
-    <span className={`file-icon k-${entry.dir ? "folder" : kindOf(entry)}`}>
-      <Icon name={entryIcon(entry)} />
+    <span ref={ref} className="file-thumb video-thumb">
+      {seen && <video src={`${src}#t=1`} preload="metadata" muted playsInline tabIndex={-1} />}
+      <Icon name="play" />
     </span>
   );
 }
 
+function Thumb({ path, entry, rich }: { path: string; entry: NasEntry; rich?: boolean }) {
+  const [failed, setFailed] = useState(false);
+  const k = kindOf(entry);
+  if (!failed && !entry.dir && hasThumb(entry.name)) {
+    return <img className="file-thumb" src={thumbUrl(path)} alt="" loading="lazy" decoding="async" onError={() => setFailed(true)} draggable={false} />;
+  }
+  if (!failed && rich && k === "image" && entry.size <= INLINE_THUMB_MAX) {
+    return <img className="file-thumb" src={fileUrl(path)} alt="" loading="lazy" decoding="async" onError={() => setFailed(true)} draggable={false} />;
+  }
+  if (rich && k === "video") return <VideoThumb src={fileUrl(path)} />;
+  return (
+    <span className={`file-icon k-${entry.dir ? "folder" : k}`}>
+      <Icon name={entryIcon(entry)} />
+      {rich && !entry.dir && <span className="file-ext">{extOf(entry.name)}</span>}
+    </span>
+  );
+}
+
+const extOf = (n: string) => {
+  const i = n.lastIndexOf(".");
+  return i > 0 && n.length - i <= 6 ? n.slice(i + 1).toUpperCase() : "";
+};
+
 /** A folder can receive items: not the share root, not the bin. */
 const canReceive = (p: string) => p !== "" && p !== TRASH && !p.startsWith(`${TRASH}/`);
 
-type Ask = { kind: "mkdir"; at: string } | { kind: "rename"; path: string };
-type Menu = { x: number; y: number; bg: boolean };
+type Ask = { kind: "mkdir"; at: string } | { kind: "mkfile"; at: string } | { kind: "rename"; path: string };
+interface Cmd {
+  id: string;
+  label: string;
+  icon: string;
+  run: () => void;
+  danger?: boolean;
+  when: boolean;
+}
+type Menu = { x: number; y: number; items: Cmd[]; title?: string };
+
+const TYPE_FILTERS: { v: TypeFilter; label: string }[] = [
+  { v: "", label: "Todos os tipos" },
+  { v: "folder", label: "Pastas" },
+  { v: "image", label: "Imagens" },
+  { v: "video", label: "Vídeos" },
+  { v: "audio", label: "Áudio" },
+  { v: "doc", label: "Documentos" },
+  { v: "other", label: "Outros" },
+];
+const DATE_FILTERS: { v: DateFilter; label: string }[] = [
+  { v: "", label: "Qualquer data" },
+  { v: "today", label: "Hoje" },
+  { v: "7d", label: "Últimos 7 dias" },
+  { v: "30d", label: "Últimos 30 dias" },
+  { v: "year", label: "Este ano" },
+];
 
 export function FileBrowser({
   path,
@@ -133,36 +197,53 @@ export function FileBrowser({
   const writable = canWrite && (q.data?.can_write ?? false);
   const inTrash = path === TRASH || path.startsWith(`${TRASH}/`);
   const canAddHere = writable && canReceive(path);
-  const [view, setView] = useState<View>(loadView);
+  const [view, setView] = useState<View>(() => (loadPref(VIEW_KEY, "list") === "grid" ? "grid" : "list"));
+  const [pane, setPane] = useState(() => loadPref(PANE_KEY, "1") === "1");
   const [sort, setSort] = useState<{ key: SortKey; asc: boolean }>({ key: "name", asc: true });
   const [filter, setFilter] = useState("");
+  const [type, setType] = useState<TypeFilter>("");
+  const [date, setDate] = useState<DateFilter>("");
   const [sel, setSel] = useState<{ folder: string; paths: string[] }>({ folder: path, paths: [] });
   const [anchor, setAnchor] = useState<string | null>(null);
   const [menu, setMenu] = useState<Menu | null>(null);
   const [ask, setAsk] = useState<Ask | null>(null);
   const [moving, setMoving] = useState<string[] | null>(null);
-  const [preview, setPreview] = useState<string | null>(null);
+  const [preview, setPreview] = useState<{ path: string; edit?: boolean } | null>(null);
+  const [pending, setPending] = useState<{ path: string; edit?: boolean } | null>(null);
   const [details, setDetails] = useState<string | null>(null);
   const [uploads, setUploads] = useState<Upload[]>([]);
   const [dropOn, setDropOn] = useState<string | null>(null);
+  const [treeKey, setTreeKey] = useState(0);
   const pickId = useId();
+  const uploadDir = useRef(path);
   // The hidden file input is clicked by id: menus and buttons share it.
-  const pickFiles = () => (document.getElementById(pickId) as HTMLInputElement | null)?.click();
+  const pickFiles = (dir = path) => {
+    uploadDir.current = dir;
+    (document.getElementById(pickId) as HTMLInputElement | null)?.click();
+  };
   const busy = useRef(false);
 
   // Selection belongs to the folder it was made in.
   const selected = useMemo(() => (sel.folder === path ? sel.paths : []), [sel, path]);
   const setSelected = (paths: string[]) => setSel({ folder: path, paths });
 
-  const refresh = (...paths: string[]) => paths.forEach((p) => void qc.invalidateQueries({ queryKey: ["nas", p] }));
+  const refresh = (...paths: string[]) => new Set(paths).forEach((p) => void qc.invalidateQueries({ queryKey: ["nas", p] }));
 
+  const all = useMemo(() => sortEntries(q.data?.entries ?? [], sort.key, sort.asc), [q.data, sort]);
   const entries = useMemo(() => {
-    const all = sortEntries(q.data?.entries ?? [], sort.key, sort.asc);
     const f = filter.trim().toLowerCase();
-    return f ? all.filter((e) => e.name.toLowerCase().includes(f)) : all;
-  }, [q.data, sort, filter]);
-  const byPath = useMemo(() => new Map(entries.map((e) => [joinPath(path, e.name), e])), [entries, path]);
+    return all.filter((e) => (!f || e.name.toLowerCase().includes(f)) && matchesFilters(e, type, date));
+  }, [all, filter, type, date]);
+  const filtered = entries.length !== all.length;
+  const byPath = useMemo(() => new Map(all.map((e) => [joinPath(path, e.name), e])), [all, path]);
   const files = entries.filter((e) => !e.dir).map((e) => joinPath(path, e.name));
+
+  // A file opened from the tree (or just created) previews once its folder is listed.
+  if (pending && byPath.has(pending.path)) {
+    setPreview(pending);
+    setSel({ folder: path, paths: [pending.path] });
+    setPending(null);
+  }
 
   // One upload at a time: gentle on the old server and on 4G.
   useEffect(() => {
@@ -249,7 +330,7 @@ export function FileBrowser({
         break;
       }
     }
-    refresh(path, TRASH);
+    refresh(path, TRASH, ...paths.map(parentPath));
     if (done) toast(done === 1 ? "Movido para a lixeira." : `${done} itens movidos para a lixeira.`);
     setSelected([]);
     setPreview(null);
@@ -264,25 +345,31 @@ export function FileBrowser({
   };
 
   const download = (paths: string[]) => {
-    paths
-      .filter((p) => !byPath.get(p)?.dir)
-      .forEach((p, i) =>
-        window.setTimeout(() => {
-          const a = document.createElement("a");
-          a.href = fileUrl(p, true);
-          a.download = baseName(p);
-          document.body.append(a);
-          a.click();
-          a.remove();
-        }, i * 400),
-      );
+    paths.forEach((p, i) =>
+      window.setTimeout(() => {
+        const a = document.createElement("a");
+        a.href = fileUrl(p, true);
+        a.download = baseName(p);
+        document.body.append(a);
+        a.click();
+        a.remove();
+      }, i * 400),
+    );
   };
 
   const open = (p: string) => {
     const e = byPath.get(p);
     if (!e) return;
     if (e.dir) onNavigate(p);
-    else setPreview(p);
+    else setPreview({ path: p });
+  };
+  /** Opens a file from anywhere (tree): go to its folder, then preview it. */
+  const openFile = (p: string, edit = false) => {
+    if (parentPath(p) === path && byPath.has(p)) setPreview({ path: p, edit });
+    else {
+      setPending({ path: p, edit });
+      onNavigate(parentPath(p));
+    }
   };
 
   // ---------- selection ----------
@@ -292,7 +379,7 @@ export function FileBrowser({
       return;
     }
     if (ev.shiftKey && anchor && byPath.has(anchor)) {
-      const keys = [...byPath.keys()];
+      const keys = entries.map((e) => joinPath(path, e.name));
       const [a, b] = [keys.indexOf(anchor), keys.indexOf(p)].sort((x, y) => x - y);
       setSelected(keys.slice(a, b + 1));
       return;
@@ -309,17 +396,71 @@ export function FileBrowser({
     setAnchor(p);
   };
 
+  const inShare = path !== "";
+
+  // Commands for the selection (menu, selection bar and details pane share them).
+  const commands = (paths: string[]): Cmd[] => {
+    const single = paths.length === 1 ? byPath.get(paths[0]) : undefined;
+    const binned = paths.some((p) => restorePath(p, user));
+    return [
+      { id: "open", label: single?.dir ? "Abrir" : "Visualizar", icon: single?.dir ? "folder" : "eye", run: () => open(paths[0]), when: !!single },
+      { id: "edit", label: "Editar texto", icon: "edit", run: () => openFile(paths[0], true), when: !!single && kindOf(single) === "text" && writable && !inTrash },
+      { id: "download", label: "Baixar", icon: "download", run: () => download(paths.filter((p) => !byPath.get(p)?.dir)), when: paths.some((p) => !byPath.get(p)?.dir) },
+      { id: "restore", label: "Restaurar", icon: "restore", run: () => void restore(paths), when: writable && binned },
+      { id: "rename", label: "Renomear", icon: "edit", run: () => setAsk({ kind: "rename", path: paths[0] }), when: writable && !!single && !inTrash && inShare },
+      { id: "move", label: "Mover para…", icon: "move", run: () => setMoving(paths), when: writable && paths.length > 0 && !inTrash && inShare },
+      { id: "details", label: "Detalhes", icon: "info", run: () => setDetails(paths[0]), when: !!single },
+      { id: "delete", label: "Apagar", icon: "trash", run: () => void trash(paths), danger: true, when: writable && paths.length > 0 && !inTrash && inShare },
+    ];
+  };
+  const folderCommands = (at: string): Cmd[] => [
+    { id: "mkfile", label: "Novo arquivo de texto", icon: "text", run: () => setAsk({ kind: "mkfile", at }), when: writable && canReceive(at) },
+    { id: "mkdir", label: "Nova pasta", icon: "folderPlus", run: () => setAsk({ kind: "mkdir", at }), when: writable && canReceive(at) },
+    { id: "upload", label: "Enviar arquivos", icon: "upload", run: () => pickFiles(at), when: writable && canReceive(at) },
+    { id: "refresh", label: "Atualizar", icon: "refresh", run: () => refresh(at), when: true },
+  ];
+  /** Commands for a node of the tree (any folder, or a file inside one). */
+  const treeCommands = (p: string, dir: boolean): Cmd[] => {
+    const top = !p.includes("/");
+    const editable = writable && !p.startsWith(TRASH) && !top;
+    if (dir)
+      return [
+        { id: "open", label: "Abrir", icon: "folder", run: () => onNavigate(p), when: true },
+        ...folderCommands(p),
+        { id: "rename", label: "Renomear", icon: "edit", run: () => setAsk({ kind: "rename", path: p }), when: editable },
+        { id: "move", label: "Mover para…", icon: "move", run: () => setMoving([p]), when: editable },
+        { id: "delete", label: "Apagar", icon: "trash", run: () => void trash([p]), danger: true, when: editable },
+      ];
+    const k = kindOf({ name: p, dir: false });
+    return [
+      { id: "open", label: "Visualizar", icon: "eye", run: () => openFile(p), when: true },
+      { id: "edit", label: "Editar texto", icon: "edit", run: () => openFile(p, true), when: k === "text" && editable },
+      { id: "download", label: "Baixar", icon: "download", run: () => download([p]), when: true },
+      { id: "rename", label: "Renomear", icon: "edit", run: () => setAsk({ kind: "rename", path: p }), when: editable },
+      { id: "move", label: "Mover para…", icon: "move", run: () => setMoving([p]), when: editable },
+      { id: "delete", label: "Apagar", icon: "trash", run: () => void trash([p]), danger: true, when: editable },
+    ];
+  };
+
+  const showMenu = (ev: MouseEvent | { clientX: number; clientY: number }, items: Cmd[], title?: string) => {
+    const list = items.filter((c) => c.when);
+    if (list.length) setMenu({ x: ev.clientX, y: ev.clientY, items: list, title });
+  };
   const rowMenu = (ev: MouseEvent, p: string) => {
     ev.preventDefault();
     ev.stopPropagation();
+    const paths = selected.includes(p) ? selected : [p];
     if (!selected.includes(p)) setSelected([p]);
-    setMenu({ x: ev.clientX, y: ev.clientY, bg: false });
+    showMenu(ev, commands(paths), paths.length === 1 ? baseName(p) : `${paths.length} itens`);
   };
   const bgMenu = (ev: MouseEvent) => {
     if ((ev.target as HTMLElement).closest(".file")) return;
     ev.preventDefault();
     setSelected([]);
-    setMenu({ x: ev.clientX, y: ev.clientY, bg: true });
+    showMenu(ev, [
+      ...folderCommands(path),
+      { id: "all", label: "Selecionar tudo", icon: "check", run: () => setSelected(entries.map((e) => joinPath(path, e.name))), when: entries.length > 0 && !compact },
+    ]);
   };
 
   // Keyboard: Delete, F2, Enter, Ctrl+A, Escape (not while typing or in a dialog).
@@ -333,10 +474,10 @@ export function FileBrowser({
         setMenu(null);
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") {
         e.preventDefault();
-        setSelected([...byPath.keys()]);
-      } else if (e.key === "Delete" && selected.length && writable && !inTrash) {
+        setSelected(entries.map((x) => joinPath(path, x.name)));
+      } else if (e.key === "Delete" && selected.length && writable && !inTrash && inShare) {
         void trash(selected);
-      } else if (e.key === "F2" && selected.length === 1 && writable && !inTrash) {
+      } else if (e.key === "F2" && selected.length === 1 && writable && !inTrash && inShare) {
         e.preventDefault();
         setAsk({ kind: "rename", path: selected[0] });
       } else if (e.key === "Enter" && selected.length === 1) {
@@ -383,25 +524,8 @@ export function FileBrowser({
     "data-drop": dropOn === dest ? "true" : undefined,
   });
 
-  const one = selected.length === 1 ? byPath.get(selected[0]) : undefined;
-  const selInTrash = selected.some((p) => restorePath(p, user));
-
-  // Commands for the selection (menu and command bar share them).
-  const commands: { id: string; label: string; icon: string; run: () => void; danger?: boolean; when: boolean }[] = [
-    { id: "open", label: one?.dir ? "Abrir" : "Visualizar", icon: one?.dir ? "folder" : "eye", run: () => open(selected[0]), when: !!one },
-    { id: "download", label: "Baixar", icon: "download", run: () => download(selected), when: selected.some((p) => !byPath.get(p)?.dir) },
-    { id: "restore", label: "Restaurar", icon: "restore", run: () => void restore(selected), when: writable && selInTrash },
-    { id: "rename", label: "Renomear", icon: "edit", run: () => setAsk({ kind: "rename", path: selected[0] }), when: writable && !!one && !inTrash && path !== "" },
-    { id: "move", label: "Mover para…", icon: "move", run: () => setMoving(selected), when: writable && selected.length > 0 && !inTrash && path !== "" },
-    { id: "details", label: "Detalhes", icon: "info", run: () => setDetails(selected[0]), when: !!one },
-    { id: "delete", label: "Apagar", icon: "trash", run: () => void trash(selected), danger: true, when: writable && selected.length > 0 && !inTrash && path !== "" },
-  ];
-  const bgCommands = [
-    { id: "mkdir", label: "Nova pasta", icon: "folderPlus", run: () => setAsk({ kind: "mkdir", at: path }), when: canAddHere },
-    { id: "upload", label: "Enviar arquivos", icon: "upload", run: () => pickFiles(), when: canAddHere },
-    { id: "refresh", label: "Atualizar", icon: "refresh", run: () => refresh(path), when: true },
-    { id: "all", label: "Selecionar tudo", icon: "check", run: () => setSelected([...byPath.keys()]), when: entries.length > 0 && !compact },
-  ];
+  const barCommands = commands(selected).filter((c) => c.when && c.id !== "details" && c.id !== "edit");
+  const paneOn = pane && !compact;
 
   return (
     <div className="nuvem">
@@ -410,6 +534,9 @@ export function FileBrowser({
         <div className="nuvem-actions">
           <button className="btn" disabled={!canAddHere} onClick={() => setAsk({ kind: "mkdir", at: path })} title={canAddHere ? undefined : "Abra uma pasta sua ou a Compartilhado"}>
             <Icon name="folderPlus" /> Nova pasta
+          </button>
+          <button className="btn" disabled={!canAddHere} onClick={() => setAsk({ kind: "mkfile", at: path })} title={canAddHere ? "Novo arquivo de texto" : "Abra uma pasta sua ou a Compartilhado"}>
+            <Icon name="text" /> Novo arquivo
           </button>
           <button className="btn primary" disabled={!canAddHere} onClick={() => pickFiles()} title={canAddHere ? undefined : "Abra uma pasta sua ou a Compartilhado"}>
             <Icon name="upload" /> Enviar arquivos
@@ -425,17 +552,51 @@ export function FileBrowser({
             multiple
             hidden
             onChange={(e) => {
-              if (e.target.files) enqueue(e.target.files);
+              if (e.target.files) enqueue(e.target.files, uploadDir.current);
               e.target.value = "";
             }}
           />
         </div>
       </section>
 
-      <section className="card explorer">
+      <section className={`card explorer${paneOn ? " with-pane" : ""}`}>
         {!compact && (
-          <aside className="tree" aria-label="Pastas">
-            <FolderTree current={path} user={user} onOpen={onNavigate} dropProps={dropProps} />
+          <aside className="tree" aria-label="Pastas e arquivos">
+            <div className="tree-bar">
+              <span className="tree-title">Explorador</span>
+              <button className="tree-tool" title="Novo arquivo de texto" aria-label="Novo arquivo de texto" disabled={!canAddHere} onClick={() => setAsk({ kind: "mkfile", at: path })}>
+                <Icon name="text" />
+              </button>
+              <button className="tree-tool" title="Nova pasta" aria-label="Nova pasta" disabled={!canAddHere} onClick={() => setAsk({ kind: "mkdir", at: path })}>
+                <Icon name="folderPlus" />
+              </button>
+              <button className="tree-tool" title="Enviar arquivos" aria-label="Enviar arquivos" disabled={!canAddHere} onClick={() => pickFiles()}>
+                <Icon name="upload" />
+              </button>
+              <button className="tree-tool" title="Atualizar" aria-label="Atualizar" onClick={() => void qc.invalidateQueries({ queryKey: ["nas"] })}>
+                <Icon name="refresh" />
+              </button>
+              <button className="tree-tool" title="Recolher tudo" aria-label="Recolher tudo" onClick={() => setTreeKey((k) => k + 1)}>
+                <Icon name="collapse" />
+              </button>
+            </div>
+            <div className="tree-scroll">
+              <FolderTree
+                key={treeKey}
+                current={path}
+                user={user}
+                onOpen={onNavigate}
+                onOpenFile={(p) => openFile(p)}
+                selected={preview?.path ?? (selected.length === 1 ? selected[0] : undefined)}
+                dropProps={dropProps}
+                showFiles
+                onMenu={(ev, p, dir) => {
+                  ev.preventDefault();
+                  showMenu(ev, treeCommands(p, dir), p.includes("/") ? baseName(p) : label(p, user));
+                }}
+                expandCurrent={treeKey === 0}
+              />
+            </div>
           </aside>
         )}
         <div className="explorer-main" onContextMenu={bgMenu} {...(canAddHere ? dropProps(path) : {})} data-drop={dropOn === path ? "true" : undefined}>
@@ -459,14 +620,45 @@ export function FileBrowser({
                 <input className="input" placeholder="Filtrar nesta pasta" aria-label="Filtrar nesta pasta" value={filter} onChange={(e) => setFilter(e.target.value)} />
               </label>
               <div className="segmented" role="group" aria-label="Exibição">
-                <button aria-pressed={view === "list"} title="Lista" aria-label="Lista" onClick={() => (setView("list"), saveView("list"))}>
+                <button aria-pressed={view === "list"} title="Lista" aria-label="Lista" onClick={() => (setView("list"), savePref(VIEW_KEY, "list"))}>
                   <Icon name="list" />
                 </button>
-                <button aria-pressed={view === "grid"} title="Grade" aria-label="Grade" onClick={() => (setView("grid"), saveView("grid"))}>
+                <button aria-pressed={view === "grid"} title="Grade com miniaturas" aria-label="Grade" onClick={() => (setView("grid"), savePref(VIEW_KEY, "grid"))}>
                   <Icon name="grid" />
                 </button>
               </div>
+              {!compact && (
+                <button
+                  className={`btn icon small${pane ? " on" : ""}`}
+                  aria-pressed={pane}
+                  title="Painel de detalhes"
+                  aria-label="Painel de detalhes"
+                  onClick={() => (setPane((v) => !v), savePref(PANE_KEY, pane ? "0" : "1"))}
+                >
+                  <Icon name="panel" />
+                </button>
+              )}
             </div>
+          </div>
+
+          <div className="filter-row" role="group" aria-label="Filtros">
+            <FilterChip label="Tipo" value={type} options={TYPE_FILTERS} onChange={setType} />
+            <FilterChip label="Modificado" value={date} options={DATE_FILTERS} onChange={setDate} />
+            <SortChip sort={sort} onChange={setSort} />
+            {(type || date || filter) && (
+              <button
+                className="btn ghost small"
+                onClick={() => {
+                  setType("");
+                  setDate("");
+                  setFilter("");
+                }}
+              >
+                <Icon name="x" /> Limpar filtros
+              </button>
+            )}
+            <span className="grow" />
+            <span className="muted small num">{filtered ? `${entries.length} de ${all.length}` : `${all.length} ${all.length === 1 ? "item" : "itens"}`}</span>
           </div>
 
           {selected.length > 0 && !compact && (
@@ -475,13 +667,11 @@ export function FileBrowser({
                 <Icon name="x" />
               </button>
               <span className="selbar-count">{selected.length === 1 ? "1 selecionado" : `${selected.length} selecionados`}</span>
-              {commands
-                .filter((c) => c.when && c.id !== "details")
-                .map((c) => (
-                  <button key={c.id} className={`btn ghost small${c.danger ? " danger" : ""}`} onClick={c.run}>
-                    <Icon name={c.icon} /> {c.label}
-                  </button>
-                ))}
+              {barCommands.map((c) => (
+                <button key={c.id} className={`btn ghost small${c.danger ? " danger" : ""}`} onClick={c.run}>
+                  <Icon name={c.icon} /> {c.label}
+                </button>
+              ))}
             </div>
           )}
 
@@ -493,17 +683,17 @@ export function FileBrowser({
             <p className="muted files-empty">Carregando…</p>
           ) : entries.length === 0 ? (
             <div className="files-empty">
-              <Icon name={inTrash ? "trash" : filter ? "search" : "folder"} />
-              <strong>{filter ? "Nada com esse nome" : inTrash ? "A lixeira está vazia" : "Pasta vazia"}</strong>
+              <Icon name={inTrash ? "trash" : filtered ? "search" : "folder"} />
+              <strong>{filtered ? "Nada com esses filtros" : inTrash ? "A lixeira está vazia" : "Pasta vazia"}</strong>
               <span className="muted">
-                {filter
-                  ? "Tente outra parte do nome."
+                {filtered
+                  ? "Mude ou limpe os filtros."
                   : inTrash
                     ? "Arquivos apagados ficam aqui por 30 dias."
                     : canAddHere
                       ? compact
                         ? "Toque em Enviar arquivos."
-                        : "Arraste arquivos para cá ou use Enviar arquivos."
+                        : "Arraste arquivos para cá, use Enviar arquivos ou o botão direito."
                       : "Nada por aqui ainda."}
               </span>
             </div>
@@ -528,7 +718,7 @@ export function FileBrowser({
                 {entries.map((e) => {
                   const p = joinPath(path, e.name);
                   const isSel = selected.includes(p);
-                  const drag = writable && !inTrash && path !== "";
+                  const drag = writable && !inTrash && inShare;
                   const target = e.dir && drag ? dropProps(p) : {};
                   return (
                     <li key={e.name} role="option" aria-selected={isSel}>
@@ -542,7 +732,7 @@ export function FileBrowser({
                         onContextMenu={(ev) => rowMenu(ev, p)}
                         {...target}
                       >
-                        {!compact && path !== "" && (
+                        {!compact && inShare && (
                           <span
                             className="file-check"
                             role="checkbox"
@@ -556,11 +746,11 @@ export function FileBrowser({
                             {isSel && <Icon name="check" />}
                           </span>
                         )}
-                        <Thumb path={p} entry={e} />
-                        <span className="file-name">{e.dir && path === "" ? label(e.name, user) : e.name}</span>
+                        <Thumb path={p} entry={e} rich={view === "grid"} />
+                        <span className="file-name">{e.dir && !inShare ? label(e.name, user) : e.name}</span>
                         <span className="file-date muted small">{fmtDate(e.modified)}</span>
-                        <span className="file-size muted small">{e.dir ? kindLabel.folder : fmtBytes(e.size)}</span>
-                        {path !== "" && (
+                        <span className="file-size muted small">{e.dir ? kindLabel.folder : `${kindLabel[kindOf(e)]} · ${fmtBytes(e.size)}`}</span>
+                        {inShare && (
                           <button
                             className="btn ghost icon small file-more"
                             aria-label={`Ações para ${e.name}`}
@@ -568,7 +758,7 @@ export function FileBrowser({
                               ev.stopPropagation();
                               const r = (ev.currentTarget as HTMLElement).getBoundingClientRect();
                               setSelected([p]);
-                              setMenu({ x: r.right, y: r.bottom, bg: false });
+                              showMenu({ clientX: r.right, clientY: r.bottom }, commands([p]), e.name);
                             }}
                           >
                             <Icon name="dots" />
@@ -583,30 +773,34 @@ export function FileBrowser({
           )}
           {inTrash && entries.length > 0 && <p className="muted small files-foot">Itens da lixeira somem sozinhos 30 dias depois de apagados.</p>}
         </div>
+        {paneOn && (
+          <DetailsPane path={path} user={user} entries={all} selected={selected} byPath={byPath} actions={commands(selected).filter((c) => c.when && c.id !== "details")} />
+        )}
       </section>
 
-      {menu && (
-        <ContextMenu
-          at={menu}
-          sheet={compact}
-          title={!menu.bg && one ? one.name : undefined}
-          items={(menu.bg ? bgCommands : commands).filter((c) => c.when)}
-          onClose={() => setMenu(null)}
-        />
-      )}
+      {menu && <ContextMenu at={menu} sheet={compact} onClose={() => setMenu(null)} />}
 
       {ask && (
         <NameDialog
           ask={ask}
           onCancel={() => setAsk(null)}
           onSubmit={async (value) => {
-            const ok =
-              ask.kind === "mkdir"
-                ? await run(() => mkdir(joinPath(ask.at, value)), "Pasta criada.", [ask.at])
-                : await run(() => move(ask.path, joinPath(parentPath(ask.path), value)), "Nome alterado.");
-            if (ok) {
-              setAsk(null);
-              if (ask.kind === "rename") setSelected([joinPath(parentPath(ask.path), value)]);
+            if (ask.kind === "mkdir") {
+              if (await run(() => mkdir(joinPath(ask.at, value)), "Pasta criada.", [ask.at])) setAsk(null);
+            } else if (ask.kind === "mkfile") {
+              const name = /\.[a-z0-9]{1,5}$/i.test(value) ? value : `${value}.txt`;
+              const p = joinPath(ask.at, name);
+              if (await run(() => createEmpty(p), "Arquivo criado.", [ask.at])) {
+                setAsk(null);
+                openFile(p, kindOf({ name, dir: false }) === "text");
+              }
+            } else {
+              const to = joinPath(parentPath(ask.path), value);
+              if (await run(() => move(ask.path, to), "Nome alterado.", [parentPath(ask.path)])) {
+                setAsk(null);
+                if (parentPath(ask.path) === path) setSelected([to]);
+                if (preview?.path === ask.path) setPreview({ path: to });
+              }
             }
           }}
         />
@@ -619,29 +813,32 @@ export function FileBrowser({
           start={path}
           onCancel={() => setMoving(null)}
           onMove={async (dest) => {
-            if (await moveInto(moving, dest)) setMoving(null);
+            if (await moveInto(moving, dest)) {
+              setMoving(null);
+              setPreview(null);
+            }
           }}
         />
       )}
 
-      {preview && byPath.get(preview) && (
+      {preview && byPath.get(preview.path) && (
         <PreviewDialog
-          path={preview}
-          entry={byPath.get(preview)!}
+          path={preview.path}
+          entry={byPath.get(preview.path)!}
+          startEditing={!!preview.edit}
           files={files}
           byPath={byPath}
           writable={writable && !inTrash}
-          onGo={setPreview}
+          onGo={(p) => setPreview({ path: p })}
           onClose={() => setPreview(null)}
-          onRename={() => setAsk({ kind: "rename", path: preview })}
-          onMove={() => setMoving([preview])}
-          onDelete={() => void trash([preview])}
+          onSaved={() => refresh(path)}
+          onRename={() => setAsk({ kind: "rename", path: preview.path })}
+          onMove={() => setMoving([preview.path])}
+          onDelete={() => void trash([preview.path])}
         />
       )}
 
-      {details && byPath.get(details) && (
-        <DetailsDialog path={details} entry={byPath.get(details)!} user={user} onClose={() => setDetails(null)} />
-      )}
+      {details && byPath.get(details) && <DetailsDialog path={details} entry={byPath.get(details)!} user={user} onClose={() => setDetails(null)} />}
     </div>
   );
 }
@@ -650,6 +847,53 @@ function folderName(p: string, user: string) {
   if (!p) return "Nuvem";
   const parts = p.split("/");
   return parts.length === 1 ? label(parts[0], user) : parts[parts.length - 1];
+}
+
+function FilterChip<T extends string>({ label, value, options, onChange }: { label: string; value: T; options: { v: T; label: string }[]; onChange: (v: T) => void }) {
+  return (
+    <label className={`filter-chip${value ? " on" : ""}`}>
+      <select value={value} onChange={(e) => onChange(e.target.value as T)} aria-label={label}>
+        {options.map((o) => (
+          <option key={o.v} value={o.v}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+      <Icon name="chevronDown" />
+    </label>
+  );
+}
+
+const SORTS: { v: string; label: string }[] = [
+  { v: "name:1", label: "Nome (A–Z)" },
+  { v: "name:0", label: "Nome (Z–A)" },
+  { v: "modified:0", label: "Mais recentes" },
+  { v: "modified:1", label: "Mais antigos" },
+  { v: "size:0", label: "Maiores" },
+  { v: "size:1", label: "Menores" },
+];
+
+function SortChip({ sort, onChange }: { sort: { key: SortKey; asc: boolean }; onChange: (s: { key: SortKey; asc: boolean }) => void }) {
+  return (
+    <label className="filter-chip">
+      <Icon name="sort" />
+      <select
+        aria-label="Ordenar"
+        value={`${sort.key}:${sort.asc ? 1 : 0}`}
+        onChange={(e) => {
+          const [k, a] = e.target.value.split(":");
+          onChange({ key: k as SortKey, asc: a === "1" });
+        }}
+      >
+        {SORTS.map((o) => (
+          <option key={o.v} value={o.v}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+      <Icon name="chevronDown" />
+    </label>
+  );
 }
 
 function Uploads({ uploads, setUploads }: { uploads: Upload[]; setUploads: (f: (u: Upload[]) => Upload[]) => void }) {
@@ -704,31 +948,152 @@ function Uploads({ uploads, setUploads }: { uploads: Upload[]; setUploads: (f: (
   );
 }
 
+// ---------- details pane ----------
+
+function DetailsPane({
+  path,
+  user,
+  entries,
+  selected,
+  byPath,
+  actions,
+}: {
+  path: string;
+  user: string;
+  entries: NasEntry[];
+  selected: string[];
+  byPath: Map<string, NasEntry>;
+  actions: Cmd[];
+}) {
+  const one = selected.length === 1 ? byPath.get(selected[0]) : undefined;
+  if (!one) {
+    const list = selected.length ? selected.map((p) => byPath.get(p)).filter((e): e is NasEntry => !!e) : entries;
+    const filesOnly = list.filter((e) => !e.dir);
+    const bytes = filesOnly.reduce((a, e) => a + e.size, 0);
+    return (
+      <aside className="details-pane" aria-label="Detalhes">
+        <div className="pane-preview">
+          <span className="file-icon big k-folder">
+            <Icon name={selected.length ? "check" : path.startsWith(TRASH) ? "trash" : "folder"} />
+          </span>
+        </div>
+        <h3 className="pane-title">{selected.length ? `${selected.length} itens selecionados` : folderName(path, user)}</h3>
+        <dl className="kv pane-kv">
+          <dt>Pastas</dt>
+          <dd>{list.length - filesOnly.length}</dd>
+          <dt>Arquivos</dt>
+          <dd>{filesOnly.length}</dd>
+          <dt>Tamanho</dt>
+          <dd>{fmtBytes(bytes)}</dd>
+        </dl>
+        {selected.length > 0 && <PaneActions actions={actions} />}
+        {!selected.length && <p className="muted small">Selecione um arquivo para ver a prévia aqui.</p>}
+      </aside>
+    );
+  }
+  const p = selected[0];
+  const k = kindOf(one);
+  const src = fileUrl(p);
+  return (
+    <aside className="details-pane" aria-label="Detalhes">
+      <div className={`pane-preview k-${k}`}>
+        {k === "image" ? (
+          <img src={hasThumb(one.name) ? thumbUrl(p) : src} alt="" />
+        ) : k === "video" ? (
+          <video key={p} src={src} controls muted playsInline preload="metadata" />
+        ) : k === "audio" ? (
+          <audio key={p} src={src} controls preload="none" />
+        ) : k === "pdf" ? (
+          <iframe key={p} src={`${src}#toolbar=0&view=FitH`} title={one.name} />
+        ) : k === "text" && one.size <= 256 << 10 ? (
+          <TextSnippet path={p} />
+        ) : (
+          <span className={`file-icon big k-${one.dir ? "folder" : k}`}>
+            <Icon name={entryIcon(one)} />
+          </span>
+        )}
+      </div>
+      <h3 className="pane-title" title={one.name}>
+        {one.name}
+      </h3>
+      <dl className="kv pane-kv">
+        <dt>Tipo</dt>
+        <dd>{kindLabel[k]}</dd>
+        {!one.dir && (
+          <>
+            <dt>Tamanho</dt>
+            <dd>{fmtBytes(one.size)}</dd>
+          </>
+        )}
+        <dt>Modificado</dt>
+        <dd>{new Date(one.modified).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}</dd>
+        <dt>Local</dt>
+        <dd>{crumbs(parentPath(p), user).map((c) => c.name).join(" / ")}</dd>
+      </dl>
+      <PaneActions actions={actions} />
+      {isImage(one.name) && <p className="muted small">Duplo clique abre a imagem em tela grande.</p>}
+    </aside>
+  );
+}
+
+function PaneActions({ actions }: { actions: Cmd[] }) {
+  return (
+    <div className="pane-actions">
+      {actions.map((c) => (
+        <button key={c.id} className={`btn small${c.danger ? " ghost danger" : ""}`} onClick={c.run}>
+          <Icon name={c.icon} /> {c.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function TextSnippet({ path }: { path: string }) {
+  const q = useQuery({ queryKey: ["nas-text", path], queryFn: () => fetchText(path), staleTime: 60_000 });
+  return <pre className="pane-text">{q.data?.slice(0, 1500) ?? "…"}</pre>;
+}
+
+async function fetchText(path: string): Promise<string> {
+  const res = await fetch(fileUrl(path, true), { credentials: "same-origin", cache: "no-store" });
+  if (!res.ok) throw new ApiError(res.status, `HTTP ${res.status}`);
+  return new TextDecoder("utf-8").decode(await res.arrayBuffer());
+}
+
 // ---------- folder tree ----------
 
 type DropProps = (dest: string) => object;
 
-function FolderTree({
-  current,
-  user,
-  onOpen,
-  dropProps,
-  pick,
-}: {
+interface TreeProps {
   current: string;
   user: string;
   onOpen: (p: string) => void;
+  onOpenFile?: (p: string) => void;
+  /** Highlighted file (preview or single selection). */
+  selected?: string;
   dropProps?: DropProps;
   /** Picker mode (Mover para…): these paths cannot be picked. */
   pick?: { exclude: string[] };
-}) {
-  // Ancestors of the current folder start open.
-  const [open, setOpen] = useState<Set<string>>(() => {
-    const s = new Set<string>();
-    const parts = current.split("/");
-    for (let i = 1; i <= parts.length; i++) s.add(parts.slice(0, i).join("/"));
-    return s;
-  });
+  showFiles?: boolean;
+  onMenu?: (ev: MouseEvent, p: string, dir: boolean) => void;
+  /** Open the current folder's ancestors on mount. */
+  expandCurrent?: boolean;
+}
+
+function ancestors(p: string): string[] {
+  const parts = p.split("/");
+  return parts.map((_, i) => parts.slice(0, i + 1).join("/"));
+}
+
+function FolderTree(props: TreeProps) {
+  const { current, expandCurrent = true } = props;
+  // Ancestors of the current folder start open ("Recolher tudo" remounts closed).
+  const [open, setOpen] = useState<Set<string>>(() => new Set(expandCurrent ? ancestors(current) : []));
+  // Navigating elsewhere opens the way to the new folder.
+  const [seen, setSeen] = useState(current);
+  if (seen !== current) {
+    setSeen(current);
+    setOpen(new Set([...open, ...ancestors(current)]));
+  }
   const toggle = (p: string) =>
     setOpen((s) => {
       const n = new Set(s);
@@ -738,63 +1103,87 @@ function FolderTree({
     });
   return (
     <ul className="tree-list" role="tree">
-      <TreeLevel parent="" depth={0} current={current} user={user} open={open} toggle={toggle} onOpen={onOpen} dropProps={dropProps} pick={pick} />
+      <TreeLevel {...props} parent="" depth={0} open={open} toggle={toggle} />
     </ul>
   );
 }
 
-function TreeLevel({
-  parent,
-  depth,
-  current,
-  user,
-  open,
-  toggle,
-  onOpen,
-  dropProps,
-  pick,
-}: {
-  parent: string;
-  depth: number;
-  current: string;
-  user: string;
-  open: Set<string>;
-  toggle: (p: string) => void;
-  onOpen: (p: string) => void;
-  dropProps?: DropProps;
-  pick?: { exclude: string[] };
-}) {
+function TreeLevel(props: TreeProps & { parent: string; depth: number; open: Set<string>; toggle: (p: string) => void }) {
+  const { parent, depth, current, user, open, toggle, onOpen, onOpenFile, selected, dropProps, pick, showFiles, onMenu } = props;
   const q = useQuery({ queryKey: ["nas", parent], queryFn: () => listDir(parent), retry: 0, staleTime: 15_000 });
-  let dirs = (q.data?.entries ?? []).filter((e) => e.dir);
-  // The bin goes last at the top level, and is not a destination.
-  if (parent === "") dirs = [...dirs.filter((e) => e.name !== TRASH), ...(pick ? [] : dirs.filter((e) => e.name === TRASH))];
-  dirs = sortEntries(dirs, "name", true);
+  const all = sortEntries(q.data?.entries ?? [], "name", true);
+  let dirs = all.filter((e) => e.dir && !(pick && e.name === TRASH));
+  // Top level: my folder first, the bin last.
   if (parent === "") dirs = [...dirs.filter((e) => e.name === user), ...dirs.filter((e) => e.name !== user && e.name !== TRASH), ...dirs.filter((e) => e.name === TRASH)];
-  if (q.isLoading) return <li className="tree-loading muted small" style={{ paddingLeft: 12 + depth * 16 }}>Carregando…</li>;
+  const files = showFiles && parent !== "" ? all.filter((e) => !e.dir) : [];
+  if (q.isLoading)
+    return (
+      <li className="tree-loading muted small" style={{ paddingLeft: 12 + depth * 14 }}>
+        Carregando…
+      </li>
+    );
+  if (!dirs.length && !files.length && depth > 0)
+    return (
+      <li className="tree-empty muted small" style={{ paddingLeft: 30 + depth * 14 }}>
+        vazia
+      </li>
+    );
   return (
     <>
       {dirs.map((d) => {
         const p = joinPath(parent, d.name);
         const isOpen = open.has(p);
         const blocked = !!pick && pick.exclude.some((x) => inside(p, x));
-        // The bin's per-user level is an implementation detail: it opens straight through.
         const name = parent === "" ? label(d.name, user) : d.name;
-        const icon = parent === "" && d.name === TRASH ? "trash" : parent === "" && d.name === user ? "home" : parent === "" && d.name === "Compartilhado" ? "users" : "folder";
+        const icon =
+          parent === "" && d.name === TRASH ? "trash" : parent === "" && d.name === user ? "home" : parent === "" && d.name === "Compartilhado" ? "users" : isOpen ? "folderOpen" : "folder";
         return (
           <li key={p} role="treeitem" aria-expanded={isOpen} aria-selected={current === p}>
-            <div className={`tree-row${current === p ? " on" : ""}${blocked ? " blocked" : ""}`} style={{ paddingLeft: 6 + depth * 16 }} {...(dropProps && !pick ? dropProps(p) : {})}>
+            <div
+              className={`tree-row${current === p ? " on" : ""}${blocked ? " blocked" : ""}`}
+              style={{ paddingLeft: 4 + depth * 14 }}
+              onContextMenu={onMenu ? (ev) => onMenu(ev, p, true) : undefined}
+              {...(dropProps && !pick ? dropProps(p) : {})}
+            >
               <button className={`tree-twist${isOpen ? " open" : ""}`} aria-label={isOpen ? `Fechar ${name}` : `Abrir ${name}`} onClick={() => toggle(p)} tabIndex={-1}>
                 <Icon name="chevronRight" />
               </button>
-              <button className="tree-name" disabled={blocked} onClick={() => onOpen(p)} onDoubleClick={() => toggle(p)} title={name}>
-                <Icon name={icon} /> <span>{name}</span>
+              <button
+                className="tree-name"
+                disabled={blocked}
+                onClick={() => {
+                  onOpen(p);
+                  if (!isOpen) toggle(p);
+                }}
+                title={name}
+              >
+                <span className={`tree-ico${parent === "" ? " top" : " dir"}`}>
+                  <Icon name={icon} />
+                </span>
+                <span className="tree-label">{name}</span>
               </button>
             </div>
             {isOpen && (
               <ul role="group">
-                <TreeLevel parent={p} depth={depth + 1} current={current} user={user} open={open} toggle={toggle} onOpen={onOpen} dropProps={dropProps} pick={pick} />
+                <TreeLevel {...props} parent={p} depth={depth + 1} />
               </ul>
             )}
+          </li>
+        );
+      })}
+      {files.map((f) => {
+        const p = joinPath(parent, f.name);
+        const k = kindOf(f);
+        return (
+          <li key={p} role="treeitem" aria-selected={selected === p}>
+            <div className={`tree-row file-row${selected === p ? " on" : ""}`} style={{ paddingLeft: 26 + depth * 14 }} onContextMenu={onMenu ? (ev) => onMenu(ev, p, false) : undefined}>
+              <button className="tree-name" onClick={() => onOpenFile?.(p)} title={`${f.name} · ${fmtBytes(f.size)}`}>
+                <span className={`tree-ico k-${k}`}>
+                  <Icon name={kindIcon[k]} />
+                </span>
+                <span className="tree-label">{f.name}</span>
+              </button>
+            </div>
           </li>
         );
       })}
@@ -804,19 +1193,7 @@ function TreeLevel({
 
 // ---------- menus and dialogs ----------
 
-function ContextMenu({
-  at,
-  items,
-  sheet,
-  title,
-  onClose,
-}: {
-  at: Menu;
-  items: { id: string; label: string; icon: string; run: () => void; danger?: boolean }[];
-  sheet: boolean;
-  title?: string;
-  onClose: () => void;
-}) {
+function ContextMenu({ at, sheet, onClose }: { at: Menu; sheet: boolean; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ left: at.x, top: at.y });
   useEffect(() => {
@@ -842,11 +1219,10 @@ function ContextMenu({
       window.removeEventListener("scroll", onClose, true);
     };
   }, [at, sheet, onClose]);
-  if (!items.length) return null;
   const list = (
     <div ref={ref} className={`ctx-menu${sheet ? " sheet-menu" : ""}`} role="menu" style={sheet ? undefined : pos} onContextMenu={(e) => e.preventDefault()}>
-      {title && <div className="ctx-title">{title}</div>}
-      {items.map((c, i) => (
+      {at.title && <div className="ctx-title">{at.title}</div>}
+      {at.items.map((c, i) => (
         <button
           key={c.id}
           role="menuitem"
@@ -870,7 +1246,7 @@ function ContextMenu({
   return sheet ? <div className="dialog-backdrop">{list}</div> : list;
 }
 
-function Dialog({ title, onClose, children, wide, className }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean; className?: string }) {
+function Dialog({ title, onClose, children, className }: { title: string; onClose: () => void; children: ReactNode; className?: string }) {
   useEffect(() => {
     const k = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", k);
@@ -878,43 +1254,45 @@ function Dialog({ title, onClose, children, wide, className }: { title: string; 
   }, [onClose]);
   return (
     <div className="dialog-backdrop" role="dialog" aria-modal="true" aria-label={title} onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className={`dialog${wide ? " wide" : ""}${className ? ` ${className}` : ""}`}>{children}</div>
+      <div className={`dialog${className ? ` ${className}` : ""}`}>{children}</div>
     </div>
   );
 }
 
 function NameDialog({ ask, onCancel, onSubmit }: { ask: Ask; onCancel: () => void; onSubmit: (v: string) => void }) {
-  const initial = ask.kind === "rename" ? baseName(ask.path) : "";
+  const initial = ask.kind === "rename" ? baseName(ask.path) : ask.kind === "mkfile" ? "Novo arquivo.txt" : "";
   const [value, setValue] = useState(initial);
-  const title = ask.kind === "mkdir" ? "Nova pasta" : "Renomear";
+  const title = ask.kind === "mkdir" ? "Nova pasta" : ask.kind === "mkfile" ? "Novo arquivo de texto" : "Renomear";
   const inputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     const el = inputRef.current;
     if (!el) return;
     el.focus();
-    // Rename selects the name without the extension, like a file manager.
+    // The name is selected without the extension, like a file manager.
     const dot = initial.lastIndexOf(".");
     el.setSelectionRange(0, dot > 0 ? dot : initial.length);
   }, [initial]);
-  const invalid = /[/\\]/.test(value) || value.trim() === "." || value.trim() === "..";
+  const invalid = /[/\\]/.test(value) || value.trim().startsWith(".");
+  const same = ask.kind === "rename" && value.trim() === initial;
   return (
     <Dialog title={title} onClose={onCancel}>
       <form
         className="stack-sm"
         onSubmit={(e) => {
           e.preventDefault();
-          if (value.trim() && !invalid && value.trim() !== initial) onSubmit(value.trim());
+          if (value.trim() && !invalid && !same) onSubmit(value.trim());
         }}
       >
         <h2>{title}</h2>
         <input ref={inputRef} className="input" value={value} onChange={(e) => setValue(e.target.value)} aria-label={title} placeholder={ask.kind === "mkdir" ? "Nome da pasta" : undefined} />
-        {invalid && <span className="hint bad">O nome não pode ter / nem \.</span>}
+        {invalid && <span className="hint bad">O nome não pode ter / nem \ nem começar com ponto.</span>}
+        {ask.kind === "mkfile" && <span className="hint">Sem extensão, vira .txt. O arquivo abre no editor.</span>}
         <div className="dialog-actions">
           <button type="button" className="btn ghost" onClick={onCancel}>
             Cancelar
           </button>
-          <button type="submit" className="btn primary" disabled={!value.trim() || invalid || value.trim() === initial}>
-            {ask.kind === "mkdir" ? "Criar" : "Renomear"}
+          <button type="submit" className="btn primary" disabled={!value.trim() || invalid || same}>
+            {ask.kind === "rename" ? "Renomear" : "Criar"}
           </button>
         </div>
       </form>
@@ -1005,58 +1383,76 @@ async function shareFile(path: string, name: string): Promise<boolean> {
 const SHARE_MAX = 50 << 20;
 const TEXT_MAX = 2 << 20;
 
-/** Large viewer: images, video, audio, PDF and text; ← → walk the folder. */
+/** Large viewer: images, video, audio, PDF and text (editable); ← → walk the folder. */
 function PreviewDialog({
   path,
   entry,
+  startEditing,
   files,
   byPath,
   writable,
   onGo,
   onClose,
+  onSaved,
   onRename,
   onMove,
   onDelete,
 }: {
   path: string;
   entry: NasEntry;
+  startEditing: boolean;
   files: string[];
   byPath: Map<string, NasEntry>;
   writable: boolean;
   onGo: (p: string) => void;
   onClose: () => void;
+  onSaved: () => void;
   onRename: () => void;
   onMove: () => void;
   onDelete: () => void;
 }) {
   const toast = useToast();
   const [sharing, setSharing] = useState(false);
+  const [dirty, setDirty] = useState(false);
   const i = files.indexOf(path);
   const prev = i > 0 ? files[i - 1] : null;
   const next = i >= 0 && i < files.length - 1 ? files[i + 1] : null;
   const kind = kindOf(entry);
   const src = fileUrl(path);
+  const leave = (fn: () => void) => () => {
+    if (!dirty || window.confirm("Descartar as alterações não salvas?")) {
+      setDirty(false);
+      fn();
+    }
+  };
 
+  const keys = useRef<(e: KeyboardEvent) => void>(() => {});
   useEffect(() => {
-    const k = (e: KeyboardEvent) => {
+    keys.current = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement).closest("input, textarea")) return;
-      if (e.key === "Escape") onClose();
-      if (e.key === "ArrowLeft" && prev) onGo(prev);
-      if (e.key === "ArrowRight" && next) onGo(next);
+      if (e.key === "Escape") leave(onClose)();
+      if (e.key === "ArrowLeft" && prev) leave(() => onGo(prev))();
+      if (e.key === "ArrowRight" && next) leave(() => onGo(next))();
     };
+  });
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => keys.current(e);
     window.addEventListener("keydown", k);
     return () => window.removeEventListener("keydown", k);
-  }, [prev, next, onGo, onClose]);
+  }, []);
 
   return (
-    <div className="dialog-backdrop viewer-backdrop" role="dialog" aria-modal="true" aria-label={entry.name} onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="dialog-backdrop viewer-backdrop" role="dialog" aria-modal="true" aria-label={entry.name} onMouseDown={(e) => e.target === e.currentTarget && leave(onClose)()}>
       <div className="viewer">
         <header className="viewer-head">
           <span className={`file-icon small k-${kind}`}>
             <Icon name={kindIcon[kind]} />
           </span>
           <div className="viewer-title">
-            <h2 title={entry.name}>{entry.name}</h2>
+            <h2 title={entry.name}>
+              {entry.name}
+              {dirty && <span className="muted"> •</span>}
+            </h2>
             <span className="muted small">
               {kindLabel[kind]} · {fmtBytes(entry.size)} · {fmtDate(entry.modified)}
               {files.length > 1 && i >= 0 && ` · ${i + 1} de ${files.length}`}
@@ -1099,20 +1495,24 @@ function PreviewDialog({
                 </button>
               </>
             )}
-            <button className="btn ghost icon small" aria-label="Fechar" title="Fechar (Esc)" onClick={onClose}>
+            <button className="btn ghost icon small" aria-label="Fechar" title="Fechar (Esc)" onClick={leave(onClose)}>
               <Icon name="x" />
             </button>
           </div>
         </header>
         <div className={`viewer-stage k-${kind}`}>
           {prev && (
-            <button className="viewer-nav prev" aria-label={`Anterior: ${byPath.get(prev)?.name}`} title="Anterior (←)" onClick={() => onGo(prev)}>
+            <button className="viewer-nav prev" aria-label={`Anterior: ${byPath.get(prev)?.name}`} title="Anterior (←)" onClick={leave(() => onGo(prev))}>
               <Icon name="chevronLeft" />
             </button>
           )}
-          <PreviewBody key={path} kind={kind} src={src} path={path} entry={entry} />
+          {kind === "text" && entry.size <= TEXT_MAX ? (
+            <TextEditor key={path} path={path} writable={writable} startEditing={startEditing} onDirty={setDirty} onSaved={onSaved} />
+          ) : (
+            <PreviewBody key={path} kind={kind} src={src} path={path} entry={entry} />
+          )}
           {next && (
-            <button className="viewer-nav next" aria-label={`Próximo: ${byPath.get(next)?.name}`} title="Próximo (→)" onClick={() => onGo(next)}>
+            <button className="viewer-nav next" aria-label={`Próximo: ${byPath.get(next)?.name}`} title="Próximo (→)" onClick={leave(() => onGo(next))}>
               <Icon name="chevronRight" />
             </button>
           )}
@@ -1135,7 +1535,6 @@ function PreviewBody({ kind, src, path, entry }: { kind: Kind; src: string; path
       </div>
     );
   if (kind === "pdf") return <iframe className="viewer-pdf" src={src} title={entry.name} />;
-  if (kind === "text" && entry.size <= TEXT_MAX) return <TextPreview path={path} />;
   return (
     <div className="viewer-none">
       <span className={`file-icon big k-${kind}`}>
@@ -1150,19 +1549,101 @@ function PreviewBody({ kind, src, path, entry }: { kind: Kind; src: string; path
   );
 }
 
-function TextPreview({ path }: { path: string }) {
-  const q = useQuery({
-    queryKey: ["nas-text", path],
-    queryFn: async () => {
-      const res = await fetch(fileUrl(path, true), { credentials: "same-origin" });
-      if (!res.ok) throw new ApiError(res.status, `HTTP ${res.status}`);
-      return new TextDecoder("utf-8").decode(await res.arrayBuffer());
-    },
-    staleTime: 60_000,
-  });
+/** Plain-text viewer that turns into an editor (Ctrl+S saves). */
+function TextEditor({
+  path,
+  writable,
+  startEditing,
+  onDirty,
+  onSaved,
+}: {
+  path: string;
+  writable: boolean;
+  startEditing: boolean;
+  onDirty: (d: boolean) => void;
+  onSaved: () => void;
+}) {
+  const toast = useToast();
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ["nas-text", path], queryFn: () => fetchText(path), staleTime: 0 });
+  const [editing, setEditing] = useState(startEditing && writable);
+  const [draft, setDraft] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const text = draft ?? q.data ?? "";
+  const dirty = draft !== null && draft !== q.data;
+  useEffect(() => onDirty(dirty), [dirty, onDirty]);
+
+  const save = async () => {
+    if (!dirty) return;
+    setSaving(true);
+    try {
+      await saveText(path, text);
+      qc.setQueryData(["nas-text", path], text);
+      setDraft(null);
+      onSaved();
+      toast("Salvo.");
+    } catch (e) {
+      toast(errText(e), true);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (q.isLoading) return <p className="viewer-none muted">Carregando…</p>;
   if (q.isError) return <p className="viewer-none">{errText(q.error)}</p>;
-  return <pre className="viewer-text selectable">{q.data}</pre>;
+  return (
+    <div className="text-editor">
+      {writable && (
+        <div className="editor-bar">
+          {editing ? (
+            <>
+              <span className="muted small">{dirty ? "Alterações não salvas" : "Editando"} · Ctrl+S salva</span>
+              <span className="grow" />
+              <button
+                className="btn small ghost"
+                onClick={() => {
+                  if (!dirty || window.confirm("Descartar as alterações?")) {
+                    setDraft(null);
+                    setEditing(false);
+                  }
+                }}
+              >
+                Cancelar
+              </button>
+              <button className="btn small primary" disabled={!dirty || saving} onClick={() => void save()}>
+                <Icon name="check" /> {saving ? "Salvando…" : "Salvar"}
+              </button>
+            </>
+          ) : (
+            <>
+              <span className="grow" />
+              <button className="btn small" onClick={() => setEditing(true)}>
+                <Icon name="edit" /> Editar
+              </button>
+            </>
+          )}
+        </div>
+      )}
+      {editing ? (
+        <textarea
+          className="viewer-text editing"
+          value={text}
+          autoFocus
+          spellCheck={false}
+          aria-label="Conteúdo do arquivo"
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
+              e.preventDefault();
+              void save();
+            }
+          }}
+        />
+      ) : (
+        <pre className="viewer-text selectable">{text || <span className="muted">Arquivo vazio.</span>}</pre>
+      )}
+    </div>
+  );
 }
 
 /** Photo preview: pinch to zoom and pan on touch screens, double-tap to reset. */
