@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchSystem, get, type Camera, type Timeline } from "../lib/api";
 import { href, navigate } from "../lib/router";
@@ -106,6 +106,8 @@ function Single({ cam, now, multi }: { cam: Camera; now: number; multi: boolean 
   // The last HD/SD choice on this device; otherwise SD on phones and on
   // mobile data (saves the data plan), HD elsewhere. One tap switches.
   const [stream] = useState(() => initialStream(window.matchMedia("(max-width: 760px)").matches));
+  // Phones: PTZ right under the video, where the thumb is.
+  const narrow = useNarrow();
 
   return (
     <>
@@ -132,6 +134,7 @@ function Single({ cam, now, multi }: { cam: Camera; now: number; multi: boolean 
             motion={(active[cam.id] ?? []).length > 0}
             defaultStream={stream}
           />
+          {narrow && <PtzPanel cameraId={cam.id} canControl={can("operator")} />}
           <section className="card" aria-label="Hoje">
             <div className="card-head">
               <h2>Hoje</h2>
@@ -151,12 +154,25 @@ function Single({ cam, now, multi }: { cam: Camera; now: number; multi: boolean 
           <TodayStats timeline={timeline.data} motion={motionToday} />
         </div>
         <aside className="stack">
-          <PtzPanel cameraId={cam.id} canControl={can("operator")} />
+          {!narrow && <PtzPanel cameraId={cam.id} canControl={can("operator")} />}
           <CameraSettings cameraId={cam.id} canControl={can("operator")} isAdmin={can("admin")} />
         </aside>
       </div>
     </>
   );
+}
+
+/** True while the layout is one column (the two-col grid collapses at 1180 px). */
+function useNarrow(): boolean {
+  const query = "(max-width: 1180px)";
+  const [narrow, setNarrow] = useState(() => window.matchMedia(query).matches);
+  useEffect(() => {
+    const m = window.matchMedia(query);
+    const on = () => setNarrow(m.matches);
+    m.addEventListener("change", on);
+    return () => m.removeEventListener("change", on);
+  }, []);
+  return narrow;
 }
 
 function TodayStats({ timeline, motion }: { timeline?: Timeline; motion: number }) {

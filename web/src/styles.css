@@ -430,9 +430,16 @@ input[type="range"]:disabled { opacity: 0.45; cursor: not-allowed; }
 .ptz-row .label { margin-right: auto; color: var(--muted); font-size: 0.92rem; }
 .ptz-row .btn { background: var(--surface); }
 
-.presets { display: grid; grid-template-columns: repeat(auto-fill, minmax(48px, 1fr)); gap: 8px; }
-.presets .btn { font-family: var(--serif); font-variation-settings: "SOFT" 100, "opsz" 24; font-size: 1rem; font-variant-numeric: tabular-nums; background: var(--surface-2); border-color: transparent; }
-.presets .btn:hover:not(:disabled) { background: var(--sea-soft); color: var(--sea-strong); }
+.presets { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { display: inline-flex; align-items: center; gap: 8px; min-width: 44px; height: 44px; padding: 0 14px; justify-content: center;
+  border: 0; border-radius: 999px; background: var(--surface-2); color: var(--text); cursor: pointer; font: inherit;
+  transition: background-color 0.12s, color 0.12s; }
+.chip .num { font-family: var(--serif); font-variation-settings: "SOFT" 100, "opsz" 24; font-size: 1.05rem; font-variant-numeric: tabular-nums; }
+.chip.named .num { color: var(--sea-strong); }
+.chip-name { max-width: 16ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chip:hover:not(:disabled) { background: var(--sea-soft); color: var(--sea-strong); }
+.chip:active:not(:disabled) { background: var(--sea); color: var(--sea-ink); }
+.chip:disabled { opacity: 0.45; cursor: not-allowed; }
 
 .toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 40px; }
 .toggle-row > span { display: inline-flex; align-items: center; gap: 10px; }

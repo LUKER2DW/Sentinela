@@ -5,6 +5,7 @@ import { useToast } from "../lib/session";
 import { dayNightLabel } from "../lib/time";
 import { Icon } from "./Icon";
 import { LighthouseMark } from "./Lighthouse";
+import { haptic } from "../lib/gestures";
 
 type Op = "move" | "zoom" | "focus";
 
@@ -31,6 +32,7 @@ function useHold(cameraId: string, speed: number, onError: (m: string) => void) 
   const start = useCallback(
     (op: Op, dir: string) => {
       stop();
+      haptic();
       const key = `${op}:${dir}`;
       active.current = key;
       setPressed(key);
@@ -203,11 +205,25 @@ export function CameraSettings({ cameraId, canControl, isAdmin }: { cameraId: st
         {state.isError && <p className="notice error">Câmera não respondeu. {(state.error as Error).message}</p>}
         {st && presets.length === 0 && <p className="muted">Nenhuma posição salva ainda.</p>}
         <div className="presets">
-          {presets.map((p) => (
-            <button key={p.id} className="btn small" disabled={!canControl || preset.isPending} onClick={() => preset.mutate({ id: p.id, action: "goto" })} title={p.name}>
-              {p.id}
-            </button>
-          ))}
+          {presets.map((p) => {
+            // The firmware names untouched presets "Preset N"; show the number then.
+            const named = p.name && !/^preset\s*\d+$/i.test(p.name.trim());
+            return (
+              <button
+                key={p.id}
+                className={`chip${named ? " named" : ""}`}
+                disabled={!canControl || preset.isPending}
+                onClick={() => {
+                  haptic();
+                  preset.mutate({ id: p.id, action: "goto" });
+                }}
+                title={`Ir para a posição ${p.id}${named ? `: ${p.name}` : ""}`}
+              >
+                <span className="num">{p.id}</span>
+                {named && <span className="chip-name">{p.name}</span>}
+              </button>
+            );
+          })}
         </div>
         {canControl && isAdmin && nextFree !== null && (
           <button className="btn ghost small" style={{ marginTop: 10 }} onClick={() => setConfirmSave(nextFree)}>
