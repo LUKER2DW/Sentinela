@@ -15,6 +15,7 @@ export function useSystemNotices() {
       queryKey: ["control", c.id],
       queryFn: () => get<ControlState>(`/api/cameras/${c.id}/control`),
       staleTime: 5 * 60_000,
+      refetchOnWindowFocus: false,
       retry: 1,
     })),
   });

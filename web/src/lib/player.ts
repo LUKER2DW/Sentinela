@@ -128,6 +128,20 @@ export class LivePlayer {
     void this.connect();
   }
 
+  /** Current state (the last one emitted). */
+  get state(): PlayerState {
+    return this.lastState;
+  }
+  private lastState: PlayerState = "connecting";
+
+  /** Reopens the stream from a fresh keyframe (backlog after a hidden tab, stalls). */
+  restart() {
+    if (this.stopped) return;
+    window.clearTimeout(this.retryTimer);
+    this.retry = 0;
+    void this.connect();
+  }
+
   stop() {
     this.stopped = true;
     window.clearTimeout(this.retryTimer);
@@ -136,6 +150,7 @@ export class LivePlayer {
   }
 
   private emit(s: PlayerStatus) {
+    this.lastState = s.state;
     this.opts.onStatus?.(s);
   }
 
@@ -239,12 +254,12 @@ export class LivePlayer {
     }
     const stream = new MediaStream();
     pc.ontrack = (ev) => {
-      // Smallest jitter buffer the browser allows: live view favours latency
-      // over smoothness (LAN / tailnet, little jitter).
+      // A small jitter buffer (150 ms): with none, Wi-Fi jitter made the 2K
+      // picture stutter and smear; this costs a fraction of the delay.
       const r = ev.receiver as unknown as { jitterBufferTarget?: number | null; playoutDelayHint?: number };
       try {
-        if (r.jitterBufferTarget !== undefined) r.jitterBufferTarget = 0;
-        else r.playoutDelayHint = 0;
+        if (r.jitterBufferTarget !== undefined) r.jitterBufferTarget = 150;
+        else r.playoutDelayHint = 0.15;
       } catch {
         /* not supported: default buffer */
       }

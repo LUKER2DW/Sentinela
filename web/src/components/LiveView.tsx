@@ -20,9 +20,12 @@ interface Props {
 const transportLabel = { webrtc: "WebRTC", mse: "MSE" } as const;
 export const streamLabel = { main: "Principal", sub: "Substream" } as const;
 
-// A hidden tab (or a window covered by another one) keeps the stream this
-// long before closing it: quick switches no longer drop and reopen the video.
-const HIDDEN_GRACE_MS = 3 * 60_000;
+// A tab hidden (or a window covered) longer than this reopens the stream
+// fresh when shown; hidden longer than STOP it closes the stream.
+const HIDDEN_RESTART_MS = 3_000;
+const HIDDEN_STOP_MS = 30_000;
+// A picture that does not move for this long while playing reconnects.
+const STALL_MS = 4_000;
 // Local recordings stop by themselves after this long (memory on the viewer).
 const MAX_CLIP_MS = 15 * 60_000;
 
@@ -61,25 +64,61 @@ export function LiveView({ cameraId, cameraName, motion, allowTalk, compact, def
     const p = new LivePlayer(video, { cameraId, stream, talk, onStatus: setStatus, onTeardown: freeze });
     playerRef.current = p;
     p.start();
-    // A hidden tab closes the stream only after a grace period: saves camera
-    // and CPU without reconnecting on every quick switch.
+    // A hidden tab stops decoding video but the stream keeps arriving: on
+    // return the browser would replay a backlog (stutter, smeared frames).
+    // So a tab hidden for a while reopens the stream fresh on return, behind
+    // the last picture, and one hidden longer closes it (camera and CPU).
+    let hiddenAt = 0;
     let hiddenTimer: number | undefined;
     let paused = false;
     const onVis = () => {
       window.clearTimeout(hiddenTimer);
       if (document.hidden) {
+        hiddenAt = performance.now();
         hiddenTimer = window.setTimeout(() => {
           paused = true;
           p.stop();
-        }, HIDDEN_GRACE_MS);
+        }, HIDDEN_STOP_MS);
       } else if (paused) {
         paused = false;
         p.start();
+      } else if (performance.now() - hiddenAt > HIDDEN_RESTART_MS) {
+        p.restart();
       }
     };
     document.addEventListener("visibilitychange", onVis);
+    // Stall watchdog: a picture frozen for STALL_MS while "playing" (lost
+    // packets waiting for a keyframe that never comes) reconnects.
+    // Painted frames are counted where the browser tells (a WebRTC clock
+    // keeps running while the picture is frozen); else currentTime.
+    const rv = video as HTMLVideoElement & { requestVideoFrameCallback?: (cb: () => void) => number; cancelVideoFrameCallback?: (h: number) => void };
+    let painted = 0;
+    let rvfc = 0;
+    const onFrame = () => {
+      painted++;
+      rvfc = rv.requestVideoFrameCallback!(onFrame);
+    };
+    const hasRvfc = typeof (video as { requestVideoFrameCallback?: unknown }).requestVideoFrameCallback === "function";
+    if (hasRvfc) rvfc = rv.requestVideoFrameCallback!(onFrame);
+    let lastT = -1;
+    let still = 0;
+    const watch = window.setInterval(() => {
+      if (document.hidden || p.state !== "playing" || video.paused) {
+        still = 0;
+        return;
+      }
+      const t = hasRvfc ? painted : video.currentTime;
+      still = t === lastT ? still + 1 : 0;
+      lastT = t;
+      if (still * 1000 >= STALL_MS) {
+        still = 0;
+        p.restart();
+      }
+    }, 1000);
     return () => {
       window.clearTimeout(hiddenTimer);
+      window.clearInterval(watch);
+      rv.cancelVideoFrameCallback?.(rvfc);
       document.removeEventListener("visibilitychange", onVis);
       p.stop();
       playerRef.current = null;

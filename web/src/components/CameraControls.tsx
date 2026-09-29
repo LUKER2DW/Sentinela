@@ -228,7 +228,9 @@ export function CameraSettings({ cameraId, canControl, isAdmin }: { cameraId: st
   const state = useQuery({
     queryKey: key,
     queryFn: () => get<ControlState>(`/api/cameras/${cameraId}/control`),
-    staleTime: 15_000,
+    // Each read is a DVRIP login on the camera: not on every window focus.
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
     retry: 1,
   });
   const [confirmSave, setConfirmSave] = useState<number | null>(null);
