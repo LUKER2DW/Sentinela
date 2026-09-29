@@ -39,6 +39,11 @@ echo "==> health"
 for _ in $(seq 1 30); do
   if "${SSH[@]}" 'cd /opt/sentinela/deploy && sudo docker compose exec -T sentinela /usr/local/bin/sentinela healthcheck' >/dev/null 2>&1; then
     "${SSH[@]}" 'cd /opt/sentinela/deploy && sudo docker compose ps --format "table {{.Service}}\t{{.Status}}"'
+    # A clean, committed tree: tell the auto deployer this commit is live, so
+    # pushing it afterwards does not rebuild it on the server (ADR-0009).
+    if [[ "$VERSION" != *-dirty ]]; then
+      "${SSH[@]}" "echo $(git rev-parse HEAD) | sudo tee /var/lib/sentinela/autodeploy.state >/dev/null" || true
+    fi
     echo "Deployed ${VERSION}: http://${HOST#*@}:8080"
     exit 0
   fi
