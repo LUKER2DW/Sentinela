@@ -41,6 +41,20 @@ export function DayRibbon({ dayStart, data, cursor, now, onPick, label }: Props)
     [data, t0, t1, now],
   );
 
+  // Events started per hour: the activity strip under the ribbon.
+  const hours = useMemo(() => {
+    const out = Array.from({ length: 24 }, () => ({ n: 0, first: 0 }));
+    for (const e of data?.events ?? []) {
+      const a = new Date(e.start).getTime();
+      if (a < t0 || a >= t1) continue;
+      const h = new Date(a).getHours();
+      if (!out[h].n || a < out[h].first) out[h].first = a;
+      out[h].n++;
+    }
+    return out;
+  }, [data, t0, t1]);
+  const busiest = Math.max(1, ...hours.map((h) => h.n));
+
   const toMs = (clientX: number) => {
     const r = ref.current!.getBoundingClientRect();
     const x = Math.min(Math.max(clientX - r.left, 0), r.width);
@@ -102,6 +116,22 @@ export function DayRibbon({ dayStart, data, cursor, now, onPick, label }: Props)
           </div>
         )}
       </div>
+      {hours.some((h) => h.n) && (
+        <div className="activity" role="group" aria-label="Atividade por hora">
+          {hours.map((h, i) => (
+            <button
+              key={i}
+              disabled={!h.n}
+              title={h.n ? `${String(i).padStart(2, "0")}h: ${h.n} ${h.n === 1 ? "evento" : "eventos"}` : undefined}
+              aria-label={h.n ? `${i} horas, ${h.n} eventos` : `${i} horas, nada`}
+              onClick={() => h.n && pick(h.first - 5000)}
+            >
+              {/* sqrt keeps a single event visible next to a busy hour */}
+              <i style={{ height: h.n ? `${Math.max(18, Math.sqrt(h.n / busiest) * 100)}%` : 0 }} />
+            </button>
+          ))}
+        </div>
+      )}
       <div className="ribbon-scale" aria-hidden="true">
         {[0, 3, 6, 9, 12, 15, 18, 21, 24].map((h) => (
           <span key={h} className={h % 6 ? "minor" : undefined} style={{ left: `clamp(8px, ${(h / 24) * 100}%, calc(100% - 10px))` }}>

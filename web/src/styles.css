@@ -893,3 +893,10 @@ table.table { width: 100%; border-collapse: collapse; }
 .night-row { display: grid; gap: 6px; margin-top: 12px; }
 .night-range { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .night-range .input { width: 7.5em; height: 36px; }
+
+/* activity strip: events per hour under the day ribbon */
+.activity { display: grid; grid-template-columns: repeat(24, 1fr); gap: 3px; height: 20px; margin-top: 6px; }
+.activity button { display: flex; align-items: flex-end; padding: 0; border: 0; background: none; cursor: pointer; border-radius: 3px; }
+.activity button:disabled { cursor: default; }
+.activity button:hover:not(:disabled) { background: var(--surface-2); }
+.activity i { display: block; width: 100%; border-radius: 3px 3px 1px 1px; background: var(--coral); opacity: 0.55; }
