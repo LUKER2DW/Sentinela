@@ -11,6 +11,109 @@ export const MODES: { value: ModeSettings["mode"]; label: string; hint: string }
   { value: "away", label: "Fora", hint: "Avisa tudo, inclusive movimento." },
 ];
 
+const MODE_CARDS: { value: ModeSettings["mode"]; label: string; icon: string; when: string; notifies: string[]; quiet: string }[] = [
+  {
+    value: "home",
+    label: "Casa",
+    icon: "home",
+    when: "Tem gente em casa, de dia.",
+    notifies: ["Câmera obstruída ou mexida"],
+    quiet: "Pessoas, carros e movimento só ficam registrados.",
+  },
+  {
+    value: "night",
+    label: "Noite",
+    icon: "moon",
+    when: "Todos dormindo.",
+    notifies: ["Pessoa", "Linha cruzada ou área invadida", "Câmera obstruída"],
+    quiet: "Veículos, animais e movimento só ficam registrados.",
+  },
+  {
+    value: "away",
+    label: "Fora",
+    icon: "away",
+    when: "Casa vazia.",
+    notifies: ["Pessoa, veículo e animal", "Linha, área e obstrução", "Movimento (se o detector estiver parado)"],
+    quiet: "Tudo o que acontece avisa.",
+  },
+];
+
+/**
+ * Big, explicit Casa / Noite / Fora picker for the Eventos page: what each
+ * mode sends to the phone, which one is on now, and the automatic night.
+ */
+export function ModeCard() {
+  const { can } = useSession();
+  const qc = useQueryClient();
+  const toast = useToast();
+  const q = useQuery({ queryKey: ["notify-mode"], queryFn: getMode, staleTime: 30_000 });
+  const set = useMutation({
+    mutationFn: putMode,
+    onSuccess: (d) => {
+      qc.setQueryData(["notify-mode"], d);
+      toast(`Modo ${MODES.find((m) => m.value === d.settings.mode)?.label} ativado`);
+    },
+    onError: (e: Error) => toast(e.message, true),
+  });
+  const s = q.data?.settings;
+  if (!s) return null;
+  const effective = q.data!.effective;
+  const autoNight = s.mode === "home" && effective === "night";
+  return (
+    <section className="card mode-card" aria-label="Modo de avisos da casa">
+      <div className="mode-card-head">
+        <div>
+          <h2>Modo da casa</h2>
+          <p className="muted small">
+            Define o que manda aviso para o celular. Tudo continua gravado e aparece aqui nos Eventos, em qualquer modo.
+          </p>
+        </div>
+        <span className="pill ok">
+          <span className="dot ok" /> Agora: {MODES.find((m) => m.value === effective)?.label}
+          {autoNight && ` (automático até ${s.night_to})`}
+        </span>
+      </div>
+      <div className="mode-options" role="radiogroup" aria-label="Modo">
+        {MODE_CARDS.map((m) => {
+          const on = s.mode === m.value;
+          return (
+            <button
+              key={m.value}
+              role="radio"
+              aria-checked={on}
+              className={`mode-option${on ? " on" : ""}${effective === m.value && !on ? " auto" : ""}`}
+              disabled={!can("operator") || set.isPending}
+              onClick={() => !on && set.mutate({ ...s, mode: m.value })}
+            >
+              <span className="mode-option-head">
+                <Icon name={m.icon} />
+                <strong>{m.label}</strong>
+                {on && <span className="mode-on">Ativo</span>}
+                {!on && effective === m.value && <span className="mode-on soft">Automático</span>}
+              </span>
+              <span className="muted small">{m.when}</span>
+              <span className="mode-list-title small">Avisa:</span>
+              <ul className="mode-list">
+                {m.notifies.map((n) => (
+                  <li key={n}>{n}</li>
+                ))}
+              </ul>
+              <span className="muted small">{m.quiet}</span>
+            </button>
+          );
+        })}
+      </div>
+      <p className="muted small mode-foot">
+        {s.night_auto
+          ? `No modo Casa, a Noite liga sozinha das ${s.night_from} às ${s.night_to}.`
+          : "A Noite automática está desligada."}{" "}
+        Ajuste em Minha conta → Notificações.
+        {!can("operator") && " Seu perfil só permite ver o modo."}
+      </p>
+    </section>
+  );
+}
+
 /** Quick Casa / Noite / Fora switch (operators change it for the house). */
 export function ModeSwitch({ compact }: { compact?: boolean }) {
   const { can } = useSession();
