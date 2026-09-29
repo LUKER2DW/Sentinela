@@ -5,13 +5,16 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/LUKER2DW/sentinela/internal/auth"
+	"github.com/LUKER2DW/sentinela/internal/nas"
 	"github.com/LUKER2DW/sentinela/internal/store"
 )
 
@@ -95,6 +98,12 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	if !auth.VerifyPassword(u.PWHash, c.Password) {
 		_ = s.Store.Audit(r.Context(), u.ID, u.Username, "login", ip, false, zone+": bad password")
 		writeErr(w, http.StatusUnauthorized, "invalid username or password")
+		return
+	}
+	// Checked after the password, so it does not reveal which accounts exist.
+	if u.Disabled {
+		_ = s.Store.Audit(r.Context(), u.ID, u.Username, "login", ip, false, zone+": account disabled")
+		writeErr(w, http.StatusForbidden, "account disabled")
 		return
 	}
 	if public {
@@ -279,7 +288,7 @@ func (s *Server) targetUser(w http.ResponseWriter, r *http.Request) *store.User 
 
 // lastAdminGuard refuses changes that would leave no admin.
 func (s *Server) lastAdminGuard(ctx context.Context, u *store.User) error {
-	if u.Role != auth.RoleAdmin {
+	if u.Role != auth.RoleAdmin || u.Disabled {
 		return nil
 	}
 	n, err := s.Store.CountAdmins(ctx)
@@ -302,11 +311,29 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request) {
 		Password *string   `json:"password"`
 		Cameras  *[]string `json:"cameras"`
 		// TOTPOff turns the user's two-step login off (lost phone).
-		TOTPOff bool `json:"totp_off"`
+		TOTPOff  bool  `json:"totp_off"`
+		Disabled *bool `json:"disabled"`
 	}
 	if err := readJSON(r, &body); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
+	}
+	if body.Disabled != nil {
+		if u.ID == userFrom(r).ID && *body.Disabled {
+			writeErr(w, http.StatusConflict, "you cannot disable yourself")
+			return
+		}
+		if *body.Disabled {
+			if err := s.lastAdminGuard(r.Context(), u); err != nil {
+				writeErr(w, http.StatusConflict, err.Error())
+				return
+			}
+		}
+		if err := s.Store.SetUserDisabled(r.Context(), u.ID, *body.Disabled); err != nil {
+			writeErr(w, http.StatusInternalServerError, "database error")
+			return
+		}
+		s.audit(r, "user.disabled", u.Username, true, strconv.FormatBool(*body.Disabled))
 	}
 	if body.Role != nil {
 		if !auth.ValidRole(*body.Role) {
@@ -390,6 +417,73 @@ func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r, "user.delete", u.Username, true, "")
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// userDetail is the admin's view of one account: sessions, last sign-in,
+// Nuvem usage and recent actions.
+func (s *Server) userDetail(w http.ResponseWriter, r *http.Request) {
+	u := s.targetUser(w, r)
+	if u == nil {
+		return
+	}
+	ctx := r.Context()
+	sessions, err := s.Store.UserSessions(ctx, u.ID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "database error")
+		return
+	}
+	last, _ := s.Store.LastLogin(ctx, u.Username)
+	audit, err := s.Store.UserAudit(ctx, u.Username, 30)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "database error")
+		return
+	}
+	out := map[string]any{"user": u, "sessions": sessions, "last_login": last, "audit": audit}
+	if s.nasRoot != "" {
+		out["nuvem"] = map[string]any{
+			"folder": u.Username,
+			"files":  folderUsage(ctx, filepath.Join(s.nasRoot, u.Username)),
+			"trash":  folderUsage(ctx, filepath.Join(s.nasRoot, nas.Trash, u.Username)),
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// usage is the size of a folder tree; Partial when the walk was cut short.
+type usage struct {
+	Bytes   int64 `json:"bytes"`
+	Files   int   `json:"files"`
+	Folders int   `json:"folders"`
+	Partial bool  `json:"partial,omitempty"`
+}
+
+// folderUsage walks a folder for at most 2 s / 200 000 entries (an admin
+// page must not keep the old disk busy).
+func folderUsage(ctx context.Context, root string) usage {
+	var u usage
+	deadline := time.Now().Add(2 * time.Second)
+	_ = filepath.WalkDir(root, func(_ string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if ctx.Err() != nil || time.Now().After(deadline) || u.Files+u.Folders > 200_000 {
+			u.Partial = true
+			return fs.SkipAll
+		}
+		if d.IsDir() {
+			u.Folders++
+			return nil
+		}
+		if info, err := d.Info(); err == nil {
+			u.Files++
+			u.Bytes += info.Size()
+		}
+		return nil
+	})
+	if u.Folders > 0 {
+		u.Folders-- // the root itself
+	}
+	return u
 }
 
 func (s *Server) listAudit(w http.ResponseWriter, r *http.Request) {

@@ -150,6 +150,7 @@ func (s *Server) handler(zone string) http.Handler {
 	// Users (admin)
 	mux.Handle("GET /api/users", admin(s.listUsers))
 	mux.Handle("POST /api/users", admin(privateOnly(s.createUser)))
+	mux.Handle("GET /api/users/{id}", admin(s.userDetail))
 	mux.Handle("PATCH /api/users/{id}", admin(privateOnly(s.updateUser)))
 	mux.Handle("DELETE /api/users/{id}", admin(privateOnly(s.deleteUser)))
 	mux.Handle("GET /api/audit", admin(s.listAudit))

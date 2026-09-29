@@ -573,3 +573,45 @@ func TestPerCameraPermissions(t *testing.T) {
 		t.Errorf("after clearing, camera list = %s", body)
 	}
 }
+
+func TestDisableUserAndDetail(t *testing.T) {
+	share := t.TempDir()
+	ts, _ := newTestServerWith(t, "volumes:\n  - {id: nuvem, name: Nuvem, path: "+filepath.ToSlash(share)+", kind: nas}\n")
+	admin := newClient(t, ts.URL)
+	admin.do("POST", "/api/setup", `{"username":"dono","password":"long enough pw"}`)
+	_, m, _ := admin.do("POST", "/api/users", `{"username":"bia","password":"bia password 1","role":"operator"}`)
+	id := fmt.Sprint(m["id"])
+
+	bia := newClient(t, ts.URL)
+	if code, _, _ := bia.do("POST", "/api/login", `{"username":"bia","password":"bia password 1"}`); code != 200 {
+		t.Fatalf("bia login = %d", code)
+	}
+	bia.do("GET", "/api/nas/list?path=", "") // creates her folder
+	if code, _, body := bia.do("PUT", "/api/nas/upload?path=bia/a.txt&offset=0&total=5", "hello"); code != 200 {
+		t.Fatalf("upload = %d %s", code, body)
+	}
+
+	code, m, body := admin.do("GET", "/api/users/"+id, "")
+	nuvem, _ := m["nuvem"].(map[string]any)
+	files, _ := nuvem["files"].(map[string]any)
+	if code != 200 || m["last_login"] == "" || files["bytes"] != float64(5) || len(m["sessions"].([]any)) != 1 {
+		t.Fatalf("detail = %d %s", code, body)
+	}
+	if code, _, _ := admin.do("PATCH", "/api/users/1", `{"disabled":true}`); code != 409 {
+		t.Fatalf("disable self = %d", code)
+	}
+	if code, _, body := admin.do("PATCH", "/api/users/"+id, `{"disabled":true}`); code != 200 {
+		t.Fatalf("disable = %d %s", code, body)
+	}
+	// Her session is gone and she cannot sign in again.
+	if code, _, _ := bia.do("GET", "/api/me", ""); code != 401 {
+		t.Fatalf("disabled session still works: %d", code)
+	}
+	if code, _, _ := bia.do("POST", "/api/login", `{"username":"bia","password":"bia password 1"}`); code != 403 {
+		t.Fatalf("disabled login = %d", code)
+	}
+	admin.do("PATCH", "/api/users/"+id, `{"disabled":false}`)
+	if code, _, _ := bia.do("POST", "/api/login", `{"username":"bia","password":"bia password 1"}`); code != 200 {
+		t.Fatalf("re-enabled login = %d", code)
+	}
+}

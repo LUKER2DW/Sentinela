@@ -20,7 +20,9 @@ type User struct {
 	// Cameras limits a non-admin user to these camera ids; empty = all.
 	Cameras []string `json:"cameras"`
 	// TOTP reports whether two-step login is on (ADR-0019).
-	TOTP       bool   `json:"totp"`
+	TOTP bool `json:"totp"`
+	// Disabled accounts cannot sign in (sessions are dropped when set).
+	Disabled   bool   `json:"disabled"`
 	PWHash     string `json:"-"`
 	TOTPSecret string `json:"-"`
 	TOTPStep   int64  `json:"-"`
@@ -74,7 +76,7 @@ func (s *Store) CreateFirstUser(ctx context.Context, username, pwHash string) (i
 func scanUser(row interface{ Scan(...any) error }) (*User, error) {
 	var u User
 	var cams string
-	if err := row.Scan(&u.ID, &u.Username, &u.PWHash, &u.Role, &u.CreatedAt, &cams, &u.TOTPSecret, &u.TOTPStep); err != nil {
+	if err := row.Scan(&u.ID, &u.Username, &u.PWHash, &u.Role, &u.CreatedAt, &cams, &u.TOTPSecret, &u.TOTPStep, &u.Disabled); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
@@ -87,17 +89,17 @@ func scanUser(row interface{ Scan(...any) error }) (*User, error) {
 
 // UserByName looks a user up by username (case-insensitive).
 func (s *Store) UserByName(ctx context.Context, username string) (*User, error) {
-	return scanUser(s.db.QueryRowContext(ctx, `SELECT id,username,pw_hash,role,created_at,cameras,totp_secret,totp_step FROM users WHERE username=?`, username))
+	return scanUser(s.db.QueryRowContext(ctx, `SELECT id,username,pw_hash,role,created_at,cameras,totp_secret,totp_step,disabled FROM users WHERE username=?`, username))
 }
 
 // UserByID looks a user up by id.
 func (s *Store) UserByID(ctx context.Context, id int64) (*User, error) {
-	return scanUser(s.db.QueryRowContext(ctx, `SELECT id,username,pw_hash,role,created_at,cameras,totp_secret,totp_step FROM users WHERE id=?`, id))
+	return scanUser(s.db.QueryRowContext(ctx, `SELECT id,username,pw_hash,role,created_at,cameras,totp_secret,totp_step,disabled FROM users WHERE id=?`, id))
 }
 
 // ListUsers returns all users.
 func (s *Store) ListUsers(ctx context.Context) ([]User, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id,username,pw_hash,role,created_at,cameras,totp_secret,totp_step FROM users ORDER BY username`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id,username,pw_hash,role,created_at,cameras,totp_secret,totp_step,disabled FROM users ORDER BY username`)
 	if err != nil {
 		return nil, err
 	}
@@ -151,6 +153,25 @@ func (s *Store) UseTOTPStep(ctx context.Context, id, step int64) error {
 	return s.execOne(ctx, `UPDATE users SET totp_step=? WHERE id=? AND totp_step<?`, step, id, step)
 }
 
+// SetUserDisabled switches an account off (dropping its sessions) or on.
+func (s *Store) SetUserDisabled(ctx context.Context, id int64, disabled bool) error {
+	if err := s.execOne(ctx, `UPDATE users SET disabled=? WHERE id=?`, disabled, id); err != nil {
+		return err
+	}
+	if disabled {
+		_, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE user_id=?`, id)
+		return err
+	}
+	return nil
+}
+
+// LastLogin returns the time of a user's last successful sign-in ("" = never).
+func (s *Store) LastLogin(ctx context.Context, username string) (string, error) {
+	var at sql.NullString
+	err := s.db.QueryRowContext(ctx, `SELECT max(at) FROM audit WHERE action='login' AND ok=1 AND username=?`, username).Scan(&at)
+	return at.String, err
+}
+
 // DeleteUser removes a user (sessions cascade).
 func (s *Store) DeleteUser(ctx context.Context, id int64) error {
 	return s.execOne(ctx, `DELETE FROM users WHERE id=?`, id)
@@ -159,7 +180,7 @@ func (s *Store) DeleteUser(ctx context.Context, id int64) error {
 // CountAdmins returns the number of admin users.
 func (s *Store) CountAdmins(ctx context.Context) (int, error) {
 	var n int
-	err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM users WHERE role='admin'`).Scan(&n)
+	err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM users WHERE role='admin' AND disabled=0`).Scan(&n)
 	return n, err
 }
 
@@ -200,7 +221,7 @@ func (s *Store) SessionByHash(ctx context.Context, idHash []byte) (*Session, *Us
 	var u User
 	var cams string
 	err := s.db.QueryRowContext(ctx, `SELECT s.id_hash,s.user_id,s.csrf,s.expires_at,s.mfa,u.id,u.username,u.pw_hash,u.role,u.created_at,u.cameras,u.totp_secret,u.totp_step
-		FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.id_hash=? AND s.expires_at>?`, idHash, Now()).
+		FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.id_hash=? AND s.expires_at>? AND u.disabled=0`, idHash, Now()).
 		Scan(&sess.IDHash, &sess.UserID, &sess.CSRF, &exp, &sess.MFA, &u.ID, &u.Username, &u.PWHash, &u.Role, &u.CreatedAt, &cams, &u.TOTPSecret, &u.TOTPStep)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil, ErrNotFound
@@ -766,7 +787,12 @@ func (s *Store) Audit(ctx context.Context, userID int64, username, action, targe
 
 // ListAudit returns the newest audit rows.
 func (s *Store) ListAudit(ctx context.Context, limit int) ([]AuditEntry, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id,at,username,action,target,ok,detail FROM audit ORDER BY id DESC LIMIT ?`, limit)
+	return s.UserAudit(ctx, "", limit)
+}
+
+// UserAudit lists the newest audit entries, only one user's when username is set.
+func (s *Store) UserAudit(ctx context.Context, username string, limit int) ([]AuditEntry, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id,at,username,action,target,ok,detail FROM audit WHERE ?='' OR username=? ORDER BY id DESC LIMIT ?`, username, username, limit)
 	if err != nil {
 		return nil, err
 	}
