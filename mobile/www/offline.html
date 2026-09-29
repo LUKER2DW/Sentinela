@@ -27,13 +27,29 @@
         <path d="M8 40.5q4-3 8 0t8 0 8 0 8 0" />
       </svg>
       <h1>Sem conexão com a casa</h1>
-      <p>O Sentinela só abre pelo Tailscale. Ligue a VPN do Tailscale neste celular e tente de novo.</p>
-      <a class="btn primary" href="intent://#Intent;package=com.tailscale.ipn;end">Abrir o Tailscale</a>
-      <button class="btn ghost" onclick="location.replace(window.SENTINELA_URL || '/')">Tentar de novo</button>
+      <p id="why">O servidor não respondeu por este caminho. Tente de novo ou troque a forma de conexão.</p>
+      <button class="btn primary" onclick="location.replace(window.SENTINELA_URL || '/')">Tentar de novo</button>
+      <button class="btn ghost" id="change">Trocar forma de conexão</button>
+      <a class="btn ghost" id="ts" hidden href="intent://#Intent;package=com.tailscale.ipn;end">Abrir o Tailscale</a>
     </main>
     <script>
       // The error page runs from the bundle; go back to the server's origin.
       window.SENTINELA_URL = (window.Capacitor && window.Capacitor.getServerUrl && window.Capacitor.getServerUrl()) || "/";
+      // Start screen and per-path hints (ADR-0019, ConnectionPlugin).
+      const cap = window.Capacitor;
+      const conn = (m) => cap.nativePromise("SentinelaConnection", m, {});
+      document.getElementById("change").onclick = () => conn("change");
+      if (cap && cap.nativePromise) {
+        conn("get").then((s) => {
+          const why = document.getElementById("why");
+          if (s.mode === "tailscale") {
+            why.textContent = "Este caminho usa o app do Tailscale. Ligue a VPN do Tailscale neste celular e tente de novo.";
+            document.getElementById("ts").hidden = false;
+          } else if (s.mode === "tailnet") {
+            why.textContent = "A rede privada do app ainda não conectou (" + s.tailnetStatus + "). Confira a internet e tente de novo.";
+          }
+        });
+      }
     </script>
   </body>
 </html>

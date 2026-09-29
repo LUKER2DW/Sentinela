@@ -4,36 +4,181 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>Sentinela</title>
+    <!-- Start screen (ADR-0019 trial): pick how this phone reaches the house.
+         Runs from the APK; talks to ConnectionPlugin (SentinelaConnection). -->
     <style>
-      :root { --bg: #f5f2ec; --text: #1f2a30; --muted: #5f6d74; --sea: #3e7c88; --ink: #fff; }
-      @media (prefers-color-scheme: dark) { :root { --bg: #161a1c; --text: #ece9e3; --muted: #a4acaf; --sea: #8fc6c3; --ink: #0f2b2e; } }
+      :root { --bg: #f5f2ec; --card: #fffdf9; --text: #1f2a30; --muted: #5f6d74; --line: #e3ddd3; --sea: #3e7c88; --ink: #fff; --err: #a8452f; }
+      @media (prefers-color-scheme: dark) { :root { --bg: #161a1c; --card: #1e2325; --text: #ece9e3; --muted: #a4acaf; --line: #2e3538; --sea: #8fc6c3; --ink: #0f2b2e; --err: #f09a82; } }
       * { box-sizing: border-box; }
-      body { margin: 0; min-height: 100dvh; display: grid; place-items: center; padding: 24px 20px calc(24px + env(safe-area-inset-bottom));
-        background: var(--bg); color: var(--text); font: 17px/1.5 system-ui, sans-serif; text-align: center; }
-      main { max-width: 22rem; display: grid; gap: 16px; justify-items: center; }
-      svg { width: 96px; height: 96px; color: var(--sea); }
-      h1 { margin: 0; font: 600 1.6rem/1.2 Georgia, serif; }
-      p { margin: 0; color: var(--muted); }
-      .btn { display: block; width: 100%; height: 48px; border-radius: 14px; border: 0; font: 600 1rem system-ui, sans-serif; text-decoration: none; line-height: 48px; }
-      .primary { background: var(--sea); color: var(--ink); }
-      .ghost { background: transparent; color: var(--text); border: 1px solid color-mix(in srgb, var(--muted) 40%, transparent); line-height: 46px; }
+      body { margin: 0; min-height: 100dvh; background: var(--bg); color: var(--text); font: 16px/1.45 system-ui, sans-serif;
+        padding: calc(20px + env(safe-area-inset-top)) 16px calc(24px + env(safe-area-inset-bottom)); }
+      main { max-width: 26rem; margin: 0 auto; display: grid; gap: 14px; }
+      header { display: grid; justify-items: center; gap: 6px; text-align: center; margin-bottom: 4px; }
+      header svg { width: 64px; height: 64px; color: var(--sea); }
+      h1 { margin: 0; font: 600 1.45rem/1.2 Georgia, serif; }
+      .lede { margin: 0; color: var(--muted); font-size: .95rem; }
+      details { background: var(--card); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
+      details[open] { border-color: color-mix(in srgb, var(--sea) 55%, var(--line)); }
+      summary { list-style: none; cursor: pointer; padding: 14px 16px; display: grid; gap: 2px; }
+      summary::-webkit-details-marker { display: none; }
+      summary b { font-size: 1.02rem; }
+      summary span { color: var(--muted); font-size: .88rem; }
+      .tag { display: inline-block; margin-left: 6px; padding: 1px 8px; border-radius: 99px; font-size: .72rem; font-weight: 600;
+        background: color-mix(in srgb, var(--sea) 18%, transparent); color: var(--sea); vertical-align: 2px; }
+      .body { padding: 0 16px 16px; display: grid; gap: 10px; }
+      label { display: grid; gap: 4px; font-size: .85rem; color: var(--muted); }
+      input { width: 100%; height: 44px; padding: 0 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--bg);
+        color: var(--text); font: inherit; }
+      input:focus { outline: 2px solid color-mix(in srgb, var(--sea) 60%, transparent); outline-offset: 1px; }
+      button { height: 46px; border-radius: 14px; border: 0; font: 600 1rem system-ui, sans-serif; background: var(--sea); color: var(--ink); cursor: pointer; }
+      button.ghost { background: transparent; color: var(--text); border: 1px solid var(--line); }
+      button:disabled { opacity: .6; }
+      .note { margin: 0; color: var(--muted); font-size: .85rem; }
+      .err { margin: 0; color: var(--err); font-size: .9rem; }
+      .ok { color: var(--sea); font-weight: 600; }
+      .row { display: flex; gap: 8px; }
+      .row > * { flex: 1; }
+      footer { text-align: center; color: var(--muted); font-size: .8rem; }
+      .link { background: none; border: 0; color: var(--sea); height: auto; padding: 0; font-weight: 600; font-size: .9rem; justify-self: start; }
     </style>
   </head>
   <body>
     <main>
-      <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M19.4 17.5 19.3 12.4Q24 11.3 28.7 12.5L28.6 17.5" /><path d="M17.8 12.7 24 7.3 30.2 12.8" />
-        <path d="M19.7 17.8 17 36.5M28.3 17.8 31.2 36.6" /><path d="M18.6 27.3Q24 26.2 29.6 27.5" />
-        <path d="M8 40.5q4-3 8 0t8 0 8 0 8 0" />
-      </svg>
-      <h1>Sem conexão com a casa</h1>
-      <p>O Sentinela só abre pelo Tailscale. Ligue a VPN do Tailscale neste celular e tente de novo.</p>
-      <a class="btn primary" href="intent://#Intent;package=com.tailscale.ipn;end">Abrir o Tailscale</a>
-      <button class="btn ghost" onclick="location.replace(window.SENTINELA_URL || '/')">Tentar de novo</button>
+      <header>
+        <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M19.4 17.5 19.3 12.4Q24 11.3 28.7 12.5L28.6 17.5" /><path d="M17.8 12.7 24 7.3 30.2 12.8" />
+          <path d="M19.7 17.8 17 36.5M28.3 17.8 31.2 36.6" /><path d="M18.6 27.3Q24 26.2 29.6 27.5" />
+          <path d="M8 40.5q4-3 8 0t8 0 8 0 8 0" />
+        </svg>
+        <h1>Como chegar à casa?</h1>
+        <p class="lede">Escolha o caminho deste celular até o Sentinela. Dá para trocar depois em Mais → Conexão.</p>
+      </header>
+
+      <details id="m-tailnet" name="mode">
+        <summary><b>Tailscale embutido <i class="tag">sem VPN</i></b><span>A rede privada roda dentro do app. Nada fica exposto na internet.</span></summary>
+        <div class="body">
+          <p class="note" id="tn-status"></p>
+          <div id="tn-pair">
+            <div class="body" style="padding:0">
+              <p class="note">Uma vez só, conectado ao <b>Wi-Fi de casa</b>: entre com a sua conta do Sentinela.</p>
+              <label>Endereço da casa<input id="tn-lan" inputmode="url" autocapitalize="none" spellcheck="false" /></label>
+              <label>Usuário<input id="tn-user" autocomplete="username" autocapitalize="none" spellcheck="false" /></label>
+              <label>Senha<input id="tn-pass" type="password" autocomplete="current-password" /></label>
+              <button id="tn-go">Parear este celular</button>
+              <button class="link" id="tn-keylink" type="button">Tenho uma chave do Tailscale</button>
+              <label id="tn-keybox" hidden>Chave (tskey-auth-…)<input id="tn-key" autocapitalize="none" spellcheck="false" /></label>
+            </div>
+          </div>
+          <div id="tn-ready" class="row" hidden>
+            <button id="tn-open">Abrir</button>
+            <button class="ghost" id="tn-forget">Esquecer</button>
+          </div>
+          <p class="err" id="tn-err" role="alert"></p>
+        </div>
+      </details>
+
+      <details id="m-domain" name="mode">
+        <summary><b>Domínio da casa</b><span>Porta aberta no roteador. Funciona em qualquer rede e navegador; pede o código de 2 etapas.</span></summary>
+        <div class="body">
+          <label>Endereço<input id="u-domain" inputmode="url" autocapitalize="none" spellcheck="false" placeholder="https://casa.exemplo.com.br" /></label>
+          <button data-mode="domain">Conectar</button>
+          <p class="err" role="alert"></p>
+        </div>
+      </details>
+
+      <details id="m-funnel" name="mode">
+        <summary><b>Tailscale Funnel</b><span>Endereço público do Tailscale. Qualquer rede; pede o código de 2 etapas.</span></summary>
+        <div class="body">
+          <label>Endereço<input id="u-funnel" inputmode="url" autocapitalize="none" spellcheck="false" /></label>
+          <button data-mode="funnel">Conectar</button>
+          <p class="err" role="alert"></p>
+        </div>
+      </details>
+
+      <details id="m-tailscale" name="mode">
+        <summary><b>App do Tailscale (VPN)</b><span>Como antes: precisa do app Tailscale ligado neste celular.</span></summary>
+        <div class="body">
+          <label>Endereço<input id="u-tailscale" inputmode="url" autocapitalize="none" spellcheck="false" /></label>
+          <button data-mode="tailscale">Conectar</button>
+          <p class="err" role="alert"></p>
+        </div>
+      </details>
+
+      <footer id="ver"></footer>
     </main>
     <script>
-      // The error page runs from the bundle; go back to the server's origin.
-      window.SENTINELA_URL = (window.Capacitor && window.Capacitor.getServerUrl && window.Capacitor.getServerUrl()) || "/";
+      const cap = window.Capacitor;
+      const call = (method, opts) =>
+        cap && cap.nativePromise ? cap.nativePromise("SentinelaConnection", method, opts || {}) : Promise.reject(new Error("abra pelo app Android"));
+      const $ = (id) => document.getElementById(id);
+      const msg = (e) => String((e && (e.message || e.errorMessage)) || e || "falhou").replace(/^Error:\s*/, "");
+
+      async function load() {
+        let s;
+        try {
+          s = await call("get");
+        } catch (e) {
+          $("ver").textContent = msg(e);
+          return;
+        }
+        $("u-domain").value = s.urls.domain || "";
+        $("u-funnel").value = s.urls.funnel || "";
+        $("u-tailscale").value = s.urls.tailscale || "";
+        $("tn-lan").value = s.lanUrl || "";
+        $("tn-pair").hidden = s.tailnetEnrolled;
+        $("tn-ready").hidden = !s.tailnetEnrolled;
+        $("tn-status").innerHTML = s.tailnetEnrolled
+          ? `<span class="ok">Pareado</span> como ${s.tailnetHostname || "sentinela-app"} · ${s.tailnetStatus}`
+          : `Servidor: ${s.tailnetHost}`;
+        $("ver").textContent = "Sentinela " + s.version;
+        const last = document.getElementById("m-" + (s.mode || (s.tailnetEnrolled ? "tailnet" : "")));
+        if (last) last.open = true;
+      }
+
+      document.querySelectorAll("button[data-mode]").forEach((b) =>
+        b.addEventListener("click", async () => {
+          const mode = b.dataset.mode;
+          const err = b.nextElementSibling;
+          err.textContent = "";
+          b.disabled = true;
+          try {
+            await call("choose", { mode, url: $("u-" + mode).value.trim() });
+          } catch (e) {
+            err.textContent = msg(e);
+          } finally {
+            b.disabled = false;
+          }
+        }),
+      );
+
+      $("tn-keylink").addEventListener("click", () => {
+        $("tn-keybox").hidden = false;
+        $("tn-key").focus();
+      });
+
+      $("tn-go").addEventListener("click", async () => {
+        const b = $("tn-go");
+        $("tn-err").textContent = "";
+        b.disabled = true;
+        b.textContent = "Pareando… (até 1 min)";
+        try {
+          await call("pair", { lanUrl: $("tn-lan").value.trim(), username: $("tn-user").value.trim(), password: $("tn-pass").value, key: $("tn-key").value.trim() });
+        } catch (e) {
+          $("tn-err").textContent = msg(e);
+        } finally {
+          b.disabled = false;
+          b.textContent = "Parear este celular";
+        }
+      });
+
+      $("tn-open").addEventListener("click", () => call("choose", { mode: "tailnet" }).catch((e) => ($("tn-err").textContent = msg(e))));
+      $("tn-forget").addEventListener("click", async () => {
+        if (!confirm("Esquecer o pareamento deste celular? Remova-o também no painel do Tailscale.")) return;
+        await call("forget");
+        load();
+      });
+
+      load();
     </script>
   </body>
 </html>

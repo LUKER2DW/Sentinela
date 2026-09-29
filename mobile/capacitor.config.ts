@@ -1,27 +1,22 @@
 import type { CapacitorConfig } from "@capacitor/cli";
 
-// The app loads the Sentinela server itself over Tailscale (ADR-0011,
-// option a): same origin, same cookie/CSRF auth, nothing bundled but the
-// "connect Tailscale" page shown when the server cannot be reached.
-// Build for another tailnet with SENTINELA_URL=https://… scripts/build-apk.sh
-const url = process.env.SENTINELA_URL ?? "https://sentinela.tail0.ts.net";
-
+// The app loads the Sentinela server itself (ADR-0011): same origin, same
+// cookie/CSRF auth. Which server URL is picked at run time on the bundled
+// start screen (www/index.html) among the ADR-0019 trial paths; MainActivity
+// puts it in server.url before the bridge loads (Connection.java). Build
+// defaults: SENTINELA_TAILNET_HOST, SENTINELA_LAN_URL, SENTINELA_DOMAIN_URL
+// (scripts/build-apk.sh, app/build.gradle).
 const config: CapacitorConfig = {
   appId: "casa.sentinela.app",
   appName: "Sentinela",
   webDir: "www",
   server: {
-    url,
     errorPath: "offline.html",
-    cleartext: false,
     androidScheme: "https",
   },
   android: {
     appendUserAgent: "SentinelaApp/1",
     allowMixedContent: false,
-    // Left unset: Capacitor enables WebView debugging only in debuggable
-    // (debug) builds, so "Sentinela (dev)" shows up in chrome://inspect and
-    // the release APK does not.
   },
 };
 

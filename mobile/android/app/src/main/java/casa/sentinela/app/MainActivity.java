@@ -28,8 +28,9 @@ import androidx.core.content.ContextCompat;
 import com.getcapacitor.BridgeActivity;
 
 /**
- * Sentinela Android app (ADR-0011): a Capacitor WebView on the tailnet
- * origin, plus two native pieces the WebView lacks:
+ * Sentinela Android app (ADR-0011): a Capacitor WebView on the server's
+ * origin — picked on the start screen among the ADR-0019 trial paths
+ * (Connection) — plus two native pieces the WebView lacks:
  * - an app lock (fingerprint/face or the phone's screen lock) after 5 min in
  *   the background, so a borrowed unlocked phone does not open the cameras;
  * - downloads (Nuvem files, exported clips) through Android's DownloadManager,
@@ -47,6 +48,9 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(PushBridge.class);
+        registerPlugin(ConnectionPlugin.class);
+        // This launch's server (or the bundled start screen), before the bridge loads.
+        config = Connection.capConfig(this);
         super.onCreate(savedInstanceState);
         installDownloads();
         SentinelaPushService.createChannel(this);
@@ -65,6 +69,7 @@ public class MainActivity extends BridgeActivity {
         if (path == null || !path.startsWith("/") || path.startsWith("//")) return;
         intent.removeExtra(SentinelaPushService.EXTRA_PATH);
         String server = getBridge().getServerUrl();
+        if (server == null) return; // start screen: no server chosen yet
         getBridge().getWebView().loadUrl(server.replaceAll("/+$", "") + path);
     }
 
@@ -150,11 +155,17 @@ public class MainActivity extends BridgeActivity {
 
     private void installDownloads() {
         WebView web = getBridge().getWebView();
-        final String serverHost = Uri.parse(getBridge().getServerUrl()).getHost();
+        final String server = getBridge().getServerUrl();
+        final Uri serverUri = server == null ? null : Uri.parse(server);
         web.setDownloadListener((url, userAgent, disposition, mime, length) -> {
             Uri uri = Uri.parse(url);
-            if (!"https".equals(uri.getScheme()) || serverHost == null || !serverHost.equals(uri.getHost())) {
-                return; // only files from the Sentinela server itself
+            // Only files from the Sentinela server itself: its HTTPS origin,
+            // or the embedded tailnet's local proxy (ADR-0019).
+            if (serverUri == null || !serverUri.getScheme().equals(uri.getScheme())
+                    || !String.valueOf(serverUri.getHost()).equals(uri.getHost())
+                    || serverUri.getPort() != uri.getPort()
+                    || !("https".equals(uri.getScheme()) || "127.0.0.1".equals(uri.getHost()))) {
+                return;
             }
             String name = URLUtil.guessFileName(url, disposition, mime);
             DownloadManager.Request req = new DownloadManager.Request(uri);
