@@ -25,6 +25,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	_ "time/tzdata" // night-mode schedules work even without host zoneinfo
 
 	"github.com/LUKER2DW/sentinela/internal/api"
 	"github.com/LUKER2DW/sentinela/internal/auth"

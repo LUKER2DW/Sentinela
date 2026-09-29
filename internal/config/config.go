@@ -35,6 +35,10 @@ type Config struct {
 	// BackupStatusFile is written by the nightly host backup
 	// (scripts/backup.sh, ADR-0014), mounted read-only like DiskHealthFile.
 	BackupStatusFile string `yaml:"backup_status_file"`
+	// Timezone for schedules shown to people (night mode); storage stays UTC.
+	Timezone string `yaml:"timezone"`
+	// PushSubject identifies the sender to push services (VAPID "sub").
+	PushSubject string `yaml:"push_subject"`
 }
 
 // Volume is a filesystem shown in the UI. Share is the SMB share name, if any.
@@ -120,6 +124,8 @@ func (c *Config) applyDefaults() {
 	def(&c.Go2RTCAPI, "http://127.0.0.1:1984")
 	def(&c.DiskHealthFile, "/host/disks.json")
 	def(&c.BackupStatusFile, "/host/backup.json")
+	def(&c.Timezone, "America/Sao_Paulo")
+	def(&c.PushSubject, "mailto:admin@sentinela.invalid")
 	defInt(&c.Recording.SegmentSeconds, 300)
 	defInt(&c.Recording.MaxDiskPercent, 90)
 	defInt(&c.Recording.DefaultRetentionDays, 15)
@@ -138,6 +144,9 @@ func (c *Config) validate() error {
 	var errs []error
 	if c.Recording.SegmentSeconds < 30 || c.Recording.SegmentSeconds > 3600 {
 		errs = append(errs, errors.New("recording.segment_seconds must be 30..3600"))
+	}
+	if _, err := time.LoadLocation(c.Timezone); err != nil {
+		errs = append(errs, fmt.Errorf("timezone %q: %w", c.Timezone, err))
 	}
 	if c.Recording.MaxDiskPercent < 50 || c.Recording.MaxDiskPercent > 98 {
 		errs = append(errs, errors.New("recording.max_disk_percent must be 50..98"))

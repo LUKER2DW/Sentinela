@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/LUKER2DW/sentinela/internal/camera/dvrip"
 	"github.com/LUKER2DW/sentinela/internal/config"
 	"github.com/LUKER2DW/sentinela/internal/nas"
+	"github.com/LUKER2DW/sentinela/internal/push"
 	"github.com/LUKER2DW/sentinela/internal/store"
 )
 
@@ -40,6 +42,7 @@ type Server struct {
 	stateTTL map[string]cachedState
 
 	snaps snapshotter
+	push  notifier
 
 	// Nuvem file API (ADR-0012); nil when the share is not mounted.
 	nas     *nas.Share
@@ -67,6 +70,11 @@ func New(cfg *config.Config, st *store.Store, web fs.FS, log *slog.Logger) (*Ser
 		s.ctrl[cam.ID] = dvrip.NewController(addr, cam.User, cam.Password, cam.InvertPanTilt, log.With("camera", cam.ID))
 	}
 	s.openNAS()
+	if keys, err := push.LoadOrCreateKeys(filepath.Join(cfg.DataDir, "push", "vapid.json")); err != nil {
+		log.Warn("notifications disabled: VAPID keys", "err", err)
+	} else {
+		s.push.sender = &push.Sender{Keys: keys, Subject: cfg.PushSubject}
+	}
 	return s, nil
 }
 
@@ -130,6 +138,15 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/events/{id}/snapshot", viewer(s.eventSnapshot))
 	mux.Handle("GET /api/review", viewer(s.listReview))
 	mux.Handle("POST /api/review/seen", viewer(s.markSeen))
+
+	// Notifications (ADR-0013): every user manages their own devices;
+	// operators change the house mode.
+	mux.Handle("GET /api/push", viewer(s.pushInfo))
+	mux.Handle("POST /api/push/subscribe", viewer(s.pushSubscribe))
+	mux.Handle("POST /api/push/unsubscribe", viewer(s.pushUnsubscribe))
+	mux.Handle("POST /api/push/test", viewer(s.pushTest))
+	mux.Handle("GET /api/notify-mode", viewer(s.getMode))
+	mux.Handle("PUT /api/notify-mode", operator(s.putMode))
 	mux.Handle("GET /api/system", viewer(s.system))
 
 	// Nuvem file API (ADR-0012): viewers read, operators and admins write.

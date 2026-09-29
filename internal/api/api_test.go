@@ -408,3 +408,65 @@ func TestReviewItemsAndSeen(t *testing.T) {
 		t.Fatalf("after mark all = %v", m)
 	}
 }
+
+func TestNotifyModes(t *testing.T) {
+	loc := time.FixedZone("BRT", -3*3600)
+	at := func(h, m int) time.Time { return time.Date(2026, 9, 29, h, m, 0, 0, loc) }
+	home := ModeSettings{Mode: ModeHome, NightAuto: true, NightFrom: "23:00", NightTo: "06:00"}
+	cases := []struct {
+		m    ModeSettings
+		now  time.Time
+		want string
+	}{
+		{home, at(12, 0), ModeHome},
+		{home, at(23, 30), ModeNight},
+		{home, at(5, 59), ModeNight},
+		{home, at(6, 0), ModeHome},
+		{ModeSettings{Mode: ModeHome, NightFrom: "23:00", NightTo: "06:00"}, at(23, 30), ModeHome},
+		{ModeSettings{Mode: ModeAway, NightAuto: true, NightFrom: "23:00", NightTo: "06:00"}, at(23, 30), ModeAway},
+		{ModeSettings{Mode: ModeHome, NightAuto: true, NightFrom: "13:00", NightTo: "14:00"}, at(13, 30), ModeNight},
+	}
+	for _, c := range cases {
+		if got := c.m.Effective(c.now); got != c.want {
+			t.Errorf("%+v at %s = %s, want %s", c.m, c.now.Format("15:04"), got, c.want)
+		}
+	}
+	for _, c := range []struct {
+		mode, typ string
+		want      bool
+	}{
+		{ModeAway, "motion", true}, {ModeNight, "motion", false}, {ModeNight, "line", true},
+		{ModeHome, "line", false}, {ModeHome, "tamper", true}, {"bogus", "tamper", false},
+	} {
+		if Notifies(c.mode, c.typ) != c.want {
+			t.Errorf("Notifies(%s, %s) != %v", c.mode, c.typ, c.want)
+		}
+	}
+}
+
+func TestPushSubscribeAndMode(t *testing.T) {
+	ts, _ := newTestServer(t)
+	admin := newClient(t, ts.URL)
+	admin.do("POST", "/api/setup", `{"username":"admin","password":"long enough pw"}`)
+	if code, m, _ := admin.do("GET", "/api/push", ""); code != 200 || m["public_key"] == "" {
+		t.Fatalf("push info = %d %v", code, m)
+	}
+	if code, _, _ := admin.do("POST", "/api/push/subscribe", `{"endpoint":"https://192.168.1.10/x","keys":{"p256dh":"a","auth":"b"}}`); code != 400 {
+		t.Fatalf("LAN endpoint accepted: %d", code)
+	}
+	if code, _, body := admin.do("POST", "/api/push/subscribe", `{"endpoint":"https://fcm.googleapis.com/fcm/send/x","expirationTime":null,"keys":{"p256dh":"a","auth":"b"}}`); code != 200 {
+		t.Fatalf("subscribe = %d %s", code, body)
+	}
+	if _, m, _ := admin.do("GET", "/api/push", ""); m["devices"] != float64(1) {
+		t.Fatalf("devices = %v", m)
+	}
+	if _, m, _ := admin.do("GET", "/api/notify-mode", ""); m["settings"].(map[string]any)["mode"] != "away" {
+		t.Fatalf("default mode = %v", m)
+	}
+	if code, _, _ := admin.do("PUT", "/api/notify-mode", `{"mode":"home","night_auto":true,"night_from":"25:00","night_to":"06:00"}`); code != 400 {
+		t.Fatalf("bad time accepted: %d", code)
+	}
+	if code, m, _ := admin.do("PUT", "/api/notify-mode", `{"mode":"home","night_auto":false,"night_from":"23:00","night_to":"06:00"}`); code != 200 || m["effective"] != "home" {
+		t.Fatalf("set mode = %d %v", code, m)
+	}
+}

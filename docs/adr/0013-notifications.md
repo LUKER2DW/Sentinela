@@ -1,7 +1,7 @@
 # ADR-0013: Notifications — Web Push + ntfy, images never through a third party
 
-Status: Proposed · 2026-09-29 (Wave 2; the ntfy part needs the owner's OK
-for a new container or host service)
+Status: Accepted for Web Push · 2026-09-29. The ntfy part is deferred to
+Stage B2 (owner decision: no new service for now).
 
 ## Context
 Event alerts must reach the phone quickly (≤ 5 s) without exposing the
@@ -18,6 +18,21 @@ UnifiedPush distributor for the Capacitor app.
 - Payload: title, camera, time and a snapshot **URL on the tailnet**. The
   image itself never goes through a third party.
 - Which event types notify depends on the mode (Casa / Fora / Noite).
+
+## Implementation (2026-09-29)
+- `internal/push`: VAPID (ES256 JWT) and RFC 8291 aes128gcm with the Go
+  standard library only; the RFC 8291 Appendix A vector is a unit test.
+- VAPID keys: `/data/push/vapid.json` (0600), created on first start.
+- Subscriptions (`push_subscriptions`, per user and device) are accepted
+  only for the push services of current browsers (FCM, Mozilla, Apple,
+  WNS; https, default port): a user cannot make the server POST to a LAN
+  address. 404/410 from the service deletes the subscription.
+- Modes (`settings.notify_mode`): Casa = tampering only, Noite = alerts,
+  Fora = everything; Casa switches to Noite automatically between two
+  local times (config `timezone`, default America/Sao_Paulo). At most one
+  notification per camera per minute.
+- Payload: title, time, and the snapshot *path* on the server; the phone
+  fetches the picture itself over the tailnet.
 
 ## Consequences
 + No cloud account; works whenever the phone has Tailscale up.

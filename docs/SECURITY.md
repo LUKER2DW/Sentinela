@@ -81,6 +81,9 @@
     it is root-only (0700); the restic repository is encrypted with a
     password kept in `/etc/sentinela/restic.env` (0600) **and** in the
     owner's password manager (without it the backup is unreadable).
+12. Notifications (ADR-0013): the server only POSTs to allow-listed push
+    services (outbound HTTPS); payloads are end-to-end encrypted and hold
+    no image. VAPID private key in `/data/push/vapid.json` (0600).
 
 ## Reporting
 

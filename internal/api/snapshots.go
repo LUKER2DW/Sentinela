@@ -30,7 +30,7 @@ type snapshotter struct {
 }
 
 // HandleEvent receives ONVIF event transitions: live push to browsers, a
-// snapshot when an event starts.
+// snapshot when an event starts, then a notification (ADR-0013).
 func (s *Server) HandleEvent(cameraID, typ string, eventID int64, active bool, at time.Time) {
 	s.hub.Publish(LiveEvent{CameraID: cameraID, Type: typ, Active: active, At: at.UTC()})
 	if !active {
@@ -40,6 +40,7 @@ func (s *Server) HandleEvent(cameraID, typ string, eventID int64, active bool, a
 		ctx, cancel := context.WithTimeout(context.Background(), snapshotTimeout+5*time.Second)
 		defer cancel()
 		s.takeSnapshot(ctx, cameraID, eventID)
+		s.notify(ctx, cameraID, typ, eventID, at)
 	}()
 }
 

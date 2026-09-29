@@ -551,6 +551,79 @@ func (s *Store) PurgeSeenBefore(ctx context.Context, t time.Time) error {
 	return err
 }
 
+// ---------- push and settings ----------
+
+// PushSub is a stored Web Push subscription.
+type PushSub struct {
+	ID       int64
+	UserID   int64
+	Endpoint string
+	P256dh   string
+	Auth     string
+}
+
+// SavePushSub inserts or refreshes a subscription (keyed by endpoint).
+func (s *Store) SavePushSub(ctx context.Context, userID int64, endpoint, p256dh, auth, ua string) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO push_subscriptions(user_id,endpoint,p256dh,auth,user_agent,created_at) VALUES(?,?,?,?,?,?)
+		ON CONFLICT(endpoint) DO UPDATE SET user_id=excluded.user_id, p256dh=excluded.p256dh, auth=excluded.auth, user_agent=excluded.user_agent`,
+		userID, endpoint, p256dh, auth, ua, FormatTime(time.Now()))
+	return err
+}
+
+// DeletePushSub removes a subscription; userID 0 removes it for anyone (expired).
+func (s *Store) DeletePushSub(ctx context.Context, userID int64, endpoint string) error {
+	if userID == 0 {
+		_, err := s.db.ExecContext(ctx, `DELETE FROM push_subscriptions WHERE endpoint=?`, endpoint)
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, `DELETE FROM push_subscriptions WHERE endpoint=? AND user_id=?`, endpoint, userID)
+	return err
+}
+
+// PushSubs lists subscriptions, all users when userID is 0.
+func (s *Store) PushSubs(ctx context.Context, userID int64) ([]PushSub, error) {
+	q, args := `SELECT id,user_id,endpoint,p256dh,auth FROM push_subscriptions`, []any{}
+	if userID != 0 {
+		q += ` WHERE user_id=?`
+		args = append(args, userID)
+	}
+	rows, err := s.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []PushSub
+	for rows.Next() {
+		var p PushSub
+		if err := rows.Scan(&p.ID, &p.UserID, &p.Endpoint, &p.P256dh, &p.Auth); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// MarkPushOK records a successful delivery.
+func (s *Store) MarkPushOK(ctx context.Context, id int64) {
+	_, _ = s.db.ExecContext(ctx, `UPDATE push_subscriptions SET last_ok=? WHERE id=?`, FormatTime(time.Now()), id)
+}
+
+// Setting returns a setting value, or def when unset.
+func (s *Store) Setting(ctx context.Context, key, def string) string {
+	var v string
+	if err := s.db.QueryRowContext(ctx, `SELECT value FROM settings WHERE key=?`, key).Scan(&v); err != nil {
+		return def
+	}
+	return v
+}
+
+// SetSetting stores a setting value.
+func (s *Store) SetSetting(ctx context.Context, key, value string) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO settings(key,value,updated_at) VALUES(?,?,?)
+		ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`, key, value, FormatTime(time.Now()))
+	return err
+}
+
 // ---------- audit ----------
 
 // AuditEntry is one audit log row.
