@@ -67,6 +67,12 @@
    }
    ```
    Add `445` to the family rule only when SMB over the tailnet is approved.
+   The server gets the tag with `tailscale up --advertise-tags=tag:nvr …`
+   (`scripts/setup-tailscale.sh`); without it no rule matches and
+   tailscaled drops everything ("no rules matched" in its journal).
+   **The ACL is the only effective filter on the tailnet:** tailscaled puts
+   `ts-input -i tailscale0 -j ACCEPT` ahead of ufw, so the ufw rules for
+   `tailscale0` (rule 8) are documentation of intent, not enforcement.
 10. Deploys are manual over SSH (ADR-0010). GitHub Actions is CI only.
 11. Backups (ADR-0014): `/srv/backup/etc` holds a copy of `secrets.env`, so
     it is root-only (0700); the restic repository is encrypted with a
