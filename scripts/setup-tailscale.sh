@@ -31,9 +31,13 @@ if [[ "$state" != "Running" ]]; then
   tailscale up --hostname=sentinela --ssh=false --accept-dns=false --accept-routes=false \
     --advertise-routes= --advertise-exit-node=false
 fi
-# Re-assert the settings on an existing login (idempotent).
-tailscale set --hostname=sentinela --ssh=false --accept-dns=false --accept-routes=false \
-  --advertise-routes= --advertise-exit-node=false
+# Tag the server so the ACL (docs/SECURITY.md rule 9) applies to it; needs
+# the ACL's tagOwners saved first. Re-asserts the other settings too.
+if ! tailscale up --advertise-tags=tag:nvr --hostname=sentinela --ssh=false --accept-dns=false \
+    --accept-routes=false --advertise-routes= --advertise-exit-node=false --timeout=60s; then
+  echo "!! tag:nvr refused: paste the ACL from docs/SECURITY.md in the admin console, then re-run" >&2
+  exit 1
+fi
 
 # HTTPS for the UI. serve renews the certificate by itself.
 if ! tailscale serve --bg --https=443 http://127.0.0.1:8080; then
