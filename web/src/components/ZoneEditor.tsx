@@ -26,8 +26,20 @@ export function ZoneEditor({ camId, camName, zones: initial, saving, onSave, onC
   const [size, setSize] = useState({ w: 1000, h: 560 });
   const [nonce, setNonce] = useState(() => Date.now());
   const [imgError, setImgError] = useState(false);
+  const [stageW, setStageW] = useState(0);
   const svgRef = useRef<SVGSVGElement>(null);
   const problem = zoneProblem(zones);
+
+  // Handles are sized in screen pixels, not viewBox units (a phone shows
+  // the 1000-unit viewBox at ~330 px): k converts pixels to viewBox units.
+  useEffect(() => {
+    const el = svgRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setStageW(el.getBoundingClientRect().width));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const k = stageW ? size.w / stageW : 1;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && (drawing ? setDrawing(null) : onClose());
@@ -102,34 +114,31 @@ export function ZoneEditor({ camId, camName, zones: initial, saving, onSave, onC
               const color = ZONE_COLORS[i % ZONE_COLORS.length];
               return (
                 <g key={i} onPointerDown={(e) => !drawing && (e.stopPropagation(), setSelected(i))}>
-                  <polygon points={svgPoints(z.points, size.w, size.h)} fill={color} fillOpacity={selected === i ? 0.32 : 0.18} stroke={color} strokeWidth={3} strokeLinejoin="round" />
+                  <polygon points={svgPoints(z.points, size.w, size.h)} fill={color} fillOpacity={selected === i ? 0.32 : 0.18} stroke={color} strokeWidth={2.5} vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
                   {selected === i &&
                     !drawing &&
-                    z.points.map(([x, y], k) => (
-                      <circle
-                        key={k}
+                    z.points.map(([x, y], n) => (
+                      <g
+                        key={n}
                         className="zone-handle"
-                        cx={x * size.w}
-                        cy={y * size.h}
-                        r={11}
-                        fill="#fff"
-                        stroke={color}
-                        strokeWidth={4}
                         onPointerDown={(e) => {
                           e.stopPropagation();
                           (e.target as Element).setPointerCapture?.(e.pointerId);
-                          setDrag({ zone: i, point: k });
+                          setDrag({ zone: i, point: n });
                         }}
-                      />
+                      >
+                        <circle cx={x * size.w} cy={y * size.h} r={22 * k} fill="transparent" />
+                        <circle cx={x * size.w} cy={y * size.h} r={8 * k} fill="#fff" stroke={color} strokeWidth={3} vectorEffect="non-scaling-stroke" />
+                      </g>
                     ))}
                 </g>
               );
             })}
             {drawing && (
               <g>
-                <polyline points={svgPoints(drawing, size.w, size.h)} fill="none" stroke="#fff" strokeWidth={3} strokeDasharray="10 8" />
-                {drawing.map(([x, y], k) => (
-                  <circle key={k} cx={x * size.w} cy={y * size.h} r={8} fill="#fff" />
+                <polyline points={svgPoints(drawing, size.w, size.h)} fill="none" stroke="#fff" strokeWidth={2.5} vectorEffect="non-scaling-stroke" strokeDasharray="8 6" />
+                {drawing.map(([x, y], n) => (
+                  <circle key={n} cx={x * size.w} cy={y * size.h} r={6 * k} fill="#fff" />
                 ))}
               </g>
             )}
