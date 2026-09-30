@@ -4,6 +4,7 @@ import { api, get, type User } from "../lib/api";
 import { useToast } from "../lib/session";
 import { canChangeConnection, changeConnection, isPublicZone, zoneLabel } from "../lib/access";
 import { PasswordField } from "./PasswordField";
+import { CardHead } from "./CardHead";
 
 interface TotpSetup {
   secret: string;
@@ -56,29 +57,28 @@ export function SecurityCard() {
   });
 
   return (
-    <section className="card" aria-label="Segurança e conexão">
-      <h2>Segurança</h2>
-      <div className="rows">
-        <div className="status-row">
-          <div>
-            <strong>Conectado por</strong>
-            <p className="muted small">{zoneLabel()}</p>
-          </div>
-          {canChangeConnection() && (
-            <button className="btn small ghost" onClick={changeConnection}>
-              Trocar
-            </button>
-          )}
+    <section className="card set-card" aria-label="Verificação em 2 etapas">
+      <CardHead
+        icon="shield"
+        tone={on ? "kelp" : "amber"}
+        title="Verificação em 2 etapas"
+        sub={on ? "Fora de casa, o login pede o código do app autenticador." : "Sem ela, esta conta não entra de fora de casa."}
+        aside={
+          <span className={`pill${on ? " ok" : ""}`}>
+            <span className={`dot ${on ? "ok" : "warn"}`} /> {on ? "Ativa" : "Desligada"}
+          </span>
+        }
+      />
+      <div className="set-row">
+        <div>
+          <strong>Conectado por</strong>
+          <p className="muted small">{zoneLabel()}</p>
         </div>
-        <div className="status-row">
-          <div>
-            <strong>Verificação em 2 etapas</strong>
-            <p className="muted small">
-              {on ? "Ativa: fora de casa, o login pede o código do app autenticador." : "Desligada: sem ela, esta conta não entra de fora de casa."}
-            </p>
-          </div>
-          <span className={`pill${on ? " ok" : ""}`}>{on ? "Ativa" : "Desligada"}</span>
-        </div>
+        {canChangeConnection() && (
+          <button className="btn small ghost" onClick={changeConnection}>
+            Trocar
+          </button>
+        )}
       </div>
 
       {outside ? (

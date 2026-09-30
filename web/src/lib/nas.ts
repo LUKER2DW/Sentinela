@@ -13,6 +13,8 @@ export interface NasListing {
   entries: NasEntry[];
   user: string;
   can_write: boolean;
+  /** Whose each item is (personal folders, uploads to the shared folder). */
+  owners?: Record<string, string>;
 }
 
 export const TRASH = ".lixeira";
@@ -206,3 +208,75 @@ export async function uploadFile(
     }
   } while (offset < file.size);
 }
+
+/** A file picked or dropped, with its path inside the folder that was sent. */
+export interface Picked {
+  file: File;
+  /** "Fotos/2026/a.jpg" for a folder, just the name for a loose file. */
+  rel: string;
+}
+
+/** From an <input webkitdirectory> (webkitRelativePath) or a plain file list. */
+export function pickedFromList(list: FileList | File[]): Picked[] {
+  return Array.from(list).map((file) => ({ file, rel: file.webkitRelativePath || file.name }));
+}
+
+async function walk(entry: FileSystemEntry, prefix: string, out: Picked[]): Promise<void> {
+  const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+  if (entry.isFile) {
+    const file = await new Promise<File>((ok, err) => (entry as FileSystemFileEntry).file(ok, err));
+    out.push({ file, rel });
+  } else if (entry.isDirectory) {
+    const reader = (entry as FileSystemDirectoryEntry).createReader();
+    // readEntries returns at most ~100 entries per call: read until empty.
+    for (;;) {
+      const batch = await new Promise<FileSystemEntry[]>((ok, err) => reader.readEntries(ok, err));
+      if (!batch.length) break;
+      for (const e of batch) await walk(e, rel, out);
+    }
+  }
+}
+
+/** Files dropped on the page, folders walked recursively (Chrome, Edge, Firefox, Safari). */
+export async function pickedFromDrop(dt: DataTransfer): Promise<Picked[]> {
+  const entries = Array.from(dt.items ?? [])
+    .map((i) => (i.kind === "file" ? i.webkitGetAsEntry() : null))
+    .filter((e): e is FileSystemEntry => !!e);
+  if (!entries.some((e) => e.isDirectory)) return pickedFromList(dt.files);
+  const out: Picked[] = [];
+  for (const e of entries) await walk(e, "", out);
+  return out;
+}
+
+/** Folders to create (parents first) for the picked files, relative to the target. */
+export function foldersOf(picked: Picked[]): string[] {
+  const dirs = new Set<string>();
+  for (const p of picked) {
+    const parts = p.rel.split("/").slice(0, -1);
+    for (let i = 1; i <= parts.length; i++) dirs.add(parts.slice(0, i).join("/"));
+  }
+  return [...dirs].sort((a, b) => a.split("/").length - b.split("/").length || a.localeCompare(b));
+}
+
+/**
+ * Sending a folder that already exists here goes into "Nome (2)" instead of
+ * mixing with it (the server never overwrites files).
+ */
+export function renameTop(picked: Picked[], taken: Set<string>): Picked[] {
+  const tops = new Set(picked.filter((p) => p.rel.includes("/")).map((p) => p.rel.split("/")[0]));
+  const rename = new Map<string, string>();
+  for (const t of tops) {
+    if (!taken.has(t)) continue;
+    let n = 2;
+    while (taken.has(`${t} (${n})`)) n++;
+    rename.set(t, `${t} (${n})`);
+  }
+  if (!rename.size) return picked;
+  return picked.map((p) => {
+    const [top, ...rest] = p.rel.split("/");
+    return rest.length && rename.has(top) ? { ...p, rel: [rename.get(top), ...rest].join("/") } : p;
+  });
+}
+
+/** Files below this go up to three at a time: many small files are latency-bound. */
+export const SMALL_UPLOAD = 4 << 20;

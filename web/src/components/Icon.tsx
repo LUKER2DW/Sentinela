@@ -84,14 +84,46 @@ const paths: Record<string, string> = {
   text: "M6 3.5h8l4 4v13H6zM14 3.5v4h4M9 11h6M9 14h6M9 17h4",
   archive: "M4 4h16v4H4zM5.5 8v12h13V8M10 12h4",
   open: "M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5",
+  folderUp: "M3.5 7.5A2 2 0 0 1 5.5 5.5h4l2 2.5h7a2 2 0 0 1 2 2v7.5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2zM12 17v-5.5M9.5 14l2.5-2.5 2.5 2.5",
+  alert: "M12 4l9 16H3zM12 10v4.5M12 17.5h.01",
+  key: "M14.5 13a4.5 4.5 0 1 0-4.2-2.9L4 16.5V20h3.5v-2h2v-2h2l1.3-1.3a4.5 4.5 0 0 0 1.7.3zM16 8.5h.01",
+  app: "M8 3h8a1.5 1.5 0 0 1 1.5 1.5v15A1.5 1.5 0 0 1 16 21H8a1.5 1.5 0 0 1-1.5-1.5v-15A1.5 1.5 0 0 1 8 3zM12 8v6M9.5 11.5L12 14l2.5-2.5",
+  sun: "M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM12 2.5v2M12 19.5v2M4.5 12h-2M21.5 12h-2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4",
+  bellOff: "M6 16V11a6 6 0 0 1 9.5-4.9M18 11v5l1.5 2H9M10 20.5h4M3.5 3.5l17 17",
+  car: "M5 16.5V12l1.8-4.2A2 2 0 0 1 8.6 6.5h6.8a2 2 0 0 1 1.8 1.3L19 12v4.5M5 12h14M4 16.5h16v2H4zM7.5 14.2h.01M16.5 14.2h.01",
+  paw: "M12 20c-2.8 0-5-1.6-5-3.6 0-2 2.2-4.4 5-4.4s5 2.4 5 4.4c0 2-2.2 3.6-5 3.6zM6 10.5a1.8 2.2 0 1 0 0-.01M18 10.5a1.8 2.2 0 1 0 0-.01M9.3 6.3a1.8 2.2 0 1 0 0-.01M14.7 6.3a1.8 2.2 0 1 0 0-.01",
+  line: "M4 19L20 5M8 7l2.5 2.5M13.5 14.5L16 17",
+  zone: "M4 7l6-3 10 4-2 10-9 2-5-6zM12 10v4M10 12h4",
+  motion: "M13 5a1.5 1.5 0 1 0 0-.01M9 20l2.5-5.5L14 17v4M8 12l3-3.5 3 2 3 .5M11.5 14.5L10 9",
   disk: "M4 7c0-1.7 3.6-3 8-3s8 1.3 8 3v10c0 1.7-3.6 3-8 3s-8-1.3-8-3zM4 7c0 1.7 3.6 3 8 3s8-1.3 8-3M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3",
 };
 
+// Hand-drawn look (owner likes the doodle icons): one shared SVG filter
+// makes every stroke wobble a little, like ink on paper, and a second,
+// fainter pass slightly off the first reads as a pen going over it twice.
+// Defined once in the document; deterministic (fixed seed).
+if (typeof document !== "undefined" && !document.getElementById("ink-wobble")) {
+  const defs = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  defs.setAttribute("aria-hidden", "true");
+  defs.setAttribute("width", "0");
+  defs.setAttribute("height", "0");
+  defs.style.position = "absolute";
+  defs.innerHTML =
+    '<filter id="ink-wobble" x="-2" y="-2" width="28" height="28" filterUnits="userSpaceOnUse">' +
+    '<feTurbulence type="fractalNoise" baseFrequency="0.09" numOctaves="1" seed="7" result="n"/>' +
+    '<feDisplacementMap in="SourceGraphic" in2="n" scale="1.3" xChannelSelector="R" yChannelSelector="G"/></filter>';
+  document.body.appendChild(defs);
+}
+
 export function Icon({ name, title }: { name: keyof typeof paths | string; title?: string }) {
+  const d = paths[name] ?? "";
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden={title ? undefined : true} role={title ? "img" : undefined}>
+    <svg className="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden={title ? undefined : true} role={title ? "img" : undefined}>
       {title && <title>{title}</title>}
-      <path d={paths[name] ?? ""} />
+      <g filter="url(#ink-wobble)">
+        <path d={d} />
+        <path className="ico-echo" d={d} transform="translate(0.6 0.45) rotate(0.8 12 12)" strokeWidth={1} opacity={0.5} />
+      </g>
     </svg>
   );
 }

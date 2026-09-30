@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { crumbs, label, parentPath, restorePath } from "./nas";
+import { crumbs, foldersOf, label, parentPath, renameTop, restorePath, type Picked } from "./nas";
 
 describe("nas paths", () => {
   it("builds breadcrumbs with friendly names and hides the bin's user level", () => {
@@ -48,5 +48,22 @@ describe("nas kinds and sorting", async () => {
     expect(inside("ana/Fotos/2024", "ana/Fotos")).toBe(true);
     expect(inside("ana/Fotos", "ana/Fotos")).toBe(true);
     expect(inside("ana/Fotos2", "ana/Fotos")).toBe(false);
+  });
+});
+
+describe("folder uploads", () => {
+  const f = (rel: string): Picked => ({ file: new File([], rel.split("/").pop()!), rel });
+  it("creates parent folders first", () => {
+    expect(foldersOf([f("Fotos/2026/a.jpg"), f("Fotos/b.jpg"), f("solto.txt"), f("Fotos/2025/x/c.jpg")])).toEqual([
+      "Fotos",
+      "Fotos/2025",
+      "Fotos/2026",
+      "Fotos/2025/x",
+    ]);
+  });
+  it("sends into a new name when the folder exists", () => {
+    const out = renameTop([f("Fotos/a.jpg"), f("solto.txt")], new Set(["Fotos", "Fotos (2)"]));
+    expect(out.map((p) => p.rel)).toEqual(["Fotos (3)/a.jpg", "solto.txt"]);
+    expect(renameTop([f("Novas/a.jpg")], new Set(["Fotos"]))[0].rel).toBe("Novas/a.jpg");
   });
 });

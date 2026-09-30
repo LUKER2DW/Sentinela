@@ -3,6 +3,7 @@ import { api, get } from "../lib/api";
 import { useToast } from "../lib/session";
 import { fmtDate } from "../lib/time";
 import { Icon } from "./Icon";
+import { CardHead } from "./CardHead";
 
 interface DeviceSession {
   id: string;
@@ -73,8 +74,13 @@ export function DevicesCard() {
     onError: (e: Error) => toast(e.message, true),
   });
   return (
-    <section className="card" aria-label="Aparelhos conectados">
-      <h2>Aparelhos conectados</h2>
+    <section className="card set-card" aria-label="Aparelhos conectados">
+      <CardHead
+        icon="monitor"
+        title="Aparelhos conectados"
+        sub="Onde esta conta está aberta agora. Desconecte o que você não reconhece."
+        aside={q.data && <span className="pill num">{q.data.length}</span>}
+      />
       <div className="rows">
         {(q.data ?? []).map((s) => (
           <div key={s.id} className="status-row device-row">
@@ -82,10 +88,12 @@ export function DevicesCard() {
               <Icon name={deviceIcon(s.user_agent)} />
             </span>
             <div className="grow">
-              <strong>{deviceName(s.user_agent)}</strong>
+              <strong>
+                {deviceName(s.user_agent)}
+                {s.current && <span className="tag-inline">Este aparelho</span>}
+              </strong>
               <p className="muted small">
-                {s.current ? "Este aparelho · " : ""}
-                {s.mfa ? "de fora de casa · " : ""}entrou em {fmtDate(s.created_at)}, vale até {fmtDate(s.expires_at)}
+                {s.mfa ? "De fora de casa. " : ""}Entrou em {fmtDate(s.created_at)}, vale até {fmtDate(s.expires_at)}
               </p>
             </div>
             {!s.current && (

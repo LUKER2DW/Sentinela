@@ -10,8 +10,8 @@ import { Icon } from "./Icon";
 export const roleLabel: Record<Role, string> = { admin: "Administrador", operator: "Operador", viewer: "Visualizador" };
 
 const ROLES: { role: Role; icon: string; text: string }[] = [
-  { role: "viewer", icon: "eye", text: "Assiste ao vivo e às gravações, vê eventos e lê a Nuvem." },
-  { role: "operator", icon: "live", text: "Também move a câmera, liga a luz, fala e envia arquivos para a Nuvem." },
+  { role: "viewer", icon: "eye", text: "Assiste ao vivo e às gravações e vê os eventos. Sem acesso à Nuvem." },
+  { role: "operator", icon: "live", text: "Também move a câmera, liga a luz, fala e usa a Nuvem: a própria pasta e a Compartilhado." },
   { role: "admin", icon: "shield", text: "Tudo, inclusive usuários, câmeras e configurações do sistema." },
 ];
 

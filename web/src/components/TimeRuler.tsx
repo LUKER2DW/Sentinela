@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Timeline } from "../lib/api";
 import { DAY_MS, fmtHM, fmtTime, mergeRanges } from "../lib/time";
 import { haptic } from "../lib/gestures";
@@ -19,6 +19,8 @@ interface Props {
   onPick: (ms: number) => void;
   /** Visible window, for the overview ribbon above. */
   onView?: (from: number, to: number) => void;
+  /** The picture at the time under the needle while dragging. */
+  preview?: (ms: number) => ReactNode;
 }
 
 function savedScale(): number {
@@ -38,7 +40,7 @@ function savedScale(): number {
  * there; while playing it follows the video. Ticks every 5 min (every
  * minute when zoomed in), labels every hour or half hour.
  */
-export function TimeRuler({ dayStart, data, cursor, now, onPick, onView }: Props) {
+export function TimeRuler({ dayStart, data, cursor, now, onPick, onView, preview }: Props) {
   const scroller = useRef<HTMLDivElement>(null);
   const [scaleIdx, setScaleIdx] = useState(savedScale);
   const pxPerHour = SCALES[scaleIdx];
@@ -264,6 +266,7 @@ export function TimeRuler({ dayStart, data, cursor, now, onPick, onView }: Props
         </div>
         <div className="ruler-needle" aria-hidden="true" />
       </div>
+      {scrub !== null && preview && scrub < limit && <div className="tl-preview-at ruler-preview">{preview(scrub)}</div>}
     </div>
   );
 }

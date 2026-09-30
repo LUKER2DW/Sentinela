@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError } from "../lib/api";
 import { usePinchZoom } from "../lib/pinch";
 import {
+  SHARED,
   TRASH,
   baseName,
   createEmpty,
@@ -27,7 +28,13 @@ import {
   sortEntries,
   thumbUrl,
   uploadFile,
+  foldersOf,
+  pickedFromDrop,
+  pickedFromList,
+  renameTop,
+  SMALL_UPLOAD,
   type DateFilter,
+  type Picked,
   type Kind,
   type NasEntry,
   type SortKey,
@@ -37,6 +44,8 @@ import { fmtBytes, fmtDate } from "../lib/time";
 import { useSession, useToast } from "../lib/session";
 import { isPhone, useCompact } from "../lib/viewport";
 import { Icon } from "./Icon";
+import { Avatar } from "./Avatar";
+import { FileIcon, fileType } from "./FileIcon";
 
 type View = "list" | "grid";
 const VIEW_KEY = "sentinela.nuvem.view";
@@ -65,6 +74,8 @@ function savePref(key: string, v: string) {
 interface Upload {
   id: number;
   name: string;
+  /** Top folder when the file came in a folder upload. */
+  group?: string;
   target: string;
   file: File;
   sent: number;
@@ -86,21 +97,7 @@ const errText = (e: unknown) => {
   return (e as Error).message || "Algo deu errado.";
 };
 
-const kindIcon: Record<Kind, string> = {
-  folder: "folder",
-  image: "image",
-  video: "film",
-  audio: "music",
-  pdf: "pdf",
-  text: "text",
-  archive: "archive",
-  file: "file",
-};
 
-function entryIcon(e: NasEntry) {
-  if (e.dir && e.name === TRASH) return "trash";
-  return kindIcon[kindOf(e)];
-}
 
 /** Shows a video's first frame only once it scrolls into view. */
 function VideoThumb({ src }: { src: string }) {
@@ -121,7 +118,14 @@ function VideoThumb({ src }: { src: string }) {
   );
 }
 
-function Thumb({ path, entry, rich }: { path: string; entry: NasEntry; rich?: boolean }) {
+/** The drawn icon for an entry; top-level folders show whose they are. */
+function EntryIcon({ path, entry, owner, big }: { path: string; entry: NasEntry; owner?: string; big?: boolean }) {
+  const top = !path.includes("/");
+  const t = fileType(entry.name, entry.dir, { shared: top && entry.name === SHARED, trash: top && entry.name === TRASH, user: top && !!owner });
+  return <FileIcon type={t} name={entry.name} owner={owner} big={big} />;
+}
+
+function Thumb({ path, entry, rich, owner }: { path: string; entry: NasEntry; rich?: boolean; owner?: string }) {
   const [failed, setFailed] = useState(false);
   const k = kindOf(entry);
   if (!failed && !entry.dir && hasThumb(entry.name)) {
@@ -132,17 +136,12 @@ function Thumb({ path, entry, rich }: { path: string; entry: NasEntry; rich?: bo
   }
   if (rich && k === "video") return <VideoThumb src={fileUrl(path)} />;
   return (
-    <span className={`file-icon k-${entry.dir ? "folder" : k}`}>
-      <Icon name={entryIcon(entry)} />
-      {rich && !entry.dir && <span className="file-ext">{extOf(entry.name)}</span>}
+    <span className="file-icon drawn">
+      <EntryIcon path={path} entry={entry} owner={owner} big={rich} />
     </span>
   );
 }
 
-const extOf = (n: string) => {
-  const i = n.lastIndexOf(".");
-  return i > 0 && n.length - i <= 6 ? n.slice(i + 1).toUpperCase() : "";
-};
 
 /** A folder can receive items: not the share root, not the bin. */
 const canReceive = (p: string) => p !== "" && p !== TRASH && !p.startsWith(`${TRASH}/`);
@@ -196,6 +195,7 @@ export function FileBrowser({
   const admin = useSession().can("admin");
   const q = useQuery({ queryKey: ["nas", path], queryFn: () => listDir(path), retry: 0 });
   const user = q.data?.user ?? "";
+  const owners = q.data?.owners ?? {};
   const writable = canWrite && (q.data?.can_write ?? false);
   const inTrash = path === TRASH || path.startsWith(`${TRASH}/`);
   const canAddHere = writable && canReceive(path);
@@ -214,6 +214,7 @@ export function FileBrowser({
   const [ask, setAsk] = useState<Ask | null>(null);
   // Phones: one floating "+" opens the add actions (no big button row).
   const [adding, setAdding] = useState(false);
+  const [filterSheet, setFilterSheet] = useState(false);
   const [moving, setMoving] = useState<string[] | null>(null);
   const [preview, setPreview] = useState<{ path: string; edit?: boolean } | null>(null);
   const [pending, setPending] = useState<{ path: string; edit?: boolean } | null>(null);
@@ -222,13 +223,20 @@ export function FileBrowser({
   const [dropOn, setDropOn] = useState<string | null>(null);
   const [treeKey, setTreeKey] = useState(0);
   const pickId = useId();
+  const folderPickId = useId();
   const uploadDir = useRef(path);
-  // The hidden file input is clicked by id: menus and buttons share it.
+  // The hidden file inputs are clicked by id: menus and buttons share them.
   const pickFiles = (dir = path) => {
     uploadDir.current = dir;
     (document.getElementById(pickId) as HTMLInputElement | null)?.click();
   };
-  const busy = useRef(false);
+  const pickFolder = (dir = path) => {
+    uploadDir.current = dir;
+    (document.getElementById(folderPickId) as HTMLInputElement | null)?.click();
+  };
+  // Phones have no folder picker (Android's file chooser returns files only).
+  const folderUploads = !isPhone();
+  const sending = useRef(new Set<number>());
 
   // Selection belongs to the folder it was made in.
   const selected = useMemo(() => (sel.folder === path ? sel.paths : []), [sel, path]);
@@ -252,38 +260,68 @@ export function FileBrowser({
     setPending(null);
   }
 
-  // One upload at a time: gentle on the old server and on 4G.
+  // Large files go one at a time (gentle on the old server and on 4G);
+  // small ones up to three at a time, since a folder of photos is limited
+  // by round trips, not bandwidth. Chunks resume after a dropped connection.
   useEffect(() => {
-    if (busy.current) return;
-    const next = uploads.find((u) => u.state === "waiting");
-    if (!next) return;
-    busy.current = true;
-    const patch = (p: Partial<Upload>) => setUploads((all) => all.map((u) => (u.id === next.id ? { ...u, ...p } : u)));
-    patch({ state: "sending" });
-    uploadFile(next.file, next.target, ({ sent, total }) => patch({ sent, total }), next.ctrl.signal)
-      .then(() => {
-        patch({ state: "done", sent: next.file.size });
-        refresh(parentPath(next.target));
-      })
-      .catch((e) => patch(next.ctrl.signal.aborted ? { state: "cancelled" } : { state: "error", error: errText(e) }))
-      .finally(() => {
-        busy.current = false;
-        setUploads((all) => [...all]); // wake the queue
-      });
+    const big = (u: Upload) => u.file.size >= SMALL_UPLOAD;
+    const running = uploads.filter((u) => sending.current.has(u.id));
+    for (const next of uploads) {
+      if (next.state !== "waiting" || sending.current.has(next.id)) continue;
+      const room = running.length === 0 || (running.length < 3 && !big(next) && !running.some(big));
+      if (!room) break;
+      running.push(next);
+      sending.current.add(next.id);
+      const patch = (p: Partial<Upload>) => setUploads((all) => all.map((u) => (u.id === next.id ? { ...u, ...p } : u)));
+      patch({ state: "sending" });
+      uploadFile(next.file, next.target, ({ sent, total }) => patch({ sent, total }), next.ctrl.signal)
+        .then(() => {
+          patch({ state: "done", sent: next.file.size });
+          refresh(parentPath(next.target), path);
+        })
+        .catch((e) => patch(next.ctrl.signal.aborted ? { state: "cancelled" } : { state: "error", error: errText(e) }))
+        .finally(() => {
+          sending.current.delete(next.id);
+          setUploads((all) => [...all]); // wake the queue
+        });
+    }
   }, [uploads]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const enqueue = (list: FileList | File[], dir = path) => {
-    const files = Array.from(list);
-    if (!files.length) return;
-    setUploads((all) => [
-      ...all.filter((u) => u.state !== "done" && u.state !== "cancelled"),
-      ...files.map((file, i) => ({
-        id: Date.now() + i,
-        name: file.name,
-        target: joinPath(dir, file.name),
-        file,
+  const enqueue = async (picked: Picked[], dir = path) => {
+    if (!picked.length) return;
+    // A folder that already exists here is sent as "Nome (2)".
+    let taken = new Set<string>();
+    if (picked.some((p) => p.rel.includes("/"))) {
+      try {
+        taken = new Set((dir === path ? all : (await listDir(dir)).entries).map((e) => e.name));
+      } catch {
+        /* the mkdir below reports the problem */
+      }
+    }
+    const list = renameTop(picked, taken);
+    const folders = foldersOf(list);
+    for (const f of folders) {
+      try {
+        await mkdir(joinPath(dir, f));
+      } catch (e) {
+        if (!(e instanceof ApiError && e.status === 409)) {
+          toast(`Não foi possível criar a pasta ${f}: ${errText(e)}`, true);
+          return;
+        }
+      }
+    }
+    if (folders.length) refresh(dir);
+    const stamp = Date.now();
+    setUploads((prev) => [
+      ...prev.filter((u) => u.state !== "done" && u.state !== "cancelled"),
+      ...list.map((p, i) => ({
+        id: stamp + i,
+        name: p.file.name,
+        group: p.rel.includes("/") ? p.rel.split("/")[0] : undefined,
+        target: joinPath(dir, p.rel),
+        file: p.file,
         sent: 0,
-        total: file.size,
+        total: p.file.size,
         state: "waiting" as const,
         ctrl: new AbortController(),
       })),
@@ -432,15 +470,17 @@ export function FileBrowser({
   const commands = (paths: string[]): Cmd[] => {
     const single = paths.length === 1 ? byPath.get(paths[0]) : undefined;
     const binned = paths.some((p) => restorePath(p, user));
+    // Top-level folders (each person's, Compartilhado, Lixeira) are never renamed, moved or deleted.
+    const unprotected = paths.every((p) => p.includes("/"));
     return [
       { id: "open", label: single?.dir ? "Abrir" : "Visualizar", icon: single?.dir ? "folder" : "eye", run: () => open(paths[0]), when: !!single },
       { id: "edit", label: "Editar texto", icon: "edit", run: () => openFile(paths[0], true), when: !!single && kindOf(single) === "text" && writable && !inTrash },
       { id: "download", label: "Baixar", icon: "download", run: () => download(paths.filter((p) => !byPath.get(p)?.dir)), when: paths.some((p) => !byPath.get(p)?.dir) },
       { id: "restore", label: "Restaurar", icon: "restore", run: () => void restore(paths), when: writable && binned },
-      { id: "rename", label: "Renomear", icon: "edit", run: () => setAsk({ kind: "rename", path: paths[0] }), when: !!single && canEdit(paths) && (inShare || paths[0] !== user) },
-      { id: "move", label: "Mover para…", icon: "move", run: () => setMoving(paths), when: paths.length > 0 && canEdit(paths) && inShare },
+      { id: "rename", label: "Renomear", icon: "edit", run: () => setAsk({ kind: "rename", path: paths[0] }), when: !!single && canEdit(paths) && unprotected },
+      { id: "move", label: "Mover para…", icon: "move", run: () => setMoving(paths), when: paths.length > 0 && canEdit(paths) && inShare && unprotected },
       { id: "details", label: "Detalhes", icon: "info", run: () => setDetails(paths[0]), when: !!single },
-      { id: "delete", label: "Apagar", icon: "trash", run: () => void trash(paths), danger: true, when: paths.length > 0 && canEdit(paths) },
+      { id: "delete", label: "Apagar", icon: "trash", run: () => void trash(paths), danger: true, when: paths.length > 0 && canEdit(paths) && unprotected },
       { id: "purge", label: "Apagar para sempre", icon: "trash", run: () => void purgeForGood(paths), danger: true, when: writable && paths.length > 0 && paths.every((p) => p.startsWith(`${myBin}/`)) },
       { id: "empty", label: "Esvaziar lixeira", icon: "trash", run: () => void emptyBin(), danger: true, when: writable && paths.length === 1 && paths[0] === TRASH },
     ];
@@ -449,6 +489,7 @@ export function FileBrowser({
     { id: "mkfile", label: "Novo arquivo de texto", icon: "text", run: () => setAsk({ kind: "mkfile", at }), when: writable && canReceive(at) },
     { id: "mkdir", label: "Nova pasta", icon: "folderPlus", run: () => setAsk({ kind: "mkdir", at }), when: writable && canReceive(at) },
     { id: "upload", label: "Enviar arquivos", icon: "upload", run: () => pickFiles(at), when: writable && canReceive(at) },
+    { id: "uploadDir", label: "Enviar pasta", icon: "folderUp", run: () => pickFolder(at), when: folderUploads && writable && canReceive(at) },
     { id: "refresh", label: "Atualizar", icon: "refresh", run: () => refresh(at), when: true },
   ];
   /** Commands for a node of the tree (any folder, or a file inside one). */
@@ -459,9 +500,9 @@ export function FileBrowser({
       return [
         { id: "open", label: "Abrir", icon: "folder", run: () => onNavigate(p), when: true },
         ...folderCommands(p),
-        { id: "rename", label: "Renomear", icon: "edit", run: () => setAsk({ kind: "rename", path: p }), when: editable && !(top && p === user) },
+        { id: "rename", label: "Renomear", icon: "edit", run: () => setAsk({ kind: "rename", path: p }), when: editable && !top },
         { id: "move", label: "Mover para…", icon: "move", run: () => setMoving([p]), when: editable && !top },
-        { id: "delete", label: "Apagar", icon: "trash", run: () => void trash([p]), danger: true, when: editable },
+        { id: "delete", label: "Apagar", icon: "trash", run: () => void trash([p]), danger: true, when: editable && !top },
         { id: "empty", label: "Esvaziar lixeira", icon: "trash", run: () => void emptyBin(), danger: true, when: writable && (p === TRASH || p === myBin) },
       ];
     const k = kindOf({ name: p, dir: false });
@@ -552,7 +593,7 @@ export function FileBrowser({
       setDropOn(null);
       const raw = ev.dataTransfer.getData(DRAG_TYPE);
       if (raw) void moveInto(JSON.parse(raw) as string[], dest);
-      else if (ev.dataTransfer.files.length) enqueue(ev.dataTransfer.files, dest);
+      else if (ev.dataTransfer.files.length) void pickedFromDrop(ev.dataTransfer).then((picked) => enqueue(picked, dest));
     },
     "data-drop": dropOn === dest ? "true" : undefined,
   });
@@ -572,9 +613,16 @@ export function FileBrowser({
             <button className="btn" disabled={!canAddHere} onClick={() => setAsk({ kind: "mkfile", at: path })} title={canAddHere ? "Novo arquivo de texto" : "Abra uma pasta sua ou a Compartilhado"}>
               <Icon name="text" /> Novo arquivo
             </button>
-            <button className="btn primary" disabled={!canAddHere} onClick={() => pickFiles()} title={canAddHere ? undefined : "Abra uma pasta sua ou a Compartilhado"}>
-              <Icon name="upload" /> Enviar arquivos
-            </button>
+            <div className="split-btn" role="group" aria-label="Enviar">
+              <button className="btn primary" disabled={!canAddHere} onClick={() => pickFiles()} title={canAddHere ? undefined : "Abra uma pasta sua ou a Compartilhado"}>
+                <Icon name="upload" /> Enviar arquivos
+              </button>
+              {folderUploads && (
+                <button className="btn primary" disabled={!canAddHere} onClick={() => pickFolder()} title={canAddHere ? "Enviar uma pasta inteira, com as subpastas" : "Abra uma pasta sua ou a Compartilhado"}>
+                  <Icon name="folderUp" /> Pasta
+                </button>
+              )}
+            </div>
             {onConnect && (
               <button className="btn ghost" onClick={onConnect}>
                 <Icon name="network" /> Acessar pelo computador
@@ -588,10 +636,22 @@ export function FileBrowser({
             multiple
             hidden
             onChange={(e) => {
-              if (e.target.files) enqueue(e.target.files, uploadDir.current);
+              if (e.target.files) void enqueue(pickedFromList(e.target.files), uploadDir.current);
               e.target.value = "";
             }}
           />
+        {folderUploads && (
+          <input
+            id={folderPickId}
+            type="file"
+            hidden
+            {...({ webkitdirectory: "", directory: "" } as object)}
+            onChange={(e) => {
+              if (e.target.files) void enqueue(pickedFromList(e.target.files), uploadDir.current);
+              e.target.value = "";
+            }}
+          />
+        )}
       </section>
 
       {compact && canAddHere && (
@@ -618,6 +678,45 @@ export function FileBrowser({
         </div>
       )}
 
+      {filterSheet && (
+        <div className="dialog-backdrop bottom" role="dialog" aria-modal="true" aria-label="Ordenar e filtrar" onMouseDown={(e) => e.target === e.currentTarget && setFilterSheet(false)}>
+          <div className="action-sheet filter-sheet">
+            <div className="sheet-head">
+              <strong>Ordenar e filtrar</strong>
+              <button className="btn ghost icon small" aria-label="Fechar" onClick={() => setFilterSheet(false)}>
+                <Icon name="x" />
+              </button>
+            </div>
+            <OptionGroup
+              label="Ordenar por"
+              value={`${sort.key}:${sort.asc ? 1 : 0}`}
+              options={SORTS}
+              onChange={(v) => {
+                const [k, a] = v.split(":");
+                setSort({ key: k as SortKey, asc: a === "1" });
+              }}
+            />
+            <OptionGroup label="Tipo" value={type} options={TYPE_FILTERS.map((o) => ({ v: o.v, label: o.v ? o.label : "Todos" }))} onChange={(v) => setType(v as TypeFilter)} />
+            <OptionGroup label="Modificado" value={date} options={DATE_FILTERS.map((o) => ({ v: o.v, label: o.v ? o.label : "Qualquer data" }))} onChange={(v) => setDate(v as DateFilter)} />
+            <div className="row-gap">
+              <button
+                className="btn ghost"
+                disabled={!type && !date}
+                onClick={() => {
+                  setType("");
+                  setDate("");
+                }}
+              >
+                Limpar filtros
+              </button>
+              <button className="btn primary grow" onClick={() => setFilterSheet(false)}>
+                Ver {entries.length} {entries.length === 1 ? "item" : "itens"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <section className={`card explorer${paneOn ? " with-pane" : ""}`}>
         {!compact && (
           <aside className="tree" aria-label="Pastas e arquivos">
@@ -632,6 +731,11 @@ export function FileBrowser({
               <button className="tree-tool" title="Enviar arquivos" aria-label="Enviar arquivos" disabled={!canAddHere} onClick={() => pickFiles()}>
                 <Icon name="upload" />
               </button>
+              {folderUploads && (
+                <button className="tree-tool" title="Enviar pasta" aria-label="Enviar pasta" disabled={!canAddHere} onClick={() => pickFolder()}>
+                  <Icon name="folderUp" />
+                </button>
+              )}
               <button className="tree-tool" title="Atualizar" aria-label="Atualizar" onClick={() => void qc.invalidateQueries({ queryKey: ["nas"] })}>
                 <Icon name="refresh" />
               </button>
@@ -701,9 +805,20 @@ export function FileBrowser({
           </div>
 
           <div className="filter-row" role="group" aria-label="Filtros">
-            <FilterChip label="Tipo" value={type} options={TYPE_FILTERS} onChange={setType} />
-            <FilterChip label="Modificado" value={date} options={DATE_FILTERS} onChange={setDate} />
-            <SortChip sort={sort} onChange={setSort} />
+            {compact ? (
+              // Phone: one button and a sheet, instead of a row of dropdowns
+              // that does not fit (owner, round 6).
+              <button className={`filter-btn${type || date ? " on" : ""}`} onClick={() => setFilterSheet(true)}>
+                <Icon name="sort" /> {SORTS.find((o) => o.v === `${sort.key}:${sort.asc ? 1 : 0}`)?.label}
+                {(type ? 1 : 0) + (date ? 1 : 0) > 0 && <span className="count-badge">{(type ? 1 : 0) + (date ? 1 : 0)}</span>}
+              </button>
+            ) : (
+              <>
+                <FilterChip label="Tipo" value={type} options={TYPE_FILTERS} onChange={setType} />
+                <FilterChip label="Modificado" value={date} options={DATE_FILTERS} onChange={setDate} />
+                <SortChip sort={sort} onChange={setSort} />
+              </>
+            )}
             {(type || date || filter) && (
               <button
                 className="btn ghost small"
@@ -757,7 +872,7 @@ export function FileBrowser({
                     : canAddHere
                       ? compact
                         ? "Toque em + para enviar arquivos ou criar uma pasta."
-                        : "Arraste arquivos para cá, use Enviar arquivos ou o botão direito."
+                        : "Arraste arquivos ou pastas para cá, use Enviar ou o botão direito."
                       : "Nada por aqui ainda."}
               </span>
             </div>
@@ -765,6 +880,7 @@ export function FileBrowser({
             <>
               {view === "list" && (
                 <div className="file-head" role="row">
+                  <span className="col-owner">Proprietário</span>
                   {(["name", "modified", "size"] as SortKey[]).map((k) => (
                     <button
                       key={k}
@@ -810,10 +926,31 @@ export function FileBrowser({
                             {isSel && <Icon name="check" />}
                           </span>
                         )}
-                        <Thumb path={p} entry={e} rich={view === "grid"} />
+                        <Thumb path={p} entry={e} rich={view === "grid"} owner={owners[e.name]} />
                         <span className="file-name">{e.dir && !inShare ? label(e.name, user) : e.name}</span>
-                        <span className="file-date muted small">{fmtDate(e.modified)}</span>
-                        <span className="file-size muted small">{e.dir ? kindLabel.folder : `${kindLabel[kindOf(e)]} · ${fmtBytes(e.size)}`}</span>
+                        {compact ? (
+                          <span className="file-sub muted small">
+                            {e.dir ? kindLabel.folder : fmtBytes(e.size)}, {fmtDate(e.modified)}
+                            {owners[e.name] && owners[e.name] !== user && path.startsWith(SHARED) ? `, de ${owners[e.name]}` : ""}
+                          </span>
+                        ) : (
+                          <>
+                            <span className="file-owner small">
+                              {owners[e.name] ? (
+                                <>
+                                  <Avatar name={owners[e.name]} className="tiny" />
+                                  <span>{owners[e.name] === user ? "eu" : owners[e.name]}</span>
+                                </>
+                              ) : path === "" && e.name === SHARED ? (
+                                <span className="muted">Todos</span>
+                              ) : (
+                                <span className="muted">—</span>
+                              )}
+                            </span>
+                            <span className="file-date muted small">{fmtDate(e.modified)}</span>
+                            <span className="file-size muted small">{e.dir ? kindLabel.folder : `${kindLabel[kindOf(e)]} · ${fmtBytes(e.size)}`}</span>
+                          </>
+                        )}
                         {(inShare || admin) && (
                           <button
                             className="btn ghost icon small file-more"
@@ -928,6 +1065,23 @@ function FilterChip<T extends string>({ label, value, options, onChange }: { lab
   );
 }
 
+/** Radio chips inside the phone's filter sheet. */
+function OptionGroup({ label, value, options, onChange }: { label: string; value: string; options: { v: string; label: string }[]; onChange: (v: string) => void }) {
+  return (
+    <div className="option-group" role="radiogroup" aria-label={label}>
+      <span className="set-group-title">{label}</span>
+      <div className="option-chips">
+        {options.map((o) => (
+          <button key={o.v} role="radio" aria-checked={value === o.v} className={value === o.v ? "on" : ""} onClick={() => onChange(o.v)}>
+            {value === o.v && <Icon name="check" />}
+            {o.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 const SORTS: { v: string; label: string }[] = [
   { v: "name:1", label: "Nome (A–Z)" },
   { v: "name:0", label: "Nome (Z–A)" },
@@ -961,19 +1115,51 @@ function SortChip({ sort, onChange }: { sort: { key: SortKey; asc: boolean }; on
 }
 
 function Uploads({ uploads, setUploads }: { uploads: Upload[]; setUploads: (f: (u: Upload[]) => Upload[]) => void }) {
+  const [all, setAll] = useState(false);
   const active = uploads.filter((u) => u.state === "sending" || u.state === "waiting").length;
+  const done = uploads.filter((u) => u.state === "done").length;
+  const failed = uploads.filter((u) => u.state === "error").length;
+  const total = uploads.reduce((a, u) => a + (u.state === "cancelled" ? 0 : u.total), 0);
+  const sent = uploads.reduce((a, u) => a + (u.state === "cancelled" ? 0 : u.state === "done" ? u.total : u.sent), 0);
+  const groups = [...new Set(uploads.map((u) => u.group).filter(Boolean))];
+  // Long lists (a folder of photos): what is moving or failed first, the rest behind "Ver todos".
+  const LIMIT = 6;
+  const order = (u: Upload) => ({ error: 0, sending: 1, waiting: 2, done: 3, cancelled: 4 })[u.state];
+  // All sent: only the summary stays, the list opens on demand.
+  const quiet = !active && !failed;
+  const shown = all ? uploads : quiet ? [] : [...uploads].sort((a, b) => order(a) - order(b)).slice(0, LIMIT);
   return (
     <div className="uploads-box">
       <div className="uploads-head">
-        <strong>{active ? `Enviando ${active} ${active === 1 ? "arquivo" : "arquivos"}` : "Envios"}</strong>
+        <div className="uploads-title">
+          <strong>
+            {active
+              ? `Enviando ${groups.length === 1 ? `a pasta ${groups[0]}` : `${active} ${active === 1 ? "arquivo" : "arquivos"}`}`
+              : failed
+                ? `${failed} ${failed === 1 ? "envio falhou" : "envios falharam"}`
+                : "Envios concluídos"}
+          </strong>
+          <span className="muted small num">
+            {done} de {uploads.length} {uploads.length === 1 ? "arquivo" : "arquivos"} · {fmtBytes(sent)} de {fmtBytes(total)}
+          </span>
+        </div>
+        {active > 1 && (
+          <button className="btn ghost small" onClick={() => uploads.forEach((u) => (u.state === "sending" || u.state === "waiting") && u.ctrl.abort())}>
+            Cancelar tudo
+          </button>
+        )}
         {!active && (
           <button className="btn ghost small" onClick={() => setUploads(() => [])}>
             Limpar
           </button>
         )}
       </div>
+      <span className="meter thin uploads-meter" aria-hidden="true">
+        <span style={{ width: `${total ? (100 * sent) / total : 100}%` }} />
+      </span>
+      {shown.length > 0 && (
       <ul className="uploads" aria-label="Envios">
-        {uploads.map((u) => (
+        {shown.map((u) => (
           <li key={u.id} className={`upload ${u.state}`}>
             <span className="upload-name" title={u.target}>
               {u.name}
@@ -1008,6 +1194,12 @@ function Uploads({ uploads, setUploads }: { uploads: Upload[]; setUploads: (f: (
           </li>
         ))}
       </ul>
+      )}
+      {(uploads.length > LIMIT || quiet) && (
+        <button className="linkish small uploads-more" onClick={() => setAll((v) => !v)}>
+          {all ? "Mostrar menos" : uploads.length === 1 ? "Ver o arquivo" : `Ver os ${uploads.length}`}
+        </button>
+      )}
     </div>
   );
 }
@@ -1072,9 +1264,7 @@ function DetailsPane({
         ) : k === "text" && one.size <= 256 << 10 ? (
           <TextSnippet path={p} />
         ) : (
-          <span className={`file-icon big k-${one.dir ? "folder" : k}`}>
-            <Icon name={entryIcon(one)} />
-          </span>
+          <EntryIcon path={selected[0]} entry={one} big />
         )}
       </div>
       <h3 className="pane-title" title={one.name}>
@@ -1199,8 +1389,7 @@ function TreeLevel(props: TreeProps & { parent: string; depth: number; open: Set
         const isOpen = open.has(p);
         const blocked = !!pick && pick.exclude.some((x) => inside(p, x));
         const name = parent === "" ? label(d.name, user) : d.name;
-        const icon =
-          parent === "" && d.name === TRASH ? "trash" : parent === "" && d.name === user ? "home" : parent === "" && d.name === "Compartilhado" ? "users" : isOpen ? "folderOpen" : "folder";
+        const owner = parent === "" ? q.data?.owners?.[d.name] : undefined;
         return (
           <li key={p} role="treeitem" aria-expanded={isOpen} aria-selected={current === p}>
             <div
@@ -1221,8 +1410,8 @@ function TreeLevel(props: TreeProps & { parent: string; depth: number; open: Set
                 }}
                 title={name}
               >
-                <span className={`tree-ico${parent === "" ? " top" : " dir"}`}>
-                  <Icon name={icon} />
+                <span className="tree-ico drawn">
+                  <EntryIcon path={p} entry={d} owner={owner} />
                 </span>
                 <span className="tree-label">{name}</span>
               </button>
@@ -1237,13 +1426,12 @@ function TreeLevel(props: TreeProps & { parent: string; depth: number; open: Set
       })}
       {files.map((f) => {
         const p = joinPath(parent, f.name);
-        const k = kindOf(f);
         return (
           <li key={p} role="treeitem" aria-selected={selected === p}>
             <div className={`tree-row file-row${selected === p ? " on" : ""}`} style={{ paddingLeft: 26 + depth * 14 }} onContextMenu={onMenu ? (ev) => onMenu(ev, p, false) : undefined}>
               <button className="tree-name" onClick={() => onOpenFile?.(p)} title={`${f.name} · ${fmtBytes(f.size)}`}>
-                <span className={`tree-ico k-${k}`}>
-                  <Icon name={kindIcon[k]} />
+                <span className="tree-ico drawn">
+                  <FileIcon type={fileType(f.name, false)} name={f.name} />
                 </span>
                 <span className="tree-label">{f.name}</span>
               </button>
@@ -1509,9 +1697,7 @@ function PreviewDialog({
     <div className="dialog-backdrop viewer-backdrop" role="dialog" aria-modal="true" aria-label={entry.name} onMouseDown={(e) => e.target === e.currentTarget && leave(onClose)()}>
       <div className="viewer">
         <header className="viewer-head">
-          <span className={`file-icon small k-${kind}`}>
-            <Icon name={kindIcon[kind]} />
-          </span>
+          <FileIcon type={fileType(entry.name, false)} name={entry.name} />
           <div className="viewer-title">
             <h2 title={entry.name}>
               {entry.name}
@@ -1601,9 +1787,7 @@ function PreviewBody({ kind, src, path, entry }: { kind: Kind; src: string; path
   if (kind === "pdf") return <iframe className="viewer-pdf" src={src} title={entry.name} />;
   return (
     <div className="viewer-none">
-      <span className={`file-icon big k-${kind}`}>
-        <Icon name={kindIcon[kind]} />
-      </span>
+      <FileIcon type={fileType(entry.name, false)} name={entry.name} big />
       <strong>Sem pré-visualização para este tipo de arquivo</strong>
       <span className="muted">Baixe para abrir no aparelho.</span>
       <a className="btn primary" href={fileUrl(path, true)} download={entry.name}>

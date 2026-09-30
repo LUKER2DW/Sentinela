@@ -209,12 +209,14 @@ export const onUnauthorized = (l: Listener) => {
 
 export async function api<T>(method: string, path: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = {};
-  if (body !== undefined) headers["Content-Type"] = "application/json";
+  // A Blob (a profile picture) goes as it is; anything else as JSON.
+  const raw = body instanceof Blob;
+  if (body !== undefined) headers["Content-Type"] = raw ? body.type || "application/octet-stream" : "application/json";
   if (method !== "GET" && csrf) headers["X-CSRF-Token"] = csrf;
   const res = await fetch(path, {
     method,
     headers,
-    body: body === undefined ? undefined : JSON.stringify(body),
+    body: body === undefined ? undefined : raw ? body : JSON.stringify(body),
     credentials: "same-origin",
   });
   const text = await res.text();

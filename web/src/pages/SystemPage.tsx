@@ -8,10 +8,10 @@ import { VolumeMeter } from "./NuvemPage";
 import { AddCameraCard } from "../components/AddCamera";
 import { DetectionCard } from "../components/Detection";
 import { useCompact } from "../lib/viewport";
-import { OceanScene } from "../components/Doodles";
+import { BackToMore, MoreMenu } from "../components/MoreMenu";
 import { Icon } from "../components/Icon";
 import { NoticesPanel, useSystemNotices } from "../components/Notices";
-import { UsersAdmin, auditLabel, roleLabel } from "../components/UsersAdmin";
+import { UsersAdmin, auditLabel } from "../components/UsersAdmin";
 import { href, navigate } from "../lib/router";
 
 const stateLabel: Record<string, string> = {
@@ -42,60 +42,44 @@ const SECTIONS: { id: Section; label: string; icon: string; admin?: boolean }[] 
 ];
 
 export function SystemPage({ params }: { params: URLSearchParams }) {
-  const { can, user, logout } = useSession();
+  const { can } = useSession();
   const compact = useCompact();
   const sys = useQuery({ queryKey: ["system"], queryFn: fetchSystem, refetchInterval: 10_000 });
   const s = sys.data;
   const { unread } = useSystemNotices();
-  // Users and the audit log stay on the computer (owner's choice): rare,
-  // wide, and risky to fat-finger on a phone.
-  const sections = SECTIONS.filter((x) => (!x.admin || can("admin")) && !(compact && x.admin));
+  // Users, the audit log and cameras stay on the computer (owner's choice):
+  // rare, wide, and risky to fat-finger on a phone.
+  const sections = SECTIONS.filter((x) => (!x.admin || can("admin")) && !(compact && (x.admin || x.id === "cameras")));
   const asked = params.get("s") as Section | null;
   const section: Section = sections.some((x) => x.id === asked) ? asked! : "overview";
   const pick = (id: Section) => navigate("system", { s: id });
 
+  // Phone: "Mais" is a menu of everything that is not on the tab bar; each
+  // row opens its page with a way back.
+  if (compact && !asked) return <MoreMenu version={s?.version} unread={unread.length} />;
+
   return (
     <>
+      {compact && <BackToMore />}
       <header className="page-head">
         <div className="title">
-          <h1>Sistema</h1>
-          <span className="sub">Gravação, câmeras, servidor{can("admin") ? " e usuários" : ""}.</span>
+          <h1>{compact ? SECTIONS.find((x) => x.id === section)?.label : "Sistema"}</h1>
+          {!compact && <span className="sub">Gravação, câmeras, servidor{can("admin") ? " e usuários" : ""}.</span>}
         </div>
-        {s && <span className="pill">Versão {s.version}</span>}
+        {s && !compact && <span className="pill">Versão {s.version}</span>}
       </header>
-      {compact && (
-        <a className="phone-who" href={href("conta")} aria-label="Minha conta">
-          <OceanScene className="phone-ocean" />
-          <div className="who">
-            <span className="avatar" aria-hidden="true">
-              {user.username.slice(0, 1).toUpperCase()}
-            </span>
-            <div className="who-text">
-              <div className="who-name">{user.username}</div>
-              <div className="who-role">{roleLabel[user.role]} · Minha conta</div>
-            </div>
-            <button
-              className="btn small ghost"
-              onClick={(e) => {
-                e.preventDefault();
-                logout();
-              }}
-            >
-              Sair
-            </button>
-          </div>
-        </a>
-      )}
       <div className="sys-layout">
-        <nav className={compact ? "section-tabs" : "sys-nav"} role="tablist" aria-label="Categorias">
-          {sections.map((x) => (
-            <button key={x.id} role="tab" aria-selected={section === x.id} onClick={() => pick(x.id)}>
-              {!compact && <Icon name={x.icon} />}
-              <span>{x.label}</span>
-              {x.id === "overview" && unread.length > 0 && <span className="count-badge">{unread.length}</span>}
-            </button>
-          ))}
-        </nav>
+        {!compact && (
+          <nav className="sys-nav" role="tablist" aria-label="Categorias">
+            {sections.map((x) => (
+              <button key={x.id} role="tab" aria-selected={section === x.id} onClick={() => pick(x.id)}>
+                <Icon name={x.icon} />
+                <span>{x.label}</span>
+                {x.id === "overview" && unread.length > 0 && <span className="count-badge">{unread.length}</span>}
+              </button>
+            ))}
+          </nav>
+        )}
         <div className="sys-body" key={section} role="tabpanel">
           {sys.isError && <p className="notice error">Não foi possível ler o estado do servidor.</p>}
           {s && <SectionBody section={section} s={s} admin={can("admin")} />}

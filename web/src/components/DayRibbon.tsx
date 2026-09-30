@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import type { Timeline } from "../lib/api";
 import { DAY_MS, fmtHM, fmtTime, mergeRanges } from "../lib/time";
 import { Moon, Sun } from "./Doodles";
@@ -14,9 +14,11 @@ interface Props {
   label: string;
   /** The detailed ruler's visible window, outlined on the ribbon. */
   view?: [number, number] | null;
+  /** The picture at the hovered time (mouse only). */
+  preview?: (ms: number) => ReactNode;
 }
 
-export function DayRibbon({ dayStart, data, cursor, now, onPick, label, view }: Props) {
+export function DayRibbon({ dayStart, data, cursor, now, onPick, label, view, preview }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const [hover, setHover] = useState<number | null>(null);
   const t0 = dayStart.getTime();
@@ -69,7 +71,12 @@ export function DayRibbon({ dayStart, data, cursor, now, onPick, label, view }: 
   const current = cursor ?? (showNow ? now : t0);
 
   return (
-    <div>
+    <div className="ribbon-wrap">
+      {hover !== null && preview && hover < limit && (
+        <div className="tl-preview-at" style={{ left: `clamp(92px, ${pct(hover)}, calc(100% - 92px))` }}>
+          {preview(hover)}
+        </div>
+      )}
       <div
         ref={ref}
         className="ribbon"
@@ -80,7 +87,7 @@ export function DayRibbon({ dayStart, data, cursor, now, onPick, label, view }: 
         aria-valuemax={limit}
         aria-valuenow={current}
         aria-valuetext={fmtTime(current)}
-        onPointerMove={(e) => setHover(toMs(e.clientX))}
+        onPointerMove={(e) => setHover(e.pointerType === "mouse" || !preview ? toMs(e.clientX) : null)}
         onPointerLeave={() => setHover(null)}
         onClick={(e) => pick(toMs(e.clientX))}
         onKeyDown={(e) => {

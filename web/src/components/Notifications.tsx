@@ -19,6 +19,7 @@ import {
 import { useSession, useToast } from "../lib/session";
 import { useCompact } from "../lib/viewport";
 import { Icon } from "./Icon";
+import { CardHead } from "./CardHead";
 
 export const MODES: { value: ModeSettings["mode"]; label: string; hint: string }[] = [
   { value: "home", label: "Casa", hint: "Só avisa se mexerem na câmera." },
@@ -143,7 +144,7 @@ export function ModeCard() {
         {s.night_auto
           ? `No modo Casa, a Noite liga sozinha das ${s.night_from} às ${s.night_to}.`
           : "A Noite automática está desligada."}{" "}
-        Ajuste em Minha conta → Notificações.
+        Ajuste em Minha conta, em Notificações.
         {!can("operator") && " Seu perfil só permite ver o modo."}
       </p>
     </section>
@@ -192,69 +193,31 @@ const stateText: Record<PushState, string> = {
   unsupported: "Este navegador não recebe notificações. No iPhone, instale o Sentinela na tela de início primeiro.",
   insecure: "Notificações no navegador só funcionam pelo endereço HTTPS.",
   denied: "As notificações foram bloqueadas nas configurações deste aparelho.",
-  off: "Desligadas neste aparelho.",
-  on: "Ligadas neste aparelho.",
+  off: "Desligadas neste aparelho. Ative para receber os avisos aqui.",
+  on: "Este aparelho recebe os avisos, mesmo com o Sentinela fechado.",
 };
 
-/** Which event types notify this user, and whether the house mode applies. */
-function EventChoices() {
-  const qc = useQueryClient();
-  const toast = useToast();
-  const q = useQuery({ queryKey: ["notify-prefs"], queryFn: getPrefs, staleTime: 60_000 });
-  const save = useMutation({
-    mutationFn: putPrefs,
-    onSuccess: (d) => qc.setQueryData(["notify-prefs"], d),
-    onError: (e: Error) => toast(e.message, true),
-  });
-  const d = q.data;
-  if (!d) return null;
-  const p = d.prefs;
-  const toggle = (t: string) => save.mutate({ ...p, types: p.types.includes(t) ? p.types.filter((x) => x !== t) : [...p.types, t] });
-  return (
-    <>
-      <h3 className="card-sub">O que me avisa</h3>
-      <div className="choice-list notify-types">
-        {d.types.map((t) => (
-          <label key={t} className={`choice${p.types.includes(t) ? " on" : ""}`}>
-            <input type="checkbox" checked={p.types.includes(t)} onChange={() => toggle(t)} disabled={save.isPending} />
-            <span>{TYPE_LABEL[t] ?? t}</span>
-          </label>
-        ))}
-      </div>
-      <div className="toggle-row">
-        <span>
-          Respeitar o modo da casa
-          <span className="muted small"> · {p.follow_mode ? "no modo Casa, por exemplo, só câmera mexida avisa" : "avisa os tipos marcados em qualquer modo"}</span>
-        </span>
-        <button className="switch" role="switch" aria-checked={p.follow_mode} aria-label="Respeitar o modo da casa" onClick={() => save.mutate({ ...p, follow_mode: !p.follow_mode })} />
-      </div>
-      <p className="muted small">Só para você: cada pessoa escolhe os próprios avisos. Tudo continua gravado e aparece em Eventos.</p>
-    </>
-  );
-}
-
-/** Notifications card for the System ("Mais") page. */
-export function NotificationsCard() {
-  const { can } = useSession();
-  const qc = useQueryClient();
-  const toast = useToast();
+/** This device's notification state; null while checking. */
+export function usePushState() {
   const [state, setState] = useState<PushState | null>(null);
-  const [busy, setBusy] = useState(false);
-  const mode = useQuery({ queryKey: ["notify-mode"], queryFn: getMode, staleTime: 30_000 });
-  const [battery, setBattery] = useState(false);
-
   useEffect(() => {
     let live = true;
     void pushState()
-      .then((s) => {
-        if (!live) return;
-        setState(s);
-      })
+      .then((s) => live && setState(s))
       .catch(() => live && setState("unsupported"));
     return () => {
       live = false;
     };
   }, []);
+  return [state, setState] as const;
+}
+
+/** Turn notifications on or off on this device, send a test. */
+export function DeviceNotifyCard() {
+  const toast = useToast();
+  const [state, setState] = usePushState();
+  const [busy, setBusy] = useState(false);
+  const [battery, setBattery] = useState(false);
 
   useEffect(() => {
     if (state === "on") void nativeStatus()?.then((st) => setBattery(st.batteryOptimized)).catch(() => {});
@@ -270,26 +233,24 @@ export function NotificationsCard() {
       setBusy(false);
     }
   };
-
-  const saveNight = useMutation({
-    mutationFn: putMode,
-    onSuccess: (d) => qc.setQueryData(["notify-mode"], d),
-    onError: (e: Error) => toast(e.message, true),
-  });
-  const s = mode.data?.settings;
+  const on = state === "on";
 
   return (
-    <section className="card" aria-label="Notificações">
-      <div className="card-head">
-        <h2>Notificações</h2>
-        {state === "on" && (
-          <span className="pill">
-            <span className="dot ok" /> Neste aparelho
-          </span>
-        )}
-      </div>
-      <p className="muted">{state ? stateText[state] : "Verificando…"}</p>
-      {state === "on" && battery && (
+    <section className="card set-card" aria-label="Notificações neste aparelho">
+      <CardHead
+        icon={on ? "bell" : "bellOff"}
+        tone={on ? "kelp" : state === "denied" ? "coral" : undefined}
+        title="Neste aparelho"
+        sub={state ? stateText[state] : "Verificando…"}
+        aside={
+          state && (
+            <span className={`pill${on ? " ok" : ""}`}>
+              <span className={`dot ${on ? "ok" : state === "off" ? "" : "bad"}`} /> {on ? "Ligadas" : state === "off" ? "Desligadas" : "Indisponível"}
+            </span>
+          )
+        }
+      />
+      {on && battery && (
         <p className="notice small">
           O Android pode pausar os avisos para economizar bateria.{" "}
           <button className="linkish" onClick={() => void allowBackground()?.then(() => setBattery(false)).catch(() => {})}>
@@ -297,18 +258,18 @@ export function NotificationsCard() {
           </button>
         </p>
       )}
-      {state === "denied" && isApp() && (
-        <button className="btn" onClick={() => void run(enablePush)}>
-          Abrir permissões do app
-        </button>
-      )}
       <div className="row-actions">
-        {state === "off" && (
-          <button className="btn primary" disabled={busy} onClick={() => void run(enablePush)}>
-            <Icon name="events" /> Ativar neste aparelho
+        {state === "denied" && isApp() && (
+          <button className="btn" onClick={() => void run(enablePush)}>
+            Abrir permissões do app
           </button>
         )}
-        {state === "on" && (
+        {state === "off" && (
+          <button className="btn primary" disabled={busy} onClick={() => void run(enablePush)}>
+            <Icon name="bell" /> Ativar neste aparelho
+          </button>
+        )}
+        {on && (
           <>
             <button
               className="btn"
@@ -329,14 +290,150 @@ export function NotificationsCard() {
           </>
         )}
       </div>
+      <p className="muted small card-foot">
+        {isApp()
+          ? "O app mantém uma conexão direta e cifrada com o servidor da casa; nenhum serviço de terceiros vê os avisos. Tocar num aviso abre a gravação do momento."
+          : "A imagem do evento vem direto do servidor; o serviço de avisos do navegador só vê texto cifrado."}
+      </p>
+    </section>
+  );
+}
 
-      <EventChoices />
-      <h3 className="card-sub">Modo da casa</h3>
+/** Icon and group for each event type on the "what notifies me" list. */
+const TYPE_META: Record<string, { icon: string; group: "alert" | "camera" | "other"; hint: string }> = {
+  human: { icon: "user", group: "alert", hint: "Alguém aparece na imagem" },
+  vehicle: { icon: "car", group: "alert", hint: "Carro, moto ou bicicleta" },
+  animal: { icon: "paw", group: "alert", hint: "Cachorro, gato, pássaro" },
+  line: { icon: "line", group: "alert", hint: "Alguém cruza a linha desenhada" },
+  intrusion: { icon: "zone", group: "alert", hint: "Alguém entra na área marcada" },
+  tamper: { icon: "camera", group: "camera", hint: "Câmera coberta, virada ou sem imagem" },
+  motion: { icon: "motion", group: "other", hint: "Qualquer mudança na imagem; avisa muito" },
+};
+const GROUPS: { id: "alert" | "camera" | "other"; label: string }[] = [
+  { id: "alert", label: "Detecção" },
+  { id: "camera", label: "Câmera" },
+  { id: "other", label: "Outros" },
+];
+
+/** Which event types notify this user, and whether the house mode applies. */
+export function NotifyTypesCard() {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const q = useQuery({ queryKey: ["notify-prefs"], queryFn: getPrefs, staleTime: 60_000 });
+  const save = useMutation({
+    mutationFn: putPrefs,
+    onSuccess: (d) => qc.setQueryData(["notify-prefs"], d),
+    onError: (e: Error) => toast(e.message, true),
+  });
+  const d = q.data;
+  const p = d?.prefs;
+  const toggle = (t: string) => p && save.mutate({ ...p, types: p.types.includes(t) ? p.types.filter((x) => x !== t) : [...p.types, t] });
+  const count = p?.types.filter((t) => d?.types.includes(t)).length ?? 0;
+  return (
+    <section className="card set-card" aria-label="O que me avisa">
+      <CardHead
+        icon="events"
+        title="O que me avisa"
+        sub="Só para você: cada pessoa escolhe os próprios avisos. Tudo continua gravado e aparece em Eventos."
+        aside={
+          d && (
+            <span className="pill num">
+              {count} de {d.types.length}
+            </span>
+          )
+        }
+      />
+      {d && p && (
+        <>
+          {GROUPS.map((g) => {
+            const types = d.types.filter((t) => (TYPE_META[t]?.group ?? "other") === g.id);
+            if (!types.length) return null;
+            return (
+              <div key={g.id} className="set-group">
+                <h3 className="set-group-title">{g.label}</h3>
+                <div className="toggle-list">
+                  {types.map((t) => {
+                    const on = p.types.includes(t);
+                    return (
+                      <div key={t} className={`toggle-item${on ? " on" : ""}`}>
+                        <span className="toggle-ico" aria-hidden="true">
+                          <Icon name={TYPE_META[t]?.icon ?? "events"} />
+                        </span>
+                        <span className="toggle-text">
+                          <strong>{TYPE_LABEL[t] ?? t}</strong>
+                          {TYPE_META[t] && <span className="muted small">{TYPE_META[t].hint}</span>}
+                        </span>
+                        <button className="switch" role="switch" aria-checked={on} aria-label={TYPE_LABEL[t] ?? t} disabled={save.isPending} onClick={() => toggle(t)} />
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+          <div className="set-group">
+            <h3 className="set-group-title">Modo da casa</h3>
+            <div className="toggle-list">
+              <div className={`toggle-item${p.follow_mode ? " on" : ""}`}>
+                <span className="toggle-ico" aria-hidden="true">
+                  <Icon name="home" />
+                </span>
+                <span className="toggle-text">
+                  <strong>Respeitar o modo da casa</strong>
+                  <span className="muted small">
+                    {p.follow_mode ? "No modo Casa, por exemplo, só câmera mexida avisa." : "Avisa os tipos marcados em qualquer modo."}
+                  </span>
+                </span>
+                <button
+                  className="switch"
+                  role="switch"
+                  aria-checked={p.follow_mode}
+                  aria-label="Respeitar o modo da casa"
+                  disabled={save.isPending}
+                  onClick={() => save.mutate({ ...p, follow_mode: !p.follow_mode })}
+                />
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
+/** Casa / Noite / Fora for the house, and the automatic night. */
+export function HouseModeCard() {
+  const { can } = useSession();
+  const qc = useQueryClient();
+  const toast = useToast();
+  const mode = useQuery({ queryKey: ["notify-mode"], queryFn: getMode, staleTime: 30_000 });
+  const saveNight = useMutation({
+    mutationFn: putMode,
+    onSuccess: (d) => qc.setQueryData(["notify-mode"], d),
+    onError: (e: Error) => toast(e.message, true),
+  });
+  const s = mode.data?.settings;
+  const effective = mode.data?.effective;
+  return (
+    <section className="card set-card" aria-label="Modo da casa">
+      <CardHead
+        icon={effective === "night" ? "moon" : effective === "away" ? "away" : "home"}
+        tone="sea"
+        title="Modo da casa"
+        sub="Vale para todos da casa. Muda o que manda aviso, não o que é gravado."
+        aside={effective && <span className="pill ok">Agora: {MODES.find((m) => m.value === effective)?.label}</span>}
+      />
       <ModeSwitch />
       {s && (
-        <div className="night-row">
-          <div className="toggle-row">
-            <span>Noite automática no modo Casa</span>
+        <div className="toggle-list">
+          <div className={`toggle-item${s.night_auto ? " on" : ""}`}>
+            <span className="toggle-ico" aria-hidden="true">
+              <Icon name="moon" />
+            </span>
+            <span className="toggle-text">
+              <strong>Noite automática</strong>
+              <span className="muted small">No modo Casa, liga a Noite no horário abaixo.</span>
+            </span>
             <button
               className="switch"
               role="switch"
@@ -368,11 +465,7 @@ export function NotificationsCard() {
           </div>
         </div>
       )}
-      <p className="muted small card-foot">
-        {isApp()
-          ? "O app mantém uma conexão direta e cifrada com o servidor da casa; nenhum serviço de terceiros vê os avisos. Tocar num aviso abre a gravação do momento."
-          : "A imagem do evento vem direto do servidor; o serviço de avisos do navegador só vê texto cifrado."}
-      </p>
+      {!can("operator") && <p className="muted small card-foot">Seu perfil só permite ver o modo.</p>}
     </section>
   );
 }

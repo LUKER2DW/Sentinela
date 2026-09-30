@@ -24,7 +24,7 @@ const subs = new Set<() => void>();
 
 function apply(t: Theme) {
   document.documentElement.dataset.theme = t;
-  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", t === "dark" ? "#161a1c" : "#f5f2ec");
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", t === "dark" ? "#181918" : "#f5f3ee");
 }
 
 /** Call once before first render to avoid a flash of the wrong theme. */
@@ -56,4 +56,22 @@ export function useTheme(): Theme {
     },
     () => current,
   );
+}
+
+export type ThemeMode = Theme | "system";
+
+/** The choice on the Aparência card: a fixed theme, or follow the device. */
+export function useThemeMode(): ThemeMode {
+  useTheme(); // re-render on changes
+  return stored() ?? "system";
+}
+
+export function setThemeMode(m: ThemeMode) {
+  if (m !== "system") return setTheme(m);
+  try {
+    localStorage.removeItem(KEY);
+  } catch {
+    /* nothing remembered */
+  }
+  setTheme(system(), false);
 }

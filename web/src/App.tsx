@@ -9,7 +9,6 @@ import { startOfDay, useNow } from "./lib/time";
 import { Icon } from "./components/Icon";
 import { OceanScene } from "./components/Doodles";
 import { LighthouseMark } from "./components/Lighthouse";
-import { ThemeToggle } from "./components/ThemeToggle";
 import { BgDoodles } from "./components/Decor";
 import { AuthPage } from "./pages/AuthPage";
 import { LivePage } from "./pages/LivePage";
@@ -21,6 +20,9 @@ import { AccountPage } from "./pages/AccountPage";
 import { NoticeBell } from "./components/Notices";
 import { ClockPage } from "./components/DelayMeter";
 import { setZone } from "./lib/access";
+import { AppUpdateBanner } from "./components/AppUpdate";
+import { useCompact } from "./lib/viewport";
+import { Avatar } from "./components/Avatar";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { refetchOnWindowFocus: true, retry: 1, staleTime: 5_000 } },
@@ -135,9 +137,12 @@ function useUnseenEvents(): number {
 
 function Shell() {
   const route = useRoute();
-  const { user, logout } = useSession();
+  const { user, logout, can } = useSession();
   const qc = useQueryClient();
   const collapsed = useSidebarCollapsed();
+  const compact = useCompact();
+  // Phone: pages opened from "Mais" keep that tab lit.
+  const current = (page: string) => route.page === page || (compact && page === "system" && (route.page === "conta" || route.page === "relogio"));
   const eventsToday = useUnseenEvents();
   const updated = useNewVersion();
   // Keeps the UI clock on server time on every page (shared cache with the pages).
@@ -171,13 +176,13 @@ function Shell() {
           </button>
         </div>
         <div className="nav-list">
-          {NAV.map((n) => (
+          {NAV.filter((n) => n.page !== "nuvem" || can("operator")).map((n) => (
             <a
               key={n.page}
               className="nav-item"
               href={href(n.page)}
               title={collapsed ? n.label : undefined}
-              aria-current={route.page === n.page ? "page" : undefined}
+              aria-current={current(n.page) ? "page" : undefined}
               onClick={() => void qc.invalidateQueries()}
             >
               <span className="nav-icon">
@@ -202,9 +207,7 @@ function Shell() {
           <OceanScene className="side-ocean" />
           <div className={`who${route.page === "conta" ? " on" : ""}`}>
             <a className="who-link" href={href("conta")} title="Minha conta: senha, 2 etapas e aparelhos" aria-current={route.page === "conta" ? "page" : undefined}>
-              <span className="avatar" aria-hidden="true">
-                {user.username.slice(0, 1).toUpperCase()}
-              </span>
+              <Avatar name={user.username} />
               <div className="who-text">
                 <div className="who-name">{user.username}</div>
                 <div className="who-role">{roleLabel[user.role]}</div>
@@ -225,15 +228,17 @@ function Shell() {
         )}
         <div className="topbar">
           <NoticeBell />
-          <ThemeToggle />
         </div>
+        <AppUpdateBanner />
         {/* Phone: brand bar with the turning lighthouse (the sidebar is a tab bar there). */}
         <header className="mobile-bar">
           <a className="mobile-brand" href={href("live")} aria-label="Sentinela, ao vivo">
             <LighthouseMark />
             <span>Sentinela</span>
           </a>
-          <ThemeToggle />
+          <span className="mobile-bar-tools">
+            <NoticeBell />
+          </span>
           <svg className="mobile-bar-wave" viewBox="0 0 400 8" preserveAspectRatio="none" aria-hidden="true">
             <path d="M0 4 q12.5 -4 25 0 t25 0 t25 0 t25 0 t25 0 t25 0 t25 0 t25 0 t25 0 t25 0 t25 0 t25 0 t25 0 t25 0 t25 0 t25 0" />
           </svg>
@@ -243,12 +248,12 @@ function Shell() {
             <RecordingsPage params={route.params} />
           ) : route.page === "events" ? (
             <EventsPage />
-          ) : route.page === "nuvem" ? (
+          ) : route.page === "nuvem" && can("operator") ? (
             <NuvemPage params={route.params} />
           ) : route.page === "system" ? (
             <SystemPage params={route.params} />
           ) : route.page === "conta" ? (
-            <AccountPage />
+            <AccountPage params={route.params} />
           ) : route.page === "relogio" ? (
             <ClockPage />
           ) : (

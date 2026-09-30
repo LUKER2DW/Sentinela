@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, get, type CamEvent, type Segment, type Timeline } from "../lib/api";
+import { api, fetchSystem, get, type CamEvent, type Camera, type Segment, type Timeline } from "../lib/api";
 import { navigate } from "../lib/router";
 import { useSession, useToast } from "../lib/session";
 import { DAY_MS, addDays, eventLabel, fmtBytes, fmtDay, fmtDuration, fmtHM, fmtTime, mergeRanges, sameDay, startOfDay, useNow } from "../lib/time";
@@ -11,6 +11,7 @@ import { Boat, Fish } from "../components/Doodles";
 import { useCameras } from "./LivePage";
 import { findSegment } from "../lib/segments";
 import { TimelapsePanel } from "../components/Timelapse";
+import { TimelinePreview } from "../components/TimelinePreview";
 import { usePinchZoom } from "../lib/pinch";
 import { grabFrame, saveBlob, stamp } from "../lib/capture";
 
@@ -61,15 +62,6 @@ export function RecordingsPage({ params }: { params: URLSearchParams }) {
           <h1>Gravações</h1>
           <span className="sub">Escolha um horário na faixa ou um evento ao lado para assistir.</span>
         </div>
-        {cams.data && cams.data.length > 1 && (
-          <select className="input" value={camId} onChange={(e) => navigate("recordings", { cam: e.target.value })} aria-label="Câmera">
-            {cams.data.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-        )}
         <div className="day-nav">
           <button className="btn icon" aria-label="Dia anterior" onClick={() => go(null, addDays(dayStart, -1))}>
             <Icon name="chevronLeft" />
@@ -97,6 +89,15 @@ export function RecordingsPage({ params }: { params: URLSearchParams }) {
         </div>
       </header>
 
+      {cams.data && cams.data.length > 1 && (
+        <CameraPicker
+          cams={cams.data}
+          value={camId}
+          // Same moment on the other camera: comparing two views of one event.
+          onPick={(id) => navigate("recordings", tParam ? { cam: id, t: tParam } : { cam: id })}
+        />
+      )}
+
       <section className="card rec-timeline">
         <DayRibbon
           dayStart={dayStart}
@@ -105,6 +106,7 @@ export function RecordingsPage({ params }: { params: URLSearchParams }) {
           now={now}
           onPick={(ms) => go(ms)}
           view={view}
+          preview={(ms) => <TimelinePreview segments={timeline.data?.segments ?? []} ms={ms} />}
           label="Linha do tempo do dia. Clique para assistir a partir desse horário."
         />
         <TimeRuler
@@ -113,6 +115,7 @@ export function RecordingsPage({ params }: { params: URLSearchParams }) {
           cursor={playPos ?? requested}
           now={now}
           onPick={(ms) => go(ms)}
+          preview={(ms) => <TimelinePreview segments={timeline.data?.segments ?? []} ms={ms} />}
           onView={(a, b) => setView((v) => (v && Math.abs(v[0] - a) < 1000 && Math.abs(v[1] - b) < 1000 ? v : [a, b]))}
         />
         <RibbonLegend />
@@ -141,6 +144,40 @@ export function RecordingsPage({ params }: { params: URLSearchParams }) {
       </div>
 
     </>
+  );
+}
+
+/**
+ * Which camera's recordings: one chip per camera with whether it is
+ * recording now. A row of chips (not a dropdown) so the choice is visible
+ * and one tap away on the phone.
+ */
+function CameraPicker({ cams, value, onPick }: { cams: Camera[]; value?: string; onPick: (id: string) => void }) {
+  const sys = useQuery({ queryKey: ["system"], queryFn: fetchSystem, refetchInterval: 30_000 });
+  const live = (id: string) => {
+    const r = sys.data?.recorders.find((x) => x.camera_id === id);
+    return !!r && r.state === "recording" && new Date(sys.data!.now).getTime() - new Date(r.heartbeat).getTime() < 60_000;
+  };
+  return (
+    <div className="cam-picker hscroll" role="radiogroup" aria-label="Câmera">
+      {cams.map((c) => {
+        const on = c.id === value;
+        const rec = live(c.id);
+        return (
+          <button key={c.id} role="radio" aria-checked={on} className={`cam-chip${on ? " on" : ""}`} onClick={() => !on && onPick(c.id)}>
+            <span className="cam-chip-ico" aria-hidden="true">
+              <Icon name="video" />
+            </span>
+            <span className="cam-chip-text">
+              <strong>{c.name}</strong>
+              <span className="small">
+                <span className={`dot ${rec ? "rec" : sys.data ? "bad" : ""}`} /> {sys.data ? (rec ? "Gravando" : "Sem gravar agora") : "…"}
+              </span>
+            </span>
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
