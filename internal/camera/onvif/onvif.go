@@ -122,9 +122,12 @@ type Notification struct {
 	Items map[string]string // SimpleItem Name → Value (Source and Data)
 }
 
+// pullLimit is the most messages one Pull returns.
+const pullLimit = 32
+
 // Pull waits up to timeout for messages.
 func (s *Subscription) Pull(ctx context.Context, timeout time.Duration) ([]Notification, error) {
-	body := fmt.Sprintf(`<PullMessages xmlns="%s"><Timeout>PT%dS</Timeout><MessageLimit>32</MessageLimit></PullMessages>`, evNS, int(timeout.Seconds()))
+	body := fmt.Sprintf(`<PullMessages xmlns="%s"><Timeout>PT%dS</Timeout><MessageLimit>%d</MessageLimit></PullMessages>`, evNS, int(timeout.Seconds()), pullLimit)
 	data, err := s.c.call(ctx, s.URL, evNS+"/PullPointSubscription/PullMessagesRequest", body)
 	if err != nil {
 		return nil, err

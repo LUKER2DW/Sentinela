@@ -23,6 +23,11 @@ type Watcher struct {
 	Sink     Sink
 	// MaxEvent closes an event that never received an "inactive" message.
 	MaxEvent time.Duration
+	// MinPull is the shortest time between two pulls (default 1 s). This
+	// camera ignores the PullMessages timeout and answers at once when it has
+	// nothing to say: pulling again right away made ~45 requests a second,
+	// which starved its encoder (frames dropped on every stream).
+	MinPull time.Duration
 
 	open   map[string]openEvent
 	topics map[string]bool // "type|topic" -> last active state
@@ -37,6 +42,9 @@ type openEvent struct {
 func (w *Watcher) Run(ctx context.Context) {
 	if w.MaxEvent == 0 {
 		w.MaxEvent = 10 * time.Minute
+	}
+	if w.MinPull == 0 {
+		w.MinPull = time.Second
 	}
 	w.open = map[string]openEvent{}
 	w.topics = map[string]bool{}
@@ -77,6 +85,7 @@ func (w *Watcher) session(ctx context.Context) error {
 	w.Log.Info("onvif events: subscribed", "camera", w.CameraID)
 	lastRenew := time.Now()
 	for ctx.Err() == nil {
+		started := time.Now()
 		msgs, err := sub.Pull(ctx, 10*time.Second)
 		if err != nil {
 			return err
@@ -91,6 +100,13 @@ func (w *Watcher) session(ctx context.Context) error {
 				return err
 			}
 			lastRenew = now
+		}
+		// A full batch may have more waiting; anything else keeps the pace.
+		if wait := w.MinPull - time.Since(started); wait > 0 && len(msgs) < pullLimit {
+			select {
+			case <-ctx.Done():
+			case <-time.After(wait):
+			}
 		}
 	}
 	return nil

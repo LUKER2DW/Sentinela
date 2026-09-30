@@ -129,6 +129,11 @@ Other findings:
 - ONVIF `GetDeviceInformation` answers **without valid credentials** (seen
   2026-09-29 with a wrong password): it does not prove the password; the
   wizard relies on the DVRIP login and the RTSP pulls for that.
+- ONVIF `PullMessages` **ignores `Timeout`**: with nothing to report it
+  answers an empty response at once (seen 2026-09-30). Pulled back-to-back
+  (~45 requests/s) the camera dropped ~20 % of its video frames on every
+  RTSP stream, keyframes included (smeared/black live view and recordings).
+  The event watcher waits ≥ 1 s between pulls.
 - WS-Discovery: the camera answers a Probe unicast to the sender's port and
   repeats the answer to `239.255.255.250:3702` (the server's ufw drops the
   unicast copy; Sentinela listens on the group).

@@ -2,7 +2,14 @@ package onvif
 
 import (
 	"context"
+	"fmt"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -73,6 +80,40 @@ func TestWatcherMergesMotionTopics(t *testing.T) {
 	ev, _ := st.EventsBetween(ctx, "cam1", now.Add(-time.Minute), now.Add(time.Minute), 10)
 	if len(ev) != 1 || ev[0].End == nil || ev[0].End.Sub(ev[0].Start) < 2*time.Second-time.Millisecond {
 		t.Fatalf("events = %+v", ev)
+	}
+}
+
+// The camera answers an empty PullMessages at once (it ignores the timeout):
+// the watcher must not turn that into a request flood.
+func TestWatcherPacesEmptyPulls(t *testing.T) {
+	const env = `<?xml version="1.0"?><s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope" xmlns:tev="http://www.onvif.org/ver10/events/wsdl" xmlns:wsa="http://www.w3.org/2005/08/addressing"><s:Body>%s</s:Body></s:Envelope>`
+	var pulls atomic.Int32
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		switch {
+		case strings.Contains(string(body), "CreatePullPointSubscription"):
+			fmt.Fprintf(w, env, `<tev:CreatePullPointSubscriptionResponse><tev:SubscriptionReference><wsa:Address>`+srv.URL+`/event_service/0</wsa:Address></tev:SubscriptionReference></tev:CreatePullPointSubscriptionResponse>`)
+		case strings.Contains(string(body), "PullMessages"):
+			pulls.Add(1)
+			fmt.Fprintf(w, env, `<tev:PullMessagesResponse><tev:CurrentTime>2026-09-30T17:08:20Z</tev:CurrentTime></tev:PullMessagesResponse>`)
+		default:
+			fmt.Fprintf(w, env, "")
+		}
+	}))
+	defer srv.Close()
+	st, err := store.Open(context.Background(), filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	w := &Watcher{CameraID: "cam1", Store: st, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Client: &Client{Base: srv.URL, HTTP: srv.Client()}, MinPull: 100 * time.Millisecond}
+	ctx, cancel := context.WithTimeout(context.Background(), 450*time.Millisecond)
+	defer cancel()
+	w.Run(ctx)
+	if n := pulls.Load(); n < 2 || n > 6 {
+		t.Fatalf("pulls in 450 ms at a 100 ms pace = %d, want 2..6", n)
 	}
 }
 
