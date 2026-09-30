@@ -94,9 +94,10 @@
 :root {
   --serif: "Fraunces Variable", "Iowan Old Style", Georgia, serif;
   --sans: "Figtree Variable", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --r-lg: 16px;
-  --r-md: 12px;
-  --r-sm: 8px;
+  --r-lg: 10px;
+  --r-md: 8px;
+  --r-sm: 6px;
+  --r-xs: 4px;
   --gutter: 32px;
   --side: 232px;
   --tabbar: 64px;
@@ -269,9 +270,62 @@
 :root:not([data-theme="dark"]) .bg-doodles .bd-compass { opacity: 0.18 !important; }
 @media (max-width: 860px) {
   .auth-brand .lh-mark { display: none; }
-  .auth-compass { display: none; }
+  .auth-anchor { display: block; left: auto; right: 22px; top: 6px; width: 40px; opacity: 0.3; z-index: 0; }
+  .auth-compass { display: block; position: absolute; width: 150px; right: -40px; bottom: -44px; opacity: 0.2; z-index: 0; }
   .auth-art .pano-sun, :root[data-theme="dark"] .auth-art .pano-moon { display: none; }
 }
 @media (prefers-reduced-motion: no-preference) {
   .auth-art .pano { animation: fade-in 0.8s ease both; }
+}
+@media (min-width: 1500px) {
+  :root { }
+}
+@media (min-width: 1900px) {
+  :root { }
+}
+.pano-cross path { stroke-width: 1.4; }
+.pano .pano-cross-lines { stroke: var(--lamp); stroke-width: 0.7; stroke-dasharray: 2 5; opacity: 0.35; }
+.pano-shoot { fill: none; stroke: var(--lamp); stroke-width: 1.4; stroke-linecap: round; opacity: 0; }
+.pano-far { opacity: 0.45; }
+.pano-pines { opacity: 0.8; }
+.pano-far-lamp { fill: var(--lamp); opacity: 0.6; }
+.pano-reflect { fill: none; stroke: var(--amber); stroke-width: 1.6; stroke-linecap: round; opacity: 0.35; }
+:root[data-theme="dark"] .pano-reflect { stroke: var(--lamp); opacity: 0.5; }
+.pano-cloud.small { opacity: 0.4; }
+.pano-weed { fill: none; stroke: var(--kelp); stroke-width: 1.5; stroke-linecap: round; opacity: 0.55; transform-box: fill-box; transform-origin: 50% 100%; }
+.pano-bubble { fill: none; stroke: var(--ink); stroke-width: 0.9; opacity: 0.35; }
+.pano-jelly .ink { stroke: var(--coral); opacity: 0.7; }
+.pano-school .ink { opacity: 0.55; }
+@media (prefers-reduced-motion: no-preference) {
+  :root[data-theme="dark"] .pano-shoot { animation: pano-shoot 17s ease-out infinite; animation-delay: 4s; }
+  @keyframes pano-shoot {
+    0%, 90% { opacity: 0; stroke-dasharray: 0 120; stroke-dashoffset: 0; }
+    92% { opacity: 0.9; stroke-dasharray: 40 120; stroke-dashoffset: 0; }
+    96% { opacity: 0; stroke-dasharray: 40 120; stroke-dashoffset: -80; }
+    100% { opacity: 0; }
+  }
+  .pano-far-lamp { animation: pano-blink 5s steps(1) infinite; animation-delay: -2s; }
+  .pano-reflect { animation: pano-shimmer 4s ease-in-out infinite alternate; }
+  @keyframes pano-shimmer { from { transform: translateX(-3px); opacity: 0.25; } to { transform: translateX(3px); opacity: 0.55; } }
+  .pano-weed { animation: pano-weed 6s ease-in-out infinite alternate; }
+  .pano-weed.w1, .pano-weed.w3 { animation-duration: 7.5s; animation-delay: -2s; }
+  @keyframes pano-weed { from { transform: skewX(-6deg); } to { transform: skewX(6deg); } }
+  .pano-bubble { transform-box: fill-box; animation: pano-bubble 7s linear infinite; }
+  .pano-bubble.u1 { animation-delay: -2.3s; } .pano-bubble.u2 { animation-delay: -4.6s; }
+  .pano-bubble.u3 { animation-delay: -1.2s; animation-duration: 8s; } .pano-bubble.u4 { animation-delay: -5s; animation-duration: 8s; }
+  @keyframes pano-bubble { 0% { transform: translateY(0); opacity: 0; } 15% { opacity: 0.4; } 85% { opacity: 0.3; } 100% { transform: translateY(-70px); opacity: 0; } }
+  .pano-jelly { animation: pano-jelly 9s ease-in-out infinite; }
+  @keyframes pano-jelly { 0%, 100% { transform: translate(0, 0); } 50% { transform: translate(10px, -16px); } }
+  .pano-school { animation: pano-school 40s linear infinite; }
+  @keyframes pano-school { from { transform: translateX(260px); } to { transform: translateX(-720px); } }
+}
+
+.bd-jelly { width: 40px; top: 28%; left: 10px; transform: rotate(-8deg); }
+.bd-crab { width: 44px; bottom: 30%; right: 30%; opacity: 0.16 !important; }
+.bd-kelp { width: 46px; bottom: 0; left: 30%; }
+.bd-helm { width: 64px; top: 12px; right: 30%; transform: rotate(12deg); opacity: 0.14 !important; }
+@media (max-width: 760px) { .bd-crab, .bd-helm, .bd-kelp { display: none; } .bd-jelly { top: 40%; left: 4px; } }
+@media (prefers-reduced-motion: no-preference) {
+  .bd-jelly { animation: bd-float 11s ease-in-out infinite; }
+  @keyframes bd-float { 0%, 100% { translate: 0 0; } 50% { translate: 6px -14px; } }
 }

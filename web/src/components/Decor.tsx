@@ -2,7 +2,8 @@ import { Sketch, type Pt } from "../lib/sketch";
 
 // Small hand-drawn keepsakes (lib/sketch) tucked into the background: a
 // compass rose and an anchor on the sign-in panel, and a few faint finds
-// (starfish, shell, bottle, gulls, a wave) scattered behind the dashboard.
+// (starfish, shell, bottle, gulls, a wave, a jellyfish, a crab, kelp and a
+// ship's wheel) scattered behind the dashboard.
 // Purely decorative: aria-hidden, no pointer events, drawn once.
 
 type Paths = Record<string, string>;
@@ -119,6 +120,68 @@ function build(): Paths {
         [74, 54],
         [82, 61],
       ], 1),
+    jelly:
+      s.curve([
+        [22, 44],
+        [26, 22],
+        [50, 12],
+        [74, 22],
+        [78, 44],
+      ]) +
+      s.curve([
+        [22, 44],
+        [36, 49],
+        [50, 44],
+        [64, 49],
+        [78, 44],
+      ], 1) +
+      [32, 44, 56, 68]
+        .map((x, i) =>
+          s.curve([
+            [x, 48],
+            [x + (i % 2 ? 5 : -5), 62],
+            [x, 76],
+            [x + (i % 2 ? -5 : 5), 90],
+          ], 1),
+        )
+        .join(""),
+    crab:
+      s.ellipse(50, 58, 22, 14) +
+      s.ellipse(43, 40, 2.4, 2.4, 1) +
+      s.ellipse(57, 40, 2.4, 2.4, 1) +
+      s.line([45, 46], [43, 42], 1) +
+      s.line([55, 46], [57, 42], 1) +
+      [-1, 1]
+        .map(
+          (k) =>
+            s.curve([
+              [50 + 20 * k, 50],
+              [50 + 30 * k, 36],
+              [50 + 26 * k, 26],
+            ], 1) +
+            s.poly([
+              [50 + 22 * k, 28],
+              [50 + 30 * k, 20],
+              [50 + 34 * k, 28],
+            ], false, 1) +
+            [62, 68, 74].map((y) => s.line([50 + 20 * k, y - 4], [50 + 32 * k, y + 4], 1)).join(""),
+        )
+        .join(""),
+    kelp: [30, 50, 68]
+      .map((x, i) =>
+        s.curve(
+          Array.from({ length: 6 }, (_, j) => [x + Math.sin(j * 1.2 + i) * 6, 96 - j * (14 + i * 2)] as Pt),
+          1,
+        ),
+      )
+      .join(""),
+    helm:
+      s.ellipse(50, 50, 26, 26) +
+      s.ellipse(50, 50, 8, 8, 1) +
+      Array.from({ length: 8 }, (_, i) => {
+        const a = (i * Math.PI) / 4;
+        return s.line([50 + Math.cos(a) * 8, 50 + Math.sin(a) * 8], [50 + Math.cos(a) * 40, 50 + Math.sin(a) * 40], 1);
+      }).join(""),
     wave: s.curve(
       Array.from({ length: 9 }, (_, i) => [6 + i * 11, 50 + (i % 2 ? 6 : -6)] as Pt),
       1,
@@ -159,6 +222,10 @@ export function BgDoodles() {
       <Doodle name="wave" className="bd bd-wave" />
       <Doodle name="anchor" className="bd bd-anchor" />
       <Doodle name="compass" className="bd bd-compass" />
+      <Doodle name="jelly" className="bd bd-jelly" />
+      <Doodle name="crab" className="bd bd-crab" />
+      <Doodle name="kelp" className="bd bd-kelp" />
+      <Doodle name="helm" className="bd bd-helm" />
     </div>
   );
 }

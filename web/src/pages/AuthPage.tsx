@@ -5,6 +5,7 @@ import { policyError } from "../lib/password";
 import { LighthouseMark } from "../components/Lighthouse";
 import { Panorama } from "../components/Panorama";
 import { Anchor, Compass } from "../components/Decor";
+import { ChartBackdrop } from "../components/Chart";
 import { PasswordField } from "../components/PasswordField";
 import { ThemeToggle } from "../components/ThemeToggle";
 
@@ -61,6 +62,7 @@ export function AuthPage({ mode, onDone, downMessage, onRetry }: Props) {
         <Panorama />
       </div>
       <div className="auth-panel">
+        <ChartBackdrop className="auth-chart" />
         <ThemeToggle className="auth-top" />
         <Compass className="auth-compass" />
         <Anchor className="auth-anchor" />
@@ -140,7 +142,7 @@ function RememberBox({ value, onChange }: { value: boolean; onChange: (v: boolea
       <input type="checkbox" checked={value} onChange={(e) => onChange(e.target.checked)} />
       <span>
         Manter conectado neste aparelho
-        <span className="muted small"> · 30 dias; desmarcado, a sessão acaba ao fechar o navegador</span>
+        <span className="muted small"> por 30 dias</span>
       </span>
     </label>
   );

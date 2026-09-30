@@ -8,7 +8,7 @@ import { policyError } from "../lib/password";
 import { SecurityCard } from "../components/Security";
 import { DevicesCard } from "../components/Devices";
 import { NotificationsCard } from "../components/Notifications";
-import { OceanScene } from "../components/Doodles";
+import { CoastBanner } from "../components/Coast";
 import { Icon } from "../components/Icon";
 import { roleLabel } from "../components/UsersAdmin";
 import { href } from "../lib/router";
@@ -32,7 +32,7 @@ export function AccountPage() {
       </header>
       <div className="account-layout">
         <section className="card account-hero">
-          <OceanScene className="account-ocean" />
+          <CoastBanner className="account-coast" />
           <div className="account-id">
             <span className={`avatar big role-${user.role}`} aria-hidden="true">
               {user.username.slice(0, 1).toUpperCase()}

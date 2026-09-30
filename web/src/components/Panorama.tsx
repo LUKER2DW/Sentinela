@@ -6,8 +6,11 @@ import { LAMP, LighthouseFigure } from "./Lighthouse";
 // fills the left half of the screen. 800×900 units, sliced to cover. The
 // lighthouse is the subject; around it: sky (sun or moon, clouds, stars, a
 // flock), the horizon with islands and a steamer crossing, a brig at anchor,
-// a blinking buoy, a whale, a jumping fish and the sea. All motion is CSS and
-// stops under prefers-reduced-motion.
+// a blinking buoy, a whale, a jumping fish and the sea. At night the
+// Southern Cross and now and then a shooting star; far hills, pines and a
+// second small lighthouse on the islands; the moon (or sun) path on the
+// water; kelp, a jellyfish, bubbles and a school of fish below the surface.
+// All motion is CSS and stops under prefers-reduced-motion.
 
 const FIG = { x: 96, y: 296, k: 1.2 }; // lighthouse placement
 const LX = FIG.x + LAMP[0] * FIG.k;
@@ -229,7 +232,116 @@ function build(): Paths {
     [-54, 27],
   ];
 
+  // Southern Cross (Cruzeiro do Sul): the sky over the house.
+  const cross: Pt[] = [
+    [388, 112],
+    [390, 222],
+    [352, 160],
+    [428, 150],
+    [410, 186],
+  ];
+  const crossSize = [5, 6, 4.5, 4, 2.5];
+
+  const hills: Pt[] = [
+    [236, HORIZON],
+    [270, 596],
+    [302, 600],
+    [338, 582],
+    [372, 590],
+    [410, 578],
+    [446, HORIZON],
+  ];
+  const pine = (x: number, y: number, k: number) =>
+    s.poly([
+      [x - 4 * k, y],
+      [x, y - 13 * k],
+      [x + 4 * k, y],
+    ], false, 1) + s.line([x - 5 * k, y - 4 * k], [x + 5 * k, y - 4 * k], 1);
+
+  const weed = (x: number, top: number, lean: number) =>
+    s.curve(
+      Array.from({ length: 6 }, (_, i) => [x + Math.sin(i * 1.3) * 5 + (i * lean) / 5, 905 - (i * (905 - top)) / 5] as Pt),
+      1,
+    );
+
+  const jelly =
+    s.curve([
+      [-14, 0],
+      [-12, -10],
+      [0, -15],
+      [12, -10],
+      [14, 0],
+    ]) +
+    s.curve([
+      [-14, 0],
+      [-7, 2.5],
+      [0, 0],
+      [7, 2.5],
+      [14, 0],
+    ], 1) +
+    [-9, -3, 3, 9]
+      .map((x, i) =>
+        s.curve([
+          [x, 2],
+          [x + (i % 2 ? 3 : -3), 10],
+          [x, 18],
+          [x + (i % 2 ? -3 : 3), 26],
+        ], 1),
+      )
+      .join("");
+
+  const smallFish = (x: number, y: number, k: number) =>
+    s.curve([
+      [x, y],
+      [x + 5 * k, y - 3 * k],
+      [x + 11 * k, y],
+      [x + 5 * k, y + 3 * k],
+      [x, y],
+    ], 1) +
+    s.poly([
+      [x + 11 * k, y],
+      [x + 15 * k, y - 3 * k],
+      [x + 15 * k, y + 3 * k],
+    ], true, 1);
+
+  const reflect = [618, 628, 640, 654, 670, 688, 708]
+    .map((y, i) => {
+      const w = 26 - i * 2.6;
+      return s.line([650 - w + (i % 2) * 5, y], [650 + w - (i % 2 ? 0 : 6), y], 1);
+    })
+    .join("");
+
   return {
+    cross: cross.map(([x, y], i) => {
+      const r = crossSize[i];
+      return s.line([x - r, y], [x + r, y], 1) + s.line([x, y - r], [x, y + r], 1);
+    }).join("|"),
+    crossLines: s.line(cross[0], cross[1], 1) + s.line(cross[2], cross[3], 1),
+    shooting: s.line([640, 34], [548, 78], 1),
+    hills: s.poly(hills, false, 1),
+    hillsHatch: h.hachure(hills, 6, 60),
+    pines: [pine(506, 592, 1), pine(518, 588, 1.2), pine(560, 581, 1.1), pine(588, 588, 0.9)].join(""),
+    farTower:
+      s.poly([
+        [737, 604],
+        [747, 604],
+        [745.5, 588],
+        [738.5, 588],
+      ], false, 1) + s.line([736.5, 588], [747.5, 588], 1),
+    reflect,
+    weeds: [weed(28, 812, 8), weed(52, 842, -6), weed(74, 826, 4), weed(760, 830, -8), weed(784, 850, 5)].join("|"),
+    jelly,
+    bubbles: [
+      [34, 800, 3],
+      [44, 772, 2],
+      [30, 748, 1.6],
+      [770, 812, 2.6],
+      [778, 786, 1.8],
+    ]
+      .map(([x, y, r]) => s.ellipse(x, y, r, r, 1))
+      .join("|"),
+    school: smallFish(0, 0, 1) + smallFish(20, 9, 0.8) + smallFish(-2, 17, 0.9),
+    moreClouds: [cloud(s, 300, 318, 64), cloud(s, 600, 52, 86)].join("|"),
     stars: stars.map(([x, y]) => s.line([x - 4, y], [x + 4, y], 1) + s.line([x, y - 4], [x, y + 4], 1)).join("|"),
     sun: s.ellipse(650, 128, 28, 28),
     sunRays,
@@ -346,6 +458,13 @@ export function Panorama({ className = "" }: { className?: string }) {
           <path key={i} d={d} style={{ animationDelay: `${-i * 0.9}s` }} />
         ))}
       </g>
+      <g className="lh-stars pano-cross">
+        <path d={p.crossLines} className="pano-cross-lines" />
+        {p.cross.split("|").map((d, i) => (
+          <path key={i} d={d} style={{ animationDelay: `${-i * 1.3}s` }} />
+        ))}
+      </g>
+      <path d={p.shooting} className="pano-shoot" />
       <g className="pano-sun">
         <path d={p.sun} className="ink" />
         <path d={p.sunRays} className="ink thin pano-rays" />
@@ -356,6 +475,9 @@ export function Panorama({ className = "" }: { className?: string }) {
       </g>
       {p.clouds.split("|").map((d, i) => (
         <path key={i} d={d} className={`pano-cloud c${i}`} />
+      ))}
+      {p.moreClouds.split("|").map((d, i) => (
+        <path key={i} d={d} className={`pano-cloud small c${i + 1}`} />
       ))}
 
       <g className="lh-beam pano-beam">
@@ -379,6 +501,9 @@ export function Panorama({ className = "" }: { className?: string }) {
       {/* horizon */}
       <path d={p.waterFill} className="pano-water" />
       <path d={p.horizon} className="ink thin faint-ink" />
+      <path d={p.hillsHatch} className="hatch-rock pano-far" />
+      <path d={p.hills} className="ink thin pano-far" />
+      <path d={p.reflect} className="pano-reflect" />
       <g transform={`translate(0 ${HORIZON + 1})`}>
         <g className="pano-steamer">
           <path d={p.smoke} className="lh-smoke pano-smoke" />
@@ -391,6 +516,9 @@ export function Panorama({ className = "" }: { className?: string }) {
       <path d={p.island1} className="ink thin" />
       <path d={p.island2Fill} className="f-bg" />
       <path d={p.island2} className="ink thin" />
+      <path d={p.pines} className="ink thin pano-pines" />
+      <path d={p.farTower} className="ink thin" />
+      <circle cx="742" cy="585" r="2.6" className="pano-far-lamp" />
       <path d={p.whale} className="ink thin pano-whale" />
 
       {p.back.split("|").map((d, i) => (
@@ -430,6 +558,24 @@ export function Panorama({ className = "" }: { className?: string }) {
       </g>
       <g transform="translate(420 800)">
         <path d={p.fish} className="ink thin pano-fish" />
+      </g>
+
+      {/* below the surface */}
+      {p.weeds.split("|").map((d, i) => (
+        <path key={i} d={d} className={`pano-weed w${i}`} />
+      ))}
+      {p.bubbles.split("|").map((d, i) => (
+        <path key={i} d={d} className={`pano-bubble u${i}`} />
+      ))}
+      <g transform="translate(318 790)">
+        <g className="pano-jelly">
+          <path d={p.jelly} className="ink thin" />
+        </g>
+      </g>
+      <g transform="translate(610 872)">
+        <g className="pano-school">
+          <path d={p.school} className="ink thin" />
+        </g>
       </g>
     </svg>
   );
