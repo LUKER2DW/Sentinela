@@ -78,6 +78,10 @@ export function SystemPage({ params }: { params: URLSearchParams }) {
                 {x.id === "overview" && unread.length > 0 && <span className="count-badge">{unread.length}</span>}
               </button>
             ))}
+            <a className="sys-nav-link" href={href("conta")}>
+              <Icon name="user" />
+              <span>Minha conta</span>
+            </a>
           </nav>
         )}
         <div className="sys-body" key={section} role="tabpanel">

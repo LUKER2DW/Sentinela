@@ -73,8 +73,8 @@ export function AccountPage({ params }: { params: URLSearchParams }) {
                     <Icon name="users" /> Usuários
                   </a>
                 )}
-                <button className="btn small ghost danger" onClick={logout}>
-                  <Icon name="logout" /> Sair
+                <button className="btn small ghost danger" onClick={logout} aria-label="Sair" title="Sair">
+                  <Icon name="logout" /> <span className="sair-label">Sair</span>
                 </button>
               </div>
             </div>

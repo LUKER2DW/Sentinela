@@ -179,15 +179,12 @@ export function FileBrowser({
   onNavigate,
   canWrite,
   summary,
-  onConnect,
 }: {
   path: string;
   onNavigate: (p: string) => void;
   canWrite: boolean;
   /** Space line for the top card. */
   summary?: ReactNode;
-  /** Opens the "network folders" help. */
-  onConnect?: () => void;
 }) {
   const qc = useQueryClient();
   const toast = useToast();
@@ -623,11 +620,6 @@ export function FileBrowser({
                 </button>
               )}
             </div>
-            {onConnect && (
-              <button className="btn ghost" onClick={onConnect}>
-                <Icon name="network" /> Acessar pelo computador
-              </button>
-            )}
           </div>
         )}
         <input
@@ -1697,7 +1689,9 @@ function PreviewDialog({
     <div className="dialog-backdrop viewer-backdrop" role="dialog" aria-modal="true" aria-label={entry.name} onMouseDown={(e) => e.target === e.currentTarget && leave(onClose)()}>
       <div className="viewer">
         <header className="viewer-head">
-          <FileIcon type={fileType(entry.name, false)} name={entry.name} />
+          <span className="viewer-ico">
+            <FileIcon type={fileType(entry.name, false)} name={entry.name} />
+          </span>
           <div className="viewer-title">
             <h2 title={entry.name}>
               {entry.name}
