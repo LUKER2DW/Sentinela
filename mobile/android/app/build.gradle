@@ -7,8 +7,8 @@ android {
         applicationId "casa.sentinela.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 9
-        versionName "1.8"
+        versionCode 10
+        versionName "1.9"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         // The house's public address shown on the start screen (ADR-0019);
         // set when building (scripts/build-apk.sh), not in git.

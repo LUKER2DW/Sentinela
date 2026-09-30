@@ -78,6 +78,7 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(NotifyPlugin.class);
         registerPlugin(ConnectionPlugin.class);
+        registerPlugin(UpdatePlugin.class);
         Connection.migrate(this);
         // This launch's server (or the bundled start screen), before the bridge loads.
         config = Connection.capConfig(this);
@@ -288,11 +289,11 @@ public class MainActivity extends BridgeActivity {
         }
         if (cover == null) {
             FrameLayout f = new FrameLayout(this);
-            f.setBackgroundColor(Color.parseColor("#3E7C88"));
+            f.setBackgroundColor(Color.parseColor("#232322"));
             f.setClickable(true);
             TextView t = new TextView(this);
             t.setText("Sentinela bloqueado\nToque para desbloquear");
-            t.setTextColor(Color.parseColor("#F5F2EC"));
+            t.setTextColor(Color.parseColor("#ECEBE6"));
             t.setTextSize(18);
             t.setGravity(Gravity.CENTER);
             f.addView(t, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
