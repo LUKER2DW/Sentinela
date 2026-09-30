@@ -71,6 +71,9 @@ type PublicTLS struct {
 	// inbound 80 and 443). The server keeps a 10-year self-signed
 	// certificate that the Android app pins; browsers show a warning.
 	SelfSigned bool `yaml:"self_signed"`
+	// URL is the address people use from outside, with the router's port
+	// (e.g. https://203.0.113.7:18443): invite links point there.
+	URL string `yaml:"url"`
 }
 
 // Ntfy: phones reach PublicURL over the tailnet; the server posts to URL.
@@ -210,6 +213,11 @@ func (c *Config) validate() error {
 		// Funnel traffic arrives from tailscaled on this host only.
 		if h, _, err := net.SplitHostPort(l); err != nil || net.ParseIP(h) == nil || !net.ParseIP(h).IsLoopback() {
 			errs = append(errs, errors.New("remote.funnel_listen must be a loopback host:port, e.g. 127.0.0.1:8081"))
+		}
+	}
+	if u := c.Remote.Public.URL; u != "" {
+		if p, err := url.Parse(u); err != nil || p.Scheme != "https" || p.Host == "" || (p.Path != "" && p.Path != "/") {
+			errs = append(errs, errors.New("remote.public.url must be https://host[:port]"))
 		}
 	}
 	if d := c.Remote.Public.Domain; d != "" {

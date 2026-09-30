@@ -130,7 +130,7 @@ function UserPanel({ id, onGone }: { id: number; onGone: () => void }) {
   const q = useQuery({ queryKey: ["user", id], queryFn: () => get<UserDetail>(`/api/users/${id}`) });
   const cams = useCameras();
   const [dialog, setDialog] = useState<"invite" | "cameras" | "delete" | "email" | null>(null);
-  const [code, setCode] = useState<string | null>(null);
+  const [invitedNow, setInvitedNow] = useState<InvitedUser | null>(null);
   const refresh = () => {
     void qc.invalidateQueries({ queryKey: ["users"] });
     void qc.invalidateQueries({ queryKey: ["user", id] });
@@ -145,7 +145,7 @@ function UserPanel({ id, onGone }: { id: number; onGone: () => void }) {
     onSuccess: (r) => {
       refresh();
       setDialog(null);
-      setCode(r.invite_code ?? null);
+      setInvitedNow(r.invite_code ? r : null);
     },
     onError: (e: Error) => toast(translate(e.message), true),
   });
@@ -344,7 +344,7 @@ function UserPanel({ id, onGone }: { id: number; onGone: () => void }) {
           onSave={(email) => update.mutate({ email }, { onSuccess: () => (toast("E-mail salvo."), setDialog(null)) })}
         />
       )}
-      {code && <InviteCodeDialog user={u} code={code} onClose={() => setCode(null)} />}
+      {invitedNow && <InviteCodeDialog user={invitedNow} onClose={() => setInvitedNow(null)} />}
       {dialog === "cameras" && cams.data && (
         <CameraAccessDialog
           user={u}
@@ -370,15 +370,22 @@ function translate(msg: string): string {
 
 interface InvitedUser extends User {
   invite_code?: string;
+  /** First-access link on the public address (server config remote.public.url). */
+  invite_url?: string;
+}
+
+/** The invite link: the server's public address, else this page's own. */
+function inviteLink(u: InvitedUser): string {
+  if (u.invite_url) return u.invite_url;
+  const q = new URLSearchParams({ c: u.invite_code ?? "", u: u.email || u.username });
+  return `${window.location.origin}/#/convite?${q.toString()}`;
 }
 
 /** Shows an invite code once, with ways to pass it on. */
-function InviteCodeDialog({ user, code, onClose }: { user: User; code: string; onClose: () => void }) {
+function InviteCodeDialog({ user, onClose }: { user: InvitedUser; onClose: () => void }) {
   const toast = useToast();
-  const login = user.email || user.username;
-  const text =
-    `Você foi autorizado no Sentinela. No primeiro acesso, toque em "Primeiro acesso? Tenho um código de convite" e use:\n` +
-    `Usuário ou e-mail: ${login}\nCódigo: ${code}\nO código vale por 7 dias.`;
+  const link = inviteLink(user);
+  const text = `Você foi convidado para o Sentinela. Abra este link para criar a sua senha (vale por 7 dias):\n${link}`;
   const share = async () => {
     try {
       if (navigator.share) await navigator.share({ title: "Convite do Sentinela", text });
@@ -394,7 +401,9 @@ function InviteCodeDialog({ user, code, onClose }: { user: User; code: string; o
     <div className="dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="code-title">
       <div className="dialog">
         <h2 id="code-title">Convite de {user.username}</h2>
-        <p className="muted">Passe este código para a pessoa. Ela entra com o usuário ou e-mail abaixo, usa o código e cria a própria senha. Ele vale por 7 dias e só aparece agora.</p>
+        <p className="muted">
+          Envie este link para a pessoa. Ao abrir, ela cria a própria senha e já entra. Ele vale por 7 dias, funciona uma vez e só aparece agora.
+        </p>
         <dl className="kv">
           <dt>Usuário</dt>
           <dd className="selectable">{user.username}</dd>
@@ -405,12 +414,17 @@ function InviteCodeDialog({ user, code, onClose }: { user: User; code: string; o
             </>
           )}
         </dl>
-        <code className="invite-code selectable" aria-label="Código de convite">
-          {code}
+        <code className="invite-link selectable" aria-label="Link de convite">
+          {link}
         </code>
+        {!user.invite_url && (
+          <p className="muted small">
+            O link usa o endereço desta página. Para funcionar fora de casa, configure <code>remote.public.url</code> no servidor.
+          </p>
+        )}
         <div className="dialog-actions">
-          <button type="button" className="btn" onClick={() => void navigator.clipboard?.writeText(code).then(() => toast("Código copiado."))}>
-            Copiar código
+          <button type="button" className="btn" onClick={() => void navigator.clipboard?.writeText(link).then(() => toast("Link copiado."))}>
+            Copiar link
           </button>
           <button type="button" className="btn" onClick={() => void share()}>
             Enviar convite
@@ -475,7 +489,7 @@ function CreateUserDialog({ onClose, onCreated }: { onClose: () => void; onCreat
     },
     onError: (e: Error) => toast(translate(e.message), true),
   });
-  if (made?.invite_code) return <InviteCodeDialog user={made} code={made.invite_code} onClose={onClose} />;
+  if (made?.invite_code) return <InviteCodeDialog user={made} onClose={onClose} />;
   return (
     <div className="dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="new-user" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <form
@@ -489,8 +503,8 @@ function CreateUserDialog({ onClose, onCreated }: { onClose: () => void; onCreat
           <div>
             <h2 id="new-user">Autorizar pessoa</h2>
             <p className="muted small">
-              Você só autoriza o usuário ou o e-mail. O sistema gera um código de convite; no primeiro acesso (em casa ou de fora) a pessoa usa o código e
-              cria a própria senha.
+              Você só autoriza o usuário ou o e-mail. O sistema gera um link de convite; ao abrir o link (em casa ou de fora) a pessoa cria a própria
+              senha.
             </p>
           </div>
           <button type="button" className="btn ghost icon small" aria-label="Fechar" onClick={onClose}>

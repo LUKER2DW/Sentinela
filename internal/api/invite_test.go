@@ -64,6 +64,18 @@ func TestInviteFirstAccessAndEmailLogin(t *testing.T) {
 	}
 }
 
+func TestInviteLink(t *testing.T) {
+	priv, srv := newTestServer(t)
+	srv.Cfg.Remote.Public.URL = "https://203.0.113.7:18443/"
+	admin := newClient(t, priv.URL)
+	admin.do("POST", "/api/setup", `{"username":"admin","password":"long enough pw"}`)
+	_, m, _ := admin.do("POST", "/api/users", `{"email":"ana@example.com","role":"viewer"}`)
+	want := "https://203.0.113.7:18443/#/convite?c=" + m["invite_code"].(string) + "&u=ana%40example.com"
+	if m["invite_url"] != want {
+		t.Fatalf("invite_url = %v, want %s", m["invite_url"], want)
+	}
+}
+
 func TestInviteFromOutsideEnrollsTwoStep(t *testing.T) {
 	priv, srv := newTestServer(t)
 	admin := newClient(t, priv.URL)

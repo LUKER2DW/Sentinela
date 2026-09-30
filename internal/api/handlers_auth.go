@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -341,13 +342,30 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
 	s.audit(r, "user.create", body.Username, true, body.Role+" cameras="+strings.Join(body.Cameras, ",")+
 		map[bool]string{true: " invite", false: ""}[invite != ""])
 	u, _ := s.Store.UserByID(r.Context(), id)
-	writeJSON(w, http.StatusCreated, invitedUser{User: u, InviteCode: invite})
+	writeJSON(w, http.StatusCreated, s.invited(u, invite))
 }
 
-// invitedUser is a user plus the invite code, shown to the admin once.
+// invitedUser is a user plus the invite code and link, shown to the admin
+// once. The link carries the code in the URL fragment, which browsers never
+// send to a server (so it stays out of logs).
 type invitedUser struct {
 	*store.User
 	InviteCode string `json:"invite_code,omitempty"`
+	// InviteURL is the first-access link on the public address ("" when
+	// remote.public.url is not set; the page then uses its own address).
+	InviteURL string `json:"invite_url,omitempty"`
+}
+
+func (s *Server) invited(u *store.User, code string) invitedUser {
+	out := invitedUser{User: u, InviteCode: code}
+	if base := strings.TrimRight(s.Cfg.Remote.Public.URL, "/"); base != "" && code != "" {
+		login := u.Username
+		if u.Email != "" {
+			login = u.Email
+		}
+		out.InviteURL = base + "/#/convite?" + url.Values{"u": {login}, "c": {code}}.Encode()
+	}
+	return out
 }
 
 // usernameFromEmail makes a free username from an e-mail's local part.
@@ -394,7 +412,7 @@ func (s *Server) reinvite(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r, "user.invite", u.Username, true, "new invite")
 	u, _ = s.Store.UserByID(r.Context(), u.ID)
-	writeJSON(w, http.StatusOK, invitedUser{User: u, InviteCode: code})
+	writeJSON(w, http.StatusOK, s.invited(u, code))
 }
 
 // acceptInvite is the first access: the invited person proves the code and

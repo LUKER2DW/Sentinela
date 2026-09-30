@@ -1790,8 +1790,6 @@ textarea.viewer-text.editing { border: 0; outline: none; resize: none; backgroun
 }
 
 /* ---------- invites and sign-in ---------- */
-.invite-code { display: block; text-align: center; font-size: 1.6rem; letter-spacing: 0.12em; padding: 14px; border-radius: var(--r-md);
-  background: var(--bg-soft); border: 1px dashed var(--sea); color: var(--sea-strong); font-variant-numeric: tabular-nums; }
 .auth-remember { align-items: flex-start; min-height: 0; font-size: 0.92rem; cursor: pointer; }
 .auth-remember input { margin-top: 3px; width: 18px; height: 18px; accent-color: var(--sea); flex: none; }
 .device-row { justify-content: flex-start; gap: 12px; }
@@ -1925,3 +1923,6 @@ textarea.viewer-text.editing { border: 0; outline: none; resize: none; backgroun
 .mode-card.compact h2 { margin: 0; }
 .mode-card.compact .segmented { width: 100%; }
 .mode-card.compact .segmented button { flex: 1; }
+
+.invite-link { display: block; padding: 12px 14px; border-radius: var(--r-md); background: var(--bg-soft); border: 1px dashed var(--sea);
+  color: var(--sea-strong); font-size: 0.85rem; overflow-wrap: anywhere; word-break: break-all; }

@@ -16,7 +16,25 @@ interface Props {
   onRetry?: () => void;
 }
 
-type View = "login" | "invite";
+interface Invite {
+  login: string;
+  code: string;
+}
+
+/** An invite link: #/convite?u=<login>&c=<code> (the fragment never reaches a server). */
+function inviteFromLink(): Invite | null {
+  const raw = window.location.hash.replace(/^#\/?/, "");
+  const [page, query = ""] = raw.split("?");
+  if (page !== "convite") return null;
+  const q = new URLSearchParams(query);
+  const login = q.get("u")?.trim() ?? "";
+  const code = q.get("c")?.trim() ?? "";
+  return login && code ? { login, code } : { login: "", code: "" };
+}
+
+function leaveInvite() {
+  history.replaceState(null, "", window.location.pathname + window.location.search);
+}
 
 const LAST_LOGIN = "sentinela.login";
 
@@ -53,8 +71,12 @@ function loginError(msg: string): string {
 
 export function AuthPage({ mode, onDone, downMessage, onRetry }: Props) {
   const setup = mode === "setup";
-  const [view, setView] = useState<View>("login");
+  const [invite, setInvite] = useState<Invite | null>(inviteFromLink);
   const inApp = canChangeConnection();
+  const back = () => {
+    leaveInvite();
+    setInvite(null);
+  };
 
   return (
     <div className="auth">
@@ -77,8 +99,8 @@ export function AuthPage({ mode, onDone, downMessage, onRetry }: Props) {
                 ? "O servidor não respondeu. Confira a internet deste aparelho e tente de novo."
                 : setup
                   ? "Primeiro acesso. Crie a conta de administrador: ela protege as câmeras, as gravações e os arquivos."
-                  : view === "invite"
-                    ? "Primeiro acesso: use o código de convite que o administrador passou e crie a sua senha."
+                  : invite
+                    ? "Primeiro acesso: crie a sua senha para entrar no Sentinela."
                     : "O farol da casa: câmeras ao vivo, gravações e a sua nuvem, num só lugar."}
             </p>
           </div>
@@ -95,10 +117,28 @@ export function AuthPage({ mode, onDone, downMessage, onRetry }: Props) {
             </div>
           ) : setup ? (
             <SetupForm onDone={onDone} />
-          ) : view === "invite" ? (
-            <InviteForm onDone={onDone} onBack={() => setView("login")} />
+          ) : invite ? (
+            invite.code ? (
+              <InviteForm
+                invite={invite}
+                onDone={(u) => {
+                  leaveInvite();
+                  onDone(u);
+                }}
+                onBack={back}
+              />
+            ) : (
+              <div className="stack-sm">
+                <p className="notice error" role="alert">
+                  Este link de convite está incompleto. Peça ao administrador para enviar de novo.
+                </p>
+                <button className="btn block" onClick={back}>
+                  Ir para o login
+                </button>
+              </div>
+            )
           ) : (
-            <LoginForm onDone={onDone} onInvite={() => setView("invite")} />
+            <LoginForm onDone={onDone} />
           )}
           {!downMessage && !setup && (
             <p className="muted small auth-via">
@@ -170,7 +210,7 @@ function OtpField({ value, onChange, hint }: { value: string; onChange: (v: stri
   );
 }
 
-function LoginForm({ onDone, onInvite }: { onDone: (u: User) => void; onInvite: () => void }) {
+function LoginForm({ onDone }: { onDone: (u: User) => void }) {
   const initial = savedLogin();
   const [login, setLogin] = useState(initial);
   const [password, setPassword] = useState("");
@@ -228,16 +268,12 @@ function LoginForm({ onDone, onInvite }: { onDone: (u: User) => void; onInvite: 
       <RememberBox value={remember} onChange={setRemember} />
       <ErrorNote text={error} />
       <Submit busy={busy}>Entrar</Submit>
-      <button type="button" className="btn ghost block" onClick={onInvite}>
-        Primeiro acesso? Tenho um código de convite
-      </button>
     </form>
   );
 }
 
-function InviteForm({ onDone, onBack }: { onDone: (u: User) => void; onBack: () => void }) {
-  const [login, setLogin] = useState("");
-  const [invite, setInvite] = useState("");
+function InviteForm({ invite, onDone, onBack }: { invite: Invite; onDone: (u: User) => void; onBack: () => void }) {
+  const login = invite.login;
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [remember, setRemember] = useState(true);
@@ -254,14 +290,14 @@ function InviteForm({ onDone, onBack }: { onDone: (u: User) => void; onBack: () 
     if (password !== confirm) return setError("As senhas não são iguais.");
     setBusy(true);
     try {
-      const body = { login: login.trim(), code: invite, password, remember, ...(totp ? { totp_code: code.replace(/\s/g, "") } : {}) };
+      const body = { login, code: invite.code, password, remember, ...(totp ? { totp_code: code.replace(/\s/g, "") } : {}) };
       const r = await api<{ user?: User; totp_required?: boolean; qr_svg?: string; secret?: string }>("POST", "/api/invite/accept", body);
       if (r.totp_required && r.qr_svg && r.secret) {
         setTotp({ qr_svg: r.qr_svg, secret: r.secret });
         return;
       }
       if (r.user) {
-        saveLogin(login.trim(), remember);
+        saveLogin(login, remember);
         onDone(r.user);
       }
     } catch (err) {
@@ -276,25 +312,11 @@ function InviteForm({ onDone, onBack }: { onDone: (u: User) => void; onBack: () 
       {!totp ? (
         <>
           <div className="field">
-            <label htmlFor="il">Usuário ou e-mail autorizado</label>
-            <input id="il" className="input" autoComplete="username" autoCapitalize="none" spellCheck={false} value={login} onChange={(e) => setLogin(e.target.value)} required autoFocus />
+            <label htmlFor="il">Convite para</label>
+            {/* Lets the browser's password manager save the new password under this name. */}
+            <input id="il" className="input" name="username" autoComplete="username" value={login} readOnly />
           </div>
-          <div className="field">
-            <label htmlFor="ic">Código de convite</label>
-            <input
-              id="ic"
-              className="input otp"
-              autoComplete="off"
-              autoCapitalize="characters"
-              spellCheck={false}
-              placeholder="XXXXX-XXXXX"
-              maxLength={14}
-              value={invite}
-              onChange={(e) => setInvite(e.target.value.toUpperCase())}
-              required
-            />
-          </div>
-          <PasswordField label="Crie a sua senha" value={password} onChange={setPassword} autoComplete="new-password" meter />
+          <PasswordField label="Crie a sua senha" value={password} onChange={setPassword} autoComplete="new-password" meter autoFocus />
           <PasswordField label="Repita a senha" value={confirm} onChange={setConfirm} autoComplete="new-password" matches={password} />
           <RememberBox value={remember} onChange={setRemember} />
         </>

@@ -38,6 +38,7 @@ remote:
     # domain: casa.example.com.br     # or the fixed public IP, e.g. 203.0.113.7
     # listen: ":7443"
     # email: you@example.com
+    # url: https://203.0.113.7:18443   # address used from outside (invite links)
 
 cameras:
   - id: cam1                      # also the go2rtc stream name (cam1, cam1_sub)
