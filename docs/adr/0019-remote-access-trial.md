@@ -5,6 +5,16 @@ AGENTS.md §2.5 and ADR-0004 *for the paths below only* until the owner picks
 a winner; the losers are then removed and this ADR is rewritten as the
 decision.
 
+## Result (2026-09-29, owner, on the phone)
+P1 (public address) worked, P3 (Funnel) worked, P2 (embedded tailnet) did
+not. **P1 is kept** for the app and for browsers. P2 is removed (server
+endpoint, app code, AAR; `mobile/tailnet` parked). P3 is switched off in
+the server config, its code kept so it can return by configuration. The
+public listener keeps mandatory two-step login and the closed door; first
+access by invite code enrolls it from outside. The Android app gets
+notifications over its own connection to the public address (PLAN round 4),
+since the ntfy relay lived on the tailnet.
+
 ## Context
 Today every client needs the Tailscale app (ADR-0004). The owner wants to
 install only the Sentinela APK and open it, and also to open the web UI from
