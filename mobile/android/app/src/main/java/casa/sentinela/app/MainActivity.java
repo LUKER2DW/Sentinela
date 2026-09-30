@@ -5,6 +5,7 @@ import android.app.KeyguardManager;
 import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.net.Uri;
 import android.net.http.SslError;
@@ -62,10 +63,16 @@ import java.net.HttpURLConnection;
 public class MainActivity extends BridgeActivity {
     private static final long LOCK_AFTER_MS = 5 * 60 * 1000;
 
-    private long backgroundAt = 0;
+    /** Two renderer deaths this close together: stop reloading (crash loop). */
+    private static final long RENDERER_LOOP_MS = 30_000;
+    private static long lastRendererGone = 0;
+
     private View cover;
     private boolean prompting = false;
+    private boolean lockPending = false;
+    private boolean rendererGone = false;
     private long lastBack = 0;
+    private BiometricPrompt biometric;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -79,7 +86,39 @@ public class MainActivity extends BridgeActivity {
         installBackButton();
         installDownloads();
         Notifier.createChannels(this);
+        // Built here, not when locking: a BiometricPrompt made or shown
+        // around onSaveInstanceState can throw IllegalStateException.
+        biometric = new BiometricPrompt(this, ContextCompat.getMainExecutor(this), new BiometricPrompt.AuthenticationCallback() {
+            @Override
+            public void onAuthenticationSucceeded(@NonNull BiometricPrompt.AuthenticationResult result) {
+                prompting = false;
+                if (cover != null) cover.setVisibility(View.GONE);
+            }
+
+            @Override
+            public void onAuthenticationError(int code, @NonNull CharSequence msg) {
+                prompting = false; // cover stays; a tap asks again
+            }
+        });
+        // Also after the process was killed in the background (the time is
+        // kept on disk): a cold start past the limit asks too.
+        lockPending = savedInstanceState == null ? lockDue() : savedInstanceState.getBoolean("locked", false) || lockDue();
         openFromNotification(getIntent());
+    }
+
+    @Override
+    public void onSaveInstanceState(@NonNull Bundle out) {
+        super.onSaveInstanceState(out);
+        out.putBoolean("locked", cover != null && cover.getVisibility() == View.VISIBLE);
+    }
+
+    private SharedPreferences lockPrefs() {
+        return getSharedPreferences("lock", MODE_PRIVATE);
+    }
+
+    private boolean lockDue() {
+        long at = lockPrefs().getLong("background_at", 0);
+        return at > 0 && System.currentTimeMillis() - at > LOCK_AFTER_MS;
     }
 
     @Override
@@ -93,6 +132,7 @@ public class MainActivity extends BridgeActivity {
         String path = intent == null ? null : intent.getStringExtra(Notifier.EXTRA_PATH);
         if (path == null || !path.startsWith("/") || path.startsWith("//")) return;
         intent.removeExtra(Notifier.EXTRA_PATH);
+        if (rendererGone) return;
         String server = getBridge().getServerUrl();
         if (server == null) return; // start screen: no server chosen yet
         getBridge().getWebView().loadUrl(server.replaceAll("/+$", "") + path);
@@ -101,6 +141,10 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onResume() {
         super.onResume();
+        if (lockPending) {
+            lockPending = false;
+            lock();
+        }
         // Keep the notification service's copy of the session current and
         // bring it back after a sign-in (it stops when the session ends).
         if (getBridge() != null && getBridge().getServerUrl() != null) {
@@ -112,15 +156,17 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onStop() {
         super.onStop();
-        backgroundAt = SystemClock.elapsedRealtime();
+        if (!isChangingConfigurations()) {
+            lockPrefs().edit().putLong("background_at", System.currentTimeMillis()).apply();
+        }
     }
 
     @Override
     public void onStart() {
         super.onStart();
-        if (backgroundAt > 0 && SystemClock.elapsedRealtime() - backgroundAt > LOCK_AFTER_MS) {
-            lock();
-        }
+        // Shown from onResume, once the activity can host the prompt.
+        if (lockDue()) lockPending = true;
+        lockPrefs().edit().remove("background_at").apply();
     }
 
     // ---------- WebView as an app ----------
@@ -161,9 +207,18 @@ public class MainActivity extends BridgeActivity {
 
             @Override
             public boolean onRenderProcessGone(WebView view, RenderProcessGoneDetail detail) {
-                // Android killed the page's process (memory): start over
-                // instead of letting the WebView take the app down.
-                super.onRenderProcessGone(view, detail);
+                // Android killed the page's process (usually memory, with
+                // video). This WebView is dead: never touch it again; the new
+                // activity makes a fresh one (the old is destroyed on detach).
+                rendererGone = true;
+                long now = SystemClock.elapsedRealtime();
+                boolean loop = lastRendererGone > 0 && now - lastRendererGone < RENDERER_LOOP_MS;
+                lastRendererGone = now;
+                if (loop) {
+                    // Dying again right away: show the start screen instead
+                    // of reloading forever.
+                    Connection.offline = "a página fechou por falta de memória no celular";
+                }
                 runOnUiThread(MainActivity.this::recreate);
                 return true;
             }
@@ -190,6 +245,7 @@ public class MainActivity extends BridgeActivity {
                     moveTaskToBack(true);
                     return;
                 }
+                if (rendererGone) return;
                 WebView web = getBridge().getWebView();
                 boolean can = web.canGoBack();
                 web.evaluateJavascript("(window.sentinelaBack ? window.sentinelaBack(" + can + ") : false) === true", v -> {
@@ -250,8 +306,7 @@ public class MainActivity extends BridgeActivity {
 
     @SuppressWarnings("deprecation")
     private void prompt() {
-        if (prompting) return;
-        prompting = true;
+        if (prompting || biometric == null) return;
         BiometricPrompt.PromptInfo.Builder info = new BiometricPrompt.PromptInfo.Builder()
                 .setTitle("Desbloquear o Sentinela")
                 .setSubtitle("Use a digital, o rosto ou o bloqueio de tela");
@@ -260,19 +315,12 @@ public class MainActivity extends BridgeActivity {
         } else {
             info.setDeviceCredentialAllowed(true);
         }
-        new BiometricPrompt(this, ContextCompat.getMainExecutor(this), new BiometricPrompt.AuthenticationCallback() {
-            @Override
-            public void onAuthenticationSucceeded(@NonNull BiometricPrompt.AuthenticationResult result) {
-                prompting = false;
-                backgroundAt = 0;
-                if (cover != null) cover.setVisibility(View.GONE);
-            }
-
-            @Override
-            public void onAuthenticationError(int code, @NonNull CharSequence msg) {
-                prompting = false; // cover stays; a tap asks again
-            }
-        }).authenticate(info.build());
+        try {
+            biometric.authenticate(info.build());
+            prompting = true;
+        } catch (RuntimeException e) {
+            prompting = false; // the cover stays; a tap tries again
+        }
     }
 
     // ---------- downloads ----------
@@ -296,17 +344,28 @@ public class MainActivity extends BridgeActivity {
                 pinnedDownload(url, name, mime, userAgent);
                 return;
             }
-            DownloadManager.Request req = new DownloadManager.Request(uri);
+            DownloadManager.Request req;
+            try {
+                req = new DownloadManager.Request(uri);
+                req.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "Sentinela/" + name);
+            } catch (RuntimeException e) {
+                pinnedDownload(url, name, mime, userAgent);
+                return;
+            }
             String cookie = CookieManager.getInstance().getCookie(url);
             if (cookie != null) req.addRequestHeader("Cookie", cookie);
             req.addRequestHeader("User-Agent", userAgent);
             req.setTitle(name);
             req.setMimeType(mime);
             req.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
-            req.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "Sentinela/" + name);
-            DownloadManager dm = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
-            dm.enqueue(req);
-            Toast.makeText(this, "Baixando " + name, Toast.LENGTH_SHORT).show();
+            try {
+                DownloadManager dm = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
+                dm.enqueue(req);
+                Toast.makeText(this, "Baixando " + name, Toast.LENGTH_SHORT).show();
+            } catch (RuntimeException e) {
+                // Download manager switched off, or no Downloads folder.
+                pinnedDownload(url, name, mime, userAgent);
+            }
         });
     }
 
