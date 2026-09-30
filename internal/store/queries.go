@@ -849,6 +849,34 @@ func (s *Store) Audit(ctx context.Context, userID int64, username, action, targe
 	return err
 }
 
+// Authors maps each Nuvem path to the user who last uploaded or created it
+// (the audit log is the only record of who put a file in a shared folder).
+func (s *Store) Authors(ctx context.Context, paths []string) (map[string]string, error) {
+	out := map[string]string{}
+	if len(paths) == 0 {
+		return out, nil
+	}
+	q := `SELECT target, username FROM audit WHERE ok=1 AND action IN ('nas.upload','nas.mkdir') AND target IN (?` +
+		strings.Repeat(",?", len(paths)-1) + `) ORDER BY id`
+	args := make([]any, len(paths))
+	for i, p := range paths {
+		args[i] = p
+	}
+	rows, err := s.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var t, u string
+		if err := rows.Scan(&t, &u); err != nil {
+			return nil, err
+		}
+		out[t] = u
+	}
+	return out, rows.Err()
+}
+
 // ListAudit returns the newest audit rows.
 func (s *Store) ListAudit(ctx context.Context, limit int) ([]AuditEntry, error) {
 	return s.UserAudit(ctx, "", limit)

@@ -135,3 +135,19 @@ func TestConcurrentOpenOfFreshDB(t *testing.T) {
 		}
 	}
 }
+
+func TestAuthors(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	_ = s.Audit(ctx, 1, "ana", "nas.upload", "Compartilhado/a.jpg", true, "")
+	_ = s.Audit(ctx, 2, "bia", "nas.upload", "Compartilhado/a.jpg", true, "") // replaced it later
+	_ = s.Audit(ctx, 1, "ana", "nas.mkdir", "Compartilhado/Fotos", true, "")
+	_ = s.Audit(ctx, 3, "caio", "nas.upload", "Compartilhado/b.jpg", false, "") // failed
+	got, err := s.Authors(ctx, []string{"Compartilhado/a.jpg", "Compartilhado/Fotos", "Compartilhado/b.jpg"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["Compartilhado/a.jpg"] != "bia" || got["Compartilhado/Fotos"] != "ana" || got["Compartilhado/b.jpg"] != "" {
+		t.Fatalf("authors = %v", got)
+	}
+}

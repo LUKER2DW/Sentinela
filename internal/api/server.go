@@ -140,6 +140,9 @@ func (s *Server) handler(zone string) http.Handler {
 	mux.Handle("GET /api/me", viewer(s.me))
 	mux.Handle("POST /api/me/password", viewer(s.changeOwnPassword))
 	mux.Handle("GET /api/me/sessions", viewer(s.mySessions))
+	mux.Handle("POST /api/me/avatar", viewer(s.putAvatar))
+	mux.Handle("DELETE /api/me/avatar", viewer(s.deleteAvatar))
+	mux.Handle("GET /api/avatars/{username}", viewer(s.getAvatar))
 	mux.Handle("DELETE /api/me/sessions/{id}", viewer(s.revokeSession))
 	// Two-step login (ADR-0019): enrolled at home or over the tailnet.
 	mux.Handle("POST /api/me/totp/setup", viewer(privateOnly(s.totpSetup)))
@@ -204,11 +207,15 @@ func (s *Server) handler(zone string) http.Handler {
 	mux.Handle("GET /api/notify-mode", viewer(s.getMode))
 	mux.Handle("PUT /api/notify-mode", operator(s.putMode))
 	mux.Handle("GET /api/system", viewer(s.system))
+	// Android app self-update (the APK is sideloaded, no Play Store).
+	mux.Handle("GET /api/app/latest", viewer(s.appLatest))
+	mux.Handle("GET /api/app/sentinela.apk", viewer(s.appAPK))
 
-	// Nuvem file API (ADR-0012): viewers read, operators and admins write.
-	mux.Handle("GET /api/nas/list", viewer(s.nasList))
-	mux.Handle("GET /api/nas/file", viewer(s.nasFile))
-	mux.Handle("GET /api/nas/thumb", viewer(s.nasThumb))
+	// Nuvem file API (ADR-0012): operators use their own folder and the
+	// shared one, admins everything; viewers only see cameras (round 6).
+	mux.Handle("GET /api/nas/list", operator(s.nasList))
+	mux.Handle("GET /api/nas/file", operator(s.nasFile))
+	mux.Handle("GET /api/nas/thumb", operator(s.nasThumb))
 	mux.Handle("GET /api/nas/upload", operator(s.nasUploadStatus))
 	mux.Handle("PUT /api/nas/upload", operator(s.nasUpload))
 	mux.Handle("POST /api/nas/mkdir", operator(s.nasMkdir))

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -79,7 +80,49 @@ func (s *Server) nasList(w http.ResponseWriter, r *http.Request) {
 		s.nasErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"path": p, "entries": entries, "user": a.User, "can_write": a.Write})
+	writeJSON(w, http.StatusOK, map[string]any{"path": p, "entries": entries, "user": a.User, "can_write": a.Write, "owners": s.owners(r, p, entries)})
+}
+
+// owners says whose each listed item is, for the Nuvem's owner column and
+// the avatars on personal folders: a personal folder and everything in it
+// belong to that person; in the shared folder, whoever sent or created it.
+func (s *Server) owners(r *http.Request, dir string, entries []nas.Entry) map[string]string {
+	out := map[string]string{}
+	top, _, _ := strings.Cut(dir, "/")
+	switch {
+	case dir == "":
+		users, err := s.Store.ListUsers(r.Context())
+		if err != nil {
+			return out
+		}
+		for _, u := range users {
+			out[u.Username] = u.Username
+		}
+		for name := range out {
+			if !slices.ContainsFunc(entries, func(e nas.Entry) bool { return e.Name == name }) {
+				delete(out, name)
+			}
+		}
+	case top == nas.Shared:
+		paths := make([]string, len(entries))
+		for i, e := range entries {
+			paths[i] = dir + "/" + e.Name
+		}
+		by, err := s.Store.Authors(r.Context(), paths)
+		if err != nil {
+			return out
+		}
+		for _, e := range entries {
+			if u := by[dir+"/"+e.Name]; u != "" {
+				out[e.Name] = u
+			}
+		}
+	case top != nas.Trash:
+		for _, e := range entries {
+			out[e.Name] = top
+		}
+	}
+	return out
 }
 
 func (s *Server) nasFile(w http.ResponseWriter, r *http.Request) {

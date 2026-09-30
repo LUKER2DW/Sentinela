@@ -20,7 +20,12 @@ in `/tmp`, which is a RAM tmpfs), `POST /api/nas/mkdir`,
   escapes). Each Sentinela user sees `/srv/nas/<user>` and
   `/srv/nas/Compartilhado`; admins see the whole share.
 - Roles: viewer read-only; operator/admin write. CSRF on writes; every write
-  goes to `audit`.
+  goes to `audit`. **Amended 2026-09-30 (round 6, owner):** viewers have no
+  Nuvem at all (cameras only); operators use their own folder and
+  Compartilhado; admins everything. Top-level folders (each person's,
+  Compartilhado, the bin) can be created by an admin but never renamed,
+  moved or deleted through the API. Who put a file in Compartilhado comes
+  from the audit log (`nas.upload` / `nas.mkdir`), shown as its owner.
 - Thumbnails only for JPEG/PNG ≤ 20 MB (Go `image`), cached; no video
   thumbnails (no transcoding).
 - The `sentinela` container mounts `/srv/nas` read-write (UID 1000 = owner

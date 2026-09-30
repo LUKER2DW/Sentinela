@@ -125,6 +125,11 @@ func (a Access) canChange(p string) bool {
 	return a.Admin || len(parts) > 1
 }
 
+// protected reports whether p is a top-level folder (a user's folder, the
+// shared one, the bin): they are never deleted or renamed through the API,
+// even by an admin (round 6, owner). Admins may still create new ones.
+func protected(p string) bool { return p != "" && !strings.Contains(p, "/") }
+
 // canRestore reports whether p is inside a's own recycle bin (it may be moved out).
 func (a Access) canRestore(p string) bool {
 	parts := strings.Split(p, "/")
@@ -250,7 +255,7 @@ func (s *Share) Move(a Access, from, to string) error {
 		return err
 	}
 	restore := a.canRestore(from)
-	if !(a.canChange(from) || restore) || !a.canChange(to) || !validName(path.Base(to)) {
+	if !(a.canChange(from) || restore) || protected(from) || !a.canChange(to) || !validName(path.Base(to)) {
 		return ErrForbidden
 	}
 	if from == to || strings.HasPrefix(to+"/", from+"/") {
@@ -274,7 +279,7 @@ func (s *Share) Delete(a Access, p string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if !a.canChange(p) {
+	if !a.canChange(p) || protected(p) {
 		return "", ErrForbidden
 	}
 	bin := a.ownRoot()

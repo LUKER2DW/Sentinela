@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"net/http"
 	"net/url"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -662,6 +663,7 @@ func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "database error")
 		return
 	}
+	_ = os.Remove(s.avatarPath(u.ID))
 	s.audit(r, "user.delete", u.Username, true, "")
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }

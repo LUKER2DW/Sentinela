@@ -114,3 +114,23 @@ func TestSpliceServesRanges(t *testing.T) {
 		t.Fatalf("range: %d, %d bytes", rec.Code, rec.Body.Len())
 	}
 }
+
+func TestFragIndexGOP(t *testing.T) {
+	seg := testSegment(10)
+	idx, _ := ReadFragIndex(bytes.NewReader(seg), int64(len(seg)))
+	rs, start := idx.GOP(bytes.NewReader(seg), 7*time.Second)
+	if rs == nil || start != 6*time.Second {
+		t.Fatalf("gop at 7 s: %v %v", rs != nil, start)
+	}
+	b, _ := io.ReadAll(rs)
+	frag := idx.Fragments[4].Offset - idx.Fragments[3].Offset
+	if int64(len(b)) != idx.InitEnd+frag {
+		t.Fatalf("gop size %d, want init %d + one fragment %d", len(b), idx.InitEnd, frag)
+	}
+	if !bytes.Equal(b[:idx.InitEnd], seg[:idx.InitEnd]) || !bytes.Equal(b[idx.InitEnd:], seg[idx.Fragments[3].Offset:idx.Fragments[4].Offset]) {
+		t.Fatal("gop bytes differ from the segment")
+	}
+	if rs, start := idx.GOP(bytes.NewReader(seg), 0); rs == nil || start != 0 {
+		t.Fatal("first fragment must work too")
+	}
+}

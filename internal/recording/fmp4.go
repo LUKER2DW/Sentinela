@@ -102,6 +102,31 @@ func (idx *FragIndex) Splice(r io.ReaderAt, at time.Duration) (rs io.ReadSeeker,
 	return m, m.size, f.Start
 }
 
+// GOP returns a tiny playable file: the init boxes and only the fragment
+// holding at (it starts on a keyframe). The timeline's hover preview shows
+// its first frame; the bytes are copied, nothing is decoded here.
+func (idx *FragIndex) GOP(r io.ReaderAt, at time.Duration) (rs io.ReadSeeker, start time.Duration) {
+	i := -1
+	for j, f := range idx.Fragments {
+		if f.Start <= at && f.Offset < idx.End {
+			i = j
+		}
+	}
+	if i < 0 {
+		return nil, 0
+	}
+	f := idx.Fragments[i]
+	end := idx.End
+	if i+1 < len(idx.Fragments) && idx.Fragments[i+1].Offset < end {
+		end = idx.Fragments[i+1].Offset
+	}
+	m := &multiSection{parts: []section{{r, 0, idx.InitEnd}, {r, f.Offset, end - f.Offset}}}
+	for _, p := range m.parts {
+		m.size += p.n
+	}
+	return m, f.Start
+}
+
 func ticks(t uint64, timescale uint32) time.Duration {
 	return time.Duration(float64(t) / float64(timescale) * float64(time.Second))
 }

@@ -217,6 +217,30 @@ func TestDeleteMovesToBinAndMove(t *testing.T) {
 	}
 }
 
+func TestTopFoldersAreProtected(t *testing.T) {
+	s, _ := newShare(t)
+	if err := s.Ensure(root); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Mkdir(root, "Filmes"); err != nil {
+		t.Fatalf("admin creates a top folder: %v", err)
+	}
+	for _, p := range []string{"admin", "Compartilhado", "Filmes"} {
+		if _, err := s.Delete(root, p); !errors.Is(err, ErrForbidden) {
+			t.Fatalf("delete %s: %v", p, err)
+		}
+		if err := s.Move(root, p, p+" velho"); !errors.Is(err, ErrForbidden) {
+			t.Fatalf("rename %s: %v", p, err)
+		}
+	}
+	if err := s.Mkdir(root, "Filmes/2026"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Delete(root, "Filmes/2026"); err != nil {
+		t.Fatalf("inside a top folder stays editable: %v", err)
+	}
+}
+
 func TestThumbnail(t *testing.T) {
 	s, dir := newShare(t)
 	img := image.NewRGBA(image.Rect(0, 0, 1000, 500))
