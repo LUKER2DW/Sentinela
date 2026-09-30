@@ -25,14 +25,25 @@
 
         </activity>
 
-        <!-- Notifications from the ntfy app (UnifiedPush, ADR-0013). -->
+        <!-- Event notifications: one long-lived connection to the house
+             (NotifyService). No Google or ntfy in between. -->
         <service
-            android:name=".SentinelaPushService"
+            android:name=".NotifyService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Self-hosted security camera alerts: keeps one connection to the user's own home server, which has no Google push." />
+        </service>
+
+        <receiver
+            android:name=".BootReceiver"
             android:exported="false">
             <intent-filter>
-                <action android:name="org.unifiedpush.android.connector.PUSH_EVENT" />
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
-        </service>
+        </receiver>
 
         <provider
             android:name="androidx.core.content.FileProvider"
@@ -48,8 +59,12 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
-    <!-- Embedded tailnet node follows Wi-Fi/4G changes (ADR-0019). -->
+    <!-- The notification service reconnects when Wi-Fi/4G changes. -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- Hold-to-talk through the camera speaker (WebRTC mic). -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />

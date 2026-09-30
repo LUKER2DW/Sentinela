@@ -46,14 +46,14 @@ import java.net.HttpURLConnection;
 
 /**
  * Sentinela Android app (ADR-0011): a Capacitor WebView on the server's
- * origin — picked on the start screen among the ADR-0019 trial paths
- * (Connection) — plus two native pieces the WebView lacks:
+ * origin — the home's public address, set on the start screen
+ * (Connection) — plus the native pieces the WebView lacks:
  * - an app lock (fingerprint/face or the phone's screen lock) after 5 min in
  *   the background, so a borrowed unlocked phone does not open the cameras;
  * - downloads (Nuvem files, exported clips) through Android's DownloadManager,
  *   carrying the session cookie only to the Sentinela server itself.
- * Notifications come through UnifiedPush (PushBridge, SentinelaPushService);
- * tapping one opens its page here.
+ * Notifications come from NotifyService (a foreground service holding the
+ * server's event stream, NotifyPlugin); tapping one opens its page here.
  * It also makes the WebView behave like an app: the back button walks the
  * pages (twice to leave), no page zoom or scrollbars, a server that does not
  * answer brings back the start screen, and a killed renderer reloads
@@ -69,15 +69,16 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
-        registerPlugin(PushBridge.class);
+        registerPlugin(NotifyPlugin.class);
         registerPlugin(ConnectionPlugin.class);
+        Connection.migrate(this);
         // This launch's server (or the bundled start screen), before the bridge loads.
         config = Connection.capConfig(this);
         super.onCreate(savedInstanceState);
         tuneWebView();
         installBackButton();
         installDownloads();
-        SentinelaPushService.createChannel(this);
+        Notifier.createChannels(this);
         openFromNotification(getIntent());
     }
 
@@ -89,12 +90,23 @@ public class MainActivity extends BridgeActivity {
 
     /** A notification carries an in-app path such as "/#/events". */
     private void openFromNotification(Intent intent) {
-        String path = intent == null ? null : intent.getStringExtra(SentinelaPushService.EXTRA_PATH);
+        String path = intent == null ? null : intent.getStringExtra(Notifier.EXTRA_PATH);
         if (path == null || !path.startsWith("/") || path.startsWith("//")) return;
-        intent.removeExtra(SentinelaPushService.EXTRA_PATH);
+        intent.removeExtra(Notifier.EXTRA_PATH);
         String server = getBridge().getServerUrl();
         if (server == null) return; // start screen: no server chosen yet
         getBridge().getWebView().loadUrl(server.replaceAll("/+$", "") + path);
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        // Keep the notification service's copy of the session current and
+        // bring it back after a sign-in (it stops when the session ends).
+        if (getBridge() != null && getBridge().getServerUrl() != null) {
+            NotifyService.refreshCookie(this);
+            NotifyService.start(this);
+        }
     }
 
     @Override
@@ -271,16 +283,14 @@ public class MainActivity extends BridgeActivity {
         final Uri serverUri = server == null ? null : Uri.parse(server);
         web.setDownloadListener((url, userAgent, disposition, mime, length) -> {
             Uri uri = Uri.parse(url);
-            // Only files from the Sentinela server itself: its HTTPS origin,
-            // or the embedded tailnet's local proxy (ADR-0019).
-            if (serverUri == null || !serverUri.getScheme().equals(uri.getScheme())
+            // Only files from the Sentinela server itself, over HTTPS.
+            if (serverUri == null || !"https".equals(uri.getScheme()) || !"https".equals(serverUri.getScheme())
                     || !String.valueOf(serverUri.getHost()).equals(uri.getHost())
-                    || serverUri.getPort() != uri.getPort()
-                    || !("https".equals(uri.getScheme()) || "127.0.0.1".equals(uri.getHost()))) {
+                    || serverUri.getPort() != uri.getPort()) {
                 return;
             }
             String name = URLUtil.guessFileName(url, disposition, mime);
-            if (Pin.active() && server.startsWith("https://") && !"127.0.0.1".equals(uri.getHost())) {
+            if (Pin.active()) {
                 // DownloadManager trusts only the system CAs: on the public
                 // address (self-signed, pinned) the app downloads by itself.
                 pinnedDownload(url, name, mime, userAgent);

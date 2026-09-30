@@ -216,7 +216,7 @@ export function NuvemPage({ params }: { params: URLSearchParams }) {
             <ul className="tips">
               <li>Use cabo no computador: a Wi-Fi costuma ser o gargalo, não o servidor.</li>
               <li>A Nuvem não é backup. Guarde uma segunda cópia do que for importante.</li>
-              <li>Fora de casa, use esta página pelo Tailscale: as pastas de rede funcionam só em casa.</li>
+              <li>Fora de casa, use esta página pelo app ou pelo endereço público: as pastas de rede funcionam só em casa.</li>
               <li>Apagar aqui ou pela rede manda para a Lixeira, que guarda tudo por 30 dias.</li>
             </ul>
           </div>

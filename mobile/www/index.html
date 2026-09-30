@@ -4,8 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
     <title>Sentinela</title>
-    <!-- Start screen (ADR-0019 trial): pick how this phone reaches the house.
-         Runs from the APK; talks to ConnectionPlugin (SentinelaConnection). -->
+    <!-- Start screen: the house's public address (ADR-0019). Runs from the
+         APK; talks to ConnectionPlugin (SentinelaConnection). -->
     <link rel="stylesheet" href="art/panorama.css" />
     <link rel="stylesheet" href="scene.css" />
     <style>
@@ -63,72 +63,26 @@
     <main>
       <header class="rise">
         <div class="scene hero"></div>
-        <h1 id="title">Como chegar à casa?</h1>
-        <p class="lede" id="lede">Escolha o caminho deste celular até o Sentinela. Dá para trocar depois em Mais → Segurança.</p>
+        <h1 id="title">Onde fica a casa?</h1>
+        <p class="lede" id="lede">Digite o endereço público do Sentinela. Dá para trocar depois na tela de login ou em Minha conta.</p>
       </header>
 
       <!-- The chosen server did not answer (MainActivity sends the app here). -->
       <section class="card rise" id="offline" hidden>
-        <p id="off-text">O servidor não respondeu por este caminho. Tente de novo ou troque a forma de conexão.</p>
+        <p id="off-text">O servidor da casa não respondeu. Confira a internet deste celular e tente de novo.</p>
         <button id="off-retry">Tentar de novo</button>
-        <button class="ghost" id="off-change">Trocar forma de conexão</button>
-        <a class="button ghost" id="off-ts" hidden href="intent://#Intent;package=com.tailscale.ipn;end">Abrir o Tailscale</a>
+        <button class="ghost" id="off-change">Trocar o endereço</button>
         <span class="why" id="off-why"></span>
       </section>
 
-      <div id="choose" style="display:grid;gap:14px">
-
-      <details class="rise" id="m-tailnet" name="mode">
-        <summary><b>Tailscale embutido <i class="tag">sem VPN</i></b><span>A rede privada roda dentro do app. Nada fica exposto na internet.</span></summary>
-        <div class="body">
-          <p class="note" id="tn-status"></p>
-          <div id="tn-pair">
-            <div class="body" style="padding:0">
-              <p class="note">Uma vez só, conectado ao <b>Wi-Fi de casa</b>: entre com a sua conta do Sentinela.</p>
-              <label>Endereço da casa<input id="tn-lan" inputmode="url" autocapitalize="none" spellcheck="false" /></label>
-              <label>Usuário<input id="tn-user" autocomplete="username" autocapitalize="none" spellcheck="false" /></label>
-              <label>Senha<input id="tn-pass" type="password" autocomplete="current-password" /></label>
-              <button id="tn-go">Parear este celular</button>
-              <button class="link" id="tn-keylink" type="button">Tenho uma chave do Tailscale</button>
-              <label id="tn-keybox" hidden>Chave (tskey-auth-…)<input id="tn-key" autocapitalize="none" spellcheck="false" /></label>
-            </div>
-          </div>
-          <div id="tn-ready" class="row" hidden>
-            <button id="tn-open">Abrir</button>
-            <button class="ghost" id="tn-forget">Esquecer</button>
-          </div>
-          <p class="err" id="tn-err" role="alert"></p>
-        </div>
-      </details>
-
-      <details class="rise" id="m-domain" name="mode">
-        <summary><b>Endereço público da casa</b><span>Porta aberta no roteador (IP fixo). Qualquer rede e navegador; pede o código de 2 etapas.</span></summary>
-        <div class="body">
-          <label>Endereço<input id="u-domain" inputmode="url" autocapitalize="none" spellcheck="false" placeholder="https://IP-fixo-da-casa" /></label>
-          <button data-mode="domain">Conectar</button>
-          <p class="err" role="alert"></p>
-        </div>
-      </details>
-
-      <details class="rise" id="m-funnel" name="mode">
-        <summary><b>Tailscale Funnel</b><span>Endereço público do Tailscale. Qualquer rede; pede o código de 2 etapas.</span></summary>
-        <div class="body">
-          <label>Endereço<input id="u-funnel" inputmode="url" autocapitalize="none" spellcheck="false" /></label>
-          <button data-mode="funnel">Conectar</button>
-          <p class="err" role="alert"></p>
-        </div>
-      </details>
-
-      <details class="rise" id="m-tailscale" name="mode">
-        <summary><b>App do Tailscale (VPN)</b><span>Como antes: precisa do app Tailscale ligado neste celular.</span></summary>
-        <div class="body">
-          <label>Endereço<input id="u-tailscale" inputmode="url" autocapitalize="none" spellcheck="false" /></label>
-          <button data-mode="tailscale">Conectar</button>
-          <p class="err" role="alert"></p>
-        </div>
-      </details>
-
-      </div>
+      <form class="card rise" id="choose" autocomplete="off">
+        <label style="text-align:left">Endereço da casa
+          <input id="u-domain" inputmode="url" autocapitalize="none" spellcheck="false" placeholder="https://IP-da-casa:porta" />
+        </label>
+        <button id="go" type="submit">Conectar</button>
+        <p class="err" id="err" role="alert"></p>
+        <p class="note">Funciona no Wi-Fi e no 4G. Quem ativou a verificação em 2 etapas digita o código ao entrar.</p>
+      </form>
 
       <footer class="rise" id="ver"></footer>
     </main>
@@ -149,88 +103,45 @@
           $("ver").textContent = msg(e);
           return;
         }
-        $("u-domain").value = s.urls.domain || "";
-        $("u-funnel").value = s.urls.funnel || "";
-        $("u-tailscale").value = s.urls.tailscale || "";
-        $("tn-lan").value = s.lanUrl || "";
-        $("tn-pair").hidden = s.tailnetEnrolled;
-        $("tn-ready").hidden = !s.tailnetEnrolled;
-        $("tn-status").innerHTML = s.tailnetEnrolled
-          ? `<span class="ok">Pareado</span> como ${s.tailnetHostname || "sentinela-app"} · ${s.tailnetStatus}`
-          : `Servidor: ${s.tailnetHost}`;
+        $("u-domain").value = s.url || "";
         $("ver").textContent = "Sentinela " + s.version;
-        const last = document.getElementById("m-" + (s.mode || (s.tailnetEnrolled ? "tailnet" : "")));
-        if (last) last.open = true;
         showOffline(s);
       }
 
-      const pathName = { tailnet: "Tailscale embutido", domain: "endereço público", funnel: "Tailscale Funnel", tailscale: "app do Tailscale" };
       function showOffline(s) {
         const off = !!s.offline;
         $("offline").hidden = !off;
-        $("choose").style.display = off ? "none" : "grid";
-        $("title").textContent = off ? "Sem conexão com a casa" : "Como chegar à casa?";
+        $("choose").hidden = off;
+        $("title").textContent = off ? "Sem conexão com a casa" : "Onde fica a casa?";
         $("lede").hidden = off;
         if (!off) return;
-        const hint = {
-          tailscale: "Este caminho usa o app do Tailscale: ligue a VPN dele neste celular e tente de novo.",
-          tailnet: "A rede privada do app ainda não conectou (" + s.tailnetStatus + "). Confira a internet e tente de novo.",
-          domain: "O endereço público não respondeu. Se estiver no Wi-Fi de casa, o roteador pode não aceitar o próprio IP de fora: teste no 4G.",
-          funnel: "O Funnel não respondeu. Ele precisa estar ligado no servidor.",
-        }[s.mode];
-        $("off-text").textContent = hint || "O servidor não respondeu por este caminho. Tente de novo ou troque a forma de conexão.";
-        $("off-ts").hidden = s.mode !== "tailscale";
-        $("off-why").textContent = "Caminho: " + (pathName[s.mode] || s.mode) + (s.offlineWhy ? " · " + s.offlineWhy : "");
+        $("off-text").textContent =
+          "O servidor da casa não respondeu. Confira a internet deste celular. No Wi-Fi de casa, se o roteador não aceitar o próprio IP de fora, teste no 4G.";
+        $("off-why").textContent = s.offlineWhy ? "Detalhe: " + s.offlineWhy : "";
       }
 
       $("off-retry").addEventListener("click", () => {
         $("off-retry").disabled = true;
         $("off-retry").textContent = "Conectando…";
-        call("retry").catch(() => ($("off-retry").disabled = false));
+        call("retry").catch(() => {
+          $("off-retry").disabled = false;
+          $("off-retry").textContent = "Tentar de novo";
+        });
       });
       $("off-change").addEventListener("click", () => showOffline({ offline: false }));
 
-      document.querySelectorAll("button[data-mode]").forEach((b) =>
-        b.addEventListener("click", async () => {
-          const mode = b.dataset.mode;
-          const err = b.nextElementSibling;
-          err.textContent = "";
-          b.disabled = true;
-          try {
-            await call("choose", { mode, url: $("u-" + mode).value.trim() });
-          } catch (e) {
-            err.textContent = msg(e);
-          } finally {
-            b.disabled = false;
-          }
-        }),
-      );
-
-      $("tn-keylink").addEventListener("click", () => {
-        $("tn-keybox").hidden = false;
-        $("tn-key").focus();
-      });
-
-      $("tn-go").addEventListener("click", async () => {
-        const b = $("tn-go");
-        $("tn-err").textContent = "";
+      $("choose").addEventListener("submit", async (ev) => {
+        ev.preventDefault();
+        const b = $("go");
+        $("err").textContent = "";
         b.disabled = true;
-        b.textContent = "Pareando… (até 1 min)";
         try {
-          await call("pair", { lanUrl: $("tn-lan").value.trim(), username: $("tn-user").value.trim(), password: $("tn-pass").value, key: $("tn-key").value.trim() });
+          await call("choose", { url: $("u-domain").value.trim() });
         } catch (e) {
-          $("tn-err").textContent = msg(e);
+          $("err").textContent = msg(e);
         } finally {
           b.disabled = false;
-          b.textContent = "Parear este celular";
         }
-      });
-
-      $("tn-open").addEventListener("click", () => call("choose", { mode: "tailnet" }).catch((e) => ($("tn-err").textContent = msg(e))));
-      $("tn-forget").addEventListener("click", async () => {
-        if (!confirm("Esquecer o pareamento deste celular? Remova-o também no painel do Tailscale.")) return;
-        await call("forget");
-        load();
       });
 
       load();

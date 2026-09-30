@@ -393,6 +393,7 @@ func (s *Server) notifyStream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Accel-Buffering", "no")
+	sess := sessionFrom(r)
 	c := s.push.subscribe(userFrom(r).ID)
 	defer s.push.unsubscribe(c)
 	fmt.Fprint(w, "retry: 10000\n\n: ready\n\n")
@@ -404,6 +405,11 @@ func (s *Server) notifyStream(w http.ResponseWriter, r *http.Request) {
 		case <-r.Context().Done():
 			return
 		case <-ping.C:
+			// Signed out, revoked or disabled meanwhile: close, so the app
+			// learns it on its next connect.
+			if _, _, err := s.Store.SessionByHash(r.Context(), sess.IDHash); err != nil {
+				return
+			}
 			fmt.Fprint(w, ": ping\n\n")
 			fl.Flush()
 		case b := <-c:

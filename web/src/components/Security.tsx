@@ -82,7 +82,7 @@ export function SecurityCard() {
       </div>
 
       {outside ? (
-        <p className="muted small card-foot">Ativar ou desligar a verificação só pode ser feito em casa ou pelo Tailscale.</p>
+        <p className="muted small card-foot">Ativar ou desligar a verificação só pode ser feito no Wi-Fi de casa (por segurança, não pelo endereço público).</p>
       ) : setup ? (
         <div className="stack-sm card-foot totp-setup">
           <p className="small">

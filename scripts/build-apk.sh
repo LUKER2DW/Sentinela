@@ -2,9 +2,8 @@
 # Build the signed Sentinela Android APK (ADR-0011) on the dev PC.
 #
 #   ./scripts/build-apk.sh                       # -> mobile/build/sentinela.apk
-#   SENTINELA_TAILNET_HOST=sentinela.<tailnet>.ts.net #   SENTINELA_LAN_URL=http://192.168.1.10:8080 #   SENTINELA_DOMAIN_URL=https://casa.example.com.br ./scripts/build-apk.sh
+#   SENTINELA_DOMAIN_URL=https://<public-ip>:<port>   # start screen default (not in git)
 #   SENTINELA_PUBLIC_CERT_SHA256=<hex>   # self-signed public certificate the app pins (setup-public.sh status)
-# (defaults shown on the start screen; the path is picked in the app, ADR-0019)
 #
 # Needs JDK 21 and the Android SDK (defaults: the per-user installs under
 # %LOCALAPPDATA% on Windows; set JAVA_HOME / ANDROID_HOME elsewhere).
@@ -44,13 +43,7 @@ if [[ ! -f "$KS" ]]; then
   echo "==> new signing key in $KS_DIR: back it up (needed for every future update)"
 fi
 
-# Embedded Tailscale node (ADR-0019 P2), rebuilt when its Go code changed.
-AAR=android/app/libs/tailnet.aar
-if [[ ! -f "$AAR" || -n "$(find tailnet -name '*.go' -newer "$AAR" -o -name go.mod -newer "$AAR" | head -1)" ]]; then
-  ../scripts/build-tailnet-aar.sh
-fi
-
-echo "==> web wrapper (start screen, tailnet ${SENTINELA_TAILNET_HOST:-sentinela.tail0.ts.net})"
+echo "==> web wrapper (start screen, address ${SENTINELA_DOMAIN_URL:-none})"
 npm ci --no-audit --no-fund --silent
 npx cap sync android >/dev/null
 
