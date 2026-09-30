@@ -212,6 +212,8 @@ export function FileBrowser({
   const [anchor, setAnchor] = useState<string | null>(null);
   const [menu, setMenu] = useState<Menu | null>(null);
   const [ask, setAsk] = useState<Ask | null>(null);
+  // Phones: one floating "+" opens the add actions (no big button row).
+  const [adding, setAdding] = useState(false);
   const [moving, setMoving] = useState<string[] | null>(null);
   const [preview, setPreview] = useState<{ path: string; edit?: boolean } | null>(null);
   const [pending, setPending] = useState<{ path: string; edit?: boolean } | null>(null);
@@ -562,22 +564,25 @@ export function FileBrowser({
     <div className="nuvem">
       <section className="card nuvem-top">
         <div className="nuvem-space">{summary}</div>
-        <div className="nuvem-actions">
-          <button className="btn" disabled={!canAddHere} onClick={() => setAsk({ kind: "mkdir", at: path })} title={canAddHere ? undefined : "Abra uma pasta sua ou a Compartilhado"}>
-            <Icon name="folderPlus" /> Nova pasta
-          </button>
-          <button className="btn" disabled={!canAddHere} onClick={() => setAsk({ kind: "mkfile", at: path })} title={canAddHere ? "Novo arquivo de texto" : "Abra uma pasta sua ou a Compartilhado"}>
-            <Icon name="text" /> Novo arquivo
-          </button>
-          <button className="btn primary" disabled={!canAddHere} onClick={() => pickFiles()} title={canAddHere ? undefined : "Abra uma pasta sua ou a Compartilhado"}>
-            <Icon name="upload" /> Enviar arquivos
-          </button>
-          {onConnect && !compact && (
-            <button className="btn ghost" onClick={onConnect}>
-              <Icon name="network" /> Acessar pelo computador
+        {!compact && (
+          <div className="nuvem-actions">
+            <button className="btn" disabled={!canAddHere} onClick={() => setAsk({ kind: "mkdir", at: path })} title={canAddHere ? undefined : "Abra uma pasta sua ou a Compartilhado"}>
+              <Icon name="folderPlus" /> Nova pasta
             </button>
-          )}
-          <input
+            <button className="btn" disabled={!canAddHere} onClick={() => setAsk({ kind: "mkfile", at: path })} title={canAddHere ? "Novo arquivo de texto" : "Abra uma pasta sua ou a Compartilhado"}>
+              <Icon name="text" /> Novo arquivo
+            </button>
+            <button className="btn primary" disabled={!canAddHere} onClick={() => pickFiles()} title={canAddHere ? undefined : "Abra uma pasta sua ou a Compartilhado"}>
+              <Icon name="upload" /> Enviar arquivos
+            </button>
+            {onConnect && (
+              <button className="btn ghost" onClick={onConnect}>
+                <Icon name="network" /> Acessar pelo computador
+              </button>
+            )}
+          </div>
+        )}
+        <input
             id={pickId}
             type="file"
             multiple
@@ -587,8 +592,31 @@ export function FileBrowser({
               e.target.value = "";
             }}
           />
-        </div>
       </section>
+
+      {compact && canAddHere && (
+        <button className="fab" aria-label="Adicionar: pasta, arquivo ou envio" onClick={() => setAdding(true)}>
+          <Icon name="plus" />
+        </button>
+      )}
+      {adding && (
+        <div className="dialog-backdrop bottom" role="dialog" aria-modal="true" aria-label="Adicionar" onMouseDown={(e) => e.target === e.currentTarget && setAdding(false)}>
+          <div className="action-sheet">
+            <button className="btn primary" onClick={() => (setAdding(false), pickFiles())}>
+              <Icon name="upload" /> Enviar arquivos
+            </button>
+            <button className="btn" onClick={() => (setAdding(false), setAsk({ kind: "mkdir", at: path }))}>
+              <Icon name="folderPlus" /> Nova pasta
+            </button>
+            <button className="btn" onClick={() => (setAdding(false), setAsk({ kind: "mkfile", at: path }))}>
+              <Icon name="text" /> Novo arquivo de texto
+            </button>
+            <button className="btn ghost" onClick={() => setAdding(false)}>
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
 
       <section className={`card explorer${paneOn ? " with-pane" : ""}`}>
         {!compact && (
@@ -728,7 +756,7 @@ export function FileBrowser({
                     ? "Arquivos apagados ficam aqui por 30 dias."
                     : canAddHere
                       ? compact
-                        ? "Toque em Enviar arquivos."
+                        ? "Toque em + para enviar arquivos ou criar uma pasta."
                         : "Arraste arquivos para cá, use Enviar arquivos ou o botão direito."
                       : "Nada por aqui ainda."}
               </span>

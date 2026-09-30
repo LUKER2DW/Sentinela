@@ -17,6 +17,7 @@ import {
   type PushState,
 } from "../lib/push";
 import { useSession, useToast } from "../lib/session";
+import { useCompact } from "../lib/viewport";
 import { Icon } from "./Icon";
 
 export const MODES: { value: ModeSettings["mode"]; label: string; hint: string }[] = [
@@ -69,10 +70,31 @@ export function ModeCard() {
     },
     onError: (e: Error) => toast(e.message, true),
   });
+  const compact = useCompact();
+  const [details, setDetails] = useState(false);
   const s = q.data?.settings;
   if (!s) return null;
   const effective = q.data!.effective;
   const autoNight = s.mode === "home" && effective === "night";
+  if (compact && !details) {
+    const cur = MODE_CARDS.find((m) => m.value === effective);
+    return (
+      <section className="card mode-card compact" aria-label="Modo de avisos da casa">
+        <div className="mode-card-head">
+          <h2>Modo da casa</h2>
+          <button className="linkish small" onClick={() => setDetails(true)}>
+            O que cada modo avisa
+          </button>
+        </div>
+        <ModeSwitch compact />
+        {cur && (
+          <p className="muted small">
+            {autoNight ? `Noite automática até ${s.night_to}. ` : ""}Avisa: {cur.notifies.join(", ").toLowerCase()}.
+          </p>
+        )}
+      </section>
+    );
+  }
   return (
     <section className="card mode-card" aria-label="Modo de avisos da casa">
       <div className="mode-card-head">

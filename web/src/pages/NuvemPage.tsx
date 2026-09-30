@@ -141,7 +141,7 @@ export function NuvemPage({ params }: { params: URLSearchParams }) {
   const pct = total > 0 ? (100 * used) / total : 0;
 
   return (
-    <>
+    <div className="nuvem-page">
       <header className="page-head">
         <div className="title">
           <h1>Nuvem</h1>
@@ -222,6 +222,6 @@ export function NuvemPage({ params }: { params: URLSearchParams }) {
           </div>
         </div>
       )}
-    </>
+    </div>
   );
 }
