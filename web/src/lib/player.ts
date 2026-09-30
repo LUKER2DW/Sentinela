@@ -103,6 +103,9 @@ export class LivePlayer {
   private transport?: Transport;
   private webrtcFailed = false;
   private micOn = false;
+  // Bumped by every connect/teardown: a connect still waiting for its ticket
+  // when a newer one starts gives up instead of opening a second socket.
+  private gen = 0;
 
   constructor(video: HTMLVideoElement, opts: PlayerOptions) {
     this.video = video;
@@ -165,6 +168,7 @@ export class LivePlayer {
 
   private async connect() {
     this.teardown();
+    const gen = this.gen;
     this.emit({ state: this.retry ? "reconnecting" : "connecting" });
     let url: string;
     try {
@@ -174,10 +178,10 @@ export class LivePlayer {
       );
       url = t.url;
     } catch (e) {
-      this.scheduleRetry((e as Error).message);
+      if (gen === this.gen) this.scheduleRetry((e as Error).message);
       return;
     }
-    if (this.stopped) return;
+    if (this.stopped || gen !== this.gen) return;
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
     const ws = new WebSocket(`${proto}//${location.host}${url}`);
     ws.binaryType = "arraybuffer";
@@ -189,6 +193,9 @@ export class LivePlayer {
       else this.startMSE();
     };
     ws.onmessage = (ev) => {
+      // A closing socket still delivers what was in flight: its fragments
+      // belong to the old stream and would corrupt the new SourceBuffer.
+      if (this.ws !== ws) return;
       if (typeof ev.data !== "string") {
         this.appendMSE(ev.data as ArrayBuffer);
         return;
@@ -350,7 +357,12 @@ export class LivePlayer {
 
   private appendMSE(buf: ArrayBuffer) {
     this.queue.push(buf);
-    if (this.queue.length > 200) this.queue.splice(0, this.queue.length - 50);
+    // Dropping fragments mid-GOP smears every frame up to the next keyframe:
+    // a backlog this long reopens the stream from a fresh keyframe instead.
+    if (this.queue.length > 300) {
+      this.restart();
+      return;
+    }
     this.pump();
   }
 
@@ -362,11 +374,12 @@ export class LivePlayer {
       if (buffered.length) {
         const end = buffered.end(buffered.length - 1);
         const start = buffered.start(0);
-        // Stay at the live edge: jump when far behind, otherwise play a
-        // little faster until caught up (no visible skip).
+        // Stay near the live edge: play a little faster while behind and
+        // jump only when far behind. A small cushion stays buffered: at the
+        // very edge every late fragment is a visible stall.
         const lag = end - this.video.currentTime;
-        if (lag > 1.5) this.video.currentTime = end - 0.15;
-        else this.video.playbackRate = lag > 0.5 ? 1.08 : 1;
+        if (lag > 3) this.video.currentTime = end - 0.3;
+        else this.video.playbackRate = lag > 1 ? 1.1 : lag > 0.5 ? 1.03 : 1;
         // Keep ~10 s of history so memory stays flat.
         if (end - start > 20 && !sb.updating) {
           sb.remove(start, end - 10);
@@ -375,8 +388,9 @@ export class LivePlayer {
       }
       sb.appendBuffer(this.queue.shift()!);
     } catch {
-      // QuotaExceeded or detached buffer: drop queue and continue.
-      this.queue = [];
+      // QuotaExceeded or a detached buffer: appending the rest would skip
+      // frames the next ones depend on. Start over from a keyframe.
+      this.restart();
     }
   }
 
@@ -421,6 +435,7 @@ export class LivePlayer {
   }
 
   private teardown() {
+    this.gen++;
     window.clearTimeout(this.fallbackTimer);
     if (this.ws || this.pc || this.ms) this.opts.onTeardown?.();
     const ws = this.ws;
