@@ -10,6 +10,6 @@ describe("access zones", () => {
     expect(getZone()).toBe("funnel");
     setZone("lan");
     expect(isPublicZone()).toBe(false);
-    expect(zoneLabel("public")).toContain("Domínio");
+    expect(zoneLabel("public")).toContain("público");
   });
 });

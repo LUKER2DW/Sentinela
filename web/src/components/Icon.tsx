@@ -21,6 +21,8 @@ const paths: Record<string, string> = {
   light: "M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z",
   moon: "M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z",
   download: "M12 4v11M7 10l5 5 5-5M5 20h14",
+  phone: "M8 3h8a1.5 1.5 0 0 1 1.5 1.5v15A1.5 1.5 0 0 1 16 21H8a1.5 1.5 0 0 1-1.5-1.5v-15A1.5 1.5 0 0 1 8 3zM11 18h2",
+  monitor: "M3 5h18v11H3zM8 20h8M12 16v4",
   lock: "M7 11V8a5 5 0 0 1 10 0v3M5 11h14v10H5z",
   chevronLeft: "M15 6l-6 6 6 6",
   chevronRight: "M9 6l6 6-6 6",

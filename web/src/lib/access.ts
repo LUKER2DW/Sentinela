@@ -1,6 +1,5 @@
-// How this page reached the server (ADR-0019 trial). The zone comes from the
-// server (by listener); the embedded-tailnet app is recognised by its local
-// proxy origin.
+// How this page reached the server (ADR-0019): the zone comes from the
+// server, by the listener the request arrived on.
 
 export type Zone = "lan" | "tailnet" | "funnel" | "public";
 
@@ -14,12 +13,7 @@ export const getZone = () => zone;
 /** Anyone on the internet can reach this path: two-step login applies. */
 export const isPublicZone = (z: Zone = zone) => z === "funnel" || z === "public";
 
-/** The Android app's own tailnet node (local proxy on 127.0.0.1:47080). */
-export const embeddedTailnet = () =>
-  typeof location !== "undefined" && location.hostname === "127.0.0.1" && location.port === "47080";
-
 export function zoneLabel(z: Zone = zone): string {
-  if (embeddedTailnet()) return "Tailscale embutido no app";
   switch (z) {
     case "lan":
       return "Rede de casa";
@@ -28,7 +22,7 @@ export function zoneLabel(z: Zone = zone): string {
     case "funnel":
       return "Tailscale Funnel (público)";
     case "public":
-      return "Domínio da casa (público)";
+      return "Endereço público da casa";
   }
 }
 
@@ -39,7 +33,7 @@ function bridge(): Bridge | undefined {
   return cap?.isNativePlatform?.() && cap.nativePromise ? cap : undefined;
 }
 
-/** True inside the Android app with the connection start screen. */
+/** True inside the Android app (it has a start screen with the server address). */
 export const canChangeConnection = () => bridge() !== undefined;
 
 /** Back to the app's start screen to pick another path. */

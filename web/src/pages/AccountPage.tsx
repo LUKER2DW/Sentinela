@@ -4,6 +4,7 @@ import { api } from "../lib/api";
 import { useSession, useToast } from "../lib/session";
 import { fmtDate } from "../lib/time";
 import { PasswordField } from "../components/PasswordField";
+import { policyError } from "../lib/password";
 import { SecurityCard } from "../components/Security";
 import { DevicesCard } from "../components/Devices";
 import { NotificationsCard } from "../components/Notifications";
@@ -79,7 +80,7 @@ function PasswordCard() {
       setNext("");
       setAgain("");
     },
-    onError: (e: Error) => toast(e.message.includes("at least") ? "A nova senha precisa de 8 caracteres ou mais." : "Senha atual incorreta.", true),
+    onError: (e: Error) => toast(e.message.includes("current password") ? "Senha atual incorreta." : policyError(next) || e.message, true),
   });
   return (
     <section className="card" aria-label="Senha">
@@ -92,10 +93,10 @@ function PasswordCard() {
         }}
       >
         <PasswordField label="Senha atual" value={cur} onChange={setCur} autoComplete="current-password" />
-        <PasswordField label="Nova senha" value={next} onChange={setNext} autoComplete="new-password" meter minLength={8} />
-        <PasswordField label="Repita a nova senha" value={again} onChange={setAgain} autoComplete="new-password" matches={next} minLength={8} />
+        <PasswordField label="Nova senha" value={next} onChange={setNext} autoComplete="new-password" meter />
+        <PasswordField label="Repita a nova senha" value={again} onChange={setAgain} autoComplete="new-password" matches={next} />
         <div className="card-foot row-gap">
-          <button className="btn primary" disabled={change.isPending || !cur || next.length < 8 || next !== again}>
+          <button className="btn primary" disabled={change.isPending || !cur || policyError(next) !== "" || next !== again}>
             Alterar senha
           </button>
         </div>

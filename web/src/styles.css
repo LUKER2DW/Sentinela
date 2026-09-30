@@ -1499,7 +1499,7 @@ table.table { width: 100%; border-collapse: collapse; }
 .avatar.role-admin { background: var(--sea-soft); color: var(--sea-strong); }
 .avatar.role-operator { background: color-mix(in srgb, var(--kelp) 22%, transparent); color: var(--kelp); }
 .avatar.role-viewer { background: var(--surface-2); color: var(--muted); }
-.avatar.big { width: 52px; height: 52px; font-size: 1.3rem; }
+.avatar.big { display: grid; place-items: center; gap: 0; margin: 0; width: 56px; height: 56px; font-size: 1.4rem; line-height: 1; font-family: var(--serif); }
 .count-badge { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; border-radius: var(--r-xs); background: var(--coral); color: #fff;
   font-family: var(--sans); font-size: 0.72rem; font-weight: 700; vertical-align: middle; }
 
@@ -1786,4 +1786,22 @@ textarea.viewer-text.editing { border: 0; outline: none; resize: none; backgroun
   :root { font-size: 17px; }
   .live-cols { grid-template-columns: minmax(0, 1fr) 420px; }
   .rec-layout { grid-template-columns: minmax(0, 1fr) 420px; }
+}
+
+/* ---------- invites and sign-in ---------- */
+.invite-code { display: block; text-align: center; font-size: 1.6rem; letter-spacing: 0.12em; padding: 14px; border-radius: var(--r-md);
+  background: var(--bg-soft); border: 1px dashed var(--sea); color: var(--sea-strong); font-variant-numeric: tabular-nums; }
+.auth-remember { align-items: flex-start; min-height: 0; font-size: 0.92rem; cursor: pointer; }
+.auth-remember input { margin-top: 3px; width: 18px; height: 18px; accent-color: var(--sea); flex: none; }
+.device-row { justify-content: flex-start; gap: 12px; }
+.device-row .grow { flex: 1; min-width: 0; }
+.device-icon { width: 36px; height: 36px; border-radius: var(--r-sm); display: grid; place-items: center; background: var(--sea-soft); color: var(--sea-strong); flex: none; }
+.review-cell { position: relative; }
+.review-zoom { position: absolute; top: 8px; right: 8px; width: 36px; height: 36px; display: grid; place-items: center; border-radius: 50%; border: 0;
+  background: rgba(10, 16, 20, 0.55); color: #fff; cursor: pointer; backdrop-filter: blur(4px); }
+.review-zoom:hover { background: rgba(10, 16, 20, 0.75); }
+.review-cell .review-alert { right: 52px; }
+@media (max-width: 700px) {
+  .review-zoom { top: auto; bottom: 6px; right: auto; left: 92px; width: 34px; height: 34px; }
+  .review-cell .review-alert { right: 6px; }
 }

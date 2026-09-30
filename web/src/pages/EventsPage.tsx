@@ -62,6 +62,11 @@ export function EventsPage() {
     if (!it.seen) seen.mutate({ ids: [it.id] });
     setOpen(it.id);
   };
+  // A tap on an event opens its recording, a few seconds before it began.
+  const watch = (it: ReviewItem) => {
+    if (!it.seen) seen.mutate({ ids: [it.id] });
+    watchEvent(it);
+  };
   const unseen = q.data?.unseen ?? 0;
   const counts = useMemo(() => {
     const all = q.data?.items ?? [];
@@ -152,8 +157,8 @@ export function EventsPage() {
             </h2>
             <ul className="review-grid">
               {list.map((it) => (
-                <li key={it.id}>
-                  <button className={`review-item ${it.severity}${it.seen ? " seen" : ""}`} onClick={() => show(it)}>
+                <li key={it.id} className="review-cell">
+                  <button className={`review-item ${it.severity}${it.seen ? " seen" : ""}`} onClick={() => watch(it)} title="Assistir a gravação deste evento">
                     <span className="review-shot">
                       {it.snapshot_event ? <img src={`/api/events/${it.snapshot_event}/snapshot`} alt="" loading="lazy" decoding="async" /> : <Fish />}
                       {!it.seen && <span className="review-new">Novo</span>}
@@ -176,6 +181,9 @@ export function EventsPage() {
                       {multi && <span className="muted small">{camName(it.camera_id)}</span>}
                     </span>
                   </button>
+                  <button className="review-zoom" onClick={() => show(it)} aria-label="Ver a foto do evento" title="Ver a foto do evento">
+                    <Icon name="fullscreen" />
+                  </button>
                 </li>
               ))}
             </ul>
@@ -196,13 +204,18 @@ export function EventsPage() {
   );
 }
 
+/** Opens the recording of an event, 5 s before it started. */
+function watchEvent(it: ReviewItem) {
+  navigate("recordings", { cam: it.camera_id, t: new Date(new Date(it.start).getTime() - 5000).toISOString(), ev: String(it.id) }, { push: true });
+}
+
 /** One event large: the snapshot, what it was, and a jump to the recording. */
 function EventDialog({ item, camName, items, onGo, onClose }: { item: ReviewItem; camName: string; items: ReviewItem[]; onGo: (it: ReviewItem) => void; onClose: () => void }) {
   const i = items.findIndex((x) => x.id === item.id);
   // The list is newest first: "anterior" is the older one.
   const older = i >= 0 && i < items.length - 1 ? items[i + 1] : null;
   const newer = i > 0 ? items[i - 1] : null;
-  const watch = () => navigate("recordings", { cam: item.camera_id, t: new Date(new Date(item.start).getTime() - 5000).toISOString() }, { push: true });
+  const watch = () => watchEvent(item);
   useEffect(() => {
     const k = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();

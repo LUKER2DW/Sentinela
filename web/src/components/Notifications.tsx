@@ -1,7 +1,21 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { get } from "../lib/api";
-import { disablePush, enablePush, getMode, isApp, pushState, putMode, refreshNativePush, testPush, type ModeSettings, type PushState } from "../lib/push";
+import {
+  allowBackground,
+  disablePush,
+  enablePush,
+  getMode,
+  getPrefs,
+  isApp,
+  nativeStatus,
+  pushState,
+  putMode,
+  putPrefs,
+  testPush,
+  TYPE_LABEL,
+  type ModeSettings,
+  type PushState,
+} from "../lib/push";
 import { useSession, useToast } from "../lib/session";
 import { Icon } from "./Icon";
 
@@ -154,13 +168,48 @@ export function ModeSwitch({ compact }: { compact?: boolean }) {
 
 const stateText: Record<PushState, string> = {
   unsupported: "Este navegador não recebe notificações. No iPhone, instale o Sentinela na tela de início primeiro.",
-  insecure: "Notificações só funcionam pelo endereço HTTPS (Tailscale).",
-  denied: "As notificações foram bloqueadas nas configurações do navegador para este site.",
+  insecure: "Notificações no navegador só funcionam pelo endereço HTTPS.",
+  denied: "As notificações foram bloqueadas nas configurações deste aparelho.",
   off: "Desligadas neste aparelho.",
   on: "Ligadas neste aparelho.",
-  "no-ntfy": "No app, os avisos chegam pelo ntfy. Instale o ntfy e, nas configurações dele, mude o Servidor padrão para o endereço abaixo.",
-  "no-relay": "O servidor da casa ainda não tem o ntfy configurado (scripts/setup-ntfy.sh).",
 };
+
+/** Which event types notify this user, and whether the house mode applies. */
+function EventChoices() {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const q = useQuery({ queryKey: ["notify-prefs"], queryFn: getPrefs, staleTime: 60_000 });
+  const save = useMutation({
+    mutationFn: putPrefs,
+    onSuccess: (d) => qc.setQueryData(["notify-prefs"], d),
+    onError: (e: Error) => toast(e.message, true),
+  });
+  const d = q.data;
+  if (!d) return null;
+  const p = d.prefs;
+  const toggle = (t: string) => save.mutate({ ...p, types: p.types.includes(t) ? p.types.filter((x) => x !== t) : [...p.types, t] });
+  return (
+    <>
+      <h3 className="card-sub">O que me avisa</h3>
+      <div className="choice-list notify-types">
+        {d.types.map((t) => (
+          <label key={t} className={`choice${p.types.includes(t) ? " on" : ""}`}>
+            <input type="checkbox" checked={p.types.includes(t)} onChange={() => toggle(t)} disabled={save.isPending} />
+            <span>{TYPE_LABEL[t] ?? t}</span>
+          </label>
+        ))}
+      </div>
+      <div className="toggle-row">
+        <span>
+          Respeitar o modo da casa
+          <span className="muted small"> · {p.follow_mode ? "no modo Casa, por exemplo, só câmera mexida avisa" : "avisa os tipos marcados em qualquer modo"}</span>
+        </span>
+        <button className="switch" role="switch" aria-checked={p.follow_mode} aria-label="Respeitar o modo da casa" onClick={() => save.mutate({ ...p, follow_mode: !p.follow_mode })} />
+      </div>
+      <p className="muted small">Só para você: cada pessoa escolhe os próprios avisos. Tudo continua gravado e aparece em Eventos.</p>
+    </>
+  );
+}
 
 /** Notifications card for the System ("Mais") page. */
 export function NotificationsCard() {
@@ -170,7 +219,7 @@ export function NotificationsCard() {
   const [state, setState] = useState<PushState | null>(null);
   const [busy, setBusy] = useState(false);
   const mode = useQuery({ queryKey: ["notify-mode"], queryFn: getMode, staleTime: 30_000 });
-  const info = useQuery({ queryKey: ["push-info"], queryFn: () => get<{ ntfy_url: string }>("/api/push"), enabled: isApp(), staleTime: 300_000 });
+  const [battery, setBattery] = useState(false);
 
   useEffect(() => {
     let live = true;
@@ -178,13 +227,16 @@ export function NotificationsCard() {
       .then((s) => {
         if (!live) return;
         setState(s);
-        if (s === "on") void refreshNativePush().catch(() => {});
       })
       .catch(() => live && setState("unsupported"));
     return () => {
       live = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (state === "on") void nativeStatus()?.then((st) => setBattery(st.batteryOptimized)).catch(() => {});
+  }, [state]);
 
   const run = async (fn: () => Promise<PushState>) => {
     setBusy(true);
@@ -215,18 +267,20 @@ export function NotificationsCard() {
         )}
       </div>
       <p className="muted">{state ? stateText[state] : "Verificando…"}</p>
-      {state === "no-ntfy" && info.data?.ntfy_url && <code className="copy-line">{info.data.ntfy_url}</code>}
+      {state === "on" && battery && (
+        <p className="notice small">
+          O Android pode pausar os avisos para economizar bateria.{" "}
+          <button className="linkish" onClick={() => void allowBackground()?.then(() => setBattery(false)).catch(() => {})}>
+            Permitir em segundo plano
+          </button>
+        </p>
+      )}
+      {state === "denied" && isApp() && (
+        <button className="btn" onClick={() => void run(enablePush)}>
+          Abrir permissões do app
+        </button>
+      )}
       <div className="row-actions">
-        {state === "no-ntfy" && (
-          <>
-            <a className="btn primary" href="https://play.google.com/store/apps/details?id=io.heckel.ntfy" target="_blank" rel="noreferrer">
-              Instalar o ntfy
-            </a>
-            <button className="btn" disabled={busy} onClick={() => void run(pushState)}>
-              Já instalei
-            </button>
-          </>
-        )}
         {state === "off" && (
           <button className="btn primary" disabled={busy} onClick={() => void run(enablePush)}>
             <Icon name="events" /> Ativar neste aparelho
@@ -254,7 +308,8 @@ export function NotificationsCard() {
         )}
       </div>
 
-      <h3 className="card-sub">Quando avisar</h3>
+      <EventChoices />
+      <h3 className="card-sub">Modo da casa</h3>
       <ModeSwitch />
       {s && (
         <div className="night-row">
@@ -293,8 +348,8 @@ export function NotificationsCard() {
       )}
       <p className="muted small card-foot">
         {isApp()
-          ? "Os avisos passam pelo ntfy da própria casa, cifrados; a imagem vem direto do servidor pelo Tailscale."
-          : "A imagem do evento vem direto do servidor pelo Tailscale; o serviço de avisos do navegador só vê texto cifrado."}
+          ? "O app mantém uma conexão direta e cifrada com o servidor da casa; nenhum serviço de terceiros vê os avisos. Tocar num aviso abre a gravação do momento."
+          : "A imagem do evento vem direto do servidor; o serviço de avisos do navegador só vê texto cifrado."}
       </p>
     </section>
   );

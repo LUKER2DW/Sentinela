@@ -29,7 +29,7 @@ const queryClient = new QueryClient({
 type Boot =
   | { kind: "loading" }
   | { kind: "setup" }
-  | { kind: "login"; mfa?: boolean }
+  | { kind: "login" }
   | { kind: "ready"; user: User }
   | { kind: "down"; message: string };
 
@@ -38,12 +38,12 @@ let loadedVersion = "";
 
 async function bootstrap(): Promise<Boot> {
   try {
-    const s = await get<{ needs_setup: boolean; version?: string; zone?: string; mfa?: boolean }>("/api/setup");
+    const s = await get<{ needs_setup: boolean; version?: string; zone?: string }>("/api/setup");
     loadedVersion ||= s.version ?? "";
     setZone(s.zone);
     if (s.needs_setup) return { kind: "setup" };
     const me = await get<{ user: User; csrf: string }>("/api/me").catch(() => null);
-    if (!me) return { kind: "login", mfa: s.mfa };
+    if (!me) return { kind: "login" };
     setCsrf(me.csrf);
     return { kind: "ready", user: me.user };
   } catch (e) {
@@ -63,7 +63,7 @@ export function App() {
     void bootstrap().then((b) => live && setBoot(b));
     const off = onUnauthorized(() => {
       queryClient.clear();
-      setBoot((b) => ({ kind: "login", mfa: b.kind === "login" ? b.mfa : undefined }));
+      setBoot({ kind: "login" });
       void bootstrap().then(setBoot);
     });
     return () => {
@@ -78,7 +78,7 @@ export function App() {
       <AuthPage mode="login" onDone={() => {}} downMessage={boot.message} onRetry={load} />
     );
   if (boot.kind !== "ready")
-    return <AuthPage mode={boot.kind} mfa={boot.kind === "login" && !!boot.mfa} onDone={(user) => setBoot({ kind: "ready", user })} />;
+    return <AuthPage mode={boot.kind} onDone={(user) => setBoot({ kind: "ready", user })} />;
 
   const logout = () => {
     void api("POST", "/api/logout").finally(() => {

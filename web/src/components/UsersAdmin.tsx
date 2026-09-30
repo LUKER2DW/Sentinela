@@ -4,7 +4,6 @@ import { api, get, type AuditEntry, type Camera, type Role, type User } from "..
 import { useSession, useToast } from "../lib/session";
 import { fmtBytes, fmtDate, relative } from "../lib/time";
 import { useCameras } from "../pages/LivePage";
-import { PasswordField } from "./PasswordField";
 import { deviceName } from "./Devices";
 import { Icon } from "./Icon";
 
@@ -38,10 +37,12 @@ const actionLabel: Record<string, string> = {
   "user.delete": "Removeu usuário",
   "user.role": "Mudou perfil",
   "user.password": "Trocou senha",
+  "user.invite": "Novo convite",
+  "user.email": "Mudou e-mail",
+  "invite.accept": "Primeiro acesso",
   "user.disabled": "Ativou/desativou conta",
   "user.cameras": "Mudou câmeras",
   "notify.mode": "Modo de avisos",
-  "remote.app_key": "Pareou o app",
   "camera.white_light": "Luz branca",
   "camera.day_night": "Modo dia e noite",
   "camera.preset.set": "Salvou posição",
@@ -67,7 +68,10 @@ export function UsersAdmin() {
   const [creating, setCreating] = useState(false);
   const [filter, setFilter] = useState("");
   const list = useMemo(
-    () => (users.data ?? []).filter((u) => !filter || u.username.toLowerCase().includes(filter.toLowerCase())),
+    () =>
+      (users.data ?? []).filter(
+        (u) => !filter || u.username.toLowerCase().includes(filter.toLowerCase()) || (u.email ?? "").toLowerCase().includes(filter.toLowerCase()),
+      ),
     [users.data, filter],
   );
   const current = pick ?? list[0]?.id ?? null;
@@ -85,7 +89,7 @@ export function UsersAdmin() {
             <input className="input" placeholder="Procurar" aria-label="Procurar usuário" value={filter} onChange={(e) => setFilter(e.target.value)} />
           </label>
           <button className="btn primary" onClick={() => setCreating(true)}>
-            <Icon name="plus" /> Novo usuário
+            <Icon name="plus" /> Autorizar pessoa
           </button>
         </div>
         <ul className="user-rows">
@@ -99,6 +103,7 @@ export function UsersAdmin() {
                   <strong>{u.username}</strong>
                   <span className="muted small">
                     {roleLabel[u.role]}
+                    {u.pending ? " · aguardando 1º acesso" : ""}
                     {u.disabled ? " · desativado" : ""}
                   </span>
                 </span>
@@ -124,7 +129,8 @@ function UserPanel({ id, onGone }: { id: number; onGone: () => void }) {
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["user", id], queryFn: () => get<UserDetail>(`/api/users/${id}`) });
   const cams = useCameras();
-  const [dialog, setDialog] = useState<"password" | "cameras" | "delete" | null>(null);
+  const [dialog, setDialog] = useState<"invite" | "cameras" | "delete" | "email" | null>(null);
+  const [code, setCode] = useState<string | null>(null);
   const refresh = () => {
     void qc.invalidateQueries({ queryKey: ["users"] });
     void qc.invalidateQueries({ queryKey: ["user", id] });
@@ -132,6 +138,15 @@ function UserPanel({ id, onGone }: { id: number; onGone: () => void }) {
   const update = useMutation({
     mutationFn: (body: object) => api("PATCH", `/api/users/${id}`, body),
     onSuccess: refresh,
+    onError: (e: Error) => toast(translate(e.message), true),
+  });
+  const reinvite = useMutation({
+    mutationFn: () => api<InvitedUser>("POST", `/api/users/${id}/invite`),
+    onSuccess: (r) => {
+      refresh();
+      setDialog(null);
+      setCode(r.invite_code ?? null);
+    },
     onError: (e: Error) => toast(translate(e.message), true),
   });
   const remove = useMutation({
@@ -163,9 +178,15 @@ function UserPanel({ id, onGone }: { id: number; onGone: () => void }) {
           <span className="muted small">
             {roleLabel[u.role]} · conta criada em {fmtDate(u.created_at)} · {d.last_login ? `último acesso ${relative(d.last_login)}` : "nunca entrou"}
           </span>
+          <span className="small">
+            E-mail: {u.email || <span className="muted">nenhum</span>}{" "}
+            <button className="linkish" onClick={() => setDialog("email")}>
+              {u.email ? "mudar" : "adicionar"}
+            </button>
+          </span>
         </div>
-        <span className={`pill${u.disabled ? "" : " ok"}`}>
-          <span className={`dot ${u.disabled ? "bad" : "ok"}`} /> {u.disabled ? "Desativado" : "Ativo"}
+        <span className={`pill${u.disabled || u.pending ? "" : " ok"}`}>
+          <span className={`dot ${u.disabled ? "bad" : u.pending ? "warn" : "ok"}`} /> {u.disabled ? "Desativado" : u.pending ? "Aguardando 1º acesso" : "Ativo"}
         </span>
       </header>
 
@@ -261,9 +282,11 @@ function UserPanel({ id, onGone }: { id: number; onGone: () => void }) {
       </div>
 
       <footer className="user-actions">
-        <button className="btn" onClick={() => setDialog("password")}>
-          <Icon name="lock" /> Redefinir senha
-        </button>
+        {!self && (
+          <button className="btn" onClick={() => setDialog("invite")}>
+            <Icon name="lock" /> {u.pending ? "Gerar novo convite" : "Esqueceu a senha: novo convite"}
+          </button>
+        )}
         {u.totp && (
           <button
             className="btn"
@@ -294,7 +317,34 @@ function UserPanel({ id, onGone }: { id: number; onGone: () => void }) {
         )}
       </footer>
 
-      {dialog === "password" && <ResetPasswordDialog user={u} onClose={() => setDialog(null)} onSave={(pw) => update.mutateAsync({ password: pw })} />}
+      {dialog === "invite" && (
+        <div className="dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="reinv-title" onMouseDown={(e) => e.target === e.currentTarget && setDialog(null)}>
+          <div className="dialog">
+            <h2 id="reinv-title">Novo convite para {u.username}</h2>
+            <p className="muted">
+              {u.pending
+                ? "O código anterior deixa de valer."
+                : "A senha atual e a verificação em 2 etapas deixam de valer e a conta sai de todos os aparelhos. A pessoa cria uma senha nova com o código."}
+            </p>
+            <div className="dialog-actions">
+              <button type="button" className="btn ghost" onClick={() => setDialog(null)}>
+                Cancelar
+              </button>
+              <button className="btn primary" disabled={reinvite.isPending} onClick={() => reinvite.mutate()}>
+                Gerar convite
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {dialog === "email" && (
+        <EmailDialog
+          user={u}
+          onClose={() => setDialog(null)}
+          onSave={(email) => update.mutate({ email }, { onSuccess: () => (toast("E-mail salvo."), setDialog(null)) })}
+        />
+      )}
+      {code && <InviteCodeDialog user={u} code={code} onClose={() => setCode(null)} />}
       {dialog === "cameras" && cams.data && (
         <CameraAccessDialog
           user={u}
@@ -311,53 +361,137 @@ function UserPanel({ id, onGone }: { id: number; onGone: () => void }) {
 function translate(msg: string): string {
   if (msg.includes("last admin")) return "É preciso manter pelo menos um administrador ativo.";
   if (msg.includes("yourself")) return "Você não pode fazer isso com a sua própria conta.";
-  if (msg.includes("already exists")) return "Já existe um usuário com esse nome.";
-  if (msg.includes("at least")) return "A senha precisa de 8 caracteres ou mais.";
+  if (msg.includes("already exists")) return "Já existe uma conta com esse nome ou e-mail.";
+  if (msg.includes("already used")) return "Esse e-mail já é de outra conta.";
+  if (msg.includes("invalid e-mail")) return "E-mail inválido.";
   if (msg.includes("invalid username")) return "Nome inválido: use 3 a 32 letras, números, ponto, hífen ou sublinhado.";
   return msg;
 }
 
-/** A random, readable password: 4 groups of 4 (no look-alike characters). */
-function generatePassword(): string {
-  const chars = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789";
-  const bytes = crypto.getRandomValues(new Uint8Array(16));
-  const s = [...bytes].map((b) => chars[b % chars.length]).join("");
-  return s.match(/.{4}/g)!.join("-");
+interface InvitedUser extends User {
+  invite_code?: string;
 }
+
+/** Shows an invite code once, with ways to pass it on. */
+function InviteCodeDialog({ user, code, onClose }: { user: User; code: string; onClose: () => void }) {
+  const toast = useToast();
+  const login = user.email || user.username;
+  const text =
+    `Você foi autorizado no Sentinela. No primeiro acesso, toque em "Primeiro acesso? Tenho um código de convite" e use:\n` +
+    `Usuário ou e-mail: ${login}\nCódigo: ${code}\nO código vale por 7 dias.`;
+  const share = async () => {
+    try {
+      if (navigator.share) await navigator.share({ title: "Convite do Sentinela", text });
+      else {
+        await navigator.clipboard.writeText(text);
+        toast("Convite copiado.");
+      }
+    } catch {
+      // share sheet closed
+    }
+  };
+  return (
+    <div className="dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="code-title">
+      <div className="dialog">
+        <h2 id="code-title">Convite de {user.username}</h2>
+        <p className="muted">Passe este código para a pessoa. Ela entra com o usuário ou e-mail abaixo, usa o código e cria a própria senha. Ele vale por 7 dias e só aparece agora.</p>
+        <dl className="kv">
+          <dt>Usuário</dt>
+          <dd className="selectable">{user.username}</dd>
+          {user.email && (
+            <>
+              <dt>E-mail</dt>
+              <dd className="selectable">{user.email}</dd>
+            </>
+          )}
+        </dl>
+        <code className="invite-code selectable" aria-label="Código de convite">
+          {code}
+        </code>
+        <div className="dialog-actions">
+          <button type="button" className="btn" onClick={() => void navigator.clipboard?.writeText(code).then(() => toast("Código copiado."))}>
+            Copiar código
+          </button>
+          <button type="button" className="btn" onClick={() => void share()}>
+            Enviar convite
+          </button>
+          <button type="button" className="btn primary" onClick={onClose}>
+            Pronto
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EmailDialog({ user, onClose, onSave }: { user: User; onClose: () => void; onSave: (email: string) => void }) {
+  const [email, setEmail] = useState(user.email ?? "");
+  return (
+    <div className="dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="email-title" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <form
+        className="dialog"
+        onSubmit={(e) => {
+          e.preventDefault();
+          onSave(email.trim());
+        }}
+      >
+        <h2 id="email-title">E-mail de {user.username}</h2>
+        <p className="muted">A pessoa pode entrar com o usuário ou com este e-mail. Deixe vazio para não usar e-mail.</p>
+        <div className="field">
+          <label htmlFor="em">E-mail</label>
+          <input id="em" className="input" type="email" autoComplete="off" value={email} onChange={(e) => setEmail(e.target.value)} autoFocus />
+        </div>
+        <div className="dialog-actions">
+          <button type="button" className="btn ghost" onClick={onClose}>
+            Cancelar
+          </button>
+          <button className="btn primary">Salvar</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function CreateUserDialog({ onClose, onCreated }: { onClose: () => void; onCreated: (id: number) => void }) {
   const toast = useToast();
   const qc = useQueryClient();
   const cams = useCameras();
   const [name, setName] = useState("");
-  const [pw, setPw] = useState("");
+  const [email, setEmail] = useState("");
   const [role, setRole] = useState<Role>("viewer");
   const [picked, setPicked] = useState<string[]>([]);
-  const [shown, setShown] = useState(false);
-  const valid = /^[A-Za-z0-9._-]{3,32}$/.test(name);
+  const [made, setMade] = useState<InvitedUser | null>(null);
+  const nameOk = name === "" || /^[A-Za-z0-9._-]{3,32}$/.test(name);
+  const emailOk = email === "" || EMAIL.test(email);
+  const valid = nameOk && emailOk && (name !== "" || email !== "");
   const create = useMutation({
-    mutationFn: () => api<User>("POST", "/api/users", { username: name, password: pw, role, cameras: role === "admin" ? [] : picked }),
+    mutationFn: () => api<InvitedUser>("POST", "/api/users", { username: name, email, role, cameras: role === "admin" ? [] : picked }),
     onSuccess: (u) => {
-      toast(`Usuário ${u.username} criado.`);
       void qc.invalidateQueries({ queryKey: ["users"] });
       onCreated(u.id);
-      onClose();
+      setMade(u);
     },
     onError: (e: Error) => toast(translate(e.message), true),
   });
+  if (made?.invite_code) return <InviteCodeDialog user={made} code={made.invite_code} onClose={onClose} />;
   return (
     <div className="dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="new-user" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <form
         className="dialog wide create-user"
         onSubmit={(e) => {
           e.preventDefault();
-          if (valid && pw.length >= 8) create.mutate();
+          if (valid) create.mutate();
         }}
       >
         <div className="dialog-head">
           <div>
-            <h2 id="new-user">Novo usuário</h2>
-            <p className="muted small">A pessoa entra com esse nome e senha; ela pode trocar a senha depois em Minha conta.</p>
+            <h2 id="new-user">Autorizar pessoa</h2>
+            <p className="muted small">
+              Você só autoriza o usuário ou o e-mail. O sistema gera um código de convite; no primeiro acesso (em casa ou de fora) a pessoa usa o código e
+              cria a própria senha.
+            </p>
           </div>
           <button type="button" className="btn ghost icon small" aria-label="Fechar" onClick={onClose}>
             <Icon name="x" />
@@ -365,38 +499,32 @@ function CreateUserDialog({ onClose, onCreated }: { onClose: () => void; onCreat
         </div>
         <div className="form-grid">
           <div className="field">
+            <label htmlFor="nu-email">E-mail</label>
+            <input
+              id="nu-email"
+              className="input"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value.trim())}
+              autoFocus
+              autoComplete="off"
+              spellCheck={false}
+              placeholder="ex.: maria@gmail.com"
+            />
+            <span className={`hint${emailOk ? "" : " bad"}`}>Opcional. A pessoa poderá entrar com ele.</span>
+          </div>
+          <div className="field">
             <label htmlFor="nu-name">Nome de usuário</label>
             <input
               id="nu-name"
               className="input"
               value={name}
               onChange={(e) => setName(e.target.value.trim())}
-              autoFocus
               autoComplete="off"
               spellCheck={false}
-              placeholder="ex.: maria"
+              placeholder={email ? `vazio = ${email.split("@")[0]}` : "ex.: maria"}
             />
-            <span className={`hint${name && !valid ? " bad" : ""}`}>3 a 32 letras, números, ponto, hífen ou sublinhado.</span>
-          </div>
-          <div className="field">
-            <PasswordField label="Senha" value={pw} onChange={setPw} autoComplete="new-password" meter minLength={8} />
-            <button
-              type="button"
-              className="linkish small gen-pw"
-              onClick={() => {
-                const g = generatePassword();
-                setPw(g);
-                setShown(true);
-                void navigator.clipboard?.writeText(g).then(() => toast("Senha gerada e copiada."));
-              }}
-            >
-              Gerar uma senha forte
-            </button>
-            {shown && pw && (
-              <code className="copy-line selectable" aria-label="Senha gerada">
-                {pw}
-              </code>
-            )}
+            <span className={`hint${nameOk ? "" : " bad"}`}>3 a 32 letras, números, ponto, hífen ou sublinhado. Também é o nome da pasta na Nuvem.</span>
           </div>
         </div>
         <fieldset className="role-pick">
@@ -425,47 +553,8 @@ function CreateUserDialog({ onClose, onCreated }: { onClose: () => void; onCreat
           <button type="button" className="btn ghost" onClick={onClose}>
             Cancelar
           </button>
-          <button className="btn primary" disabled={!valid || pw.length < 8 || create.isPending}>
-            <Icon name="plus" /> Criar usuário
-          </button>
-        </div>
-      </form>
-    </div>
-  );
-}
-
-function ResetPasswordDialog({ user, onClose, onSave }: { user: User; onClose: () => void; onSave: (pw: string) => Promise<unknown> }) {
-  const toast = useToast();
-  const [pw, setPw] = useState("");
-  const [busy, setBusy] = useState(false);
-  return (
-    <div className="dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="reset-title" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <form
-        className="dialog"
-        onSubmit={(e) => {
-          e.preventDefault();
-          setBusy(true);
-          onSave(pw)
-            .then(() => {
-              toast(`Senha de ${user.username} redefinida.`);
-              onClose();
-            })
-            .catch(() => {})
-            .finally(() => setBusy(false));
-        }}
-      >
-        <h2 id="reset-title">Nova senha para {user.username}</h2>
-        <p className="muted">Os aparelhos conectados com essa conta saem e precisam entrar de novo.</p>
-        <PasswordField label="Nova senha" value={pw} onChange={setPw} autoComplete="new-password" meter minLength={8} autoFocus />
-        <button type="button" className="linkish small" style={{ justifySelf: "start" }} onClick={() => setPw(generatePassword())}>
-          Gerar uma senha forte
-        </button>
-        <div className="dialog-actions">
-          <button type="button" className="btn ghost" onClick={onClose}>
-            Cancelar
-          </button>
-          <button className="btn primary" disabled={busy || pw.length < 8}>
-            Redefinir senha
+          <button className="btn primary" disabled={!valid || create.isPending}>
+            <Icon name="plus" /> Autorizar e gerar convite
           </button>
         </div>
       </form>

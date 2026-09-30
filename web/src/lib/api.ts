@@ -15,6 +15,11 @@ export interface User {
   totp: boolean;
   /** Switched off by an admin: cannot sign in. */
   disabled?: boolean;
+  /** Optional second sign-in name. */
+  email?: string;
+  /** Authorized, waiting for the first access (invite). */
+  pending?: boolean;
+  invite_expires?: string;
 }
 
 export interface Camera {

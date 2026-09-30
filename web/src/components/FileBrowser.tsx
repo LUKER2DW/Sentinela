@@ -35,7 +35,7 @@ import {
 } from "../lib/nas";
 import { fmtBytes, fmtDate } from "../lib/time";
 import { useSession, useToast } from "../lib/session";
-import { useCompact } from "../lib/viewport";
+import { isPhone, useCompact } from "../lib/viewport";
 import { Icon } from "./Icon";
 
 type View = "list" | "grid";
@@ -199,7 +199,10 @@ export function FileBrowser({
   const writable = canWrite && (q.data?.can_write ?? false);
   const inTrash = path === TRASH || path.startsWith(`${TRASH}/`);
   const canAddHere = writable && canReceive(path);
-  const [view, setView] = useState<View>(() => (loadPref(VIEW_KEY, "list") === "grid" ? "grid" : "list"));
+  // Phones start in the grid (thumbnails are easier to tap); each kind of
+  // screen remembers its own choice.
+  const viewKey = isPhone() ? `${VIEW_KEY}.phone` : VIEW_KEY;
+  const [view, setView] = useState<View>(() => (loadPref(viewKey, isPhone() ? "grid" : "list") === "grid" ? "grid" : "list"));
   const [pane, setPane] = useState(() => loadPref(PANE_KEY, "1") === "1");
   const [sort, setSort] = useState<{ key: SortKey; asc: boolean }>({ key: "name", asc: true });
   const [filter, setFilter] = useState("");
@@ -648,10 +651,10 @@ export function FileBrowser({
                 <input className="input" placeholder="Filtrar nesta pasta" aria-label="Filtrar nesta pasta" value={filter} onChange={(e) => setFilter(e.target.value)} />
               </label>
               <div className="segmented" role="group" aria-label="Exibição">
-                <button aria-pressed={view === "list"} title="Lista" aria-label="Lista" onClick={() => (setView("list"), savePref(VIEW_KEY, "list"))}>
+                <button aria-pressed={view === "list"} title="Lista" aria-label="Lista" onClick={() => (setView("list"), savePref(viewKey, "list"))}>
                   <Icon name="list" />
                 </button>
-                <button aria-pressed={view === "grid"} title="Grade com miniaturas" aria-label="Grade" onClick={() => (setView("grid"), savePref(VIEW_KEY, "grid"))}>
+                <button aria-pressed={view === "grid"} title="Grade com miniaturas" aria-label="Grade" onClick={() => (setView("grid"), savePref(viewKey, "grid"))}>
                   <Icon name="grid" />
                 </button>
               </div>

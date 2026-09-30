@@ -19,7 +19,7 @@ interface Props {
 export function PasswordField({ label, value, onChange, autoComplete, meter, matches, minLength, autoFocus, hideLabel }: Props) {
   const id = useId();
   const [shown, setShown] = useState(false);
-  const st = meter ? passwordStrength(value, minLength) : null;
+  const st = meter ? passwordStrength(value) : null;
   const match = matches !== undefined && value.length > 0 ? value === matches : null;
 
   return (
@@ -66,7 +66,7 @@ export function PasswordField({ label, value, onChange, autoComplete, meter, mat
             <i />
             <i />
           </span>
-          <span className="strength-label">{st.label || "Use 8 caracteres ou mais; frases são ótimas."}</span>
+          <span className="strength-label">{st.label || "Use 10 caracteres ou mais; frases são ótimas."}</span>
         </div>
       )}
       {match === false && (

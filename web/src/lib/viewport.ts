@@ -12,6 +12,9 @@ function subscribe(cb: () => void) {
   return () => mq.removeEventListener("change", cb);
 }
 
+/** Right now: a phone-sized screen or the Android app. */
+export const isPhone = () => inApp() || (typeof window !== "undefined" && window.matchMedia(PHONE).matches);
+
 /** True on phone-sized screens and in the Android app. */
 export function useCompact(): boolean {
   return useSyncExternalStore(
