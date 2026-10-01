@@ -35,7 +35,9 @@ Target host: old CPU, 4 GB RAM, a dedicated recordings disk, Ubuntu 22.04.
    (ADR-0019):** the port-forwarded TLS listener (and the Tailscale Funnel
    listener, currently switched off), behind mandatory 2FA and the
    closed-door rule. This is the accepted household path after the trial.
-   Nothing else may be exposed.
+   **Exception (ADR-0021):** a self-hosted service the owner explicitly
+   marks "Internet" (off by default), on its own port of the services
+   range, behind the services firewall. Nothing else may be exposed.
 6. **Camera writes are allow-listed.** The DVRIP driver may only send commands
    documented in `docs/CAMERA.md`. Any persistent config write must read the
    full object first, change one allow-listed field, read back, and restore
@@ -43,7 +45,12 @@ Target host: old CPU, 4 GB RAM, a dedicated recordings disk, Ubuntu 22.04.
 7. **Never execute vendor binaries** (VideoPlayTool, CMS, DLLs). Protocol
    knowledge only.
 8. **Keep it small.** No new service, container, database or queue without an
-   ADR in `docs/adr/`. No Redis, Celery, Postgres, Kafka, MQTT.
+   ADR in `docs/adr/`. No Redis, Celery, Postgres, Kafka, MQTT (as parts of
+   Sentinela; the owner's own projects under ADR-0021 may use anything).
+9. **Self-hosted services stay out of the NVR's way (ADR-0021).** Only the
+   `apps` agent holds the Docker socket; the API never does. Services are
+   capped, run on the system disk (never `/data`), cannot reach private
+   ranges, and never start before the NVR after a reboot.
 
 ## 3. Tech stack
 
@@ -65,6 +72,7 @@ Dependencies must be justified. Prefer stdlib. No ORMs. No web frameworks
 ```
 cmd/sentinela/        main binary (flags, wiring, graceful shutdown)
 internal/api/         HTTP handlers, JSON contracts, middleware
+internal/apps/        self-hosted services agent (ADR-0021)
 internal/auth/        users, sessions, argon2id, CSRF, redaction
 internal/camera/dvrip DVRIP/Sonia client (port 34567)
 internal/camera/onvif ONVIF discovery, profiles, events

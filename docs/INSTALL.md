@@ -347,7 +347,35 @@ replaces the old one; recording pauses for a few seconds.
 
 ---
 
-## 13. Backups
+## 13. Self-hosted services (optional)
+
+Sentinela can also run your own projects — APIs, bots, sites, Compose
+stacks — from GitHub or from a folder on the server (ADR-0021). Turn it on
+once, on the server:
+
+```bash
+sudo /opt/sentinela/scripts/setup-apps.sh enable
+```
+
+It adds `apps: {enabled: true}` to the config, starts the `apps` agent and
+installs the services firewall. Admins then see **Serviços** in the
+sidebar (on the phone, under **Mais**). To deploy a project from your PC
+without GitHub, copy its folder (with `.git`) into the Nuvem over the LAN
+share and pick it under **Novo serviço → Pasta no servidor**.
+
+- Services use host ports 20000–20099. For Tailscale devices, allow
+  `tag:nvr:20000-20099` in the tailnet ACL.
+- **Internet** exposure needs `apps.public_host` (defaults to the public
+  address of section 8.2) and a router forward of that service's port.
+  The service has no Sentinela login in front of it.
+- Private GitHub repositories: **Acesso ao GitHub** takes a fine-grained
+  token with read-only *Contents* on the repositories you use.
+- `setup-apps.sh status` shows the agent, the services and the firewall;
+  `disable` stops everything (files stay in `/var/lib/sentinela-apps`).
+
+---
+
+## 14. Backups
 
 `setup-backup.sh` (run by the installer when `/srv/backup` exists) installs
 a nightly timer that copies the database and `/etc/sentinela` to
@@ -366,7 +394,7 @@ that was never restored is not a backup yet.
 
 ---
 
-## 14. Checks and troubleshooting
+## 15. Checks and troubleshooting
 
 | Check | Command |
 |---|---|
@@ -374,6 +402,7 @@ that was never restored is not a backup yet.
 | Containers | `cd /opt/sentinela/deploy && sudo docker compose ps` |
 | Logs | `cd /opt/sentinela/deploy && sudo docker compose logs -f --tail=50` |
 | Public listener | `sudo /opt/sentinela/scripts/setup-public.sh status` |
+| Self-hosted services | `sudo /opt/sentinela/scripts/setup-apps.sh status` |
 | Memory hogs | `ps aux --sort=-rss \| head` |
 
 | Symptom | Likely cause |
@@ -406,3 +435,4 @@ The interface is in Portuguese. The names used in this guide:
 | Aplicativo | App (Android updates) |
 | Compartilhado | Shared (common Nuvem folder) |
 | Adicionar câmera | Add camera |
+| Serviços | Self-hosted services |

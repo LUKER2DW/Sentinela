@@ -14,7 +14,9 @@ are superseded where noted by ADR-0019 and ADR-0020.
 | Secrets in Git/logs/bundles | Runtime secret files, redaction, ignored local release files and review before commit |
 | CSRF/XSS | Same-origin cookies, CSRF header and Origin check, CSP and file-response restrictions |
 | Nuvem loss/ransomware | Recycle bin, audit, local DB/config backup; external restic/restore acceptance still pending |
-| Build pipeline competes with recording | Local manual builds; no server GitHub credentials, runner or build toolchain |
+| Build pipeline competes with recording | NVR images are built on the PC. Self-hosted services build on the server (ADR-0021): one at a time, ≤ 1 core / 1 GB, refused under 400 MB free RAM, on the system disk |
+| A self-hosted service is compromised | No capabilities, capped resources, no private-range egress (camera, LAN, tailnet) and no host services (ufw); only the `apps` agent holds the Docker socket, behind loopback + token; Compose files are checked before they run |
+| Dashboard admin session abused to run code | Creating or changing services needs admin on LAN/tailnet; public 2FA sessions can only start/stop/redeploy configured ones; every change audited |
 | Notification third party | Browser payload encryption; Android sends only an opaque id through Firebase and fetches details from home |
 
 ## Rules
@@ -42,6 +44,9 @@ are superseded where noted by ADR-0019 and ADR-0020.
 6. Containers run without root, with read-only roots, dropped capabilities,
    no Docker socket, host PID or privileged mode. The API's NAS mount is
    separate from the recorder; detection cannot become a recording dependency.
+   The one exception to "no Docker socket" is the `apps` agent (ADR-0021):
+   uid 1000 in the docker group, no camera secrets, Nuvem read-only,
+   loopback API with `/data/apps-agent/token`.
 7. Images and model downloads are pinned; check dependency vulnerabilities
    through the existing tooling. No new service or decode path without an
    accepted ADR and the applicable measured resource budget.
@@ -128,6 +133,19 @@ are superseded where noted by ADR-0019 and ADR-0020.
     Top-level folders are protected from API rename/move/delete. Explicit recycle-bin purge is
     permanent. Profile uploads accept bounded JPEG/PNG/WebP data and are
     resized on the client; they are not a new server image-processing pipeline.
+
+17. Self-hosted services (ADR-0021) are admin-only. Service creation and
+    changes, source inspection and the GitHub token require LAN/tailnet;
+    request bodies (environment values) are never logged, and secret
+    variables are never returned by the API. The GitHub token is a
+    fine-grained read-only token stored 0600 under `/var/lib/sentinela-apps`.
+    Services publish only on `apps.port_first..last`; `apps-firewall.sh`
+    keeps them off private ranges and off the internet unless marked
+    *Internet* by the owner (who also forwards the port). A public service
+    has no Sentinela authentication in front of it. Compose files may not
+    use privileged mode, host namespaces, devices, extra capabilities, the
+    Docker socket, binds outside their folder, or external/non-bridge
+    networks and volumes.
 
 ## Reporting and verification
 

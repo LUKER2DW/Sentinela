@@ -26,6 +26,9 @@ camera isolation, backup recovery and future work are in
 - Nuvem (the file storage) is available to operators and admins. Viewers
   see cameras/events; operators use their own folder and the shared one
   (*Compartilhado*).
+- Self-hosted services (ADR-0021, optional): admins deploy their own
+  projects from GitHub or a Nuvem folder — script, Dockerfile or Compose —
+  as capped containers next to the NVR (`scripts/setup-apps.sh enable`).
 
 ## Server and remote access
 

@@ -12,6 +12,7 @@ from their original runs; they are not new hardware measurements.
 | `go2rtc` | Pinned container | Live WebRTC/MSE, RTSP restream and talk backchannel |
 | `detector` | Motion-gated sidecar, ADR-0016 | Substream keyframes, YOLO26n, zones and event snapshots; CPU capped at 0.15 core, memory 192 MB |
 | `ntfy` | Legacy Compose service | Earlier UnifiedPush relay, not required by the current Android app |
+| `apps` | `sentinela apps`, same image, profile `apps` | Self-hosted services agent (ADR-0021): the only container with the Docker socket; loopback API with a token; 0.5 CPU, 128 MB |
 | Tailscale | Host package | Optional private access/administration through HTTPS serve |
 | Samba, wsdd, Avahi | Host packages | LAN shares/discovery, independent of the web user's role model |
 | Host timers | systemd | SMART, local DB/config backup, optional restic and trash expiry |
@@ -112,7 +113,28 @@ Release configuration is `~/.sentinela-android/connection.json`, outside
 Git. The Android WebView loads the selected server origin, preserving
 same-origin cookie/CSRF auth. A bundled page handles connection failures.
 
-### 2.6 Nuvem and accounts
+### 2.6 Self-hosted services (ADR-0021)
+
+```
+browser -> /api/hosting/* (admin; changes only from LAN/tailnet) -> API
+API -> 127.0.0.1:7091 with /data/apps-agent/token -> apps agent
+agent -> Docker socket: capped containers "sapp-<id>" on bridges sn-*
+agent -> api.github.com/codeload, or a folder under apps.local_root (ro)
+```
+
+Sources are snapshotted into `/var/lib/sentinela-apps/apps/<id>/releases`
+(system disk); `data/` and `cache/` persist across deploys. Script
+services run an allow-listed runtime image with the release at `/app`;
+Dockerfile services are built with the classic builder under build caps;
+Compose files are normalized, checked and rewritten before `up`. The agent
+supervises (no Docker restart policy), starts only autostart services
+after a host boot and only after the boot delay, and writes the ports open
+to the internet for `scripts/apps-firewall.sh` (DOCKER-USER chain:
+services cannot reach private ranges; their ports answer private sources,
+and the internet only when listed). Services and builds share at most
+`apps.total_memory_mb` and one core; they weigh less than the NVR.
+
+### 2.7 Nuvem and accounts
 
 The existing API confines filesystem access through `os.Root`.
 Viewers cannot use Nuvem; operators use personal and shared directories;
@@ -148,6 +170,8 @@ TOTP, device sessions, disabled accounts and audit are in the existing DB.
   app/sentinela.apk            Signed APK
 /srv/nas/                      Personal/shared files and recycle bin
 /srv/backup/                   Local DB/config backups
+/var/lib/sentinela-apps/       Self-hosted services: state.json (0600), sources, data, caches
+/data/apps-agent/token         API ↔ apps agent shared secret
 /etc/sentinela/
   config.yaml                  Server configuration
   secrets.env                  Camera secrets, root 0600
@@ -169,6 +193,8 @@ source. None are committed or sent in the Docker build context.
 | 1984/tcp, 8554/tcp | Loopback | go2rtc API and RTSP restream |
 | 2586/tcp, tailnet 8443 | Legacy relay | ntfy; not needed for FCM |
 | 22/tcp | LAN/tailnet admins | Key-only SSH |
+| 127.0.0.1:7091 | Loopback | Apps agent API (token) |
+| 20000–20099 | Per service: loopback, LAN+tailnet, tailnet, or public (ADR-0021) | Self-hosted services, filtered by the DOCKER-USER services chain |
 | 445/tcp | LAN | Samba; remote SMB remains an explicit owner decision |
 
 The household public URL uses WAN port 18443. Public ports are enabled by
