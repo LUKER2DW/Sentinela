@@ -112,8 +112,29 @@ cat >/etc/sysctl.d/90-sentinela.conf <<'EOF'
 kernel.panic = 10
 kernel.panic_on_oops = 1
 vm.swappiness = 10
+# Smooth continuous video writes on a spinning disk (docs/ARCHITECTURE.md §6;
+# same values as install-server.sh, which this file replaces).
+vm.dirty_background_bytes = 16777216
+vm.dirty_bytes = 67108864
+EOF
+# Faster transfers to far clients (Nuvem downloads, live view, playback on
+# 4G or the public path): BBR does not read every lost packet as congestion,
+# as CUBIC does, and needs the fq pacing qdisc. Only what this server sends
+# changes; uploads follow the phone's or PC's own congestion control.
+echo tcp_bbr >/etc/modules-load.d/sentinela-bbr.conf
+modprobe tcp_bbr 2>/dev/null || true
+cat >/etc/sysctl.d/92-sentinela-net.conf <<'EOF'
+net.core.default_qdisc = fq
+net.ipv4.tcp_congestion_control = bbr
+# Keep the congestion window between the Nuvem's chunked requests.
+net.ipv4.tcp_slow_start_after_idle = 0
 EOF
 sysctl -q --system
+# default_qdisc only applies to new qdiscs: replace the wired root qdisc now.
+for dev in /sys/class/net/*/device; do
+  dev=${dev%/device}; dev=${dev##*/}
+  tc qdisc replace dev "$dev" root fq 2>/dev/null || true
+done
 
 echo "==> bounded logs"
 install -d /etc/systemd/journald.conf.d
