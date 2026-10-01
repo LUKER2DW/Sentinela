@@ -113,15 +113,14 @@ export function TimeRuler({ dayStart, data, cursor, now, onPick, onView, preview
     commit();
   };
 
-  const zoom = (d: number) => {
-    const i = Math.min(SCALES.length - 1, Math.max(0, scaleIdx + d));
-    setScaleIdx(i);
+  const zoom = (d: number) => setScaleIdx((i) => Math.min(SCALES.length - 1, Math.max(0, i + d)));
+  useEffect(() => {
     try {
-      localStorage.setItem(SCALE_KEY, String(i));
+      localStorage.setItem(SCALE_KEY, String(scaleIdx));
     } catch {
       /* not remembered */
     }
-  };
+  }, [scaleIdx]);
 
   const coverage = useMemo(() => {
     const ranges = (data?.segments ?? []).map((s) => [new Date(s.start).getTime(), new Date(s.end).getTime()] as [number, number]);
@@ -153,6 +152,31 @@ export function TimeRuler({ dayStart, data, cursor, now, onPick, onView, preview
   const minor = minute >= 8 ? minute : minute * 5;
 
   useEffect(() => () => window.clearTimeout(settle.current), []);
+
+  // The mouse wheel moves the ruler, never the page under it; Ctrl + wheel
+  // zooms. React's onWheel is passive and cannot stop the page, so this is
+  // a native listener. Line/page deltas (Firefox) are turned into pixels.
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    let zoomAt = 0;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      if (e.ctrlKey) {
+        if (e.timeStamp - zoomAt > 250 && Math.abs(e.deltaY) > 1) {
+          zoomAt = e.timeStamp;
+          const d = e.deltaY < 0 ? 1 : -1;
+          setScaleIdx((i) => Math.min(SCALES.length - 1, Math.max(0, i + d)));
+        }
+        return;
+      }
+      const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? el.clientWidth : 1;
+      const d = Math.abs(e.deltaY) > Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
+      if (d) el.scrollLeft += d * unit;
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []);
 
   const shown = scrub ?? cursor;
   return (
@@ -224,12 +248,6 @@ export function TimeRuler({ dayStart, data, cursor, now, onPick, onView, preview
           }}
           onTouchEnd={release}
           onTouchCancel={release}
-          onWheel={(e) => {
-            if (e.ctrlKey) return;
-            if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
-              scroller.current!.scrollLeft += e.deltaY;
-            }
-          }}
           role="slider"
           tabIndex={0}
           aria-label="Régua do dia: arraste até um horário e solte para assistir"
