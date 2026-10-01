@@ -96,9 +96,6 @@ func New(cfg *config.Config, st *store.Store, web fs.FS, log *slog.Logger) (*Ser
 		log.Warn("notifications disabled: VAPID keys", "err", err)
 	} else {
 		s.push.sender = &push.Sender{Keys: keys, Subject: cfg.PushSubject}
-		if cfg.Ntfy.PublicURL != "" {
-			s.push.sender.Relay = &push.Relay{PublicURL: cfg.Ntfy.PublicURL, URL: cfg.Ntfy.URL}
-		}
 	}
 	if sender, err := push.LoadFCM(filepath.Join(cfg.DataDir, "fcm", "service-account.json")); err != nil {
 		log.Warn("Firebase notifications unavailable", "err", err)

@@ -382,8 +382,7 @@ func (s *Server) pushInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	subs, _ := s.Store.PushSubs(r.Context(), userFrom(r).ID)
-	// ntfy_url: the relay the Android app registers with (empty = none).
-	writeJSON(w, http.StatusOK, map[string]any{"public_key": s.push.sender.Keys.Public, "devices": len(subs), "ntfy_url": s.Cfg.Ntfy.PublicURL})
+	writeJSON(w, http.StatusOK, map[string]any{"public_key": s.push.sender.Keys.Public, "devices": len(subs)})
 }
 
 func (s *Server) pushSubscribe(w http.ResponseWriter, r *http.Request) {
@@ -469,7 +468,7 @@ func (s *Server) putMode(w http.ResponseWriter, r *http.Request) {
 
 // notifyStream is the Android app's notification channel: a long-lived
 // Server-Sent Events stream of this user's notifications, kept open by a
-// foreground service. No Google or ntfy service in between.
+// foreground service, when Firebase is unavailable (ADR-0020).
 func (s *Server) notifyStream(w http.ResponseWriter, r *http.Request) {
 	fl, ok := w.(http.Flusher)
 	if !ok {

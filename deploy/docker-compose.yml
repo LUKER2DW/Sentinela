@@ -52,30 +52,6 @@ services:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
 
-  # UnifiedPush relay for the Android app's notifications (ADR-0013).
-  # Loopback only (deploy/ntfy/server.yml); published on the tailnet by
-  # `tailscale serve --https=8443`. Nothing else depends on it.
-  ntfy:
-    image: binwiederhier/ntfy:v2.28.0@sha256:6ef4b819f722fccdc036af611c4774cfdc2de821ab74fdd48bbf4c9d6f8973da
-    command: ["serve"]
-    network_mode: host
-    user: "1000:1000"
-    restart: unless-stopped
-    read_only: true
-    cap_drop: [ALL]
-    security_opt: [no-new-privileges:true]
-    environment:
-      TZ: UTC
-      GOMEMLIMIT: 40MiB
-    volumes:
-      - ./ntfy/server.yml:/etc/ntfy/server.yml:ro
-      - /data/ntfy:/var/cache/ntfy
-    tmpfs: [/tmp]
-    mem_limit: 64m
-    logging:
-      driver: json-file
-      options: { max-size: "10m", max-file: "3" }
-
   # Object detector (ADR-0016): wakes on the camera's motion events, reads
   # substream keyframes from go2rtc's loopback restream, runs YOLO26n and
   # reports to the API on loopback. Hard-capped at 15 % of one core; nothing

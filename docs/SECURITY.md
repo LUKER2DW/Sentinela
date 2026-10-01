@@ -54,8 +54,8 @@ are superseded where noted by ADR-0019 and ADR-0020.
    go2rtc/internal APIs remain loopback-only. Samba binds to the LAN and
    uses its own account; web roles do not restrict that SMB account.
    Remote SMB needs explicit approval and stronger per-user credentials.
-   The existing ntfy firewall allowance is legacy; current Android push
-   does not require port 8443. API Nuvem access uses `os.Root`, personal/
+   The earlier ntfy relay and its tailnet port 8443 were removed on
+   2026-10-01 (FCM replaced it). API Nuvem access uses `os.Root`, personal/
    shared scope, sandboxed file responses and authenticated media/PDF
    previews. The recorder cannot see the NAS.
 9. Tailscale remains the private path under ADR-0004, amended by the
@@ -74,8 +74,9 @@ are superseded where noted by ADR-0019 and ADR-0020.
    }
    ```
 
-   Add 445 only for explicitly approved remote SMB, and 8443 only if the
-   legacy relay is intentionally used. HTTPS tailnet names enter public
+   Add 445 only for explicitly approved remote SMB, and the services range
+   (`tag:nvr:20000-20099`, ADR-0021) for devices that open self-hosted
+   services. HTTPS tailnet names enter public
    certificate-transparency logs. Key expiry on phones, a stable server
    identity and Tailnet Lock are operator responsibilities.
    Tailscale's input chain can precede ufw; its ACL is the effective tailnet

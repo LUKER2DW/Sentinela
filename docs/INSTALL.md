@@ -122,7 +122,7 @@ The installer is idempotent. It:
    the SMART timer, applies the firewall, and sets up Samba and backups
    when `/srv/nas` and `/srv/backup` exist;
 5. builds and starts the containers: `sentinela` (API/UI), `recorder`,
-   `go2rtc`, `detector` and `ntfy`;
+   `go2rtc` and `detector` (plus `apps` once section 13 is enabled);
 6. waits for the health check.
 
 Then review `/etc/sentinela/config.yaml`:

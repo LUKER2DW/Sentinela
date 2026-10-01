@@ -11,7 +11,6 @@ from their original runs; they are not new hardware measurements.
 | `recorder` | `sentinela record`, same image | Separate ffmpeg supervisor, indexing, retention and heartbeat |
 | `go2rtc` | Pinned container | Live WebRTC/MSE, RTSP restream and talk backchannel |
 | `detector` | Motion-gated sidecar, ADR-0016 | Substream keyframes, YOLO26n, zones and event snapshots; CPU capped at 0.15 core, memory 192 MB |
-| `ntfy` | Legacy Compose service | Earlier UnifiedPush relay, not required by the current Android app |
 | `apps` | `sentinela apps`, same image, profile `apps` | Self-hosted services agent (ADR-0021): the only container with the Docker socket; loopback API with a token; 0.5 CPU, 128 MB |
 | Tailscale | Host package | Optional private access/administration through HTTPS serve |
 | Samba, wsdd, Avahi | Host packages | LAN shares/discovery, independent of the web user's role model |
@@ -191,7 +190,6 @@ source. None are committed or sent in the Docker build context.
 | 7080/tcp | Off in the household | Optional ACME HTTP-01 challenge listener |
 | 8555/tcp+udp | LAN, tailnet and ADR-0019 public allowance | WebRTC ICE |
 | 1984/tcp, 8554/tcp | Loopback | go2rtc API and RTSP restream |
-| 2586/tcp, tailnet 8443 | Legacy relay | ntfy; not needed for FCM |
 | 22/tcp | LAN/tailnet admins | Key-only SSH |
 | 127.0.0.1:7091 | Loopback | Apps agent API (token) |
 | 20000–20099 | Per service: loopback, LAN+tailnet, tailnet, or public (ADR-0021) | Self-hosted services, filtered by the DOCKER-USER services chain |

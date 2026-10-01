@@ -41,8 +41,6 @@ type Config struct {
 	Timezone string `yaml:"timezone"`
 	// PushSubject identifies the sender to push services (VAPID "sub").
 	PushSubject string `yaml:"push_subject"`
-	// Ntfy is the self-hosted UnifiedPush relay for the Android app (ADR-0013).
-	Ntfy Ntfy `yaml:"ntfy"`
 	// Remote holds the access paths of the ADR-0019 trial. All off by default.
 	Remote Remote `yaml:"remote"`
 	// Apps are self-hosted services deployed from GitHub (ADR-0021).
@@ -136,13 +134,6 @@ type PublicTLS struct {
 	// URL is the address people use from outside, with the router's port
 	// (e.g. https://203.0.113.7:18443): invite links point there.
 	URL string `yaml:"url"`
-}
-
-// Ntfy: phones reach PublicURL over the tailnet; the server posts to URL.
-// An empty PublicURL disables notifications in the Android app.
-type Ntfy struct {
-	PublicURL string `yaml:"public_url"`
-	URL       string `yaml:"url"`
 }
 
 // Volume is a filesystem shown in the UI. Share is the SMB share name, if any.
@@ -257,7 +248,6 @@ func (c *Config) applyDefaults() {
 	def(&c.BackupStatusFile, "/host/backup.json")
 	def(&c.Timezone, "America/Sao_Paulo")
 	def(&c.PushSubject, "mailto:admin@sentinela.invalid")
-	def(&c.Ntfy.URL, "http://127.0.0.1:2586")
 	if c.Remote.Public.Domain != "" {
 		def(&c.Remote.Public.Listen, ":7443")
 	}
@@ -322,14 +312,6 @@ func (c *Config) validate() error {
 	}
 	if c.Recording.MaxDiskPercent < 50 || c.Recording.MaxDiskPercent > 98 {
 		errs = append(errs, errors.New("recording.max_disk_percent must be 50..98"))
-	}
-	if p := c.Ntfy.PublicURL; p != "" {
-		if u, err := url.Parse(p); err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || strings.Trim(u.Path, "/") != "" || u.RawQuery != "" {
-			errs = append(errs, errors.New("ntfy.public_url must be https://host[:port] without a path"))
-		}
-	}
-	if u, err := url.Parse(c.Ntfy.URL); err != nil || u.Scheme != "http" && u.Scheme != "https" || u.Host == "" {
-		errs = append(errs, errors.New("ntfy.url must be an http(s) URL"))
 	}
 	if l := c.Remote.FunnelListen; l != "" {
 		// Funnel traffic arrives from tailscaled on this host only.

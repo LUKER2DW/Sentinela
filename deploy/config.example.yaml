@@ -21,12 +21,6 @@ volumes:
   - {id: nuvem, name: Nuvem, path: /srv/nas, kind: nas, share: Nuvem}
   - {id: backup, name: Backups, path: /srv/backup, kind: backup}
 
-# Notifications in the Android app (ADR-0013): the ntfy relay published by
-# `tailscale serve --https=8443` (scripts/setup-ntfy.sh). Empty = off.
-ntfy:
-  # public_url: https://sentinela.<tailnet>.ts.net:8443
-  # url: http://127.0.0.1:2586     # where the server posts (loopback)
-
 # Remote access trial (ADR-0019). Everything off unless set. Requests on these
 # listeners need two-step login (enrolled at home) and see nothing else.
 remote:

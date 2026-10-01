@@ -106,8 +106,8 @@ uninstalling; subsequent updates use the in-app flow.
 
 Firebase's service-account key is separate from the Android client JSON.
 Deploy it as `/data/fcm/service-account.json`, mode 0600, readable by UID
-1000. It is never packaged in the APK or committed. The app needs neither
-ntfy nor the Tailscale app for the current public access path.
+1000. It is never packaged in the APK or committed. The app does not need
+the Tailscale app for the current public access path.
 The `.dev` Android build uses direct notifications.
 
 ## Install a fresh server

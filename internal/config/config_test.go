@@ -30,8 +30,6 @@ func TestValidate(t *testing.T) {
 		"bad id":        `cameras: [{id: "Cam 1", host: 10.0.0.2, user_env: U, password_env: P}]`,
 		"dup id":        `cameras: [{id: a, host: 10.0.0.2, user_env: U, password_env: P}, {id: a, host: 10.0.0.3, user_env: U, password_env: P}]`,
 		"bad segment":   "recording: {segment_seconds: 5}\ncameras: []",
-		"ntfy http":     "ntfy: {public_url: 'http://s.ts.net:8443'}",
-		"ntfy path":     "ntfy: {public_url: 'https://s.ts.net:8443/ntfy'}",
 		"funnel on lan": "remote: {funnel_listen: '0.0.0.0:8081'}",
 		"public lan ip": "remote: {public: {domain: '192.168.1.10'}}",
 	}

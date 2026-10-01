@@ -506,7 +506,7 @@ func TestPushSubscribeAndMode(t *testing.T) {
 	if code, _, body := admin.do("POST", "/api/push/subscribe", `{"endpoint":"https://fcm.googleapis.com/fcm/send/x","expirationTime":null,"keys":{"p256dh":"a","auth":"b"}}`); code != 200 {
 		t.Fatalf("subscribe = %d %s", code, body)
 	}
-	// No ntfy relay configured: UnifiedPush endpoints are refused.
+	// Only browser push services: anything else (e.g. a relay) is refused.
 	if code, _, _ := admin.do("POST", "/api/push/subscribe", `{"endpoint":"https://sentinela.tail0.ts.net:8443/upabc?up=1","keys":{"p256dh":"a","auth":"b"}}`); code != 400 {
 		t.Fatalf("ntfy endpoint accepted without relay: %d", code)
 	}
