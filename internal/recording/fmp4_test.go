@@ -51,37 +51,60 @@ func TestFragIndexSplice(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(idx.Fragments) != 10 || idx.Fragments[3].Start != 6*time.Second {
-		t.Fatalf("fragments = %+v", idx.Fragments)
+	if len(idx.Fragments) != 10 || idx.Fragments[3].Start != 6*time.Second || idx.Timescale != 90000 {
+		t.Fatalf("index = %+v", idx)
 	}
 	tests := []struct {
 		at        time.Duration
 		wantStart time.Duration
-		whole     bool
 	}{
-		{0, 0, true},
-		{1500 * time.Millisecond, 0, true}, // inside the first fragment
-		{7 * time.Second, 6 * time.Second, false},
-		{8 * time.Second, 8 * time.Second, false},
-		{time.Hour, 18 * time.Second, false},
+		{0, 0},
+		{1500 * time.Millisecond, 0}, // inside the first fragment
+		{7 * time.Second, 6 * time.Second},
+		{8 * time.Second, 8 * time.Second},
+		{time.Hour, 18 * time.Second},
 	}
 	for _, tt := range tests {
 		rs, size, start := idx.Splice(bytes.NewReader(seg), tt.at)
-		if tt.whole {
-			if rs != nil {
-				t.Errorf("at %v: spliced, want the whole file", tt.at)
-			}
-			continue
-		}
 		if start != tt.wantStart {
 			t.Errorf("at %v: start %v, want %v", tt.at, start, tt.wantStart)
 		}
 		got, _ := io.ReadAll(rs)
-		f := idx.Fragments[int(tt.wantStart/(2*time.Second))]
-		want := append(append([]byte{}, seg[:idx.InitEnd]...), seg[f.Offset:idx.End]...)
-		if int64(len(got)) != size || !bytes.Equal(got, want) {
-			t.Errorf("at %v: %d bytes, want init + fragments from %d (%d bytes)", tt.at, len(got), f.Offset, len(want))
+		first := int(tt.wantStart / (2 * time.Second))
+		f := idx.Fragments[first]
+		if int64(len(got)) != size || !bytes.Equal(got[:idx.InitEnd], seg[:idx.InitEnd]) {
+			t.Fatalf("at %v: %d bytes of %d, init differs", tt.at, len(got), size)
 		}
+		sidx := got[idx.InitEnd:]
+		sidx = sidx[:binary.BigEndian.Uint32(sidx)]
+		if rest := got[idx.InitEnd+int64(len(sidx)):]; !bytes.Equal(rest, seg[f.Offset:idx.End]) {
+			t.Errorf("at %v: fragments after the sidx differ from the segment from %d", tt.at, f.Offset)
+		}
+		checkSidx(t, sidx, idx, idx.Fragments[first:])
+	}
+}
+
+// checkSidx: one reference per fragment, sizes covering exactly the bytes
+// that follow it, 2 s each at 90 kHz, starting at the first fragment's time.
+func checkSidx(t *testing.T, b []byte, idx *FragIndex, frags []Fragment) {
+	t.Helper()
+	be := binary.BigEndian
+	if string(b[4:8]) != "sidx" || b[8] != 1 || be.Uint32(b[12:]) != idx.VideoID || be.Uint32(b[16:]) != 90000 {
+		t.Fatalf("sidx header % x", b[:20])
+	}
+	if be.Uint64(b[20:]) != frags[0].Ticks || be.Uint64(b[28:]) != 0 || int(be.Uint16(b[38:])) != len(frags) {
+		t.Fatalf("sidx times/count % x", b[20:40])
+	}
+	var total int64
+	for i := range frags {
+		ref := b[40+12*i:]
+		total += int64(be.Uint32(ref) & 0x7fffffff)
+		if be.Uint32(ref[4:]) != 180000 || be.Uint32(ref[8:]) != 0x90000000 {
+			t.Errorf("reference %d: duration %d, sap %x", i, be.Uint32(ref[4:]), be.Uint32(ref[8:]))
+		}
+	}
+	if total != idx.End-frags[0].Offset {
+		t.Errorf("sidx covers %d bytes, want %d", total, idx.End-frags[0].Offset)
 	}
 }
 
@@ -96,8 +119,12 @@ func TestFragIndexGrowingFile(t *testing.T) {
 	if rs == nil || start != 4*time.Second {
 		t.Fatalf("start %v: the incomplete last fragment must be skipped", start)
 	}
-	if size != idx.InitEnd+idx.End-idx.Fragments[2].Offset {
-		t.Fatalf("size %d", size)
+	if want := idx.InitEnd + (8 + 32 + 12) + idx.End - idx.Fragments[2].Offset; size != want {
+		t.Fatalf("size %d, want %d", size, want)
+	}
+	// Nothing complete yet: nothing to splice.
+	if rs, _, _ := (&FragIndex{InitEnd: idx.InitEnd, End: 0, Fragments: idx.Fragments}).Splice(bytes.NewReader(seg), 0); rs != nil {
+		t.Fatal("spliced a file without a complete fragment")
 	}
 }
 

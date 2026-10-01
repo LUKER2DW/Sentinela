@@ -1,6 +1,7 @@
 package recording
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -14,11 +15,18 @@ import (
 // range at a time, which over a slow link takes many seconds. Instead the
 // server hands it the init boxes followed by the fragments from the wanted
 // keyframe on: the same bytes, no remux, no CPU (AGENTS.md §2.1).
+//
+// The served file also gets a segment index (sidx) after the moov. Without
+// one, a seekable fragmented MP4 makes Chrome's demuxer (FFmpeg) read every
+// moof before it plays, one range request per fragment: ~100 round trips per
+// 5-minute file, which over the phone's remote path took ~10 s. The sidx
+// lists every fragment's size and duration, so it plays after the first one.
 
 // Fragment is one moof box and the video decode time it starts at.
 type Fragment struct {
 	Offset int64
 	Start  time.Duration
+	Ticks  uint64 // Start in the video timescale
 }
 
 // FragIndex describes a segment file for splicing.
@@ -27,6 +35,7 @@ type FragIndex struct {
 	End       int64 // end of the last complete fragment (mfra excluded)
 	Fragments []Fragment
 	VideoID   uint32
+	Timescale uint32 // of the video track
 }
 
 const maxBox = 1 << 20 // moov/moof are a few KB; refuse anything absurd
@@ -60,6 +69,7 @@ func ReadFragIndex(r io.ReaderAt, size int64) (*FragIndex, error) {
 			}
 			idx.InitEnd = off + n
 			idx.VideoID = videoID
+			idx.Timescale = timescale
 		case "moof":
 			if idx.InitEnd == 0 {
 				return nil, errors.New("fmp4: moof before moov")
@@ -69,7 +79,7 @@ func ReadFragIndex(r io.ReaderAt, size int64) (*FragIndex, error) {
 				return nil, err
 			}
 			if t, ok := fragmentTime(body, videoID); ok {
-				idx.Fragments = append(idx.Fragments, Fragment{Offset: off, Start: ticks(t, timescale)})
+				idx.Fragments = append(idx.Fragments, Fragment{Offset: off, Start: ticks(t, timescale), Ticks: t})
 			}
 		case "mfra":
 			return &idx, nil
@@ -83,25 +93,77 @@ func ReadFragIndex(r io.ReaderAt, size int64) (*FragIndex, error) {
 }
 
 // Splice returns the file as seen from the last keyframe at or before at:
-// the init boxes, then every fragment from there to the end. start is that
-// keyframe's time in the segment (0 when the whole file is served).
+// the init boxes, a sidx indexing what follows, then every complete
+// fragment from there on (a closed file's mfra is left out: its offsets no
+// longer match). start is that keyframe's time in the segment. Nil when the
+// file has no complete fragment yet.
 func (idx *FragIndex) Splice(r io.ReaderAt, at time.Duration) (rs io.ReadSeeker, size int64, start time.Duration) {
-	i := -1
+	n, i := 0, 0
 	for j, f := range idx.Fragments {
-		if f.Start <= at && f.Offset < idx.End {
+		if f.Offset >= idx.End {
+			break
+		}
+		n = j + 1
+		if f.Start <= at {
 			i = j
 		}
 	}
-	if i <= 0 {
+	if n == 0 {
 		return nil, 0, 0
 	}
-	f := idx.Fragments[i]
-	parts := []section{{r, 0, idx.InitEnd}, {r, f.Offset, idx.End - f.Offset}}
+	frags := idx.Fragments[i:n]
+	// The last fragment's length is not written anywhere cheap to read:
+	// take the one before it (in the whole file).
+	var last uint64
+	if n >= 2 && idx.Fragments[n-1].Ticks > idx.Fragments[n-2].Ticks {
+		last = idx.Fragments[n-1].Ticks - idx.Fragments[n-2].Ticks
+	}
+	parts := []section{{r, 0, idx.InitEnd}}
+	if sidx := idx.sidx(frags, last); sidx != nil {
+		parts = append(parts, section{bytes.NewReader(sidx), 0, int64(len(sidx))})
+	}
+	parts = append(parts, section{r, frags[0].Offset, idx.End - frags[0].Offset})
 	m := &multiSection{parts: parts}
 	for _, p := range parts {
 		m.size += p.n
 	}
-	return m, m.size, f.Start
+	return m, m.size, frags[0].Start
+}
+
+// sidx builds a version-1 segment index box with one reference per
+// fragment, the fragments following it back to back up to idx.End; last is
+// the final fragment's duration.
+func (idx *FragIndex) sidx(frags []Fragment, last uint64) []byte {
+	if len(frags) > 0xffff || idx.Timescale == 0 {
+		return nil
+	}
+	n := 8 + 4 + 4 + 4 + 8 + 8 + 2 + 2 + 12*len(frags)
+	b := make([]byte, 0, n)
+	b = binary.BigEndian.AppendUint32(b, uint32(n))
+	b = append(b, "sidx"...)
+	b = binary.BigEndian.AppendUint32(b, 1<<24) // version 1, no flags
+	b = binary.BigEndian.AppendUint32(b, idx.VideoID)
+	b = binary.BigEndian.AppendUint32(b, idx.Timescale)
+	b = binary.BigEndian.AppendUint64(b, frags[0].Ticks) // earliest presentation time
+	b = binary.BigEndian.AppendUint64(b, 0)              // first fragment right after
+	b = binary.BigEndian.AppendUint16(b, 0)              // reserved
+	b = binary.BigEndian.AppendUint16(b, uint16(len(frags)))
+	for i, f := range frags {
+		end, dur := idx.End, last
+		if i+1 < len(frags) {
+			end = frags[i+1].Offset
+			if frags[i+1].Ticks > f.Ticks {
+				dur = frags[i+1].Ticks - f.Ticks
+			}
+		}
+		if end-f.Offset >= 1<<31 || dur >= 1<<32 {
+			return nil
+		}
+		b = binary.BigEndian.AppendUint32(b, uint32(end-f.Offset)) // media reference
+		b = binary.BigEndian.AppendUint32(b, uint32(dur))
+		b = binary.BigEndian.AppendUint32(b, 0x90000000) // starts with a SAP of type 1
+	}
+	return b
 }
 
 // GOP returns a tiny playable file: the init boxes and only the fragment

@@ -144,7 +144,7 @@ func (s *Server) recording(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "video/mp4")
 	w.Header().Set("Cache-Control", "private, max-age=60")
 	// ?at=seconds: start at the keyframe before that instant, so the player
-	// does not walk every fragment up to it one range request at a time.
+	// does not download what comes before it.
 	// ?at=seconds&gop=1: the timeline's hover preview, just the keyframe at
 	// that instant (video track only, built once and kept in memory), or
 	// the whole keyframe group when the fragment cannot be trimmed.
@@ -166,9 +166,11 @@ func (s *Server) recording(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "no preview for this segment")
 		return
 	}
-	if at, err := strconv.ParseFloat(r.URL.Query().Get("at"), 64); err == nil && at > 1 && at < 86400 {
+	// Playback, from ?at or the start: served with a fragment index so the
+	// player does not read the whole file before the first frame.
+	if at, err := strconv.ParseFloat(r.URL.Query().Get("at"), 64); err != nil || at >= 0 && at < 86400 {
 		if idx, err := s.segs.index(path, f, info.Size(), info.ModTime()); err == nil {
-			if rs, _, _ := idx.Splice(f, time.Duration(at*float64(time.Second))); rs != nil {
+			if rs, _, _ := idx.Splice(f, time.Duration(max(at, 0)*float64(time.Second))); rs != nil {
 				http.ServeContent(w, r, filepath.Base(path), info.ModTime(), rs)
 				return
 			}
