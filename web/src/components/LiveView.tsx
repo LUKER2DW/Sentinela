@@ -412,7 +412,8 @@ export function LiveView({ cameraId, cameraName, motion, allowTalk, compact, def
         </button>
         {allowTalk && (
           <button
-            className={`btn talk${holding ? " on" : ""}`}
+            className={`btn icon talk${holding ? " on" : ""}`}
+            aria-label={holding ? (status.state === "playing" ? "Falando" : "Conectando") : "Segure para falar"}
             disabled={!talkAvailable}
             aria-pressed={holding}
             onPointerDown={(e) => {
@@ -426,15 +427,7 @@ export function LiveView({ cameraId, cameraName, motion, allowTalk, compact, def
             onContextMenu={(e) => e.preventDefault()}
             title={talkAvailable ? "Segure para falar pelo alto-falante da câmera" : "Falar exige HTTPS e WebRTC (indisponível pela rede de casa em HTTP e pelo Funnel)"}
           >
-            <Icon name="mic" />{" "}
-            {holding ? (
-              status.state === "playing" ? "Falando…" : "Conectando…"
-            ) : (
-              <>
-                <span className="hide-sm">Segure para falar</span>
-                <span className="show-sm">Falar</span>
-              </>
-            )}
+            <Icon name="mic" />
           </button>
         )}
         <span className="spacer" />
@@ -463,14 +456,15 @@ export function LiveView({ cameraId, cameraName, motion, allowTalk, compact, def
           <Icon name="timer" />
         </button>
         {!compact && (
-          <div className="segmented" role="group" aria-label="Stream">
-            <button aria-pressed={stream === "main"} onClick={() => pickStream("main")} title="Stream principal: resolução máxima (2K)">
-              HD
-            </button>
-            <button aria-pressed={stream === "sub"} onClick={() => pickStream("sub")} title="Substream: imagem menor, abre mais rápido e gasta menos dados">
-              SD
-            </button>
-          </div>
+          // One button: shows the stream playing, a tap switches to the other.
+          <button
+            className="btn stream-toggle"
+            onClick={() => pickStream(stream === "main" ? "sub" : "main")}
+            aria-label={stream === "main" ? "HD: tocar para mudar para SD" : "SD: tocar para mudar para HD"}
+            title={stream === "main" ? "HD (stream principal, 2K). Toque para SD: abre mais rápido e gasta menos dados" : "SD (substream). Toque para HD: resolução máxima (2K)"}
+          >
+            {stream === "main" ? "HD" : "SD"}
+          </button>
         )}
         <button className="btn icon" onClick={fullscreen} aria-label="Tela cheia" title="Tela cheia">
           <Icon name="fullscreen" />

@@ -2458,3 +2458,6 @@ textarea.viewer-text.editing { border: 0; outline: none; resize: none; backgroun
 }
 .player:fullscreen .player-bar { padding-bottom: calc(10px + var(--sa-bottom)); }
 .player:fullscreen .player-tag:not(.rec-tag) { top: calc(12px + var(--sa-top)); }
+
+/* Live bar: HD/SD is one toggle showing the stream playing. */
+.player-bar .btn.stream-toggle { min-width: 44px; padding: 0 10px; font-weight: 700; letter-spacing: 0.02em; }
