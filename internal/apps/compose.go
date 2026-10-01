@@ -1,0 +1,512 @@
+package apps
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path"
+	"path/filepath"
+	"slices"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+)
+
+// Compose services (ADR-0021). The Compose file is first normalized by
+// `docker compose config` (env interpolation, extends, relative paths made
+// absolute), then checked and rewritten here, and only the rewritten file
+// is ever run. The docker CLI runs in a throwaway container of the
+// official CLI image, with the socket and the service's folder mounted at
+// their host paths; Sentinela's own image carries no Docker CLI.
+
+// projectName is the Compose project of a service.
+func projectName(id string) string { return "sapp-" + id }
+
+// defaultCaps are Docker's default capabilities: cap_add may only re-add
+// one of these (after a cap_drop), never grant more.
+var defaultCaps = []string{"AUDIT_WRITE", "CHOWN", "DAC_OVERRIDE", "FOWNER", "FSETID", "KILL", "MKNOD",
+	"NET_BIND_SERVICE", "NET_RAW", "SETFCAP", "SETGID", "SETPCAP", "SETUID", "SYS_CHROOT"}
+
+// composePlan is a normalized Compose project being rewritten.
+type composePlan struct {
+	doc      map[string]any
+	services []string
+	ports    []portRef
+}
+
+// portRef is one published port entry and the platform port it maps to.
+type portRef struct {
+	entry map[string]any
+	port  Port
+}
+
+// planCompose parses normalized Compose JSON and refuses anything that
+// would reach the host: privileged mode, host namespaces, devices, extra
+// capabilities, binds outside allowed, foreign or external networks and
+// volumes. allowed are the folders binds may come from.
+func planCompose(raw []byte, allowed []string) (*composePlan, error) {
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return nil, fmt.Errorf("compose: %w", err)
+	}
+	services, _ := doc["services"].(map[string]any)
+	if len(services) == 0 {
+		return nil, errors.New("compose: nenhum serviço no arquivo")
+	}
+	p := &composePlan{doc: doc}
+	var errs []error
+	bad := func(svc, format string, args ...any) {
+		errs = append(errs, fmt.Errorf("%s: "+format, append([]any{svc}, args...)...))
+	}
+	inside := func(src string) bool {
+		src = path.Clean(filepath.ToSlash(src))
+		for _, a := range allowed {
+			a = path.Clean(filepath.ToSlash(a))
+			if src == a || strings.HasPrefix(src, a+"/") {
+				return true
+			}
+		}
+		return false
+	}
+	for name := range services {
+		p.services = append(p.services, name)
+	}
+	sort.Strings(p.services)
+	for _, name := range p.services {
+		s, ok := services[name].(map[string]any)
+		if !ok {
+			bad(name, "formato inválido")
+			continue
+		}
+		if v, _ := s["privileged"].(bool); v {
+			bad(name, "privileged não é permitido")
+		}
+		for _, k := range []string{"network_mode", "pid", "ipc", "userns_mode", "uts", "cgroup", "cgroup_parent", "runtime", "isolation"} {
+			v, _ := s[k].(string)
+			if v == "" || k == "ipc" && (v == "private" || v == "shareable") || k == "network_mode" && v == "none" {
+				continue
+			}
+			bad(name, "%s: %q não é permitido", k, v)
+		}
+		for _, k := range []string{"devices", "device_cgroup_rules", "gpus"} {
+			if v, ok := s[k]; ok && v != nil {
+				if l, isList := v.([]any); !isList || len(l) > 0 {
+					bad(name, "%s não é permitido", k)
+				}
+			}
+		}
+		for _, c := range strList(s["cap_add"]) {
+			if !slices.Contains(defaultCaps, strings.TrimPrefix(strings.ToUpper(c), "CAP_")) {
+				bad(name, "cap_add %s não é permitido", c)
+			}
+		}
+		for _, o := range strList(s["security_opt"]) {
+			if l := strings.ToLower(o); strings.Contains(l, "unconfined") || strings.Contains(l, "disable") {
+				bad(name, "security_opt %q não é permitido", o)
+			}
+		}
+		if sys, ok := s["sysctls"].(map[string]any); ok {
+			for k := range sys {
+				if !strings.HasPrefix(k, "net.") {
+					bad(name, "sysctl %s não é permitido", k)
+				}
+			}
+		}
+		for _, v := range strList(s["volumes_from"]) {
+			if strings.HasPrefix(v, "container:") {
+				bad(name, "volumes_from %q não é permitido", v)
+			}
+		}
+		if b, ok := s["build"].(map[string]any); ok {
+			if n, _ := b["network"].(string); n == "host" {
+				bad(name, "build com network host não é permitido")
+			}
+			if v, _ := b["privileged"].(bool); v {
+				bad(name, "build privileged não é permitido")
+			}
+			if e := strList(b["entitlements"]); len(e) > 0 {
+				bad(name, "build entitlements não são permitidos")
+			}
+		}
+		vols, _ := s["volumes"].([]any)
+		for _, v := range vols {
+			m, ok := v.(map[string]any)
+			if !ok {
+				continue
+			}
+			typ, _ := m["type"].(string)
+			src, _ := m["source"].(string)
+			switch typ {
+			case "volume", "tmpfs", "":
+			case "bind":
+				if strings.Contains(src, "docker.sock") || !inside(src) {
+					bad(name, "a pasta %q fica fora do projeto; use um volume nomeado", src)
+				}
+			default:
+				bad(name, "volume do tipo %q não é permitido", typ)
+			}
+		}
+		ports, _ := s["ports"].([]any)
+		kept := ports[:0]
+		for _, e := range ports {
+			m, ok := e.(map[string]any)
+			if !ok {
+				continue
+			}
+			pub := fmt.Sprint(m["published"])
+			if m["published"] == nil || pub == "" || pub == "0" {
+				continue // not published on a fixed port: stays internal
+			}
+			if strings.Contains(pub, "-") {
+				bad(name, "faixas de portas (%s) não são suportadas", pub)
+				continue
+			}
+			target, err := strconv.Atoi(fmt.Sprint(m["target"]))
+			if err != nil || target < 1 || target > 65535 {
+				bad(name, "porta inválida %v", m["target"])
+				continue
+			}
+			proto, _ := m["protocol"].(string)
+			if proto == "" {
+				proto = "tcp"
+			}
+			if proto != "tcp" && proto != "udp" {
+				bad(name, "protocolo %q não é suportado", proto)
+				continue
+			}
+			kept = append(kept, m)
+			p.ports = append(p.ports, portRef{entry: m, port: Port{Service: name, Container: target, Proto: proto}})
+		}
+		if ports != nil {
+			s["ports"] = kept
+		}
+	}
+	nets, _ := doc["networks"].(map[string]any)
+	for name, v := range nets {
+		n, _ := v.(map[string]any)
+		if ext, _ := n["external"].(bool); ext {
+			bad("networks", "a rede externa %q não é permitida", name)
+		}
+		if d, _ := n["driver"].(string); d != "" && d != "bridge" {
+			bad("networks", "o driver %q da rede %q não é permitido", d, name)
+		}
+	}
+	vols, _ := doc["volumes"].(map[string]any)
+	for name, v := range vols {
+		m, _ := v.(map[string]any)
+		if ext, _ := m["external"].(bool); ext {
+			bad("volumes", "o volume externo %q não é permitido", name)
+		}
+		if d, _ := m["driver"].(string); d != "" && d != "local" {
+			bad("volumes", "o driver %q do volume %q não é permitido", d, name)
+		}
+		if o, ok := m["driver_opts"].(map[string]any); ok && len(o) > 0 {
+			bad("volumes", "driver_opts do volume %q não são permitidos", name)
+		}
+	}
+	for _, top := range []string{"secrets", "configs"} {
+		items, _ := doc[top].(map[string]any)
+		for name, v := range items {
+			m, _ := v.(map[string]any)
+			if f, _ := m["file"].(string); f != "" && !inside(f) {
+				bad(top, "%q aponta para fora do projeto", name)
+			}
+			if ext, _ := m["external"].(bool); ext {
+				bad(top, "%q externo não é permitido", name)
+			}
+		}
+	}
+	if len(errs) > 0 {
+		return nil, fmt.Errorf("o arquivo Compose usa recursos não permitidos:\n%w", errors.Join(errs...))
+	}
+	return p, nil
+}
+
+// composeLimits are the caps every service of the project gets.
+type composeLimits struct {
+	ID       string
+	MemoryMB int
+	CPUs     float64
+	BindIP   string
+}
+
+// apply rewrites the plan: assigned host ports and bind address, the
+// platform's limits and log caps, no restart policy (the agent
+// supervises), and bridge names the host firewall recognizes ("sn-*").
+func (p *composePlan) apply(assigned []Port, l composeLimits) ([]byte, error) {
+	host := map[string]int{}
+	for _, a := range assigned {
+		host[a.key()] = a.Host
+	}
+	for _, r := range p.ports {
+		h := host[r.port.key()]
+		if h == 0 {
+			return nil, fmt.Errorf("porta %d de %s sem porta no servidor", r.port.Container, r.port.Service)
+		}
+		r.entry["published"] = strconv.Itoa(h)
+		r.entry["host_ip"] = l.BindIP
+		delete(r.entry, "mode")
+	}
+	services := p.doc["services"].(map[string]any)
+	mem := strconv.Itoa(l.MemoryMB) + "m"
+	for _, name := range p.services {
+		s := services[name].(map[string]any)
+		if d, ok := s["deploy"].(map[string]any); ok {
+			delete(d, "resources") // replaced by the limits below
+			delete(d, "restart_policy")
+		}
+		s["mem_limit"] = mem
+		s["memswap_limit"] = mem
+		s["cpus"] = l.CPUs
+		s["cpu_shares"] = 256
+		s["pids_limit"] = 512
+		s["oom_score_adj"] = 500
+		s["restart"] = "no"
+		s["logging"] = map[string]any{"driver": "json-file", "options": map[string]any{"max-size": "5m", "max-file": "2"}}
+		so := strList(s["security_opt"])
+		if !slices.Contains(so, "no-new-privileges:true") {
+			so = append(so, "no-new-privileges:true")
+		}
+		s["security_opt"] = so
+		labels := map[string]any{}
+		switch v := s["labels"].(type) {
+		case map[string]any:
+			labels = v
+		case []any:
+			for _, x := range v {
+				k, val, _ := strings.Cut(fmt.Sprint(x), "=")
+				labels[k] = val
+			}
+		}
+		labels[labelApp] = l.ID
+		s["labels"] = labels
+	}
+	nets, _ := p.doc["networks"].(map[string]any)
+	if nets == nil {
+		nets = map[string]any{}
+		p.doc["networks"] = nets
+	}
+	if _, ok := nets["default"]; !ok {
+		nets["default"] = map[string]any{"name": projectName(l.ID) + "_default"}
+	}
+	for name, v := range nets {
+		n, _ := v.(map[string]any)
+		if n == nil {
+			n = map[string]any{}
+			nets[name] = n
+		}
+		n["driver"] = "bridge"
+		opts, _ := n["driver_opts"].(map[string]any)
+		if opts == nil {
+			opts = map[string]any{}
+		}
+		opts["com.docker.network.bridge.name"] = bridgeFor(l.ID, name)
+		n["driver_opts"] = opts
+	}
+	p.doc["name"] = projectName(l.ID)
+	return json.MarshalIndent(p.doc, "", " ")
+}
+
+// bridgeFor names a project network's bridge "sn-" + 10 hex digits (Linux
+// interface names have at most 15 characters).
+func bridgeFor(id, network string) string {
+	h := sha256.Sum256([]byte(id + "/" + network))
+	return "sn-" + hex.EncodeToString(h[:5])
+}
+
+func strList(v any) []string {
+	l, _ := v.([]any)
+	out := make([]string, 0, len(l))
+	for _, x := range l {
+		if s, ok := x.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// ---------- running compose ----------
+
+// composeCLI runs `docker compose -p sapp-<id> args...` in a throwaway
+// container and returns its standard output; stderr lines go to logf.
+func (a *Agent) composeCLI(ctx context.Context, app *App, work string, args []string, logf func(string, ...any)) (string, error) {
+	name := containerName(app.ID) + "-compose"
+	_ = a.Eng.Remove(ctx, name)
+	cmd := append([]string{"docker", "compose", "--ansi", "never", "--project-name", projectName(app.ID)}, args...)
+	// Not root: the agent's own user (it owns the files) plus the socket's
+	// group, like the agent itself.
+	spec := Spec{
+		Image: a.Cfg.ComposeImage, Cmd: cmd, WorkingDir: work, User: selfUser(),
+		Binds:  []string{a.Cfg.Docker + ":/var/run/docker.sock", a.appDir(app.ID) + ":" + a.appDir(app.ID)},
+		Env:    append(a.env(app, false), "DOCKER_CONFIG=/tmp/.docker"),
+		Memory: int64(a.Cfg.BuildMemoryMB) << 20, NanoCPUs: int64(a.Cfg.BuildCPUs * 1e9), CPUShares: 128, Pids: 1024,
+		Network: "none", Labels: map[string]string{labelApp: app.ID, "sentinela.helper": "compose"},
+	}
+	if g := socketGroup(a.Cfg.Docker); g != "" {
+		spec.GroupAdd = []string{g}
+	}
+	if work == "" {
+		spec.WorkingDir = a.appDir(app.ID)
+	}
+	if err := a.ensureImage(ctx, a.Cfg.ComposeImage, logf); err != nil {
+		return "", err
+	}
+	if err := a.Eng.Create(ctx, name, spec); err != nil {
+		return "", err
+	}
+	defer func() {
+		c, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer cancel()
+		_ = a.Eng.Remove(c, name)
+	}()
+	if err := a.Eng.Start(ctx, name); err != nil {
+		return "", err
+	}
+	tctx, cancel := context.WithTimeout(ctx, setupTimeout)
+	defer cancel()
+	var out strings.Builder
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = a.Eng.Logs(tctx, name, LogOptions{Follow: true}, func(stream int, s string) {
+			if stream == 1 {
+				out.WriteString(s)
+				out.WriteByte('\n')
+			} else {
+				logf("  %s", s)
+			}
+		})
+	}()
+	code, err := a.Eng.Wait(tctx, name)
+	if tctx.Err() != nil {
+		return "", fmt.Errorf("docker compose passou de %s e foi interrompido", setupTimeout)
+	}
+	<-done
+	if err != nil {
+		return "", err
+	}
+	if code != 0 {
+		return "", fmt.Errorf("docker compose %s terminou com código %d", args[0], code)
+	}
+	return out.String(), nil
+}
+
+// composeFile finds the project's Compose file in work.
+func composeFile(work, chosen string) (string, error) {
+	if chosen != "" {
+		if _, err := os.Stat(filepath.Join(work, filepath.FromSlash(chosen))); err != nil {
+			return "", fmt.Errorf("o arquivo %q não existe", chosen)
+		}
+		return chosen, nil
+	}
+	for _, n := range composeNames {
+		if _, err := os.Stat(filepath.Join(work, n)); err == nil {
+			return n, nil
+		}
+	}
+	return "", errors.New("nenhum compose.yaml / docker-compose.yml na pasta")
+}
+
+// renderedCompose is the rewritten file the agent runs, kept in the release.
+const renderedCompose = ".sentinela-compose.json"
+
+// composeUp normalizes, checks and rewrites the project in work, assigns
+// its ports, then brings it up. It returns the services and ports.
+func (a *Agent) composeUp(ctx context.Context, app *App, work string, build bool, logf func(string, ...any)) ([]string, []Port, error) {
+	file, err := composeFile(work, app.ComposeFile)
+	if err != nil {
+		return nil, nil, err
+	}
+	logf("Lendo %s", file)
+	raw, err := a.composeCLI(ctx, app, work, []string{"-f", file, "config", "--format", "json"}, logf)
+	if err != nil {
+		return nil, nil, err
+	}
+	plan, err := planCompose([]byte(raw), []string{a.appDir(app.ID)})
+	if err != nil {
+		return nil, nil, err
+	}
+	want := App{ID: app.ID}
+	for _, r := range plan.ports {
+		want.Ports = append(want.Ports, r.port)
+	}
+	a.mu.Lock()
+	err = a.assignPorts(&want, app.Ports)
+	a.mu.Unlock()
+	if err != nil {
+		return nil, nil, err
+	}
+	ip, err := a.bindIP(app.Exposure)
+	if err != nil && len(want.Ports) > 0 {
+		return nil, nil, err
+	}
+	out, err := plan.apply(want.Ports, composeLimits{ID: app.ID, MemoryMB: app.MemoryMB, CPUs: app.CPUs, BindIP: ip})
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := os.WriteFile(filepath.Join(work, renderedCompose), out, 0o600); err != nil {
+		return nil, nil, err
+	}
+	args := []string{"-f", renderedCompose, "up", "--detach", "--remove-orphans"}
+	if build {
+		args = append(args, "--build")
+	} else {
+		args = append(args, "--no-build")
+	}
+	logf("Subindo %d serviço(s): %s", len(plan.services), strings.Join(plan.services, ", "))
+	if _, err := a.composeCLI(ctx, app, work, args, logf); err != nil {
+		return nil, nil, err
+	}
+	return plan.services, want.Ports, nil
+}
+
+// projectContainers lists the containers of a compose service.
+func (a *Agent) projectContainers(ctx context.Context, id string) ([]Summary, error) {
+	return a.Eng.List(ctx, "com.docker.compose.project="+projectName(id))
+}
+
+// composeCheck waits a moment and reports the first crashed container.
+func (a *Agent) composeCheck(ctx context.Context, app *App, logf func(string, ...any)) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(a.settle()):
+	}
+	cs, err := a.projectContainers(ctx, app.ID)
+	if err != nil {
+		return err
+	}
+	a.mu.Lock()
+	a.rt(app.ID).members = cs
+	a.mu.Unlock()
+	var running []string
+	for _, c := range cs {
+		if c.Running {
+			running = append(running, c.Name)
+		}
+	}
+	a.sample(ctx, app.ID, running)
+	if len(cs) == 0 {
+		return errors.New("nenhum contêiner do projeto está rodando")
+	}
+	for _, c := range cs {
+		if c.Running {
+			continue
+		}
+		st, err := a.Eng.Inspect(ctx, c.Name)
+		if err != nil || st == nil || st.ExitCode == 0 && !st.OOMKilled {
+			continue // finished jobs (migrations…) are fine
+		}
+		_ = a.Eng.Logs(ctx, c.Name, LogOptions{Tail: 30}, func(_ int, s string) { logf("  %s | %s", c.Service, s) })
+		if st.OOMKilled {
+			return fmt.Errorf("%s passou do limite de memória (%d MB)", c.Service, app.MemoryMB)
+		}
+		return fmt.Errorf("%s parou logo após iniciar (código %d)", c.Service, st.ExitCode)
+	}
+	return nil
+}

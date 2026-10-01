@@ -2,6 +2,7 @@
 //
 //	sentinela serve        API, auth, SPA, stream proxy, camera control, events
 //	sentinela record       ffmpeg recorders, segment indexer, retention (ADR-0007)
+//	sentinela apps         self-hosted services agent, Docker socket (ADR-0021)
 //	sentinela user ...     add | passwd | del | list  (password read from stdin)
 //	sentinela healthcheck  exit 0 if the local API answers /healthz
 //	sentinela check-config validate the config + secrets, list the cameras
@@ -32,6 +33,7 @@ import (
 	"golang.org/x/crypto/acme/autocert"
 
 	"github.com/LUKER2DW/sentinela/internal/api"
+	"github.com/LUKER2DW/sentinela/internal/apps"
 	"github.com/LUKER2DW/sentinela/internal/auth"
 	"github.com/LUKER2DW/sentinela/internal/camera/onvif"
 	"github.com/LUKER2DW/sentinela/internal/config"
@@ -65,6 +67,8 @@ func main() {
 		err = serve(ctx, log, *cfgPath)
 	case "record":
 		err = record(ctx, log, *cfgPath)
+	case "apps":
+		err = appsAgent(ctx, log, *cfgPath)
 	case "user":
 		err = userCmd(ctx, *cfgPath, *role, fl.Args())
 	case "healthcheck":
@@ -74,7 +78,7 @@ func main() {
 	case "version":
 		fmt.Println(version)
 	default:
-		err = fmt.Errorf("unknown command %q (serve|record|user|healthcheck|check-config|version)", cmd)
+		err = fmt.Errorf("unknown command %q (serve|record|apps|user|healthcheck|check-config|version)", cmd)
 	}
 	if err != nil {
 		log.Error("fatal", "cmd", cmd, "err", err)
@@ -312,6 +316,65 @@ func record(ctx context.Context, log *slog.Logger, cfgPath string) error {
 	log.Info("sentinela recording", "cameras", len(cfg.Cameras), "root", root)
 	wg.Wait()
 	return nil
+}
+
+// appsAgent runs the self-hosted services agent (ADR-0021): the only
+// Sentinela process with the Docker socket. It answers the API on a
+// loopback address with the token the API writes to <data>/apps-agent.
+func appsAgent(ctx context.Context, log *slog.Logger, cfgPath string) error {
+	cfg, err := config.LoadApps(cfgPath)
+	if err != nil {
+		return err
+	}
+	if !cfg.Apps.Enabled {
+		log.Info("apps agent idle: apps.enabled is false")
+		<-ctx.Done()
+		return nil
+	}
+	tokenPath := filepath.Join(cfg.DataDir, "apps-agent", "token")
+	var token string
+	for token == "" {
+		if b, err := os.ReadFile(tokenPath); err == nil && len(strings.TrimSpace(string(b))) >= 32 {
+			token = strings.TrimSpace(string(b))
+			break
+		}
+		log.Info("apps agent waiting for the API token", "path", tokenPath)
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(5 * time.Second):
+		}
+	}
+	sources := map[string]apps.Source{}
+	agent := apps.NewAgent(cfg.Apps, apps.NewDocker(cfg.Apps.Docker), sources, log)
+	sources[apps.SourceGitHub] = apps.GitHubSource{GH: apps.NewGitHub(agent.GitHubToken)}
+	if cfg.Apps.LocalRoot != "" {
+		sources[apps.SourceLocal] = apps.LocalSource{Root: cfg.Apps.LocalRoot}
+	}
+	if err := agent.Load(); err != nil {
+		return err
+	}
+	hs := &http.Server{Addr: cfg.Apps.Agent, Handler: agent.Handler(token), ReadHeaderTimeout: 10 * time.Second}
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() { defer wg.Done(); agent.Run(ctx) }()
+	errc := make(chan error, 1)
+	go func() {
+		log.Info("apps agent serving", "addr", hs.Addr, "state", cfg.Apps.StateDir)
+		errc <- hs.ListenAndServe()
+	}()
+	select {
+	case err = <-errc:
+	case <-ctx.Done():
+	}
+	shCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_ = hs.Shutdown(shCtx)
+	wg.Wait()
+	if errors.Is(err, http.ErrServerClosed) {
+		err = nil
+	}
+	return err
 }
 
 func userCmd(ctx context.Context, cfgPath, role string, args []string) error {

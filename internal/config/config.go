@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"net/url"
 	"os"
 	"regexp"
@@ -44,6 +45,67 @@ type Config struct {
 	Ntfy Ntfy `yaml:"ntfy"`
 	// Remote holds the access paths of the ADR-0019 trial. All off by default.
 	Remote Remote `yaml:"remote"`
+	// Apps are self-hosted services deployed from GitHub (ADR-0021).
+	Apps Apps `yaml:"apps"`
+}
+
+// Apps configures the self-hosted services platform (ADR-0021). Off unless
+// Enabled. The agent (`sentinela apps`) is the only process with the Docker
+// socket; the API reaches it on a loopback address with a token.
+type Apps struct {
+	Enabled bool `yaml:"enabled"`
+	// Agent is the agent's loopback listen address.
+	Agent string `yaml:"agent"`
+	// StateDir holds sources, data and state, on the system disk (never /data,
+	// the recordings disk). The same path is mounted in the agent container,
+	// because Docker bind-mount sources are host paths.
+	StateDir string `yaml:"state_dir"`
+	// Docker is the Engine API unix socket.
+	Docker string `yaml:"docker"`
+	// PortFirst..PortLast are the host ports services are published on.
+	PortFirst int `yaml:"port_first"`
+	PortLast  int `yaml:"port_last"`
+	// Hosts shown in service links. LANHost and TailnetHost are detected when
+	// empty; PublicHost (the router's public IP or name) enables the
+	// "internet" exposure and defaults to remote.public.domain.
+	LANHost     string `yaml:"lan_host"`
+	TailnetHost string `yaml:"tailnet_host"`
+	PublicHost  string `yaml:"public_host"`
+	// Subnet of the services' Docker network (bridge "sn-apps").
+	Subnet string `yaml:"subnet"`
+	// Limits: per service defaults and caps, the total for running services,
+	// and the one-at-a-time build/setup step.
+	MaxApps       int     `yaml:"max_apps"`
+	MemoryMB      int     `yaml:"memory_mb"`
+	MaxMemoryMB   int     `yaml:"max_memory_mb"`
+	TotalMemoryMB int     `yaml:"total_memory_mb"`
+	CPUs          float64 `yaml:"cpus"`
+	MaxCPUs       float64 `yaml:"max_cpus"`
+	BuildCPUs     float64 `yaml:"build_cpus"`
+	BuildMemoryMB int     `yaml:"build_memory_mb"`
+	// BootDelaySeconds: after a host boot, services wait until the host has
+	// been up this long, so the NVR starts first.
+	BootDelaySeconds int `yaml:"boot_delay_seconds"`
+	// Runtimes are the base images of "script" services, by name. Entries
+	// here override or add to the defaults (pin digests here if wanted).
+	Runtimes map[string]string `yaml:"runtimes"`
+	// ComposeImage is the Docker CLI image that runs `docker compose` for
+	// compose services, in a throwaway container.
+	ComposeImage string `yaml:"compose_image"`
+	// LocalRoot is where local project folders are picked from (read-only;
+	// "none" turns local folders off). Default: the Nuvem.
+	LocalRoot string `yaml:"local_root"`
+}
+
+// DefaultRuntimes are the base images offered for script services.
+var DefaultRuntimes = map[string]string{
+	"node":   "node:22-alpine",
+	"python": "python:3.13-slim",
+	"go":     "golang:1.26-alpine",
+	"bun":    "oven/bun:1-alpine",
+	"deno":   "denoland/deno:alpine",
+	"static": "busybox:1.37",
+	"shell":  "alpine:3.22",
 }
 
 // Remote configures the ADR-0019 trial paths. Requests on FunnelListen and
@@ -138,6 +200,26 @@ func Load(path string) (*Config, error) {
 	return Parse(raw, os.Getenv)
 }
 
+// LoadApps reads the config for the apps agent (ADR-0021): defaults and
+// the apps section are checked, camera credentials are neither needed nor
+// read (the agent's container never gets secrets.env).
+func LoadApps(path string) (*Config, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read config: %w", err)
+	}
+	var c Config
+	if err := yaml.Unmarshal(raw, &c); err != nil {
+		return nil, fmt.Errorf("parse config: %w", err)
+	}
+	c.applyDefaults()
+	c.Cameras = nil
+	if err := errors.Join(c.Apps.validate()...); err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
+
 // Parse is Load without file I/O; getenv is injectable for tests.
 func Parse(raw []byte, getenv func(string) string) (*Config, error) {
 	var c Config
@@ -179,6 +261,42 @@ func (c *Config) applyDefaults() {
 	if c.Remote.Public.Domain != "" {
 		def(&c.Remote.Public.Listen, ":7443")
 	}
+	def(&c.Apps.Agent, "127.0.0.1:7091")
+	def(&c.Apps.StateDir, "/var/lib/sentinela-apps")
+	def(&c.Apps.Docker, "/var/run/docker.sock")
+	def(&c.Apps.Subnet, "172.31.250.0/24")
+	def(&c.Apps.ComposeImage, "docker:29-cli")
+	def(&c.Apps.LocalRoot, "/srv/nas")
+	if c.Apps.LocalRoot == "none" {
+		c.Apps.LocalRoot = ""
+	}
+	defInt(&c.Apps.PortFirst, 20000)
+	defInt(&c.Apps.PortLast, 20099)
+	defInt(&c.Apps.MaxApps, 12)
+	defInt(&c.Apps.MemoryMB, 256)
+	defInt(&c.Apps.MaxMemoryMB, 1024)
+	defInt(&c.Apps.TotalMemoryMB, 1024)
+	defInt(&c.Apps.BuildMemoryMB, 1024)
+	defInt(&c.Apps.BootDelaySeconds, 120)
+	defFloat := func(v *float64, d float64) {
+		if *v == 0 {
+			*v = d
+		}
+	}
+	defFloat(&c.Apps.CPUs, 0.5)
+	defFloat(&c.Apps.MaxCPUs, 1.5)
+	defFloat(&c.Apps.BuildCPUs, 1)
+	if c.Apps.PublicHost == "" {
+		c.Apps.PublicHost = c.Remote.Public.Domain
+	}
+	rt := make(map[string]string, len(DefaultRuntimes))
+	for k, v := range DefaultRuntimes {
+		rt[k] = v
+	}
+	for k, v := range c.Apps.Runtimes {
+		rt[k] = v
+	}
+	c.Apps.Runtimes = rt
 	defInt(&c.Recording.SegmentSeconds, 300)
 	defInt(&c.Recording.MaxDiskPercent, 90)
 	defInt(&c.Recording.DefaultRetentionDays, 15)
@@ -247,6 +365,7 @@ func (c *Config) validate() error {
 			}
 		}
 	}
+	errs = append(errs, c.Apps.validate()...)
 	seen := map[string]bool{}
 	for _, cam := range c.Cameras {
 		if !idPattern.MatchString(cam.ID) {
@@ -267,6 +386,53 @@ func (c *Config) validate() error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+var (
+	runtimeName  = regexp.MustCompile(`^[a-z][a-z0-9-]{0,19}$`)
+	imagePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._/-]*(:[A-Za-z0-9._-]+)?(@sha256:[0-9a-f]{64})?$`)
+)
+
+func (a *Apps) validate() []error {
+	var errs []error
+	if h, _, err := net.SplitHostPort(a.Agent); err != nil || net.ParseIP(h) == nil || !net.ParseIP(h).IsLoopback() {
+		errs = append(errs, errors.New("apps.agent must be a loopback host:port, e.g. 127.0.0.1:7091"))
+	}
+	if !strings.HasPrefix(a.StateDir, "/") || strings.HasPrefix(a.StateDir+"/", "/data/") {
+		errs = append(errs, errors.New("apps.state_dir must be an absolute path off the recordings disk (/data)"))
+	}
+	if a.PortFirst < 1024 || a.PortLast > 65535 || a.PortLast < a.PortFirst || a.PortLast-a.PortFirst > 999 {
+		errs = append(errs, errors.New("apps.port_first..port_last must be a range of at most 1000 ports above 1023"))
+	}
+	if p, err := netip.ParsePrefix(a.Subnet); err != nil || !p.Addr().Is4() || !p.Addr().IsPrivate() || p.Bits() > 28 {
+		errs = append(errs, errors.New("apps.subnet must be a private IPv4 prefix of /28 or larger"))
+	}
+	for _, h := range []string{a.LANHost, a.TailnetHost, a.PublicHost} {
+		if h != "" && net.ParseIP(h) == nil && !validHostname(h) {
+			errs = append(errs, fmt.Errorf("apps: invalid host %q", h))
+		}
+	}
+	if a.MaxApps < 1 || a.MaxApps > 50 {
+		errs = append(errs, errors.New("apps.max_apps must be 1..50"))
+	}
+	if a.MemoryMB < 32 || a.MemoryMB > a.MaxMemoryMB || a.MaxMemoryMB > a.TotalMemoryMB || a.TotalMemoryMB > 8192 || a.BuildMemoryMB < 128 {
+		errs = append(errs, errors.New("apps memory: 32 <= memory_mb <= max_memory_mb <= total_memory_mb <= 8192, build_memory_mb >= 128"))
+	}
+	if a.CPUs < 0.05 || a.CPUs > a.MaxCPUs || a.MaxCPUs > 4 || a.BuildCPUs < 0.1 || a.BuildCPUs > 4 {
+		errs = append(errs, errors.New("apps cpus: 0.05 <= cpus <= max_cpus <= 4, build_cpus 0.1..4"))
+	}
+	if !imagePattern.MatchString(a.ComposeImage) {
+		errs = append(errs, fmt.Errorf("apps.compose_image: invalid image %q", a.ComposeImage))
+	}
+	if a.LocalRoot != "" && !strings.HasPrefix(a.LocalRoot, "/") {
+		errs = append(errs, errors.New("apps.local_root must be an absolute path (or none)"))
+	}
+	for name, img := range a.Runtimes {
+		if !runtimeName.MatchString(name) || !imagePattern.MatchString(img) {
+			errs = append(errs, fmt.Errorf("apps.runtimes: invalid entry %q: %q", name, img))
+		}
+	}
+	return errs
 }
 
 var hostPattern = regexp.MustCompile(`^[A-Za-z0-9.-]{1,253}$`)
