@@ -8,8 +8,12 @@
 # and the sentinela-* timers.
 # Removed (bare-metal NVR, never used): snapd + LXD, cloud-init, VMware
 # tools, multipath/iSCSI, fwupd, apport/popularity-contest, udisks2, certbot
-# (Tailscale issues the certificates). Masked: packagekit, GPU manager, MOTD
-# news and update-notifier timers.
+# (Tailscale issues the certificates); leftovers of earlier projects
+# (2026-10-01 review): ansible, nginx, npm/Node, OpenCV/NumPy, VA-API dev
+# tools, flashrom libs, cloud-image/Landscape tools, mdadm and LVM (no RAID
+# or LVM here). Everything Sentinela runs is in containers. Masked:
+# packagekit, GPU manager, MOTD news, update-notifier and timers that do
+# nothing here (fstrim on HDDs, e2scrub without LVM, man-db).
 set -euo pipefail
 [[ $EUID -eq 0 ]] || { echo "run with sudo" >&2; exit 1; }
 export DEBIAN_FRONTEND=noninteractive
@@ -31,14 +35,22 @@ if command -v snap >/dev/null; then
 fi
 purge=()
 for p in snapd lxd-agent-loader cloud-init open-vm-tools multipath-tools open-iscsi fwupd fwupd-signed \
-  apport apport-symptoms popularity-contest udisks2 certbot python3-certbot python3-certbot-dns-cloudflare; do
+  apport apport-symptoms popularity-contest udisks2 certbot python3-certbot python3-certbot-dns-cloudflare \
+  ansible-core nginx nginx-common npm python3-opencv python3-numpy python3-pip libva-dev vainfo libflashrom1 \
+  libftdi1-2 docker bcache-tools cloud-guest-utils cloud-initramfs-copymods cloud-initramfs-dyn-netconf \
+  overlayroot landscape-common pollinate sosreport byobu ubuntu-drivers-common mdadm lvm2; do
   dpkg -s "$p" >/dev/null 2>&1 && purge+=("$p")
 done
+# Tools these removals would otherwise take along, still wanted (disk work).
+apt-mark manual fdisk gdisk bc finalrd >/dev/null 2>&1 || true
 ((${#purge[@]})) && "${APT[@]}" purge "${purge[@]}" >/dev/null
+# Config left by packages removed earlier ("rc" state).
+dpkg -l | awk '/^rc/{print $2}' | xargs -r "${APT[@]}" purge >/dev/null
 rm -rf /snap /var/snap /var/lib/snapd /root/snap /home/*/snap
 # Keep the netplan file cloud-init wrote (it is the network config).
 for u in packagekit.service gpu-manager.service motd-news.timer update-notifier-download.timer \
-  update-notifier-motd.timer pollinate.service; do
+  update-notifier-motd.timer pollinate.service fstrim.timer e2scrub_all.timer e2scrub_reap.service \
+  man-db.timer ua-timer.timer thermald.service; do
   systemctl disable --now "$u" >/dev/null 2>&1 || true
   systemctl mask "$u" >/dev/null 2>&1 || true
 done

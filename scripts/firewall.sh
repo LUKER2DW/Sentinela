@@ -25,12 +25,10 @@ ufw allow from "$LAN" to any port 5353 proto udp comment 'mdns' >/dev/null
 ufw allow from "$LAN" to any port 123 proto udp comment 'ntp for the camera' >/dev/null
 # Tailscale (ADR-0004, SECURITY.md rules 8-9): explicit ports only, never the
 # whole interface. 443 = `tailscale serve` HTTPS (proxies to 127.0.0.1:8080),
-# 8443 = `tailscale serve` HTTPS for the ntfy relay (ADR-0013),
 # 8555 = WebRTC ICE. 8080 stays LAN-only: remote users always get HTTPS.
 # The rules match the interface name, so they are safe to add before
 # Tailscale is installed. The tailnet ACL is the primary control.
 ufw allow in on tailscale0 to any port 443 proto tcp comment 'tailnet https (serve)' >/dev/null
-ufw allow in on tailscale0 to any port 8443 proto tcp comment 'tailnet ntfy (serve)' >/dev/null
 ufw allow in on tailscale0 to any port 8555 proto tcp comment 'tailnet webrtc' >/dev/null
 ufw allow in on tailscale0 to any port 8555 proto udp comment 'tailnet webrtc' >/dev/null
 ufw allow in on tailscale0 to any port 22 proto tcp comment 'tailnet ssh' >/dev/null
@@ -51,6 +49,15 @@ if [[ -f /etc/sentinela/public-access ]]; then
   fi
   ufw allow 8555/tcp comment 'public webrtc (ADR-0019 P1)' >/dev/null
   ufw allow 8555/udp comment 'public webrtc (ADR-0019 P1)' >/dev/null
+fi
+# Other LAN devices send IGMP membership reports all the time; ufw has no
+# rule for them and logged each one as a [UFW BLOCK] line, flooding the
+# kernel log. Drop them without logging, like ufw's own "noisy" services.
+AFTER=/etc/ufw/after.rules
+if ! grep -q 'sentinela-igmp' "$AFTER"; then
+  # Before the first COMMIT (the filter table). iptables-restore syntax: no
+  # trailing "#" comments, so the marker is an iptables comment.
+  sed -i '0,/^COMMIT$/s//-A ufw-after-input -p igmp -m comment --comment sentinela-igmp -j ufw-skip-to-policy-input\nCOMMIT/' "$AFTER"
 fi
 ufw --force enable >/dev/null
 ufw status numbered
