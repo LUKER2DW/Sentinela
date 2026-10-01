@@ -222,6 +222,7 @@ func maintenance(ctx context.Context, log *slog.Logger, cfg *config.Config, st *
 		_ = st.PurgeExpiredSessions(ctx)
 		// Event snapshots live as long as alert recordings (ADR-0015).
 		srv.PurgeSnapshots(30 * 24 * time.Hour)
+		srv.PruneCaches()
 		_ = st.PurgeSeenBefore(ctx, time.Now().Add(-31*24*time.Hour))
 		day := time.Now().UTC().Format("20060102")
 		if day != lastBackup {
@@ -270,6 +271,7 @@ func record(ctx context.Context, log *slog.Logger, cfgPath string) error {
 		st = nil
 	}
 	var wg sync.WaitGroup
+	var recorders []*recording.Recorder
 	for i := range cfg.Cameras {
 		cam := &cfg.Cameras[i]
 		if !cam.Recording() {
@@ -277,6 +279,7 @@ func record(ctx context.Context, log *slog.Logger, cfgPath string) error {
 			continue
 		}
 		r := recording.NewRecorder(cam, cfg.Recording, root, st, log)
+		recorders = append(recorders, r)
 		wg.Add(1)
 		go func() { defer wg.Done(); r.Run(ctx) }()
 	}
@@ -291,6 +294,10 @@ func record(ctx context.Context, log *slog.Logger, cfgPath string) error {
 			}
 			if s, err := store.Open(ctx, cfg.DBPath); err == nil {
 				st = s
+				for _, r := range recorders {
+					r.SetStore(s)
+				}
+				log.Info("database available again; indexing resumes")
 			}
 		}
 		defer st.Close()

@@ -93,25 +93,28 @@ func (idx *FragIndex) KeyFrame(r io.ReaderAt, at time.Duration) ([]byte, time.Du
 
 	trFlags := binary.BigEndian.Uint32(trun) & 0xffffff
 	count := binary.BigEndian.Uint32(trun[4:])
-	q := 8
-	var dataOff int32
-	if trFlags&0x1 != 0 {
-		dataOff = int32(binary.BigEndian.Uint32(trun[q:]))
-		q += 4
-	}
-	var firstFlags []byte
-	if trFlags&0x4 != 0 {
-		firstFlags = trun[q : q+4]
-		q += 4
-	}
 	entry := 0
 	for _, fl := range []uint32{0x100, 0x200, 0x400, 0x800} {
 		if trFlags&fl != 0 {
 			entry += 4
 		}
 	}
-	if count == 0 || q+entry > len(trun) || trFlags&0x1 == 0 {
+	// data offset (0x1, required here) and first-sample flags (0x4), then
+	// the first sample's entry: check the length before slicing.
+	need := 12 + entry
+	if trFlags&0x4 != 0 {
+		need += 4
+	}
+	if count == 0 || trFlags&0x1 == 0 || need > len(trun) {
 		return nil, 0, errors.New("fmp4: unusable trun")
+	}
+	q := 8
+	dataOff := int32(binary.BigEndian.Uint32(trun[q:]))
+	q += 4
+	var firstFlags []byte
+	if trFlags&0x4 != 0 {
+		firstFlags = trun[q : q+4]
+		q += 4
 	}
 	first := trun[q : q+entry]
 	size := defSize

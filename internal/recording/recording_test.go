@@ -196,3 +196,42 @@ func TestTieredRetention(t *testing.T) {
 		t.Fatalf("second pass deleted %d err=%v", n, err)
 	}
 }
+
+// Disk pressure deletes until 2 points below the limit, not just under it.
+func TestDiskPressureHysteresis(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	root := filepath.Join(dir, "recordings")
+	st, err := store.Open(ctx, filepath.Join(dir, "db", "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	start := time.Now().UTC().Truncate(time.Hour).Add(-3 * time.Hour)
+	for i := 0; i < 25; i++ { // recent: age retention keeps them all
+		s := start.Add(time.Duration(i) * 5 * time.Minute)
+		rel := "cam1/" + s.Format("2006/01/02/15-04-05") + ".mp4"
+		writeSeg(t, root, rel, 4096, s.Add(5*time.Minute))
+		if err := st.UpsertSegment(ctx, store.Segment{CameraID: "cam1", Start: s, End: s.Add(5 * time.Minute), Path: rel, Bytes: 4096}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ret := NewRetention(root, st, testCfg(t), quiet) // limit 90 %
+	pcts := []float64{91, 89, 87}
+	ret.Disk = func(string) (sysinfo.Disk, error) {
+		p := pcts[0]
+		if len(pcts) > 1 {
+			pcts = pcts[1:]
+		}
+		return sysinfo.Disk{Total: 100, Pct: p}, nil
+	}
+	// 91 %: one batch of 20; 89 % is under the limit but within the margin:
+	// a second batch; 87 %: done.
+	if n, err := ret.Enforce(ctx); err != nil || n != 25 {
+		t.Fatalf("deleted %d err=%v, want 25", n, err)
+	}
+	pcts = []float64{89}
+	if n, err := ret.Enforce(ctx); err != nil || n != 0 {
+		t.Fatalf("a pass under the limit deleted %d err=%v", n, err)
+	}
+}

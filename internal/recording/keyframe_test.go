@@ -95,3 +95,21 @@ func TestKeyFrame(t *testing.T) {
 		t.Fatal("the sample is not the keyframe, or more than it was sent")
 	}
 }
+
+// A trun shorter than its flags announce is refused, not a panic.
+func TestKeyFrameShortTrun(t *testing.T) {
+	seg := box("ftyp", []byte("isom"))
+	seg = append(seg, box("moov", box("mvhd", make([]byte, 20)), trak(2, 90000, "vide"), box("mvex", box("trex", u32(0), u32(2))))...)
+	// flags: data offset + first-sample flags + sizes, but only the count.
+	moof := box("moof", box("mfhd", make([]byte, 8)),
+		box("traf", box("tfhd", u32(0x020000), u32(2)), box("tfdt", make([]byte, 4), u32(0)), box("trun", u32(0x000205), u32(1))))
+	seg = append(seg, moof...)
+	seg = append(seg, box("mdat", make([]byte, 16))...)
+	idx, err := ReadFragIndex(bytes.NewReader(seg), int64(len(seg)))
+	if err != nil || len(idx.Fragments) != 1 {
+		t.Fatalf("index: %v %+v", err, idx)
+	}
+	if _, _, err := idx.KeyFrame(bytes.NewReader(seg), 0); err == nil {
+		t.Fatal("expected an error for a short trun")
+	}
+}

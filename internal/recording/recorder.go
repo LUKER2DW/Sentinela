@@ -91,6 +91,14 @@ func (r *Recorder) setState(state string) {
 	r.heartbeat()
 }
 
+// SetStore attaches the database once it could be opened (recording starts
+// without it, ADR-0007), so heartbeats reach the System page.
+func (r *Recorder) SetStore(st *store.Store) {
+	r.mu.Lock()
+	r.Store = st
+	r.mu.Unlock()
+}
+
 func (r *Recorder) heartbeat() {
 	r.mu.Lock()
 	st := r.status
@@ -98,12 +106,13 @@ func (r *Recorder) heartbeat() {
 	st.Heartbeat = r.now()
 	st.LastError = r.lastErr
 	st.Restarts1h = r.recentRestartsLocked()
+	db := r.Store
 	r.mu.Unlock()
 	// Best effort: recording must not depend on the database (ADR-0007).
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	if r.Store != nil {
-		if err := r.Store.PutRecorderStatus(ctx, st); err != nil {
+	if db != nil {
+		if err := db.PutRecorderStatus(ctx, st); err != nil {
 			r.Log.Warn("recorder heartbeat not stored", "err", err)
 		}
 	}

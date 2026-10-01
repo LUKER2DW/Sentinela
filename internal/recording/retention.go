@@ -84,7 +84,9 @@ func (r *Retention) Enforce(ctx context.Context) (int, error) {
 		if err != nil {
 			return deleted, err
 		}
-		if d.Total == 0 || d.Pct < limit || (guard > 0 && d.Pct < limit-2) {
+		// Start only above the limit; once started, go on to 2 points below
+		// it, so the disk does not sit at the edge deleting every pass.
+		if d.Total == 0 || (guard == 0 && d.Pct < limit) || (guard > 0 && d.Pct < limit-2) {
 			break
 		}
 		segs, err := r.Store.OldestSegments(ctx, 20)
