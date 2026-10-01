@@ -82,3 +82,33 @@ describe("upload chunk sizing", () => {
     expect(nextChunk(CHUNK_MIN, 8 * MiB, 4_000)).toBe(12 * MiB);
   });
 });
+
+describe("upload speed display", async () => {
+  const { SpeedMeter, easeToward, fmtBytesFine, fmtRemaining } = await import("./nas");
+  it("measures speed over a sliding window and counts stalls", () => {
+    const m = new SpeedMeter(5000);
+    m.add(0, 0);
+    expect(m.rate(500)).toBe(0); // under a second of history
+    for (let t = 1000; t <= 10_000; t += 1000) m.add(t, t * 100_000); // 100 MB/s
+    expect(m.rate(10_000)).toBeCloseTo(100e6, -3);
+    expect(m.rate(15_000)).toBeLessThan(60e6); // bytes stopped: speed falls
+    m.add(16_000, 5); // a cancelled file lowers the total: start over
+    expect(m.rate(16_000)).toBe(0);
+  });
+  it("words the remaining time like the big drives", () => {
+    expect(fmtRemaining(30_000)).toBe("falta menos de 1 min");
+    expect(fmtRemaining(7 * 60_000 - 1)).toBe("faltam ~7 min");
+    expect(fmtRemaining(80 * 60_000)).toBe("faltam ~1 h 20 min");
+    expect(fmtRemaining(Infinity)).toBe("");
+  });
+  it("glides counters without overshooting", () => {
+    expect(easeToward(500, 700, 100, 400)).toBe(550);
+    expect(easeToward(500, 700, 1000, 400)).toBe(700);
+    expect(easeToward(699.5, 700, 16)).toBe(700);
+  });
+  it("shows moving byte counts finely", () => {
+    expect(fmtBytesFine(5_723_000_000)).toBe("5,72 GB");
+    expect(fmtBytesFine(523_400_000)).toBe("523,4 MB");
+    expect(fmtBytesFine(512)).toBe("512 B");
+  });
+});

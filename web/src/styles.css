@@ -868,6 +868,8 @@ table.table { width: 100%; border-collapse: collapse; }
 .upload { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 4px 12px; }
 .upload-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .upload .meter { grid-column: 1 / -1; }
+.upload .meter > span { transition: width 0.25s linear; }
+@media (prefers-reduced-motion: reduce) { .upload .meter > span { transition: none; } }
 .upload.error .muted { color: var(--coral); }
 .meter.thin { height: 4px; }
 
@@ -2130,6 +2132,7 @@ textarea.viewer-text.editing { border: 0; outline: none; resize: none; backgroun
 .split-btn .btn + .btn { border-top-left-radius: 0; border-bottom-left-radius: 0; border-left: 1px solid color-mix(in srgb, var(--sea-ink) 30%, transparent); }
 .uploads-head { gap: 12px; }
 .uploads-title { display: grid; gap: 1px; margin-right: auto; min-width: 0; }
+.uploads-speed strong { font-weight: 600; }
 .uploads-meter { display: block; margin: 2px 0 10px; }
 .uploads-more { margin-top: 8px; }
 .explorer-main { position: relative; }

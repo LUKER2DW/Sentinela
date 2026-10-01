@@ -144,7 +144,9 @@ Uploads are resumable chunks with no file-size cap (only free space): the
 first is 8 MiB, later ones grow with the measured speed to ~6 s each, up to
 128 MiB. A request may stay silent for at most a minute. Desktop folder
 uploads create containing folders, then send files; up to four files under
-32 MiB are parallel, larger files serial. Plain-HTTP downloads use
+32 MiB are parallel, larger files serial. Chunks go through XHR for byte
+progress; the panel shows speed (5 s window) and time left, and leaving
+the page during an upload asks first. Plain-HTTP downloads use
 sendfile; TLS listeners accept ~4 MiB HTTP/2 receive windows. The picker does not represent
 empty directories. A conflicting top folder gets a new name.
 

@@ -181,6 +181,111 @@ export interface UploadProgress {
 }
 
 /**
+ * Transfer speed over the last few seconds from (time, bytes so far)
+ * samples. A stall counts until now, so the speed falls when bytes stop.
+ */
+export class SpeedMeter {
+  private s: { t: number; b: number }[] = [];
+  constructor(private windowMs = 5000) {}
+  /** Records the bytes sent so far; a drop (cancelled file) starts over. */
+  add(t: number, b: number): void {
+    if (this.s.length && b < this.s[this.s.length - 1].b) this.s = [];
+    this.s.push({ t, b });
+    while (this.s.length > 2 && this.s[1].t <= t - this.windowMs) this.s.shift();
+  }
+  /** Bytes per second; 0 until a second of history exists. */
+  rate(now: number): number {
+    if (this.s.length < 2) return 0;
+    const first = this.s[0];
+    const dt = now - first.t;
+    return dt < 1000 ? 0 : ((this.s[this.s.length - 1].b - first.b) * 1000) / dt;
+  }
+}
+
+/**
+ * One animation frame of a counter gliding toward its target: covers the
+ * gap in ~tauMs (exponential ease), never overshoots, snaps when close.
+ */
+export function easeToward(shown: number, target: number, dtMs: number, tauMs = 400): number {
+  const next = shown + (target - shown) * Math.min(1, dtMs / tauMs);
+  return Math.abs(target - next) < 1 ? target : next;
+}
+
+/**
+ * Byte counts for numbers that keep moving: two decimals below 100 and one
+ * below 1000 of the unit (5,72 GB; 523,4 MB), so every few MB shows.
+ */
+export function fmtBytesFine(b: number): string {
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let i = 0;
+  let v = b;
+  while (v >= 1000 && i < units.length - 1) {
+    v /= 1000;
+    i++;
+  }
+  const d = i === 0 ? 0 : v < 100 ? 2 : 1;
+  return `${v.toFixed(d).replace(".", ",")} ${units[i]}`;
+}
+
+/** "faltam ~7 min", like the big drives: rounded up, no seconds past a minute. */
+export function fmtRemaining(ms: number): string {
+  if (!isFinite(ms) || ms <= 0) return "";
+  if (ms < 60_000) return "falta menos de 1 min";
+  const m = Math.ceil(ms / 60_000);
+  if (m < 60) return `faltam ~${m} min`;
+  const h = Math.floor(m / 60);
+  return `faltam ~${h} h${m % 60 ? ` ${m % 60} min` : ""}`;
+}
+
+/** How often a running chunk reports bytes on their way (re-renders). */
+const PROGRESS_MS = 250;
+
+/**
+ * PUTs one chunk. XMLHttpRequest, not fetch: only XHR reports upload
+ * progress, so the bar and the speed move while a 128 MiB chunk is sent.
+ */
+function putChunk(
+  url: string,
+  body: Blob,
+  signal: AbortSignal,
+  onBytes: (n: number) => void,
+): Promise<{ status: number; data: { offset?: number; error?: string } }> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    let last = 0;
+    const abort = () => xhr.abort();
+    xhr.open("PUT", url);
+    xhr.withCredentials = true;
+    xhr.setRequestHeader("X-CSRF-Token", getCsrf());
+    xhr.setRequestHeader("Content-Type", "application/octet-stream");
+    xhr.upload.onprogress = (e) => {
+      const now = performance.now();
+      if (now - last >= PROGRESS_MS) {
+        last = now;
+        onBytes(e.loaded);
+      }
+    };
+    xhr.onload = () => {
+      signal.removeEventListener("abort", abort);
+      let data = {};
+      try {
+        data = JSON.parse(xhr.responseText) as object;
+      } catch {
+        /* empty or proxy error page */
+      }
+      resolve({ status: xhr.status, data });
+    };
+    xhr.onerror = xhr.ontimeout = () => {
+      signal.removeEventListener("abort", abort);
+      reject(new TypeError("network error"));
+    };
+    xhr.onabort = () => reject(new DOMException("aborted", "AbortError"));
+    signal.addEventListener("abort", abort, { once: true });
+    xhr.send(body);
+  });
+}
+
+/**
  * Uploads a file in chunks, resuming from what the server already has
  * (an earlier attempt that dropped). Retries each chunk a few times.
  */
@@ -202,19 +307,17 @@ export async function uploadFile(
     const end = Math.min(offset + chunk, file.size);
     const started = performance.now();
     try {
-      const res = await fetch(`/api/nas/upload?${q}&offset=${offset}&total=${file.size}`, {
-        method: "PUT",
-        body: file.slice(offset, end),
-        headers: { "X-CSRF-Token": getCsrf(), "Content-Type": "application/octet-stream" },
-        credentials: "same-origin",
-        signal,
-      });
-      const data = (await res.json().catch(() => ({}))) as { offset?: number; error?: string };
+      if (signal.aborted) throw new DOMException("aborted", "AbortError");
+      const from = offset;
+      const res = await putChunk(`/api/nas/upload?${q}&offset=${offset}&total=${file.size}`, file.slice(offset, end), signal, (n) =>
+        onProgress({ sent: from + n, total: file.size }),
+      );
+      const data = res.data;
       if (res.status === 409 && typeof data.offset === "number") {
         offset = data.offset; // server knows better where we are
         continue;
       }
-      if (!res.ok) throw new ApiError(res.status, data.error ?? `HTTP ${res.status}`);
+      if (res.status < 200 || res.status >= 300) throw new ApiError(res.status, data.error ?? `HTTP ${res.status}`);
       chunk = nextChunk(chunk, end - offset, performance.now() - started);
       offset = data.offset ?? end;
       failures = 0;

@@ -33,6 +33,10 @@ import {
   pickedFromList,
   renameTop,
   PARALLEL_UPLOADS,
+  SpeedMeter,
+  easeToward,
+  fmtBytesFine,
+  fmtRemaining,
   SMALL_UPLOAD,
   type DateFilter,
   type Picked,
@@ -1125,6 +1129,62 @@ function SortChip({ sort, onChange }: { sort: { key: SortKey; asc: boolean }; on
   );
 }
 
+/**
+ * Overall upload speed, sampled once a second (steady numbers, like the big
+ * drives show). While sending, leaving the page asks first: the bytes on the
+ * server are kept, but the queue of picked files would be lost.
+ */
+function useUploadSpeed(sent: number, busy: boolean): number {
+  const [speed, setSpeed] = useState(0);
+  const sentRef = useRef(sent);
+  useEffect(() => {
+    sentRef.current = sent;
+  }, [sent]);
+  useEffect(() => {
+    if (!busy) return;
+    const meter = new SpeedMeter();
+    const tick = () => {
+      const t = performance.now();
+      meter.add(t, sentRef.current);
+      setSpeed(meter.rate(t));
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
+    addEventListener("beforeunload", warn);
+    return () => {
+      clearInterval(id);
+      removeEventListener("beforeunload", warn);
+      setSpeed(0);
+    };
+  }, [busy]);
+  return speed;
+}
+
+/**
+ * A number that glides to its target every frame, so the byte counter
+ * climbs 5,70 → 5,71 → 5,72 GB instead of jumping per progress event.
+ * Going down (a cancelled file) and reduced motion jump straight there.
+ */
+function useEased(target: number, tauMs: number): number {
+  const [shown, setShown] = useState(target);
+  const ref = useRef(target);
+  useEffect(() => {
+    const instant = target < ref.current || matchMedia("(prefers-reduced-motion: reduce)").matches;
+    let last = performance.now();
+    let raf = 0;
+    const step = (t: number) => {
+      ref.current = instant ? target : easeToward(ref.current, target, t - last, tauMs);
+      last = t;
+      setShown(ref.current);
+      if (ref.current !== target) raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [target, tauMs]);
+  return shown;
+}
+
 function Uploads({ uploads, setUploads }: { uploads: Upload[]; setUploads: (f: (u: Upload[]) => Upload[]) => void }) {
   const [all, setAll] = useState(false);
   const active = uploads.filter((u) => u.state === "sending" || u.state === "waiting").length;
@@ -1133,6 +1193,11 @@ function Uploads({ uploads, setUploads }: { uploads: Upload[]; setUploads: (f: (
   const total = uploads.reduce((a, u) => a + (u.state === "cancelled" ? 0 : u.total), 0);
   const sent = uploads.reduce((a, u) => a + (u.state === "cancelled" ? 0 : u.state === "done" ? u.total : u.sent), 0);
   const groups = [...new Set(uploads.map((u) => u.group).filter(Boolean))];
+  const busy = active > 0;
+  const speed = useUploadSpeed(sent, busy);
+  const shownSent = useEased(sent, 400);
+  const shownSpeed = useEased(speed, 800);
+  const pct = total ? Math.floor((100 * shownSent) / total) : 100;
   // Long lists (a folder of photos): what is moving or failed first, the rest behind "Ver todos".
   const LIMIT = 6;
   const order = (u: Upload) => ({ error: 0, sending: 1, waiting: 2, done: 3, cancelled: 4 })[u.state];
@@ -1151,8 +1216,21 @@ function Uploads({ uploads, setUploads }: { uploads: Upload[]; setUploads: (f: (
                 : "Envios concluídos"}
           </strong>
           <span className="muted small num">
-            {done} de {uploads.length} {uploads.length === 1 ? "arquivo" : "arquivos"} · {fmtBytes(sent)} de {fmtBytes(total)}
+            {done} de {uploads.length} {uploads.length === 1 ? "arquivo" : "arquivos"} · {busy ? fmtBytesFine(shownSent) : fmtBytes(sent)} de {fmtBytes(total)}
+            {busy && ` (${pct}%)`}
           </span>
+          {busy && (
+            <span className="small num uploads-speed" aria-live="off">
+              {speed > 0 ? (
+                <>
+                  <strong>{fmtBytes(shownSpeed)}/s</strong>
+                  <span className="muted"> · {fmtRemaining(((total - sent) / speed) * 1000)}</span>
+                </>
+              ) : (
+                <span className="muted">medindo a velocidade…</span>
+              )}
+            </span>
+          )}
         </div>
         {active > 1 && (
           <button className="btn ghost small" onClick={() => uploads.forEach((u) => (u.state === "sending" || u.state === "waiting") && u.ctrl.abort())}>
@@ -1166,7 +1244,7 @@ function Uploads({ uploads, setUploads }: { uploads: Upload[]; setUploads: (f: (
         )}
       </div>
       <span className="meter thin uploads-meter" aria-hidden="true">
-        <span style={{ width: `${total ? (100 * sent) / total : 100}%` }} />
+        <span style={{ width: `${total ? (100 * shownSent) / total : 100}%` }} />
       </span>
       {shown.length > 0 && (
       <ul className="uploads" aria-label="Envios">
@@ -1184,7 +1262,7 @@ function Uploads({ uploads, setUploads }: { uploads: Upload[]; setUploads: (f: (
                     ? "cancelado"
                     : u.state === "waiting"
                       ? "na fila"
-                      : `${fmtBytes(u.sent)} de ${fmtBytes(u.total)}`}
+                      : `${fmtBytesFine(u.sent)} de ${fmtBytes(u.total)} · ${u.total ? Math.floor((100 * u.sent) / u.total) : 0}%`}
             </span>
             {(u.state === "sending" || u.state === "waiting") && (
               <button className="btn ghost icon small" aria-label={`Cancelar ${u.name}`} onClick={() => u.ctrl.abort()}>
