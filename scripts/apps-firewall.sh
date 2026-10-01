@@ -73,7 +73,11 @@ case "${1:-status}" in
   status)
     iptables -S DOCKER-USER 2>/dev/null | grep -q -- "-j $CHAIN" && echo "hooked into DOCKER-USER: yes" || echo "hooked into DOCKER-USER: no"
     iptables -S "$CHAIN" 2>/dev/null || echo "chain $CHAIN: missing"
-    echo "public ports: $(tr '\n' ' ' < "$PUBLIC" 2>/dev/null || echo none)"
+    if [[ -f "$PUBLIC" ]]; then
+      echo "public ports: $(tr '\n' ' ' < "$PUBLIC")"
+    else
+      echo "public ports: none"
+    fi
     ;;
   *) echo "usage: $0 apply|remove|status" >&2; exit 2 ;;
 esac
