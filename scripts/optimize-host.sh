@@ -44,8 +44,11 @@ done
 # Tools these removals would otherwise take along, still wanted (disk work).
 apt-mark manual fdisk gdisk bc finalrd >/dev/null 2>&1 || true
 ((${#purge[@]})) && "${APT[@]}" purge "${purge[@]}" >/dev/null
-# Config left by packages removed earlier ("rc" state).
-dpkg -l | awk '/^rc/{print $2}' | xargs -r "${APT[@]}" purge >/dev/null
+# Obsolete Docker packages can delete the active Engine's shared state in
+# their purge hooks. Keep their residual configuration when Docker CE is
+# installed; "rc" packages contain no running service or installed binary.
+dpkg -l | awk '/^rc/ && $2 !~ /^(docker.io|containerd)$/ {print $2}' |
+  xargs -r "${APT[@]}" purge >/dev/null
 rm -rf /snap /var/snap /var/lib/snapd /root/snap /home/*/snap
 # Keep the netplan file cloud-init wrote (it is the network config).
 for u in packagekit.service gpu-manager.service motd-news.timer update-notifier-download.timer \
