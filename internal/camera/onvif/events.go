@@ -49,11 +49,18 @@ func (w *Watcher) Run(ctx context.Context) {
 	w.open = map[string]openEvent{}
 	w.topics = map[string]bool{}
 	_ = w.Store.CloseDanglingEvents(ctx, w.CameraID, time.Minute)
-	backoff := 5 * time.Second
+	const minBackoff = 5 * time.Second
+	backoff := minBackoff
 	for ctx.Err() == nil {
+		started := time.Now()
 		err := w.session(ctx)
 		if ctx.Err() != nil {
 			break
+		}
+		// A session that ran for a while was healthy: reconnect promptly
+		// instead of waiting the backoff left by an earlier failure.
+		if time.Since(started) > 2*time.Minute {
+			backoff = minBackoff
 		}
 		w.Log.Warn("onvif events: session ended", "camera", w.CameraID, "err", redact.Secrets(errString(err), w.Client.Password))
 		select {
