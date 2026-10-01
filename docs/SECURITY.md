@@ -124,8 +124,8 @@ are superseded where noted by ADR-0019 and ADR-0020.
     Release 1.11 omitted its pin; recover with a manual same-key 1.12 install,
     without removing the existing app.
 16. Nuvem viewers are blocked at the API. Operators use their own folder
-    and Compartilhado; admins can access the share. Top-level folders are
-    protected from API rename/move/delete. Explicit recycle-bin purge is
+    and the shared folder (*Compartilhado*); admins can access the share.
+    Top-level folders are protected from API rename/move/delete. Explicit recycle-bin purge is
     permanent. Profile uploads accept bounded JPEG/PNG/WebP data and are
     resized on the client; they are not a new server image-processing pipeline.
 

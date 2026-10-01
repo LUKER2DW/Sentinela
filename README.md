@@ -23,8 +23,9 @@ camera isolation, backup recovery and future work are in
 - Android notifications use Firebase for an opaque wake-up id; the app
   fetches event details from the house. The direct foreground connection
   remains a fallback (ADR-0020).
-- Nuvem is available to operators and admins. Viewers see cameras/events;
-  operators use their own folder and Compartilhado.
+- Nuvem (the file storage) is available to operators and admins. Viewers
+  see cameras/events; operators use their own folder and the shared one
+  (*Compartilhado*).
 
 ## Server and remote access
 
@@ -91,8 +92,9 @@ disabling certificate checks.
 ```
 
 The signed file is `mobile/build/sentinela.apk`. Install it over the
-existing app, with the same signing key. Since 1.9, Minha conta →
-Aplicativo offers later published versions and opens Android's installer.
+existing app, with the same signing key. Since 1.9, My account → App
+(*Minha conta → Aplicativo*) offers later published versions and opens
+Android's installer.
 Android asks once to allow this installation source.
 
 **Recovery from 1.11:** its APK omitted the certificate pin, so it cannot
@@ -107,20 +109,12 @@ The `.dev` Android build uses direct notifications.
 
 ## Install a fresh server
 
-1. Mount the recording disk at `/data` and the file disk at `/srv/nas`.
-   The installer refuses to record on the root filesystem.
-2. Copy the repository to `/opt/sentinela`, then run
-   `sudo ./scripts/install-server.sh`. Camera credentials are entered
-   silently and kept in `/etc/sentinela/secrets.env` (0600).
-3. Set the LAN share password with `sudo smbpasswd -a ana`.
-   Samba accounts are independent of web accounts.
-4. Open the LAN UI and create the first admin. Configure private remote
-   access with `setup-tailscale.sh`, or explicitly apply the approved
-   ADR-0019 public configuration.
-5. Apply `sudo ./scripts/optimize-host.sh`, check data mounts and host
-   services, and set BIOS "After power failure" to Power On.
-6. Configure backups, isolate the camera and perform the checks in PLAN.
-   An external restic disk and a completed restore drill are still pending.
+Follow **[docs/INSTALL.md](docs/INSTALL.md)**: hardware, camera
+preparation, disks, `install-server.sh`, first login and two-step login,
+Samba, remote access, notifications, the Android app, updates, backups and
+troubleshooting. In short: mount the recording disk at `/data`, clone the
+repository to `/opt/sentinela`, run `sudo ./scripts/install-server.sh`, then
+open `http://<server>:8080` to create the admin.
 
 | Operation on the server | Command |
 |---|---|
@@ -136,6 +130,10 @@ disk cap. Protected segments are excluded from automatic deletion.
 
 ## Develop
 
+Copy `deploy/config.example.yaml` to `dev-config.yaml` (git-ignored), point
+`data_dir` at a local folder and set the camera variables it names
+(`CAM1_USER`, `CAM1_PASS`) in your shell. Then:
+
 ```bash
 cd web && npm ci && npm run build && cd ..
 go run ./cmd/sentinela serve -config ./dev-config.yaml
@@ -144,7 +142,8 @@ make check
 ```
 
 Vite proxies to `http://127.0.0.1:8080`; set `SENTINELA_API` for another
-local API. Android Studio: `cd mobile && npm ci && npm run studio`.
+local API. Windows has no `make`: run the `check` steps of the
+[Makefile](Makefile) by hand. Android Studio: `cd mobile && npm ci && npm run studio`.
 The SDK and signing configuration must be present on that PC.
 
 ## Documentation and code
@@ -152,6 +151,7 @@ The SDK and signing configuration must be present on that PC.
 | Path | Purpose |
 |---|---|
 | [AGENTS.md](AGENTS.md) / [CLAUDE.md](CLAUDE.md) | Agent rules and entry point |
+| [docs/INSTALL.md](docs/INSTALL.md) | Step-by-step installation, updates and troubleshooting |
 | [docs/PLAN.md](docs/PLAN.md) | Current status, historical phases and pending checks |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Components, flows, ports and storage |
 | [docs/CAMERA.md](docs/CAMERA.md) | Allow-listed commands and dated hardware evidence |

@@ -125,4 +125,4 @@ printf '  Nuvem       \\\\%s\\Nuvem  (set its password once: sudo smbpasswd -a a
 echo "  Logs        cd ${REPO_DIR}/deploy && sudo docker compose logs -f --tail=50"
 echo "  Update      from the dev PC: ./scripts/deploy.sh"
 echo "  Reset pw    cd ${REPO_DIR}/deploy && sudo docker compose exec -T sentinela sentinela user passwd <user>"
-echo "Do NOT forward any router port to this server (docs/SECURITY.md)."
+echo "Next steps: docs/INSTALL.md. Forward router ports only for the ADR-0019 public listener (setup-public.sh)."

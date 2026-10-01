@@ -25,7 +25,7 @@ in the UI. Existing final files are not silently overwritten.
 
 - Filesystem operations use `os.Root` confinement and permission checks.
 - Viewers have no Nuvem API or page. Operators use their own directory and
-  Compartilhado. Admins can access the share.
+  the shared folder (*Compartilhado*). Admins can access the share.
 - Top-level folders cannot be moved, renamed or deleted through the API.
   Admins can create additional top-level folders.
 - CSRF protects writes, which are audited. Samba uses its own LAN account;

@@ -30,7 +30,7 @@ unsupported device by transcoding on the server.
 - Native code covers biometric/device-lock protection after five minutes
   away, downloads with authenticated pinned HTTPS, notifications (ADR-0020)
   and sideloaded updates.
-- The SPA uses bottom tabs, a grouped Mais menu, visible subpage/folder back
+- The SPA uses bottom tabs, a grouped More (*Mais*) menu, visible subpage/folder back
   buttons and safe-area spacing. Camera configuration, users and audit
   remain desktop tasks.
 - The APK is built locally and signed with the persistent household key.

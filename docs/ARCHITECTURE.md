@@ -51,11 +51,19 @@ Five-minute fragmented MP4 segments are the default. Regular retention is
 15 days, alert segments 30 days, and the disk cap is 90%. Protected
 segments are not automatically deleted.
 
-Playback supports HTTP ranges and `?at=<seconds>`: init boxes plus
-fragments beginning at the preceding keyframe. Fragment indexes are cached
-by file size/modification time. Timeline previews use `?at=&gop=1`: one
-video keyframe in a small MP4, or a GOP fallback when trimming is not
-possible. The server copies bytes; the viewing device decodes them.
+Playback supports HTTP ranges and `?at=<seconds>` (0 when absent): the init
+boxes, a generated `sidx` segment index, then the fragments beginning at the
+preceding keyframe. Without the `sidx`, Chrome's demuxer read every `moof`
+before the first frame (~90 range requests per five-minute file, ~10 s over
+the phone's remote path); with it, playback starts after one request. Only
+index metadata is added; media bytes are unchanged. Fragment indexes are
+cached by file size/modification time.
+
+Timeline previews use `?at=&gop=1`: one video keyframe in a small MP4, or a
+GOP fallback when trimming is not possible. The SPA decodes them on the
+viewing device with one reused hidden `<video>`, newest request first,
+and keeps small JPEG copies in memory; holding a finger on the ribbon or
+ruler shows them. The server copies bytes; the viewing device decodes them.
 
 ### 2.3 Camera control
 
