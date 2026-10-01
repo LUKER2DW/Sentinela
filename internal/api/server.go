@@ -84,7 +84,7 @@ func New(cfg *config.Config, st *store.Store, web fs.FS, log *slog.Logger) (*Ser
 		pan, tilt := cam.Inversion()
 		s.ctrl[cam.ID] = dvrip.NewController(addr, cam.User, cam.Password, dvrip.Invert{Pan: pan, Tilt: tilt}, log.With("camera", cam.ID))
 	}
-	s.det.motion, s.det.open = map[string]bool{}, map[string]int64{}
+	s.det.motion, s.det.open, s.det.probe = map[string]bool{}, map[string]int64{}, map[string]time.Time{}
 	if tok, err := loadDetectorToken(cfg.DataDir); err != nil {
 		log.Warn("object detector disabled: token", "err", err)
 	} else {
@@ -189,12 +189,14 @@ func (s *Server) handler(zone string) http.Handler {
 	mux.Handle("GET /api/cameras/{id}/frame.jpeg", viewer(s.frame))
 	mux.Handle("GET /api/cameras/{id}/detection", viewer(s.getDetection))
 	mux.Handle("PUT /api/cameras/{id}/detection", operator(s.putDetection))
+	mux.Handle("POST /api/cameras/{id}/detection/probe", operator(s.probeDetection))
 
 	// Object detector sidecar (loopback + token, ADR-0016).
 	mux.Handle("GET /internal/detector/config", s.detectorOnly(s.detectorConfig))
 	mux.Handle("GET /internal/detector/motion", s.detectorOnly(s.detectorMotion))
 	mux.Handle("POST /internal/detector/event", s.detectorOnly(s.detectorEvent))
 	mux.Handle("POST /internal/detector/status", s.detectorOnly(s.detectorStatus))
+	mux.Handle("POST /internal/detector/objects", s.detectorOnly(s.detectorObjects))
 
 	// Events and system
 	mux.Handle("GET /api/events", viewer(s.listEvents))

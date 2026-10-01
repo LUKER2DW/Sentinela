@@ -114,3 +114,22 @@ Detection logic:
   it was first seen) stops counting after 30 s for vehicles, 60 s for
   animals, 5 min for people; forgotten after 8 analyses without it. What is
   in the picture when the detector starts counts as already there.
+
+## Revision (2026-10-01): live overlay and more settings
+
+- **Overlay**: after each analysis the detector posts every object it saw
+  (box, score, whether it counts, parked) to the loopback-only
+  `/internal/detector/objects`; the API relays it on the existing SSE
+  stream as an `objects` event, filtered by camera permission, and stores
+  nothing. The live view draws the boxes over the picture (a dot marks the
+  feet); they fade after ~4 s without a new analysis. What is drawn
+  (boxes, names, confidence, also what does not warn, zone outlines) is a
+  preference of each device.
+- **Probe**: the zone editor asks `POST /api/cameras/{id}/detection/probe`
+  (operator); for 20 s the detector analyses that camera without motion
+  and publishes boxes, so the editor shows whether each object would
+  count. A probe never opens events or changes the trackers.
+- **Settings** per camera: kinds watched when there are no zones
+  (`objects`, default people), `ignore_parked` (default on) and `min_size`
+  (objects shorter than this share of the picture height are ignored).
+  Fields an older app does not send keep their stored values.

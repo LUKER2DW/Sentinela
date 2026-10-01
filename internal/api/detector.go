@@ -41,20 +41,41 @@ type Zone struct {
 	Objects []string     `json:"objects"`
 }
 
-// DetectionSettings is stored per camera in the settings table.
+// DetectionSettings is stored per camera in the settings table. Fields
+// added later get their defaults from defaultDetection: stored JSON and PUT
+// bodies are decoded over it (or over the current settings).
 type DetectionSettings struct {
 	Enabled  bool    `json:"enabled"`
 	MinScore float64 `json:"min_score"`
 	Zones    []Zone  `json:"zones"`
+	// Objects are the kinds watched over the whole picture when there are
+	// no zones.
+	Objects []string `json:"objects"`
+	// IgnoreParked: objects that stay in place (a parked car) stop counting.
+	IgnoreParked bool `json:"ignore_parked"`
+	// MinSize ignores objects shorter than this share of the picture
+	// height (far away, on the street); 0 = no limit.
+	MinSize float64 `json:"min_size"`
 }
 
 func defaultDetection() DetectionSettings {
-	return DetectionSettings{Enabled: true, MinScore: 0.45, Zones: []Zone{}}
+	return DetectionSettings{Enabled: true, MinScore: 0.45, Zones: []Zone{}, Objects: []string{"person"}, IgnoreParked: true}
 }
 
 func (d DetectionSettings) validate() error {
 	if d.MinScore < 0.25 || d.MinScore > 0.9 {
 		return errors.New("min_score must be between 0.25 and 0.9")
+	}
+	if d.MinSize < 0 || d.MinSize > 0.3 {
+		return errors.New("min_size must be between 0 and 0.3")
+	}
+	if len(d.Objects) == 0 {
+		return errors.New("choose at least one kind of object")
+	}
+	for _, o := range d.Objects {
+		if _, ok := detectorKinds[o]; !ok {
+			return fmt.Errorf("unknown object %q", o)
+		}
 	}
 	if len(d.Zones) > maxZones {
 		return fmt.Errorf("at most %d zones", maxZones)
@@ -87,10 +108,14 @@ type detectorState struct {
 	mu       sync.Mutex
 	token    string
 	motion   map[string]bool
-	open     map[string]int64 // camera|type -> open event id
+	probe    map[string]time.Time // camera -> analyse without motion until (zone editor)
+	open     map[string]int64     // camera|type -> open event id
 	status   json.RawMessage
 	statusAt time.Time
 }
+
+// probeFor is how long one probe request keeps the detector analysing.
+const probeFor = 20 * time.Second
 
 func detectionKey(cameraID string) string { return "detection." + cameraID }
 
@@ -101,6 +126,9 @@ func (s *Server) detection(ctx context.Context, cameraID string) DetectionSettin
 	}
 	if d.Zones == nil {
 		d.Zones = []Zone{}
+	}
+	if len(d.Objects) == 0 {
+		d.Objects = []string{"person"}
 	}
 	return d
 }
@@ -142,10 +170,13 @@ func (s *Server) detectorOnly(h http.HandlerFunc) http.Handler {
 // RTSP restream, zones and sensitivity.
 func (s *Server) detectorConfig(w http.ResponseWriter, r *http.Request) {
 	type camDTO struct {
-		ID       string  `json:"id"`
-		Stream   string  `json:"stream"`
-		MinScore float64 `json:"min_score"`
-		Zones    []Zone  `json:"zones"`
+		ID           string   `json:"id"`
+		Stream       string   `json:"stream"`
+		MinScore     float64  `json:"min_score"`
+		Zones        []Zone   `json:"zones"`
+		Objects      []string `json:"objects"`
+		IgnoreParked bool     `json:"ignore_parked"`
+		MinSize      float64  `json:"min_size"`
 	}
 	out := []camDTO{}
 	for _, c := range s.Cfg.Cameras {
@@ -153,7 +184,10 @@ func (s *Server) detectorConfig(w http.ResponseWriter, r *http.Request) {
 		if !d.Enabled {
 			continue
 		}
-		out = append(out, camDTO{ID: c.ID, Stream: "rtsp://127.0.0.1:8554/" + c.ID + "_sub", MinScore: d.MinScore, Zones: d.Zones})
+		out = append(out, camDTO{
+			ID: c.ID, Stream: "rtsp://127.0.0.1:8554/" + c.ID + "_sub", MinScore: d.MinScore, Zones: d.Zones,
+			Objects: d.Objects, IgnoreParked: d.IgnoreParked, MinSize: d.MinSize,
+		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"cameras": out})
 }
@@ -164,8 +198,32 @@ func (s *Server) detectorMotion(w http.ResponseWriter, _ *http.Request) {
 	for k, v := range s.det.motion {
 		m[k] = v
 	}
+	probe := map[string]bool{}
+	now := time.Now()
+	for k, until := range s.det.probe {
+		if now.Before(until) {
+			probe[k] = true
+		} else {
+			delete(s.det.probe, k)
+		}
+	}
 	s.det.mu.Unlock()
-	writeJSON(w, http.StatusOK, map[string]any{"motion": m})
+	writeJSON(w, http.StatusOK, map[string]any{"motion": m, "probe": probe})
+}
+
+// detectorObjects relays what the detector sees in each analysis to the
+// browsers (live overlay, zone editor). Nothing is stored.
+func (s *Server) detectorObjects(w http.ResponseWriter, r *http.Request) {
+	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 64<<10))
+	var body struct {
+		Camera string `json:"camera"`
+	}
+	if err != nil || json.Unmarshal(raw, &body) != nil || s.Cfg.Camera(body.Camera) == nil {
+		writeErr(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	s.hub.PublishObjects(body.Camera, raw)
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 func (s *Server) detectorStatus(w http.ResponseWriter, r *http.Request) {
@@ -276,7 +334,7 @@ func (s *Server) putDetection(w http.ResponseWriter, r *http.Request) {
 	if cam == nil {
 		return
 	}
-	var d DetectionSettings
+	d := s.detection(r.Context(), cam.ID) // fields an older app does not send stay
 	if err := readJSON(r, &d); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -289,6 +347,8 @@ func (s *Server) putDetection(w http.ResponseWriter, r *http.Request) {
 		slices.Sort(d.Zones[i].Objects)
 		d.Zones[i].Objects = slices.Compact(d.Zones[i].Objects)
 	}
+	slices.Sort(d.Objects)
+	d.Objects = slices.Compact(d.Objects)
 	if err := d.validate(); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -298,8 +358,22 @@ func (s *Server) putDetection(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "database error")
 		return
 	}
-	s.audit(r, "detection.update", cam.ID, true, fmt.Sprintf("enabled=%t zones=%d min=%.2f", d.Enabled, len(d.Zones), d.MinScore))
+	s.audit(r, "detection.update", cam.ID, true, fmt.Sprintf("enabled=%t zones=%d min=%.2f objects=%s parked=%t size=%.2f",
+		d.Enabled, len(d.Zones), d.MinScore, strings.Join(d.Objects, "+"), !d.IgnoreParked, d.MinSize))
 	writeJSON(w, http.StatusOK, d)
+}
+
+// probeDetection keeps the detector analysing a camera for a while without
+// motion, so the zone editor can show what it sees. It never opens events.
+func (s *Server) probeDetection(w http.ResponseWriter, r *http.Request) {
+	cam := s.camera(w, r)
+	if cam == nil {
+		return
+	}
+	s.det.mu.Lock()
+	s.det.probe[cam.ID] = time.Now().Add(probeFor)
+	s.det.mu.Unlock()
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "seconds": int(probeFor.Seconds())})
 }
 
 // frame returns a current substream picture for the zone editor (one

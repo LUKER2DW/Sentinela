@@ -1,5 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { pushSeen } from "./detections";
+import type { SeenObject } from "./zones";
 
 interface LiveEvent {
   camera_id: string;
@@ -30,6 +32,11 @@ export function LiveEventsProvider({ children }: { children: ReactNode }) {
       });
       void qc.invalidateQueries({ queryKey: ["timeline"] });
       void qc.invalidateQueries({ queryKey: ["events"] });
+    });
+    // The detector's boxes for the live overlay (every analysed keyframe).
+    es.addEventListener("objects", (msg) => {
+      const e = JSON.parse((msg as MessageEvent).data) as { camera: string; objects: SeenObject[] };
+      pushSeen(e.camera, e.objects ?? []);
     });
     return () => es.close();
   }, [qc]);

@@ -75,6 +75,11 @@ class Zones(unittest.TestCase):
         self.assertEqual(d.zone_hits(("person", 0, 0, 0.1, 0.1, 0.9), []), ["*"])
         self.assertEqual(d.zone_hits(("vehicle", 0, 0, 0.1, 0.1, 0.9), []), [])
 
+    def test_no_zones_watch_chosen_kinds(self):
+        car = ("vehicle", 0, 0, 0.1, 0.1, 0.9)
+        self.assertEqual(d.zone_hits(car, [], ("person", "vehicle")), ["*"])
+        self.assertEqual(d.zone_hits(("person", 0, 0, 0.1, 0.1, 0.9), [], ("vehicle",)), [])
+
 
 class Region(unittest.TestCase):
     size = (352, 640)

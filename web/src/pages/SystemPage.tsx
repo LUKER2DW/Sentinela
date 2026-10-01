@@ -6,7 +6,7 @@ import { fmtBytes, fmtDuration, fmtTime, relative, spanDays } from "../lib/time"
 import { useCameras } from "./LivePage";
 import { VolumeMeter } from "./NuvemPage";
 import { AddCameraCard } from "../components/AddCamera";
-import { DetectionCard } from "../components/Detection";
+import { DetectionCard, OverlayCard } from "../components/Detection";
 import { useCompact } from "../lib/viewport";
 import { MoreMenu } from "../components/MoreMenu";
 import { Icon } from "../components/Icon";
@@ -124,8 +124,9 @@ function SectionBody({ section, s, admin }: { section: Section; s: SystemInfo; a
       );
     case "detection":
       return (
-        <div className="grid-2">
+        <div className="stack">
           <DetectionCard s={s} />
+          <OverlayCard />
         </div>
       );
     case "server":

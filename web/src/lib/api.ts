@@ -144,7 +144,8 @@ export interface SystemInfo {
     status?: {
       inference_ms: number;
       inferences: number;
-      cameras: Record<string, { connected: boolean; analysing: boolean; last_analysis: number | null }>;
+      model?: string;
+      cameras: Record<string, { connected: boolean; analysing: boolean; last_analysis: number | null; parked?: number; cropped?: boolean }>;
     };
   };
 }

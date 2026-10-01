@@ -166,13 +166,14 @@ def inside(pt, poly):
     return ok
 
 
-def zone_hits(obj, zones):
+def zone_hits(obj, zones, watch=("person",)):
     """Names of the zones that count this object: its base (the feet of a
     person, the wheels of a car) must be inside, and the zone must watch
-    that kind. No zones = the whole picture watches people only."""
+    that kind. No zones = the whole picture watches the kinds in `watch`
+    (people unless the user chose more)."""
     kind, x, y, w, h = obj[:5]
     if not zones:
-        return ["*"] if kind == "person" else []
+        return ["*"] if kind in watch else []
     base = (x + w / 2, min(y + h, 0.999))
     return [z.get("name", "") for z in zones if kind in (z.get("objects") or ["person"]) and inside(base, z["points"])]
 
@@ -319,6 +320,9 @@ class API:
     def status(self, body):
         return self._req("POST", "/internal/detector/status", body)
 
+    def objects(self, body):
+        return self._req("POST", "/internal/detector/objects", body)
+
 
 def encode_jpeg(frame):
     """JPEG of a PyAV frame (the event snapshot), ~50 KB."""
@@ -341,6 +345,7 @@ class Camera(threading.Thread):
         self.parked = {k: Parked(DWELL[k]) for k in KINDS}
         self.best = {k: [] for k in KINDS}  # recent (score, frame, hits) for the snapshot
         self.learned = False
+        self.shown = False  # the overlay has boxes on screen
         self.state = {"connected": False, "analysing": False, "last_analysis": None, "objects": {}, "parked": 0, "cropped": False}
         self.stop = threading.Event()
 
@@ -381,10 +386,17 @@ class Camera(threading.Thread):
                     self.learn(cc, pkt, now)
                 motion_until = self.shared["motion"].get(self.cid, 0.0)
                 analysing = now <= motion_until + LINGER
-                self.state["analysing"] = analysing
+                # Someone is drawing zones: analyse to show the boxes, but
+                # only real motion may open events.
+                probing = now <= self.shared["probe"].get(self.cid, 0.0) + 2
+                self.state["analysing"] = analysing or probing
                 if not analysing:
                     last_key = pkt  # idle: demux only, keep the newest keyframe
                     self.close_all()
+                    if probing:
+                        self.analyse(cc, pkt, now, events=False)
+                    elif self.shown:
+                        self.publish(now, [])
                     continue
                 if last_key is not None:  # motion just started: the keyframe before it too
                     self.analyse(cc, last_key, now)
@@ -431,21 +443,30 @@ class Camera(threading.Thread):
             self.parked[kind].learn([o[1:5] for o in objs if o[0] == kind], now)
         self.state["parked"] = sum(len(p.seen) for p in self.parked.values())
 
-    def analyse(self, cc, pkt, now):
+    def analyse(self, cc, pkt, now, events=True):
         frame = self.decode(cc, pkt)
         if frame is None:
             return
         cfg = self.cfg()
         low, strong = thresholds(cfg.get("min_score", 0.45))
         zones = cfg.get("zones") or []
-        objs = self.detect(frame, zones, low)
+        watch = tuple(cfg.get("objects") or ("person",))
+        min_size = cfg.get("min_size", 0.0)
+        ignore_parked = cfg.get("ignore_parked", True)
+        objs = [o for o in self.detect(frame, zones, low) if o[4] >= min_size]
         counted = {k: [] for k in KINDS}
+        seen = []  # everything, for the overlay
         for kind in KINDS:
             mine = [o for o in objs if o[0] == kind]
             for o, still in zip(mine, self.parked[kind].update([o[1:5] for o in mine], now)):
-                names = zone_hits(o, zones)
-                if names and not still:
+                names = zone_hits(o, zones, watch)
+                counts = bool(names) and not (still and ignore_parked)
+                if counts:
                     counted[kind].append((o, names))
+                seen.append((o, names, still, counts))
+        self.publish(now, seen)
+        if not events:
+            return
         self.state.update(
             last_analysis=now,
             objects={k: len(v) for k, v in counted.items() if v},
@@ -463,6 +484,32 @@ class Camera(threading.Thread):
                 self.report(kind, change, None, [])
             if change:
                 self.best[kind] = []
+
+    def publish(self, now, seen):
+        """Boxes of this analysis for the live overlay (best effort)."""
+        body = {
+            "camera": self.cid,
+            "at": round(now, 2),
+            "objects": [
+                {
+                    "kind": o[0],
+                    "x": round(o[1], 4),
+                    "y": round(o[2], 4),
+                    "w": round(o[3], 4),
+                    "h": round(o[4], 4),
+                    "score": round(o[5], 3),
+                    "zones": [n for n in names if n != "*"],
+                    "parked": still,
+                    "counted": counts,
+                }
+                for o, names, still, counts in seen
+            ],
+        }
+        self.shown = bool(seen)
+        try:
+            self.api.objects(body)
+        except Exception as e:
+            log.debug("camera %s: objects: %s", self.cid, e)
 
     def close_all(self):
         """Motion is over (or the stream dropped): end open events and
@@ -499,7 +546,7 @@ def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     api = API(os.environ.get("SENTINELA_API", "http://127.0.0.1:8080"), os.environ.get("TOKEN_FILE", "/data/detector/token"))
     model = Model(os.environ.get("MODEL", "/opt/detector/model.onnx"))
-    shared = {"cams": {}, "motion": {}}
+    shared = {"cams": {}, "motion": {}, "probe": {}}
     threads = {}
     started = time.time()
     next_cfg = 0.0
@@ -511,8 +558,11 @@ def main():
             for cid, active in m.get("motion", {}).items():
                 if active:
                     shared["motion"][cid] = now
+            for cid, active in (m.get("probe") or {}).items():
+                if active:
+                    shared["probe"][cid] = now
             if now >= next_cfg:
-                next_cfg = now + 30
+                next_cfg = now + 10  # settings saved in the app apply within 10 s
                 cfg = api.config()
                 shared["cams"] = {c["id"]: c for c in cfg.get("cameras", [])}
                 for cid in shared["cams"]:

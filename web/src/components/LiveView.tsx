@@ -7,6 +7,7 @@ import { fmtClock } from "../lib/time";
 import { Icon } from "./Icon";
 import { Boat } from "./Doodles";
 import { DelayMeter } from "./DelayMeter";
+import { DetectionOverlay } from "./DetectionOverlay";
 
 interface Props {
   cameraId: string;
@@ -48,6 +49,7 @@ export function LiveView({ cameraId, cameraName, motion, allowTalk, compact, def
   const [delay, setDelay] = useState<number | null>(null);
   const [meter, setMeter] = useState(false);
   const [zoom, setZoom] = useState<Zoom>(NO_ZOOM);
+  const [dims, setDims] = useState({ w: 16, h: 9 });
   const freezeRef = useRef<HTMLCanvasElement>(null);
   const [frozen, setFrozen] = useState(false);
   const [clip, setClip] = useState<ClipRecorder | null>(null);
@@ -358,6 +360,8 @@ export function LiveView({ cameraId, cameraName, motion, allowTalk, compact, def
         muted
         aria-label={`Ao vivo: ${cameraName}`}
         style={zoom.scale > 1 ? { transform: `translate(${zoom.x}px, ${zoom.y}px) scale(${zoom.scale})` } : undefined}
+        onLoadedMetadata={(e) => e.currentTarget.videoWidth && setDims({ w: e.currentTarget.videoWidth, h: e.currentTarget.videoHeight })}
+        onResize={(e) => e.currentTarget.videoWidth && setDims({ w: e.currentTarget.videoWidth, h: e.currentTarget.videoHeight })}
       />
       <canvas
         ref={freezeRef}
@@ -365,6 +369,15 @@ export function LiveView({ cameraId, cameraName, motion, allowTalk, compact, def
         aria-hidden="true"
         style={zoom.scale > 1 ? { transform: `translate(${zoom.x}px, ${zoom.y}px) scale(${zoom.scale})` } : undefined}
       />
+
+      {status.state === "playing" && (
+        <DetectionOverlay
+          cameraId={cameraId}
+          videoW={dims.w}
+          videoH={dims.h}
+          style={zoom.scale > 1 ? { transform: `translate(${zoom.x}px, ${zoom.y}px) scale(${zoom.scale})` } : undefined}
+        />
+      )}
 
       <div className="player-tag">
         {status.state === "playing" && !frozen ? <span className="dot rec" /> : <span className="dot warn" />}

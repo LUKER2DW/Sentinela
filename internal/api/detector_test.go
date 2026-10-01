@@ -100,3 +100,59 @@ func TestDetectorIntegration(t *testing.T) {
 		t.Fatal("not healthy after status")
 	}
 }
+
+func TestDetectorSettingsProbeAndOverlay(t *testing.T) {
+	ts, srv := newTestServer(t)
+	tok := srv.det.token
+	admin := newClient(t, ts.URL)
+	admin.do("POST", "/api/setup", `{"username":"admin","password":"long enough pw"}`)
+
+	// New fields have defaults, and a body without them (older app) keeps them.
+	_, _, body := admin.do("GET", "/api/cameras/cam1/detection", "")
+	if !strings.Contains(body, `"objects":["person"]`) || !strings.Contains(body, `"ignore_parked":true`) || !strings.Contains(body, `"min_size":0`) {
+		t.Fatalf("defaults %s", body)
+	}
+	admin.do("PUT", "/api/cameras/cam1/detection", `{"enabled":true,"min_score":0.45,"zones":[],"objects":["vehicle","person","person"],"ignore_parked":false,"min_size":0.05}`)
+	if code, _, body := admin.do("PUT", "/api/cameras/cam1/detection", `{"enabled":true,"min_score":0.6,"zones":[]}`); code != 200 ||
+		!strings.Contains(body, `"objects":["person","vehicle"]`) || !strings.Contains(body, `"ignore_parked":false`) || !strings.Contains(body, `"min_size":0.05`) {
+		t.Fatalf("old-app put %d %s", code, body)
+	}
+	for _, bad := range []string{`{"objects":[]}`, `{"objects":["tree"]}`, `{"min_size":0.5}`} {
+		if code, _, _ := admin.do("PUT", "/api/cameras/cam1/detection", bad); code != 400 {
+			t.Fatalf("%s accepted: %d", bad, code)
+		}
+	}
+	if _, body := detectorReq(t, srv, ts.URL, "GET", "/internal/detector/config", tok, ""); !strings.Contains(body, `"ignore_parked":false`) || !strings.Contains(body, `"min_size":0.05`) {
+		t.Fatalf("config %s", body)
+	}
+
+	// Probe: the detector analyses without motion for a while.
+	if _, body := detectorReq(t, srv, ts.URL, "GET", "/internal/detector/motion", tok, ""); strings.Contains(body, `"probe":{"cam1"`) {
+		t.Fatalf("probe before asking: %s", body)
+	}
+	if code, _, _ := admin.do("POST", "/api/cameras/cam1/detection/probe", ""); code != 200 {
+		t.Fatalf("probe %d", code)
+	}
+	if _, body := detectorReq(t, srv, ts.URL, "GET", "/internal/detector/motion", tok, ""); !strings.Contains(body, `"probe":{"cam1":true}`) {
+		t.Fatalf("probe %s", body)
+	}
+
+	// Boxes are relayed to subscribers as "objects".
+	c := srv.hub.subscribe()
+	defer srv.hub.unsubscribe(c)
+	if code, _ := detectorReq(t, srv, ts.URL, "POST", "/internal/detector/objects", tok, `{"camera":"nope","objects":[]}`); code != 400 {
+		t.Fatalf("unknown camera accepted: %d", code)
+	}
+	msg := `{"camera":"cam1","at":1,"objects":[{"kind":"person","x":0.1,"y":0.2,"w":0.1,"h":0.3,"score":0.8,"counted":true}]}`
+	if code, _ := detectorReq(t, srv, ts.URL, "POST", "/internal/detector/objects", tok, msg); code != 200 {
+		t.Fatalf("objects %d", code)
+	}
+	select {
+	case m := <-c:
+		if m.event != "objects" || m.cameraID != "cam1" || string(m.data) != msg {
+			t.Fatalf("relayed %+v", m)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("objects not relayed")
+	}
+}

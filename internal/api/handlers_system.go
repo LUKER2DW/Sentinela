@@ -56,36 +56,53 @@ type LiveEvent struct {
 	At       time.Time `json:"at"`
 }
 
-// Hub fans events out to SSE subscribers.
+// Hub fans events out to SSE subscribers: event starts and ends
+// ("camera") and the detector's boxes ("objects", for the live overlay).
 type Hub struct {
 	mu   sync.Mutex
-	subs map[chan LiveEvent]struct{}
+	subs map[chan hubMsg]struct{}
+}
+
+type hubMsg struct {
+	event    string // SSE event name
+	cameraID string
+	data     []byte // JSON
 }
 
 // NewHub returns an empty hub.
-func NewHub() *Hub { return &Hub{subs: map[chan LiveEvent]struct{}{}} }
+func NewHub() *Hub { return &Hub{subs: map[chan hubMsg]struct{}{}} }
 
-// Publish sends to every subscriber without blocking.
+// Publish sends an event start/end to every subscriber without blocking.
 func (h *Hub) Publish(e LiveEvent) {
+	b, _ := json.Marshal(e)
+	h.send(hubMsg{"camera", e.CameraID, b})
+}
+
+// PublishObjects sends what the detector sees on a camera now.
+func (h *Hub) PublishObjects(cameraID string, data []byte) {
+	h.send(hubMsg{"objects", cameraID, data})
+}
+
+func (h *Hub) send(m hubMsg) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for c := range h.subs {
 		select {
-		case c <- e:
+		case c <- m:
 		default: // slow client: drop
 		}
 	}
 }
 
-func (h *Hub) subscribe() chan LiveEvent {
-	c := make(chan LiveEvent, 16)
+func (h *Hub) subscribe() chan hubMsg {
+	c := make(chan hubMsg, 16)
 	h.mu.Lock()
 	h.subs[c] = struct{}{}
 	h.mu.Unlock()
 	return c
 }
 
-func (h *Hub) unsubscribe(c chan LiveEvent) {
+func (h *Hub) unsubscribe(c chan hubMsg) {
 	h.mu.Lock()
 	delete(h.subs, c)
 	h.mu.Unlock()
@@ -113,12 +130,11 @@ func (s *Server) eventStream(w http.ResponseWriter, r *http.Request) {
 		case <-ping.C:
 			fmt.Fprint(w, ": ping\n\n")
 			fl.Flush()
-		case e := <-c:
-			if !s.canSee(r, e.CameraID) {
+		case m := <-c:
+			if !s.canSee(r, m.cameraID) {
 				continue
 			}
-			b, _ := json.Marshal(e)
-			fmt.Fprintf(w, "event: camera\ndata: %s\n\n", b)
+			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", m.event, m.data)
 			fl.Flush()
 		}
 	}
