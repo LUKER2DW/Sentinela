@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -143,6 +144,23 @@ func (w *statusWriter) Write(b []byte) (int, error) {
 	return n, err
 }
 func (w *statusWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+// ReadFrom lets http.ServeContent reach the connection's sendfile(2) on
+// plain HTTP; without it every download goes through a 32 KiB user copy.
+func (w *statusWriter) ReadFrom(r io.Reader) (int64, error) {
+	if w.code == 0 {
+		w.code = 200
+	}
+	var n int64
+	var err error
+	if rf, ok := w.ResponseWriter.(io.ReaderFrom); ok {
+		n, err = rf.ReadFrom(r)
+	} else {
+		n, err = io.Copy(struct{ io.Writer }{w.ResponseWriter}, r)
+	}
+	w.bytes += n
+	return n, err
+}
 func (w *statusWriter) Flush() {
 	if f, ok := w.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
