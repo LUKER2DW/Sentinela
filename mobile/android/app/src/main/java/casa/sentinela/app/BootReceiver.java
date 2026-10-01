@@ -4,7 +4,8 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 
-/** Starts the notification service after a reboot or an app update. */
+/** Restarts the direct fallback after a reboot or an app update; Firebase
+ * delivery needs no app-owned service. */
 public class BootReceiver extends BroadcastReceiver {
     @Override
     public void onReceive(Context context, Intent intent) {

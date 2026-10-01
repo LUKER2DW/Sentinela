@@ -151,6 +151,7 @@ public class MainActivity extends BridgeActivity {
         if (getBridge() != null && getBridge().getServerUrl() != null) {
             NotifyService.refreshCookie(this);
             NotifyService.start(this);
+            PushMode.reconcile(this);
         }
     }
 

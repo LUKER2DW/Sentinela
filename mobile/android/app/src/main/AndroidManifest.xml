@@ -10,6 +10,8 @@
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
 
+        <meta-data android:name="firebase_messaging_auto_init_enabled" android:value="false" />
+
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
             android:name=".MainActivity"
@@ -25,15 +27,20 @@
 
         </activity>
 
-        <!-- Event notifications: one long-lived connection to the house
-             (NotifyService). No Google or ntfy in between. -->
+        <!-- Fallback when Firebase or Google Play services is unavailable. -->
         <service
             android:name=".NotifyService"
             android:exported="false"
             android:foregroundServiceType="specialUse">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Self-hosted security camera alerts: keeps one connection to the user's own home server, which has no Google push." />
+                android:value="Security camera alerts: keeps a connection to the user's own server when Firebase is unavailable." />
+        </service>
+
+        <service android:name=".SentinelaFirebaseService" android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
         </service>
 
         <receiver

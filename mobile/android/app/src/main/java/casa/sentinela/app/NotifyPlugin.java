@@ -20,7 +20,7 @@ import com.getcapacitor.annotation.PermissionCallback;
 
 /**
  * Notifications in the app ({@code Capacitor.Plugins.SentinelaNotify}):
- * asks for the permission and switches {@link NotifyService} on or off.
+ * asks for the permission and chooses Firebase or the direct connection.
  * Which events notify is chosen on the server (Minha conta).
  */
 @CapacitorPlugin(
@@ -33,10 +33,11 @@ public class NotifyPlugin extends Plugin {
         JSObject o = new JSObject();
         o.put("permission", Notifier.allowed(c) ? "granted"
                 : getPermissionState("notifications") == PermissionState.DENIED ? "denied" : "prompt");
-        o.put("running", NotifyService.enabled(c) && Notifier.allowed(c));
+        o.put("running", PushMode.enabled(c) && Notifier.allowed(c));
+        o.put("transport", PushMode.isFirebase(c) ? "firebase" : NotifyService.enabled(c) ? "direct" : "off");
         o.put("connected", NotifyService.connected);
         PowerManager pm = (PowerManager) c.getSystemService(Context.POWER_SERVICE);
-        o.put("batteryOptimized", pm != null && !pm.isIgnoringBatteryOptimizations(c.getPackageName()));
+        o.put("batteryOptimized", !PushMode.isFirebase(c) && pm != null && !pm.isIgnoringBatteryOptimizations(c.getPackageName()));
         return o;
     }
 
@@ -46,7 +47,18 @@ public class NotifyPlugin extends Plugin {
         call.resolve(status());
     }
 
-    /** Asks for the permission (Android 13+), then starts the service. */
+    /** Called when the signed-in web UI mounts (also after a new login). */
+    @PluginMethod
+    public void sync(PluginCall call) {
+        getActivity().runOnUiThread(() -> {
+            NotifyService.refreshCookie(getContext());
+            NotifyService.start(getContext());
+            PushMode.reconcile(getContext());
+            call.resolve(status());
+        });
+    }
+
+    /** Asks for the permission (Android 13+), then chooses the transport. */
     @PluginMethod
     public void enable(PluginCall call) {
         if (!Notifier.allowed(getContext())) {
@@ -78,14 +90,13 @@ public class NotifyPlugin extends Plugin {
                 call.reject("Entre no Sentinela neste celular primeiro.");
                 return;
             }
-            NotifyService.setEnabled(getContext(), true);
-            call.resolve(status());
+            PushMode.enable(getContext(), firebase -> call.resolve(status()));
         });
     }
 
     @PluginMethod
     public void disable(PluginCall call) {
-        NotifyService.setEnabled(getContext(), false);
+        PushMode.disable(getContext());
         call.resolve(status());
     }
 

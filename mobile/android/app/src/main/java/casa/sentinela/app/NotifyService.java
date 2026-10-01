@@ -27,8 +27,8 @@ import java.net.HttpURLConnection;
 import java.nio.charset.StandardCharsets;
 
 /**
- * Event notifications without Google or the ntfy app: a foreground service
- * keeps one Server-Sent Events connection to the house
+ * Fallback notification transport on phones without working Firebase: a
+ * foreground service keeps one Server-Sent Events connection to the house
  * ({@code GET /api/notify/stream}) and shows every message it gets. This is
  * how self-hosted ntfy delivers "instantly" too; Android requires the small
  * permanent notification of the {@link Notifier#CHANNEL_SERVICE} channel.
@@ -69,6 +69,13 @@ public class NotifyService extends Service {
         else c.stopService(new Intent(c, NotifyService.class));
     }
 
+    /** Firebase is ready: stop the foreground service, retain the session
+     * cookie so Firebase's short-lived worker can fetch event details. */
+    static void stopForFCM(Context c) {
+        prefs(c).edit().putBoolean("enabled", false).apply();
+        c.stopService(new Intent(c, NotifyService.class));
+    }
+
     /** Starts (or pokes) the service when notifications are on. */
     static void start(Context c) {
         if (!enabled(c) || !Notifier.allowed(c) || Connection.savedUrl(c) == null || cookie(c) == null) return;
@@ -91,7 +98,12 @@ public class NotifyService extends Service {
             return; // WebView being updated
         }
         if (ck != null && ck.contains("sentinela_session=")) {
-            prefs(c).edit().putString("cookie", ck).apply();
+            SharedPreferences p = prefs(c);
+            SharedPreferences.Editor edit = p.edit().putString("cookie", ck);
+            // A fresh login has a new session. Register its FCM token now;
+            // otherwise the old session's token is correctly gone from DB.
+            if (!ck.equals(p.getString("cookie", null))) edit.putLong("fcm.last_attempt", 0);
+            edit.apply();
             NotificationManagerCompat.from(c).cancel(RELOGIN_ID);
         }
     }

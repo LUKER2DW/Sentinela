@@ -4,6 +4,8 @@
 #   ./scripts/build-apk.sh                       # -> mobile/build/sentinela.apk
 #   SENTINELA_DOMAIN_URL=https://<public-ip>:<port>   # start screen default (not in git)
 #   SENTINELA_PUBLIC_CERT_SHA256=<hex>   # self-signed public certificate the app pins (setup-public.sh status)
+#   ~/.sentinela-android/google-services.json must match casa.sentinela.app
+#   (or set SENTINELA_GOOGLE_SERVICES_JSON to the file's absolute path).
 #
 # Needs JDK 21 and the Android SDK (defaults: the per-user installs under
 # %LOCALAPPDATA% on Windows; set JAVA_HOME / ANDROID_HOME elsewhere).
@@ -45,7 +47,7 @@ fi
 
 echo "==> web wrapper (start screen, address ${SENTINELA_DOMAIN_URL:-none})"
 npm ci --no-audit --no-fund --silent
-npx cap sync android >/dev/null
+npm run sync --silent >/dev/null
 
 echo "==> gradle assembleRelease (signed by Gradle with the key above)"
 (cd android && ./gradlew assembleRelease --no-daemon -q)
