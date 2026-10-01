@@ -809,6 +809,49 @@ func (s *Store) MarkPushOK(ctx context.Context, id int64) {
 	_, _ = s.db.ExecContext(ctx, `UPDATE push_subscriptions SET last_ok=? WHERE id=?`, FormatTime(time.Now()), id)
 }
 
+// SaveFCMToken registers (or moves to userID) an app's FCM token (ADR-0020).
+func (s *Store) SaveFCMToken(ctx context.Context, userID int64, sessionHash []byte, token, ua string) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO fcm_tokens(token,user_id,session_hash,user_agent,created_at) VALUES(?,?,?,?,?)
+		ON CONFLICT(token) DO UPDATE SET user_id=excluded.user_id, session_hash=excluded.session_hash, user_agent=excluded.user_agent`,
+		token, userID, sessionHash, ua, FormatTime(time.Now()))
+	return err
+}
+
+// DeleteFCMToken forgets a token; userID 0 removes it for anyone (expired).
+func (s *Store) DeleteFCMToken(ctx context.Context, userID int64, token string) error {
+	if userID == 0 {
+		_, err := s.db.ExecContext(ctx, `DELETE FROM fcm_tokens WHERE token=?`, token)
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, `DELETE FROM fcm_tokens WHERE token=? AND user_id=?`, token, userID)
+	return err
+}
+
+// FCMTokens lists one user's app tokens.
+func (s *Store) FCMTokens(ctx context.Context, userID int64) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT f.token FROM fcm_tokens f
+		JOIN sessions s ON s.id_hash=f.session_hash
+		WHERE f.user_id=? AND s.expires_at>?`, userID, Now())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var t string
+		if err := rows.Scan(&t); err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+// MarkFCMOK records a successful delivery to a token.
+func (s *Store) MarkFCMOK(ctx context.Context, token string) {
+	_, _ = s.db.ExecContext(ctx, `UPDATE fcm_tokens SET last_ok=? WHERE token=?`, FormatTime(time.Now()), token)
+}
+
 // Setting returns a setting value, or def when unset.
 func (s *Store) Setting(ctx context.Context, key, def string) string {
 	var v string

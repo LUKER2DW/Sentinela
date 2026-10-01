@@ -151,3 +151,30 @@ func TestAuthors(t *testing.T) {
 		t.Fatalf("authors = %v", got)
 	}
 }
+
+func TestFCMTokenFollowsSession(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	userID, err := s.CreateFirstUser(ctx, "admin", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash := []byte("test-session-hash")
+	if err := s.CreateSession(ctx, hash, userID, "csrf", time.Now().Add(time.Hour), "Android", true, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SaveFCMToken(ctx, userID, hash, "a-very-long-valid-device-token", "SentinelaApp/1"); err != nil {
+		t.Fatal(err)
+	}
+	tokens, err := s.FCMTokens(ctx, userID)
+	if err != nil || len(tokens) != 1 {
+		t.Fatalf("active token: %v, %v", tokens, err)
+	}
+	if err := s.DeleteSession(ctx, hash); err != nil {
+		t.Fatal(err)
+	}
+	tokens, err = s.FCMTokens(ctx, userID)
+	if err != nil || len(tokens) != 0 {
+		t.Fatalf("token after logout: %v, %v", tokens, err)
+	}
+}

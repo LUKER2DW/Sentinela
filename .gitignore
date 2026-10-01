@@ -19,5 +19,7 @@ mobile/build/
 mobile/android/app/libs/
 *.jks
 *.keystore
+google-services.json
+*-firebase-adminsdk-*.json
 detector/.export/
 /.idea/

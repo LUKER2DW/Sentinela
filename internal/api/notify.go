@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -117,10 +119,60 @@ func (p NotifyPrefs) Wants(mode, typ string) bool {
 
 type notifier struct {
 	sender *push.Sender
+	fcm    *push.FCM
 	mu     sync.Mutex
 	last   map[string]time.Time
 	// streams are the Android app's open notification streams, by user.
 	streams map[chan []byte]int64
+	// An FCM wake-up contains only a random id. The event details remain here
+	// for the signed-in phone to fetch, then expire after 15 minutes.
+	pending map[string]pendingNotice
+}
+
+type pendingNotice struct {
+	userID  int64
+	payload []byte
+	expires time.Time
+}
+
+const pendingNoticeTTL = 15 * time.Minute
+
+func (n *notifier) putPending(userID int64, payload []byte) (string, error) {
+	var nonce [18]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return "", err
+	}
+	id := base64.RawURLEncoding.EncodeToString(nonce[:])
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if n.pending == nil {
+		n.pending = make(map[string]pendingNotice)
+	}
+	now := time.Now()
+	for k, v := range n.pending {
+		if now.After(v.expires) {
+			delete(n.pending, k)
+		}
+	}
+	// Bound memory if many messages arrive before their TTL ends.
+	if len(n.pending) >= 1024 {
+		oldest := ""
+		for k, v := range n.pending {
+			if oldest == "" || v.expires.Before(n.pending[oldest].expires) {
+				oldest = k
+			}
+		}
+		delete(n.pending, oldest)
+	}
+	n.pending[id] = pendingNotice{userID: userID, payload: payload, expires: now.Add(pendingNoticeTTL)}
+	return id, nil
+}
+
+func (n *notifier) getPending(userID int64, id string) ([]byte, bool) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	v, ok := n.pending[id]
+	return v.payload, ok && v.userID == userID && time.Now().Before(v.expires)
 }
 
 // subscribe opens a notification stream for userID.
@@ -258,31 +310,67 @@ func eventTitle(typ string) string {
 	return "Evento"
 }
 
-// sendAll sends msg to one user's devices: Web Push subscriptions and the
-// app's open notification streams. It returns how many got it.
+// sendAll sends msg to one user's browsers and apps. FCM gets only an opaque
+// id; the app fetches msg from this server with its own session.
 func (s *Server) sendAll(ctx context.Context, userID int64, msg map[string]any) int {
 	payload, _ := json.Marshal(msg)
 	sent := s.push.stream(userID, payload)
-	if s.push.sender == nil {
-		return sent
-	}
-	subs, err := s.Store.PushSubs(ctx, userID)
-	if err != nil {
-		s.Log.Warn("push: list subscriptions", "err", err)
-		return sent
-	}
-	for _, p := range subs {
-		err := s.push.sender.Send(ctx, push.Subscription{Endpoint: p.Endpoint, P256dh: p.P256dh, Auth: p.Auth}, payload, 10*time.Minute)
-		switch {
-		case err == nil:
-			sent++
-			s.Store.MarkPushOK(ctx, p.ID)
-		case errors.Is(err, push.ErrGone):
-			_ = s.Store.DeletePushSub(ctx, 0, p.Endpoint)
-		default:
-			s.Log.Warn("push failed", "err", err)
+	if s.push.sender != nil {
+		subs, err := s.Store.PushSubs(ctx, userID)
+		if err != nil {
+			s.Log.Warn("push: list subscriptions", "err", err)
+		} else {
+			for _, p := range subs {
+				err := s.push.sender.Send(ctx, push.Subscription{Endpoint: p.Endpoint, P256dh: p.P256dh, Auth: p.Auth}, payload, 10*time.Minute)
+				switch {
+				case err == nil:
+					sent++
+					s.Store.MarkPushOK(ctx, p.ID)
+				case errors.Is(err, push.ErrGone):
+					_ = s.Store.DeletePushSub(ctx, 0, p.Endpoint)
+				default:
+					s.Log.Warn("push failed", "err", err)
+				}
+			}
 		}
 	}
+	if s.push.fcm == nil {
+		return sent
+	}
+	tokens, err := s.Store.FCMTokens(ctx, userID)
+	if err != nil {
+		s.Log.Warn("fcm: list tokens", "err", err)
+		return sent
+	}
+	if len(tokens) == 0 {
+		return sent
+	}
+	id, err := s.push.putPending(userID, payload)
+	if err != nil {
+		s.Log.Warn("fcm: create wake-up", "err", err)
+		return sent
+	}
+	fcmSent := 0
+	for _, token := range tokens {
+		callCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		err := s.push.fcm.Send(callCtx, token, map[string]string{"id": id})
+		cancel()
+		switch {
+		case err == nil:
+			fcmSent++
+			s.Store.MarkFCMOK(ctx, token)
+		case errors.Is(err, push.ErrUnregistered):
+			_ = s.Store.DeleteFCMToken(ctx, 0, token)
+		default:
+			s.Log.Warn("fcm: send failed", "err", err)
+		}
+	}
+	if fcmSent == 0 {
+		s.push.mu.Lock()
+		delete(s.push.pending, id)
+		s.push.mu.Unlock()
+	}
+	sent += fcmSent
 	return sent
 }
 

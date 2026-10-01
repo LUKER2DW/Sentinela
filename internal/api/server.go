@@ -96,6 +96,11 @@ func New(cfg *config.Config, st *store.Store, web fs.FS, log *slog.Logger) (*Ser
 			s.push.sender.Relay = &push.Relay{PublicURL: cfg.Ntfy.PublicURL, URL: cfg.Ntfy.URL}
 		}
 	}
+	if sender, err := push.LoadFCM(filepath.Join(cfg.DataDir, "fcm", "service-account.json")); err != nil {
+		log.Warn("Firebase notifications unavailable", "err", err)
+	} else {
+		s.push.fcm = sender
+	}
 	return s, nil
 }
 
@@ -204,6 +209,10 @@ func (s *Server) handler(zone string) http.Handler {
 	mux.Handle("POST /api/push/unsubscribe", viewer(s.pushUnsubscribe))
 	mux.Handle("POST /api/push/test", viewer(s.pushTest))
 	mux.Handle("GET /api/notify/stream", viewer(s.notifyStream))
+	mux.Handle("GET /api/notify/fcm", viewer(s.fcmStatus))
+	mux.Handle("PUT /api/notify/fcm/token", viewer(s.registerFCM))
+	mux.Handle("DELETE /api/notify/fcm/token", viewer(s.unregisterFCM))
+	mux.Handle("GET /api/notify/pending/{id}", viewer(s.pendingNotification))
 	mux.Handle("GET /api/me/notify", viewer(s.getNotifyPrefs))
 	mux.Handle("PUT /api/me/notify", viewer(s.putNotifyPrefs))
 	mux.Handle("GET /api/notify-mode", viewer(s.getMode))
