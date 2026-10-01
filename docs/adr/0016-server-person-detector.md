@@ -39,12 +39,13 @@ analysing**, ~0.4 % idle (the stream is only demuxed). RSS 65–105 MB.
 
 ## Decision
 - A `detector` container (Python 3.12, ONNX Runtime CPU, PyAV, numpy) with
-  `cpus: 0.15`, `mem_limit: 192m`, read-only FS, no capabilities, uid 1000.
+  low CPU priority (`cpu_shares: 128`, ceiling `cpus: 1.0`; was `cpus:
+  0.15`, see Revision), `mem_limit: 192m`, read-only FS, no capabilities, uid 1000.
 - **Motion-gated**: Sentinela exposes the camera's ONVIF motion state; the
   detector polls it every second. Idle it only demuxes `<cam>_sub` from
   go2rtc's loopback RTSP; while motion is active (+10 s) every keyframe is
   decoded and analysed, including the keyframe just before motion began.
-- **YOLO26n at 416×416**, standard `(1, 84, N)` head with our own NMS
+- **YOLO26n at 640×352** (was 416×416, see Revision), standard `(1, 84, N)` head with our own NMS
   (40.9 mAP; the NMS-free head is 40.1). Kinds reported: person → event
   `human` (Alert), vehicle (bicycle/car/motorcycle/bus/truck) → `vehicle`,
   cat/dog → `animal` (Detections).
@@ -68,10 +69,48 @@ analysing**, ~0.4 % idle (the stream is only demuxed). RSS 65–105 MB.
 ## Consequences
 + Alerts for people/vehicles/animals in chosen areas; trees and passing cars
   outside the zones stay silent.
-+ ~0 CPU when nothing moves; capped at 15 % of a core when it does.
++ ~0 CPU when nothing moves; ~15 % of one core, at low priority, when it does.
 − ~500 MB image (ONNX Runtime + PyAV); shipped by `deploy.sh` only when it
   changes.
 − Keyframe cadence (2 s) means a person crossing in < 2 s may be missed;
   the substream (800×448) limits far/small objects.
 − The camera's own person alarm (DVRIP) is still being probed; if it proves
   reliable it can feed the same event type.
+
+## Revision (2026-10-01): input size, priority, zones, debouncing
+
+Measured on the server with live substream keyframes (800×448) and on 382
+recorded keyframes with people and cars (substream size, offline):
+
+| Input | inference / keyframe (server) | person scores, same frames |
+|---|---|---|
+| 416×416 (before) | 154 ms | 0.37–0.64 |
+| 416×224 | 77 ms | about the same as 416×416 |
+| **640×352** | **196 ms** | **0.53–0.81** (+0.1–0.25 per person) |
+
+A square input wasted 44 % of the picture on padding. 640×352 matches the
+substream's aspect; it costs +25 % CPU per analysis (~290 ms including the
+43 ms HEVC keyframe decode) and gives clearly higher person confidence,
+which matters most for far people. int8 (backbone quantised, head float)
+runs at the old 416 cost with most of the gain, but its calibration only
+had daytime frames: revisit with night frames (street-lit, no IR).
+
+The 15 % quota was the wrong tool: an analysis is a ~0.3 s burst every 2 s,
+and the quota stretched it to 1.5 s (peaks 3.8 s, keyframes dropped) while
+spending the same or more CPU (cold caches between 15 ms slices).
+`cpu_shares: 128` (lowest weight) with a one-core ceiling: 0.27 s per
+analysis, ~14.5 % of one core while analysing, recorder and go2rtc win any
+contention. ONNX Runtime's memory arena is off (−40 MB peak, same speed).
+
+Detection logic:
+- **Zones crop**: with zones, only their bounding box (plus 40 % of the
+  picture height above, for bodies) is analysed, at the model's aspect and
+  enlarged up to 2×, unless that is ≥ 60 % of the picture anyway.
+- **Hysteresis**: from the chosen sensitivity `s`: one frame at `s + 0.15`
+  or two of the last three at `s − 0.1` start an event; `s − 0.1` keeps it.
+  Weak frames are forgotten when motion ends. The snapshot is the whole
+  picture of the best frame among those that started it.
+- **Stationary objects**: a box that stays in place (IoU ≥ 0.6 with where
+  it was first seen) stops counting after 30 s for vehicles, 60 s for
+  animals, 5 min for people; forgotten after 8 analyses without it. What is
+  in the picture when the detector starts counts as already there.

@@ -6,14 +6,18 @@ wake it up. While a camera has no motion the substream is only demuxed
 decoded and run through YOLO26n until 10 s after the motion ends. People,
 vehicles and animals whose feet/base are inside a zone that watches that
 kind of object become events; a tree moving or a car on the street outside
-the zones does not.
+the zones does not. With zones, only the part of the picture around them
+is analysed, enlarged; objects that keep the same place (a parked car)
+stop counting after a while.
 
-Model: Ultralytics YOLO26n exported to ONNX at 416x416 (AGPL-3.0 weights,
-downloaded and exported when the image is built, never committed; see
-ADR-0016). Inference is plain ONNX Runtime, one thread; the output is the
-standard (1, 4 + 80, N) head: centre x/y, width, height and 80 COCO class
-scores, filtered here with a greedy NMS. Docker caps the process at 15 %
-of one core and 192 MB; recording never depends on it (AGENTS.md §2.2).
+Model: Ultralytics YOLO26n exported to ONNX at 640x352, the substream's
+aspect, so no input is wasted on padding (AGPL-3.0 weights, downloaded and
+exported when the image is built, never committed; see ADR-0016). The
+input size is read from the model. Inference is plain ONNX Runtime, one
+thread; the output is the standard (1, 4 + 80, N) head: centre x/y, width,
+height and 80 COCO class scores, filtered here with a greedy NMS. Docker
+caps the process's CPU and memory; recording never depends on it
+(AGENTS.md §2.2).
 """
 
 import base64
@@ -27,7 +31,6 @@ import urllib.request
 
 import numpy as np
 
-SIZE = 416
 # COCO ids grouped into the kinds Sentinela knows (event types in brackets).
 KINDS = {
     "person": (0,),  # [human]
@@ -36,6 +39,10 @@ KINDS = {
 }
 KIND_OF = {c: k for k, ids in KINDS.items() for c in ids}
 LINGER = 10.0  # keep analysing this long after motion stops
+# An object seen in the same place this long stops counting: a parked car,
+# the house dog asleep in its corner, a coat that looks like a person.
+DWELL = {"person": 300.0, "vehicle": 30.0, "animal": 60.0}
+HEADROOM = 0.4  # picture height kept above the zones: bodies stand over their feet
 
 log = logging.getLogger("detector")
 
@@ -43,17 +50,25 @@ log = logging.getLogger("detector")
 # ---------- model ----------
 
 
-def preprocess(rgb):
-    """Pad an HxWx3 uint8 RGB image (already resized by swscale so it fits)
-    into the 1x3x416x416 float input, scaled to 0..1. Boxes come back in
-    the resized image's pixels (padding is at the bottom/right)."""
+def preprocess(rgb, size):
+    """Pad an hxwx3 uint8 RGB image (already resized by swscale so it fits)
+    into the 1x3xHxW float input, scaled to 0..1. Boxes come back in the
+    resized image's pixels (padding is at the bottom/right)."""
+    H, W = size
     h, w = rgb.shape[:2]
-    if h > SIZE or w > SIZE:
+    if h > H or w > W:
         raise ValueError("resize before preprocess")
-    pad = np.full((SIZE, SIZE, 3), 114, dtype=np.uint8)
-    pad[:h, :w] = rgb
-    x = pad.astype(np.float32) / 255.0
-    return np.ascontiguousarray(x.transpose(2, 0, 1)[None])
+    x = np.full((1, 3, H, W), 114 / 255, dtype=np.float32)
+    x[0, :, :h, :w] = rgb.transpose(2, 0, 1)
+    x[0, :, :h, :w] *= 1 / 255
+    return x
+
+
+def fit(w, h, size):
+    """Largest even size with w:h's aspect that fits the model input."""
+    H, W = size
+    r = min(W / w, H / h)
+    return max(2, int(w * r) // 2 * 2), max(2, int(h * r) // 2 * 2)
 
 
 def postprocess(out, min_score=0.4, iou=0.45):
@@ -111,8 +126,13 @@ class Model:
         o.intra_op_num_threads = 1
         o.inter_op_num_threads = 1
         o.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+        # The arena keeps its peak forever; without it RSS returns to idle
+        # after each analysis at no measurable cost for one small model.
+        o.enable_cpu_mem_arena = False
         self.sess = ort.InferenceSession(path, o, providers=["CPUExecutionProvider"])
-        self.name = self.sess.get_inputs()[0].name
+        inp = self.sess.get_inputs()[0]
+        self.name = inp.name
+        self.size = tuple(int(v) for v in inp.shape[2:])  # (H, W)
         self.lock = threading.Lock()
         self.last_ms = 0.0
         self.runs = 0
@@ -120,7 +140,7 @@ class Model:
     def objects(self, rgb, min_score):
         """Objects with boxes normalised to the image (0..1)."""
         h, w = rgb.shape[:2]
-        x = preprocess(rgb)
+        x = preprocess(rgb, self.size)
         with self.lock:
             t = time.process_time()
             out = self.sess.run(None, {self.name: x})[0]
@@ -157,23 +177,106 @@ def zone_hits(obj, zones):
     return [z.get("name", "") for z in zones if kind in (z.get("objects") or ["person"]) and inside(base, z["points"])]
 
 
+def roi(zones, fw, fh, size):
+    """Pixels (x0, y0, x1, y1) of the frame worth analysing, or None for
+    the whole picture. The zones' bounding box, with room above them for
+    the bodies standing on them, grown to the model's aspect (nothing is
+    padding) and to at least half the model input (at most 2x enlarged).
+    Not worth it when that is most of the picture anyway."""
+    if not zones:
+        return None
+    H, W = size
+    xs = [p[0] for z in zones for p in z["points"]]
+    ys = [p[1] for z in zones for p in z["points"]]
+    x0, x1 = max(0.0, min(xs) - 0.05) * fw, min(1.0, max(xs) + 0.05) * fw
+    y0, y1 = max(0.0, min(ys) - HEADROOM) * fh, min(1.0, max(ys) + 0.02) * fh
+    cw, ch = max(x1 - x0, W / 2), max(y1 - y0, H / 2)
+    if cw / ch < W / H:
+        cw = ch * W / H
+    else:
+        ch = cw * H / W
+    cw, ch = min(cw, fw), min(ch, fh)
+    if cw * ch >= 0.6 * fw * fh:
+        return None
+    cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+    left = int(min(max(0.0, cx - cw / 2), fw - cw))
+    top = int(min(max(0.0, cy - ch / 2), fh - ch))
+    return left, top, left + int(cw), top + int(ch)
+
+
+def thresholds(min_score):
+    """(low, strong) around the sensitivity the user picked: one frame at
+    `strong` starts an event, two at `low` do too, and `low` keeps it."""
+    return round(max(0.25, min_score - 0.1), 2), round(min(0.9, min_score + 0.15), 2)
+
+
+def iou(a, b):
+    """Intersection over union of two (x, y, w, h) boxes."""
+    ix = max(0.0, min(a[0] + a[2], b[0] + b[2]) - max(a[0], b[0]))
+    iy = max(0.0, min(a[1] + a[3], b[1] + b[3]) - max(a[1], b[1]))
+    inter = ix * iy
+    return inter / (a[2] * a[3] + b[2] * b[3] - inter + 1e-9)
+
+
+class Parked:
+    """Objects of one kind that keep the same box. A box seen for `dwell`
+    seconds is stationary and stops counting. The first box is kept (not
+    the latest), so something creeping slowly does not stay matched. An
+    entry is forgotten after `misses` analyses in a row without it (only
+    analyses count: a parked car is remembered through a quiet night)."""
+
+    def __init__(self, dwell, match=0.6, misses=8):
+        self.dwell, self.match, self.misses = dwell, match, misses
+        self.seen = []  # [box, first_seen, missed]
+
+    def update(self, boxes, now):
+        """One flag per box: True = stationary."""
+        flags, used = [], set()
+        for b in boxes:
+            best, bi = 0.0, None
+            for i, e in enumerate(self.seen):
+                if i not in used and (v := iou(b, e[0])) > best:
+                    best, bi = v, i
+            if bi is not None and best >= self.match:
+                e = self.seen[bi]
+                e[2] = 0
+                flags.append(now - e[1] >= self.dwell)
+            else:
+                self.seen.append([b, now, 0])
+                bi = len(self.seen) - 1
+                flags.append(False)
+            used.add(bi)
+        for i, e in enumerate(self.seen):
+            if i not in used:
+                e[2] += 1
+        self.seen = [e for e in self.seen if e[2] < self.misses]
+        return flags
+
+    def learn(self, boxes, now):
+        """Whatever is there when the detector starts was already there."""
+        self.seen += [[b, now - self.dwell, 0] for b in boxes]
+
+
 class Tracker:
-    """Debounces detections of one kind into an event: start after `hits`
-    positive frames among the last `window`; stop after `quiet` seconds
+    """Debounces detections of one kind into an event: start on one frame
+    at `strong`, or `hits` frames at `low` among the last `window`; stay
+    active while frames at `low` keep coming; stop after `quiet` seconds
     without one."""
 
-    def __init__(self, hits=1, window=2, quiet=12.0):
+    def __init__(self, hits=2, window=3, quiet=12.0):
         self.hits, self.window, self.quiet = hits, window, quiet
         self.recent = []
         self.active = False
         self.last_seen = 0.0
 
-    def update(self, seen, now):
-        """Returns "start", "stop" or None."""
+    def update(self, score, low, strong, now):
+        """score = best of this kind in the frame (0 = none). Returns
+        "start", "stop" or None."""
+        seen = score >= low
         self.recent = (self.recent + [seen])[-self.window :]
         if seen:
             self.last_seen = now
-        if not self.active and sum(self.recent) >= self.hits:
+        if not self.active and (score >= strong or sum(self.recent) >= self.hits):
             self.active = True
             return "start"
         if self.active and now - self.last_seen >= self.quiet:
@@ -235,7 +338,10 @@ class Camera(threading.Thread):
         super().__init__(daemon=True, name=cam["id"])
         self.cid, self.model, self.api, self.shared = cam["id"], model, api, shared
         self.trackers = {k: Tracker() for k in KINDS}
-        self.state = {"connected": False, "analysing": False, "last_analysis": None, "objects": {}}
+        self.parked = {k: Parked(DWELL[k]) for k in KINDS}
+        self.best = {k: [] for k in KINDS}  # recent (score, frame, hits) for the snapshot
+        self.learned = False
+        self.state = {"connected": False, "analysing": False, "last_analysis": None, "objects": {}, "parked": 0, "cropped": False}
         self.stop = threading.Event()
 
     def cfg(self):
@@ -271,6 +377,8 @@ class Camera(threading.Thread):
                 if not pkt.is_keyframe:
                     continue
                 now = time.time()
+                if not self.learned:  # once: what is already standing there
+                    self.learn(cc, pkt, now)
                 motion_until = self.shared["motion"].get(self.cid, 0.0)
                 analysing = now <= motion_until + LINGER
                 self.state["analysing"] = analysing
@@ -283,31 +391,86 @@ class Camera(threading.Thread):
                     last_key = None
                 self.analyse(cc, pkt, now)
 
-    def analyse(self, cc, pkt, now):
+    def detect(self, frame, zones, min_score):
+        """Objects in the frame, boxes normalised to the whole picture.
+        With zones, only the region around them is analysed (enlarged)."""
+        import av
+
+        fw, fh = frame.width, frame.height
+        box = roi(zones, fw, fh, self.model.size)
+        self.state["cropped"] = box is not None
+        if box is None:
+            x0 = y0 = 0
+            cw, ch = fw, fh
+            tw, th = fit(cw, ch, self.model.size)
+            rgb = frame.reformat(width=tw, height=th, format="rgb24").to_ndarray()
+        else:
+            x0, y0, x1, y1 = box
+            cw, ch = x1 - x0, y1 - y0
+            tw, th = fit(cw, ch, self.model.size)
+            crop = np.ascontiguousarray(frame.to_ndarray(format="rgb24")[y0:y1, x0:x1])
+            rgb = av.VideoFrame.from_ndarray(crop, format="rgb24").reformat(width=tw, height=th).to_ndarray()
+        objs = self.model.objects(rgb, min_score)
+        return [(k, (x0 + x * cw) / fw, (y0 + y * ch) / fh, w * cw / fw, h * ch / fh, s) for k, x, y, w, h, s in objs]
+
+    def decode(self, cc, pkt):
         frames = cc.decode(pkt)
-        if not frames:
+        return frames[-1] if frames else None
+
+    def learn(self, cc, pkt, now):
+        """Analyse the first keyframe after connecting: everything already
+        standing still there (a parked car) is not news."""
+        frame = self.decode(cc, pkt)
+        if frame is None:
             return
-        frame = frames[-1]
-        r = min(SIZE / frame.width, SIZE / frame.height)
-        small = frame.reformat(width=int(frame.width * r) // 2 * 2, height=int(frame.height * r) // 2 * 2, format="rgb24")
+        self.learned = True
         cfg = self.cfg()
-        objs = self.model.objects(small.to_ndarray(), cfg.get("min_score", 0.45))
+        low, _ = thresholds(cfg.get("min_score", 0.45))
+        objs = self.detect(frame, cfg.get("zones") or [], low)
+        for kind in KINDS:
+            self.parked[kind].learn([o[1:5] for o in objs if o[0] == kind], now)
+        self.state["parked"] = sum(len(p.seen) for p in self.parked.values())
+
+    def analyse(self, cc, pkt, now):
+        frame = self.decode(cc, pkt)
+        if frame is None:
+            return
+        cfg = self.cfg()
+        low, strong = thresholds(cfg.get("min_score", 0.45))
         zones = cfg.get("zones") or []
+        objs = self.detect(frame, zones, low)
         counted = {k: [] for k in KINDS}
-        for o in objs:
-            names = zone_hits(o, zones)
-            if names:
-                counted[o[0]].append((o, names))
-        self.state.update(last_analysis=now, objects={k: len(v) for k, v in counted.items() if v})
+        for kind in KINDS:
+            mine = [o for o in objs if o[0] == kind]
+            for o, still in zip(mine, self.parked[kind].update([o[1:5] for o in mine], now)):
+                names = zone_hits(o, zones)
+                if names and not still:
+                    counted[kind].append((o, names))
+        self.state.update(
+            last_analysis=now,
+            objects={k: len(v) for k, v in counted.items() if v},
+            parked=sum(len(p.seen) for p in self.parked.values()),
+        )
         for kind, hits in counted.items():
-            change = self.trackers[kind].update(bool(hits), now)
+            score = max((o[5] for o, _ in hits), default=0.0)
+            if score >= low:  # the best of the last few frames becomes the snapshot
+                self.best[kind] = (self.best[kind] + [(score, frame, hits)])[-self.trackers[kind].window :]
+            change = self.trackers[kind].update(score, low, strong, now)
+            if change == "start":
+                _, best_frame, best_hits = max(self.best[kind], key=lambda b: b[0])
+                self.report(kind, change, best_frame, best_hits)
+            elif change == "stop":
+                self.report(kind, change, None, [])
             if change:
-                self.report(kind, change, frame if change == "start" else None, hits)
+                self.best[kind] = []
 
     def close_all(self):
+        """Motion is over (or the stream dropped): end open events and
+        forget weak frames, so they never add up with the next motion's."""
         for kind, t in self.trackers.items():
+            self.best[kind], t.recent = [], []
             if t.active:
-                t.active, t.recent = False, []
+                t.active = False
                 self.report(kind, "stop", None, [])
 
     def report(self, kind, change, frame, hits):
@@ -363,6 +526,7 @@ def main():
                     "uptime_seconds": int(now - started),
                     "cpu_seconds": round(time.process_time(), 1),
                     "inference_ms": round(model.last_ms, 1),
+                    "model": "YOLO26n %dx%d" % model.size[::-1],
                     "inferences": model.runs,
                     "cameras": {cid: t.state for cid, t in threads.items()},
                 })

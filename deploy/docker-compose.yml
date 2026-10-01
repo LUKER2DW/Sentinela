@@ -54,8 +54,11 @@ services:
 
   # Object detector (ADR-0016): wakes on the camera's motion events, reads
   # substream keyframes from go2rtc's loopback restream, runs YOLO26n and
-  # reports to the API on loopback. Hard-capped at 15 % of one core; nothing
-  # depends on it. /data/detector holds the shared token (created by serve).
+  # reports to the API on loopback. Low CPU priority instead of a small
+  # quota: an analysis is a ~0.3 s burst every 2 s, and a 15 % quota only
+  # stretched it to 1.5-3.8 s for the same CPU. Recorder and go2rtc always
+  # win; one core is the ceiling. Nothing depends on it. /data/detector
+  # holds the shared token (created by serve).
   detector:
     build: ../detector
     image: sentinela-detector:local
@@ -70,7 +73,8 @@ services:
     volumes:
       - /data/detector:/data/detector:ro
     tmpfs: [/tmp]
-    cpus: 0.15
+    cpus: 1.0
+    cpu_shares: 128
     mem_limit: 192m
     logging:
       driver: json-file
