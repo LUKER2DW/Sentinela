@@ -144,7 +144,7 @@ func TestLoginRejected(t *testing.T) {
 
 func TestStateReadsLightDayNightPresets(t *testing.T) {
 	f := newFake(t)
-	c := NewController(f.addr(), "admin", "secret", true, nil)
+	c := NewController(f.addr(), "admin", "secret", Invert{true, true}, nil)
 	defer c.Close()
 	st, err := c.State(context.Background())
 	if err != nil {
@@ -161,13 +161,16 @@ func TestStateReadsLightDayNightPresets(t *testing.T) {
 func TestCommandInversion(t *testing.T) {
 	cases := []struct {
 		op, dir string
-		inv     bool
+		inv     Invert
 		want    string
 	}{
-		{"move", "left", true, "DirectionRight"},
-		{"move", "up_left", true, "DirectionRightDown"},
-		{"move", "up_left", false, "DirectionLeftUp"},
-		{"zoom", "in", true, "ZoomTile"},
+		{"move", "left", Invert{true, true}, "DirectionRight"},
+		{"move", "up_left", Invert{true, true}, "DirectionRightDown"},
+		{"move", "up_left", Invert{}, "DirectionLeftUp"},
+		{"move", "up", Invert{Pan: true}, "DirectionUp"},
+		{"move", "up_left", Invert{Pan: true}, "DirectionRightUp"},
+		{"move", "down", Invert{Tilt: true}, "DirectionUp"},
+		{"zoom", "in", Invert{true, true}, "ZoomTile"},
 	}
 	for _, c := range cases {
 		got, err := Command(c.op, c.dir, c.inv)
@@ -175,17 +178,17 @@ func TestCommandInversion(t *testing.T) {
 			t.Errorf("Command(%s,%s,%v)=%s,%v want %s", c.op, c.dir, c.inv, got, err, c.want)
 		}
 	}
-	if _, err := Command("move", "sideways", false); err == nil {
+	if _, err := Command("move", "sideways", Invert{}); err == nil {
 		t.Error("invalid dir accepted")
 	}
-	if _, err := Command("reboot", "", false); err == nil {
+	if _, err := Command("reboot", "", Invert{}); err == nil {
 		t.Error("unknown op accepted")
 	}
 }
 
 func TestHeldMoveDeadmanStops(t *testing.T) {
 	f := newFake(t)
-	c := NewController(f.addr(), "admin", "secret", true, nil)
+	c := NewController(f.addr(), "admin", "secret", Invert{true, true}, nil)
 	c.Deadman = 150 * time.Millisecond
 	defer c.Close()
 	if err := c.Start(context.Background(), "move", "left", 4); err != nil {
@@ -200,7 +203,7 @@ func TestHeldMoveDeadmanStops(t *testing.T) {
 
 func TestNudgeStartsAndStops(t *testing.T) {
 	f := newFake(t)
-	c := NewController(f.addr(), "admin", "secret", false, nil)
+	c := NewController(f.addr(), "admin", "secret", Invert{}, nil)
 	defer c.Close()
 	if err := c.Nudge(context.Background(), "zoom", "in", 3, 120*time.Millisecond); err != nil {
 		t.Fatal(err)
@@ -216,7 +219,7 @@ func TestNudgeStartsAndStops(t *testing.T) {
 func TestUnapprovedModelBlocked(t *testing.T) {
 	f := newFake(t)
 	f.model = "SOMETHING_ELSE"
-	c := NewController(f.addr(), "admin", "secret", false, nil)
+	c := NewController(f.addr(), "admin", "secret", Invert{}, nil)
 	defer c.Close()
 	if err := c.Start(context.Background(), "move", "up", 2); err != ErrUnsupportedModel {
 		t.Fatalf("err = %v", err)
@@ -228,7 +231,7 @@ func TestUnapprovedModelBlocked(t *testing.T) {
 
 func TestSetWhiteLightVerified(t *testing.T) {
 	f := newFake(t)
-	c := NewController(f.addr(), "admin", "secret", false, nil)
+	c := NewController(f.addr(), "admin", "secret", Invert{}, nil)
 	defer c.Close()
 	if err := c.SetWhiteLight(context.Background(), true); err != nil {
 		t.Fatal(err)
@@ -241,7 +244,7 @@ func TestSetWhiteLightVerified(t *testing.T) {
 func TestSetParamRestoresOnMismatch(t *testing.T) {
 	f := newFake(t)
 	f.ignoreSet = true // first write "succeeds" but is not applied → read-back mismatch
-	c := NewController(f.addr(), "admin", "secret", false, nil)
+	c := NewController(f.addr(), "admin", "secret", Invert{}, nil)
 	defer c.Close()
 	err := c.SetDayNight(context.Background(), "color")
 	if err == nil || !strings.Contains(err.Error(), "mismatch") {

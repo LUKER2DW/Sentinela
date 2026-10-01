@@ -49,6 +49,7 @@ type Server struct {
 	tl       tlJobs        // timelapses being written to disk
 	det      detectorState // object detector sidecar (ADR-0016)
 	frames   frameCache
+	segs     segCache   // fragment indexes and timeline previews
 	wizardMu sync.Mutex // one camera search/test at a time
 	push     notifier
 
@@ -77,7 +78,8 @@ func New(cfg *config.Config, st *store.Store, web fs.FS, log *slog.Logger) (*Ser
 	for i := range cfg.Cameras {
 		cam := &cfg.Cameras[i]
 		addr := hostPort(cam.Host, cam.DVRIPPort)
-		s.ctrl[cam.ID] = dvrip.NewController(addr, cam.User, cam.Password, cam.InvertPanTilt, log.With("camera", cam.ID))
+		pan, tilt := cam.Inversion()
+		s.ctrl[cam.ID] = dvrip.NewController(addr, cam.User, cam.Password, dvrip.Invert{Pan: pan, Tilt: tilt}, log.With("camera", cam.ID))
 	}
 	s.det.motion, s.det.open = map[string]bool{}, map[string]int64{}
 	if tok, err := loadDetectorToken(cfg.DataDir); err != nil {

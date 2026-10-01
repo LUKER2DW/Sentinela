@@ -26,6 +26,7 @@ type FragIndex struct {
 	InitEnd   int64 // end of the boxes before the first moof (ftyp, moov)
 	End       int64 // end of the last complete fragment (mfra excluded)
 	Fragments []Fragment
+	VideoID   uint32
 }
 
 const maxBox = 1 << 20 // moov/moof are a few KB; refuse anything absurd
@@ -58,6 +59,7 @@ func ReadFragIndex(r io.ReaderAt, size int64) (*FragIndex, error) {
 				return nil, errors.New("fmp4: no video track")
 			}
 			idx.InitEnd = off + n
+			idx.VideoID = videoID
 		case "moof":
 			if idx.InitEnd == 0 {
 				return nil, errors.New("fmp4: moof before moov")

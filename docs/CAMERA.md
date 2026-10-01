@@ -77,6 +77,10 @@ PTZ request envelope (message `1400`), verified by v1 on this model:
 - **This unit's image is flipped + mirrored** (`PictureFlip=1`,
   `PictureMirror=1`), so pan and tilt are inverted: a UI "left" sends
   `DirectionRight`, "up" sends `DirectionDown`. Zoom/focus/iris are not inverted.
+  Each axis is configurable (`invert_pan`, `invert_tilt`, both default to
+  `invert_pan_tilt`): on 2026-09-30 the owner reported "up" moving down,
+  i.e. the image is now mirrored but no longer flipped, so the house config
+  has `invert_tilt: false`.
 - `Ret` 100 = OK; 515 = OK (upgrade-available variant) for login.
 
 **Forbidden:** firmware upgrade, `Alarm.AlarmOut`, network config, user

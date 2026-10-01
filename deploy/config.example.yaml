@@ -52,3 +52,4 @@ cameras:
     retention_days: 15
     record_audio: true              # audio is AAC-encoded (ADR-0006); false = pure copy
     invert_pan_tilt: true           # this unit is mounted flipped + mirrored
+    # invert_tilt: false            # per axis: image mirrored but not flipped

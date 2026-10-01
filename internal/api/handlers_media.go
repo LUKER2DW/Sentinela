@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"net/http"
@@ -12,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/LUKER2DW/sentinela/internal/recording"
 	"github.com/LUKER2DW/sentinela/internal/store"
 )
 
@@ -145,22 +145,29 @@ func (s *Server) recording(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "private, max-age=60")
 	// ?at=seconds: start at the keyframe before that instant, so the player
 	// does not walk every fragment up to it one range request at a time.
-	// ?at=seconds&gop=1: only the keyframe group at that instant, for the
-	// timeline's hover preview (a few hundred KB instead of the segment).
+	// ?at=seconds&gop=1: the timeline's hover preview, just the keyframe at
+	// that instant (video track only, built once and kept in memory), or
+	// the whole keyframe group when the fragment cannot be trimmed.
 	if at, err := strconv.ParseFloat(r.URL.Query().Get("at"), 64); err == nil && r.URL.Query().Get("gop") == "1" && at >= 0 && at < 86400 {
-		if idx, err := recording.ReadFragIndex(f, info.Size()); err == nil {
-			if rs, _ := idx.GOP(f, time.Duration(at*float64(time.Second))); rs != nil {
-				w.Header().Set("Cache-Control", "private, max-age=3600")
+		if idx, err := s.segs.index(path, f, info.Size(), info.ModTime()); err == nil {
+			d := time.Duration(at * float64(time.Second))
+			w.Header().Set("Cache-Control", "private, max-age=3600")
+			if b, err := s.segs.preview(path, f, idx, d); err == nil {
+				http.ServeContent(w, r, filepath.Base(path), info.ModTime(), bytes.NewReader(b))
+				return
+			}
+			if rs, _ := idx.GOP(f, d); rs != nil {
 				http.ServeContent(w, r, filepath.Base(path), info.ModTime(), rs)
 				return
 			}
 		}
 		// Never the whole segment for a preview.
+		w.Header().Set("Cache-Control", "no-store")
 		writeErr(w, http.StatusNotFound, "no preview for this segment")
 		return
 	}
 	if at, err := strconv.ParseFloat(r.URL.Query().Get("at"), 64); err == nil && at > 1 && at < 86400 {
-		if idx, err := recording.ReadFragIndex(f, info.Size()); err == nil {
+		if idx, err := s.segs.index(path, f, info.Size(), info.ModTime()); err == nil {
 			if rs, _, _ := idx.Splice(f, time.Duration(at*float64(time.Second))); rs != nil {
 				http.ServeContent(w, r, filepath.Base(path), info.ModTime(), rs)
 				return

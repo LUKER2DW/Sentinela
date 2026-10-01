@@ -17,11 +17,11 @@ import (
 // Controller owns the single DVRIP session of one camera and serializes all
 // requests (AGENTS.md §6). The session is opened lazily and closed after idle.
 type Controller struct {
-	Addr          string
-	User          string
-	Password      string
-	InvertPanTilt bool
-	Log           *slog.Logger
+	Addr     string
+	User     string
+	Password string
+	Invert   Invert
+	Log      *slog.Logger
 
 	// IdleClose closes the session after this long without requests.
 	IdleClose time.Duration
@@ -55,8 +55,8 @@ var (
 var approvedModels = []string{"IPC_NT98566"}
 
 // NewController returns a controller with default timings.
-func NewController(addr, user, password string, invert bool, log *slog.Logger) *Controller {
-	return &Controller{Addr: addr, User: user, Password: password, InvertPanTilt: invert, Log: log,
+func NewController(addr, user, password string, invert Invert, log *slog.Logger) *Controller {
+	return &Controller{Addr: addr, User: user, Password: password, Invert: invert, Log: log,
 		IdleClose: 30 * time.Second, Deadman: time.Second, dial: Dial}
 }
 
@@ -285,10 +285,14 @@ var verbs = map[string]map[string]string{
 	"iris":  {"open": "IrisLarge", "close": "IrisSmall"},
 }
 
-// Command resolves an (op, dir) pair to a DVRIP verb, applying pan/tilt inversion.
-func Command(op, dir string, invert bool) (string, error) {
-	if op == "move" && invert {
-		dir = invertDir(dir)
+// Invert says which axes a mount reverses: a mirrored image swaps left and
+// right (pan), a flipped one swaps up and down (tilt).
+type Invert struct{ Pan, Tilt bool }
+
+// Command resolves an (op, dir) pair to a DVRIP verb, applying the inversion.
+func Command(op, dir string, invert Invert) (string, error) {
+	if op == "move" {
+		dir = invertDir(dir, invert)
 	}
 	v, ok := verbs[op][dir]
 	if !ok {
@@ -297,9 +301,15 @@ func Command(op, dir string, invert bool) (string, error) {
 	return v, nil
 }
 
-func invertDir(d string) string {
+func invertDir(d string, inv Invert) string {
 	parts := strings.Split(d, "_")
-	swap := map[string]string{"up": "down", "down": "up", "left": "right", "right": "left"}
+	swap := map[string]string{}
+	if inv.Tilt {
+		swap["up"], swap["down"] = "down", "up"
+	}
+	if inv.Pan {
+		swap["left"], swap["right"] = "right", "left"
+	}
 	for i, p := range parts {
 		if s, ok := swap[p]; ok {
 			parts[i] = s
@@ -311,7 +321,7 @@ func invertDir(d string) string {
 // Start begins (or refreshes) a held movement. It auto-stops after Deadman
 // unless Start is called again (keepalive) or Stop is called.
 func (c *Controller) Start(ctx context.Context, op, dir string, speed int) error {
-	cmd, err := Command(op, dir, c.InvertPanTilt)
+	cmd, err := Command(op, dir, c.Invert)
 	if err != nil {
 		return err
 	}

@@ -118,6 +118,10 @@ type Camera struct {
 	Record        *bool  `yaml:"record"`
 	// InvertPanTilt swaps left/right and up/down for flipped+mirrored mounts.
 	InvertPanTilt bool `yaml:"invert_pan_tilt"`
+	// InvertPan / InvertTilt override one axis (image mirrored only, or
+	// flipped only); unset follows InvertPanTilt.
+	InvertPan  *bool `yaml:"invert_pan"`
+	InvertTilt *bool `yaml:"invert_tilt"`
 
 	User     string `yaml:"-"`
 	Password string `yaml:"-"`
@@ -300,3 +304,15 @@ func (r Recording) Segment() time.Duration { return time.Duration(r.SegmentSecon
 
 // Stall returns the stall watchdog timeout.
 func (r Recording) Stall() time.Duration { return time.Duration(r.StallSeconds) * time.Second }
+
+// Inversion is the pan/tilt inversion of the camera's PTZ.
+func (c *Camera) Inversion() (pan, tilt bool) {
+	pan, tilt = c.InvertPanTilt, c.InvertPanTilt
+	if c.InvertPan != nil {
+		pan = *c.InvertPan
+	}
+	if c.InvertTilt != nil {
+		tilt = *c.InvertTilt
+	}
+	return pan, tilt
+}
