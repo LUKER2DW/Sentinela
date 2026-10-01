@@ -17,6 +17,8 @@ import { EventsPage } from "./pages/EventsPage";
 import { SystemPage } from "./pages/SystemPage";
 import { NuvemPage } from "./pages/NuvemPage";
 import { AccountPage } from "./pages/AccountPage";
+import { ServicesPage } from "./pages/ServicesPage";
+import { useHostingEnabled } from "./lib/hosting";
 import { NoticeBell } from "./components/Notices";
 import { ClockPage } from "./components/DelayMeter";
 import { setZone } from "./lib/access";
@@ -108,6 +110,7 @@ const NAV = [
   { page: "recordings", label: "Gravações", icon: "recordings" },
   { page: "events", label: "Eventos", icon: "events" },
   { page: "nuvem", label: "Nuvem", icon: "cloud" },
+  { page: "servicos", label: "Serviços", icon: "app" },
   { page: "system", label: "Sistema", short: "Mais", icon: "system" },
 ];
 
@@ -119,7 +122,8 @@ function upFrom(page: string, params: URLSearchParams): (() => void) | null {
   const p = params.get("p");
   if (page === "nuvem" && p) return () => navigate("nuvem", p.includes("/") ? { p: p.split("/").slice(0, -1).join("/") } : undefined, { push: true });
   if (page === "system" && params.get("s")) return () => navigate("system", undefined, { push: true });
-  if (page === "conta" || page === "relogio") return () => navigate("system", undefined, { push: true });
+  if (page === "servicos" && params.get("s")) return () => navigate("servicos", undefined, { push: true });
+  if (page === "conta" || page === "relogio" || page === "servicos") return () => navigate("system", undefined, { push: true });
   return null;
 }
 
@@ -156,7 +160,10 @@ function Shell() {
   // folder): one level up, the same place every time.
   const up = upFrom(route.page, route.params);
   // Phone: pages opened from "Mais" keep that tab lit.
-  const current = (page: string) => route.page === page || (compact && page === "system" && (route.page === "conta" || route.page === "relogio"));
+  const current = (page: string) =>
+    route.page === page || (compact && page === "system" && (route.page === "conta" || route.page === "relogio" || route.page === "servicos"));
+  // Serviços: a sidebar entry on the computer; on the phone it is under "Mais".
+  const hostingOn = useHostingEnabled();
   const eventsToday = useUnseenEvents();
   const updated = useNewVersion();
   // Keeps the UI clock on server time on every page (shared cache with the pages).
@@ -190,7 +197,7 @@ function Shell() {
           </button>
         </div>
         <div className="nav-list">
-          {NAV.filter((n) => n.page !== "nuvem" || can("operator")).map((n) => (
+          {NAV.filter((n) => (n.page !== "nuvem" || can("operator")) && (n.page !== "servicos" || (hostingOn && !compact))).map((n) => (
             <a
               key={n.page}
               className="nav-item"
@@ -273,6 +280,8 @@ function Shell() {
             <SystemPage params={route.params} />
           ) : route.page === "conta" ? (
             <AccountPage params={route.params} />
+          ) : route.page === "servicos" && hostingOn ? (
+            <ServicesPage params={route.params} />
           ) : route.page === "relogio" ? (
             <ClockPage />
           ) : (
