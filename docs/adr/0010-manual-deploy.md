@@ -23,6 +23,10 @@ cores of the 4 GB host for minutes. The owner deploys from the LAN anyway.
   `go vet`, `go test`, `staticcheck`, `govulncheck`, web lint and tests on
   GitHub-hosted runners. No workflow may use a self-hosted runner, hold
   secrets for the server, or deploy anything.
+- Android artifacts are built/signed with `scripts/build-apk.sh` and published
+  with `scripts/publish-apk.sh`. Publishing an APK does not restart Compose.
+  Release server origin/TLS pin are permanent local build configuration
+  (`~/.sentinela-android/connection.json`); missing pins fail the build.
 
 ## Consequences
 + The server holds no GitHub credential and runs no code it did not get

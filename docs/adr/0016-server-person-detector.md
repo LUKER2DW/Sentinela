@@ -2,6 +2,10 @@
 
 Status: Accepted · 2026-09-29 (owner approved; model choice revised the same day)
 
+Implementation status (2026-09-30): deployed and real person events observed
+in the round-3/5 work recorded in PLAN.md. Measurements below retain their
+original dates; they are not a new continuous hardware benchmark.
+
 ## Context
 Camera motion events fire on trees, shadows, rain, headlights and cars on
 the street. The owner wants an alert only when motion is something that

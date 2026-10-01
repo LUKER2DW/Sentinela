@@ -1,67 +1,87 @@
-# ADR-0011: Mobile — PWA first, then a Capacitor Android app
+# ADR-0011: Mobile — PWA and Capacitor Android wrapper
 
-Status: Accepted · 2026-09-29 (owner decision D4; replaces PLAN Phase 6 "Flutter") · B1 and B2 built 2026-09-29
+Status: Accepted 2026-09-29; implemented, amended by ADR-0019 and ADR-0020.
+Current APK: 1.12 (version code 13), 2026-09-30.
 
-## Context
-The owner wants the whole system (live, playback, PTZ, talk, events, Nuvem)
-on the phone now. Remote access is Tailscale only (ADR-0004), so the only
-HTTPS origin is `https://sentinela.<tailnet>.ts.net`, which is not public.
+## Context and choice
 
-| Option | Reuse of the React UI | Native push / biometrics | H.265 live | Verdict |
-|---|---|---|---|---|
-| PWA installed from Chrome | 100 % | Web Push (via FCM); no biometrics | Chrome WebRTC/MSE | **Stage B1** |
-| Capacitor wrapper of the SPA | ~95 % | Yes (plugins) | Android System WebView = Chromium, same WebRTC/MSE | **Stage B2** |
-| TWA (Bubblewrap) | 100 % | Web Push only | Chrome | Rejected: Digital Asset Links need a public origin |
-| Flutter + `flutter_webrtc` | 0 % | Yes | Depends on the native WebRTC build having H.265 | Rejected: rewrites the UI |
+The owner wants live view, playback, PTZ, talk, events and Nuvem on the
+phone. Reusing the React UI avoids a second product and auth scheme.
 
-Chrome ships H.265 in WebRTC since version 136, but only with a hardware
-decoder, so the MSE fallback and a per-device capability probe stay.
+| Option | UI reuse | Decision |
+|---|---|---|
+| PWA | Entire SPA | Browser installation, Web Push |
+| Capacitor | Same SPA in Android WebView | Native app lock, downloads, notifications and updates |
+| TWA | Same SPA, restricted native integration | Not selected |
+| Flutter | Separate UI/player implementation | Not selected |
 
-## Decision
-- **B1:** make the SPA mobile-first (bottom tabs, touch PTZ, data saver on
-  cellular, capability probe, "connect Tailscale" screen). Same service
-  worker rule: never cache `/api` or `/stream`.
-- **B2:** `mobile/` holds a Capacitor (7+) Android project. The WebView loads
-  the tailnet origin (`server.url`, set at first run with a "test
-  connection" step): same origin, so the existing cookie/CSRF auth works
-  unchanged. A bundled fallback page explains how to connect when Tailscale
-  is down. Bundled assets + bearer tokens were rejected: a second auth
-  scheme for no gain, since nothing works offline anyway.
-- Plugins: push (ADR-0013), local notifications, biometric app lock after
-  5 min in background, share, filesystem (clips and Nuvem files).
-- APK built locally (`scripts/build-apk.sh`), signing keystore outside the
-  repo, side-loaded (no Play Store). iOS gets the PWA only.
+H.265 playback depends on the device decoder. The app does not solve an
+unsupported device by transcoding on the server.
+
+## Current decision
+
+- Capacitor 8 wraps the server origin. `Connection` selects `server.url`
+  at launch from the bundled start screen; cookies/CSRF remain same-origin.
+- ADR-0019 selected the public HTTPS path. Tailscale is optional private
+  administration; embedded tailnet code is parked and Funnel is off.
+- The bundled page supports retry/change address and explains offline/TLS
+  failures. MainActivity preserves lock state across process death and
+  handles renderer failures.
+- Native code covers biometric/device-lock protection after five minutes
+  away, downloads with authenticated pinned HTTPS, notifications (ADR-0020)
+  and sideloaded updates.
+- The SPA uses bottom tabs, a grouped Mais menu, visible subpage/folder back
+  buttons and safe-area spacing. Camera configuration, users and audit
+  remain desktop tasks.
+- The APK is built locally and signed with the persistent household key.
+  It is not distributed through the Play Store; iOS remains a PWA.
+
+## Release configuration
+
+Keep these outside Git under `~/.sentinela-android/`:
+
+- `release.jks` and `keystore.pass`: Android signing identity.
+- `google-services.json`: Firebase client matching `casa.sentinela.app`.
+- `connection.json`: `domain_url` (HTTPS origin) and
+  `public_cert_sha256` (64 hex characters, exact server certificate).
+
+Explicit environment variables can override the connection values.
+Gradle validates every release; `build-apk.sh` checks the generated pin
+before copying the signed APK. Obtain the fingerprint through trusted SSH
+and compare it to the served certificate. Normal system trust or the exact
+pin is required; do not accept all TLS certificates.
+
+The separate `.dev` app uses direct notifications and locally generated
+debug Firebase configuration. It does not register in the release Firebase
+application.
+
+## Updates and recovery
+
+`build-apk.sh` generates `mobile/build/sentinela.apk`.
+`publish-apk.sh` publishes its version/size/hash through authenticated
+`/api/app/latest` and `/api/app/sentinela.apk`. App 1.9+ downloads the APK,
+checks its SHA-256 and opens Android's installer; Android enforces the same
+signing key and installation-source permission.
+
+APK 1.11 was published without its certificate fingerprint because a
+temporary environment importer missed digits in the variable name. It
+cannot connect to the household self-signed server, including its updater.
+A manual same-key 1.12 install recovers it without uninstalling.
+Permanent connection configuration and release rejection prevent recurrence.
+
+## Historical changes
+
+The first implementation used a fixed tailnet URL and ntfy/UnifiedPush.
+ADR-0019 then tested public TLS, embedded tailnet and Funnel, selecting
+public TLS. Round 4 replaced UnifiedPush with a direct foreground stream.
+ADR-0020 makes Firebase the Android wake-up transport, with that direct
+stream retained as a fallback.
 
 ## Consequences
-+ One UI for desktop, PWA and app.
-− The app shows nothing without the Tailscale VPN up (by design).
-− Android toolchain (JDK + SDK) needed on the dev PC for B2.
 
-## Implementation (2026-09-29)
-- `mobile/`: Capacitor 8, Android only. `server.url` is fixed at build time
-  (`SENTINELA_URL`, default the owner's tailnet name) instead of a first-run
-  prompt: one household, one server; a different server means a rebuild.
-  A server that does not answer brings back the bundled start screen in its
-  "Sem conexão com a casa" state (retry, change path, open the Tailscale
-  app); Capacitor's `server.errorPath` page could not load its own styles or
-  reach the bridge on a remote `server.url`, so it was dropped (2026-09-29).
-- Native code only where the WebView falls short (`MainActivity`): the app
-  lock (BiometricPrompt: fingerprint/face or the screen lock, after 5 min
-  in the background; skipped on phones without a screen lock) and downloads
-  through DownloadManager, sending the session cookie only to the server's
-  own host. The WebView's Web Share API is absent, so the share buttons
-  hide themselves and "Baixar" is used instead.
-- No Firebase: the WebView has no Push API, so the app gets notifications
-  through UnifiedPush and a self-hosted ntfy (ADR-0013); the ntfy app must be
-  installed on the phone. Without it, the PWA still notifies.
-- `scripts/build-apk.sh` builds and signs on the dev PC (JDK 21 + Android
-  SDK command-line tools, no Android Studio). The signing key and its
-  random password live in `~/.sentinela-android/` on the dev PC, never in
-  git; losing them means uninstalling the app to install a newer build.
-- Device sessions are listed on the Mais page ("Aparelhos conectados") and
-  can be signed out one by one.
-- 2026-09-29 (ADR-0019 trial): `server.url` is no longer fixed at build
-  time. A bundled start screen picks the path (Tailscale app, Tailscale
-  embedded in the APK, the home's domain, or Funnel) and `MainActivity`
-  puts it in Capacitor's config at launch; build defaults come from
-  `SENTINELA_TAILNET_HOST`, `SENTINELA_LAN_URL`, `SENTINELA_DOMAIN_URL`.
++ Desktop, PWA and Android share the UI and session model.
++ Native notifications need no fixed foreground notice while FCM works.
+- Remote operation needs the chosen server origin to be reachable.
+- Toolchain, signing key and trusted TLS configuration belong to the owner.
+- Real-device acceptance remains in PLAN.md; a successful build is not an
+  end-to-end delivery test.

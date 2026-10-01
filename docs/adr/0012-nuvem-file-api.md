@@ -1,38 +1,60 @@
-# ADR-0012: Minimal Nuvem file API in `sentinela serve`
+# ADR-0012: Nuvem file API inside Sentinela
 
-Status: Accepted · 2026-09-29 (owner decision D4)
-
-## Context
-The mobile app needs the Nuvem (ADR-0008) without an SMB client. v1 built a
-separate files service and a Nextcloud-like UI; that is exactly what we do
-not repeat. Samba stays the main way to use the share on the LAN.
+Status: Accepted 2026-09-29, amended by the owner's UI/permission decisions
+on 2026-09-30.
 
 ## Decision
-A small file API inside the existing binary:
-`GET /api/nas/list?path=`, `GET /api/nas/file?path=` (HTTP ranges),
-resumable upload (`PUT` chunks with an offset, ≤ 4 GB per file, written
-straight to a partial file on the target disk — never buffered in memory or
-in `/tmp`, which is a RAM tmpfs), `POST /api/nas/mkdir`,
-`POST /api/nas/move`, `DELETE /api/nas/file` → moved to `.lixeira/<user>/`
-(the recycle bin Samba also uses; never a hard delete).
 
-- Paths are opened through `os.Root` on `/srv/nas` (no `..`, no symlink
-  escapes). Each Sentinela user sees `/srv/nas/<user>` and
-  `/srv/nas/Compartilhado`; admins see the whole share.
-- Roles: viewer read-only; operator/admin write. CSRF on writes; every write
-  goes to `audit`. **Amended 2026-09-30 (round 6, owner):** viewers have no
-  Nuvem at all (cameras only); operators use their own folder and
-  Compartilhado; admins everything. Top-level folders (each person's,
-  Compartilhado, the bin) can be created by an admin but never renamed,
-  moved or deleted through the API. Who put a file in Compartilhado comes
-  from the audit log (`nas.upload` / `nas.mkdir`), shown as its owner.
-- Thumbnails only for JPEG/PNG ≤ 20 MB (Go `image`), cached; no video
-  thumbnails (no transcoding).
-- The `sentinela` container mounts `/srv/nas` read-write (UID 1000 = owner
-  of the share); the recorder has no access.
+The existing `sentinela serve` process owns the browser/mobile file API.
+Samba remains the separate LAN share; no file-service container is added.
+
+| Operation | Endpoint/behavior |
+|---|---|
+| List/read | `GET /api/nas/list`, `GET /api/nas/file`, HTTP ranges |
+| Upload | Resumable `PUT /api/nas/upload?path=&offset=&total=` |
+| Create/move | `POST /api/nas/mkdir`, `POST /api/nas/move` |
+| Delete | `DELETE /api/nas/file` moves into the recycle bin |
+| Purge | Explicit `DELETE /api/nas/trash` permanently removes trash |
+| Text edit | `PUT /api/nas/text`, bounded to 2 MiB |
+
+Uploads go directly to partial files on the target disk, never buffered as
+a whole file in RAM or `/tmp`. Files are limited to 4 GiB; chunks are 8 MiB
+in the UI. Existing final files are not silently overwritten.
+
+## Access and presentation
+
+- Filesystem operations use `os.Root` confinement and permission checks.
+- Viewers have no Nuvem API or page. Operators use their own directory and
+  Compartilhado. Admins can access the share.
+- Top-level folders cannot be moved, renamed or deleted through the API.
+  Admins can create additional top-level folders.
+- CSRF protects writes, which are audited. Samba uses its own LAN account;
+  these web scopes do not automatically constrain an SMB login.
+- List/grid, tree, filters, details and previews share the same API.
+  Previewing a video uses the viewing device; server video transcoding is
+  not added. Server thumbnails are limited to bounded JPEG/PNG files.
+- Personal-folder icons show the user's photo. The shared owner column
+  comes from upload/mkdir audit data at that path; it is an informative
+  label, not an access-control or filesystem ownership rule.
+- Browser text editing, restore and permanent purge are explicit actions.
+  API and Samba deletes share the `.lixeira/<user>/` convention.
+
+## Folder upload
+
+Desktop folder selection and drop traversal preserve file paths. Parent
+directories are created first, then files use the same resumable uploader.
+Three small files can transfer in parallel; large files are serial.
+A conflicting top folder is sent as `Name (2)`, rather than mixed into an
+existing one.
+
+No ZIP creation/extraction is introduced: photos/video compress poorly,
+and extraction would add work to the old server CPU. Empty directories
+are not represented by the file picker/traversal. Phone users upload files;
+Android's picker does not expose the desktop folder-selection flow.
 
 ## Consequences
-+ Nuvem in the app and the PWA through the same auth and Tailscale origin.
-− The web process can now write user files: a bug here can destroy data,
-  hence the recycle bin, the audit and `os.Root`. Backups (ADR-0014) cover
-  `/srv/nas`.
+
++ One auth/API for browser and Android, on the selected HTTPS origin.
++ Recording remains independent; the recorder has no NAS mount.
+- Web writes can affect user data. Recycle bin, scope checks and audit
+  reduce risk; they do not replace backups and restore verification.

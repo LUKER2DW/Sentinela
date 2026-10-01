@@ -2,6 +2,10 @@
 
 Status: Approved · 2026-09-29 (owner) — waits on its preconditions (restic USB disk + restore drill); the migration window is scheduled with the owner
 
+Current status: plan only. No Btrfs conversion, snapper service or file
+version-history API has been deployed. The ext4 Nuvem continues to use its
+recycle bin; do not treat it as an implemented snapshot/restore system.
+
 ## Context
 The Nuvem (`/srv/nas`, disk `sdb`, ext4) has a 30-day recycle bin for
 deletions, but no protection against overwrites or ransomware on a

@@ -22,7 +22,9 @@ two processes on one host). The recorder writes a heartbeat row that the API
 shows on the System page.
 
 ## Consequences
-+ An API crash, bad deploy or UI bug can't create a recording gap.
++ An API crash or UI bug does not stop the recorder. A full image deployment
+  restarts the recorder container and can leave a short gap; publishing an
+  Android APK alone does not require that restart.
 + No new technology: same binary, same image, one more compose entry.
 − Two processes write to SQLite; mitigated by WAL, short transactions and
   retries on `SQLITE_BUSY`.

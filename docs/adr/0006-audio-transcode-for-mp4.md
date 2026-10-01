@@ -16,6 +16,9 @@ PCMA → FLAC in-process, because MSE cannot carry PCMA either.
   (`record_audio: false`), which makes recording 100 % copy.
 - go2rtc's built-in PCMA → FLAC/Opus conversion for MSE/WebRTC viewers is
   accepted.
+- Current playback exports, timelapses and timeline previews keep video
+  compressed. The snapshot/detector decoding exceptions are separate
+  measured decisions (ADR-0015/0016), not video transcoding permissions.
 
 ## Budget
 8 kHz mono AAC is a few hundred kilobits per second of work: well below 1 %

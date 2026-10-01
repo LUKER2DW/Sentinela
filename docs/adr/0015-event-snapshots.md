@@ -29,5 +29,7 @@ session, the same one a viewer on SD uses.
 ## Consequences
 + Pictures for review and notifications with a bounded, measured cost.
 − The snapshot lands ~1–7 s after the event starts.
-− This is the only video decode on the server; anything more (continuous
-  detection) needs its own ADR (Wave 3).
+− Additional video decoding needs a separate measured ADR. The later
+  motion-gated detector exception is ADR-0016 and reuses its analyzed frame
+  as the snapshot. Timeline hover previews are compressed keyframe copies
+  decoded by the browser/app, not this JPEG snapshot pipeline.

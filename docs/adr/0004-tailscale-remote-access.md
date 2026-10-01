@@ -1,8 +1,13 @@
-# ADR-0004: Remote access only through Tailscale
+# ADR-0004: Private remote access through Tailscale
 
 Status: **Implemented** 2026-09-29 (owner decision D3) · Accepted 2026-09-28
 
-## Decision
+Amended by ADR-0019: the household selected public HTTPS for the Android app
+and browser, with mandatory TOTP and the closed door. Tailscale remains the
+private administration/access option; ordinary phone use no longer requires
+its app. The decision and setup below record the original private path.
+
+## Original decision (amended by ADR-0019)
 No port forwarding, DDNS or public reverse proxy. Server joins a Tailscale
 tailnet; phones use the Tailscale app. HTTPS via `tailscale cert` for the
 MagicDNS name. WebRTC works directly over the tailnet (UDP, low latency).

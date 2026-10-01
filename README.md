@@ -1,130 +1,166 @@
 # Sentinela v2
 
-A small, fast, self-hosted NVR for XMEye/Xiongmai IP cameras, built to run on
-modest hardware (an old CPU, 4 GB RAM).
+A home NVR and file server for XMEye/Xiongmai cameras, built for an Intel
+old x86-64 PC with 4–8 GB RAM. The same Go binary runs the API and, in a
+separate container, the recording supervisor. go2rtc handles live media;
+ffmpeg copies H.265 video into fragmented MP4 recordings.
 
-Goals, in priority order:
+## Current status
 
-1. **Recording never stops.** Continuous, copy-only (no re-encode) recording.
-2. **Secure by default.** No ports opened on the router; camera blocked from
-   the internet; remote access only through a private VPN (Tailscale).
-3. **Lowest possible live latency.** WebRTC first (< 500 ms on LAN/VPN),
-   MSE/HLS fallback.
-4. **Full camera control.** PTZ, presets, light, day/night, two-way audio via
-   the reverse-engineered DVRIP protocol (TCP 34567).
-5. **Small and maintainable.** One Go binary + go2rtc + ffmpeg. SQLite.
-   Three containers, one `docker-compose.yml`.
+Live view, recordings, camera control, event review, detection zones,
+Nuvem, accounts and the Capacitor Android app are deployed. The current
+Android release is **1.12 (version code 13)**. Outstanding operator checks,
+camera isolation, backup recovery and future work are in
+[the master plan](docs/PLAN.md).
 
-## Status
+- Recording pulls directly from the camera and survives API/go2rtc failures.
+  Full image deployments restart the recorder container and can leave a
+  short gap.
+- Video is never transcoded. The measured substream snapshot/detector
+  exceptions are recorded in ADR-0015 and ADR-0016.
+- The UI supports desktop, mobile browsers and Android, with six palettes
+  and light, dark, black or automatic appearance.
+- Android notifications use Firebase for an opaque wake-up id; the app
+  fetches event details from the house. The direct foreground connection
+  remains a fallback (ADR-0020).
+- Nuvem is available to operators and admins. Viewers see cameras/events;
+  operators use their own folder and Compartilhado.
 
-Phases 1–4 (live view, recording, API, web UI) are built and were verified on
-a dev PC against the real camera. Next: install on the server and run the
-acceptance checks. See [`docs/PLAN.md`](docs/PLAN.md).
+## Server and remote access
 
-## The server today
+The deployed server is `ana@192.168.1.10`, Ubuntu 22.04, with three
+disks. The LAN UI is `http://192.168.1.10:8080`; Samba provides
+`\\192.168.1.10\Nuvem` and read-only `Gravacoes`.
+See [architecture](docs/ARCHITECTURE.md) for storage and services.
 
-`ana@192.168.1.10` (Ubuntu 22.04, old CPU, three disks): web panel on
-`http://192.168.1.10:8080`, LAN share `\\192.168.1.10\Nuvem`
-(~-) and read-only `\\192.168.1.10\Gravacoes`. Disk layout and
-health notes: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §6.
+The Android app and remote browser use the public HTTPS address selected
+under ADR-0019. Public login requires TOTP and has a closed door before
+authentication. The current household uses an IP certificate signed by
+itself and pinned in the APK; browsers may warn about this certificate.
+Tailscale remains available for private administration. Embedded Tailscale
+was removed from the app; Funnel is disabled.
 
-## Deploy an update (from the dev PC)
+Do not expose camera ports, SMB, go2rtc's API or RTSP to the internet.
+The public HTTPS/WebRTC allowances are the specific ADR-0019 exception;
+see [security](docs/SECURITY.md).
+
+## Deploy server changes
+
+From the development PC:
 
 ```bash
 ./scripts/deploy.sh
 ```
 
-Builds the image on the PC, streams it to the server over SSH (key
-`~/.ssh/id_ed25519_sentinela`), ships `deploy/` + `scripts/`, restarts the
-three containers and waits for the health check (~1–2 min). Override the
-target with `SENTINELA_HOST=user@host`.
+The script builds images locally, sends them over SSH using
+`~/.ssh/id_ed25519_sentinela`, ships `deploy/` and `scripts/`, restarts the
+Compose stack, and checks health. Override the target with
+`SENTINELA_HOST=user@host`. GitHub Actions checks code; it does not deploy.
+Commit before deployment so the running version identifies the revision.
 
-Deploys are manual only ([ADR-0010](docs/adr/0010-manual-deploy.md)).
-GitHub Actions runs checks (`ci` workflow) on GitHub-hosted runners and never
-deploys. A server that still has the retired auto deployer:
-`sudo /opt/sentinela/scripts/uninstall-autodeploy.sh`.
+## Build and publish Android
 
-## Remote access (Tailscale)
+Needs JDK 21, Android SDK and Node/npm. Local release configuration belongs
+outside Git in `~/.sentinela-android/`:
 
-`sudo /opt/sentinela/scripts/setup-tailscale.sh` on the server installs
-Tailscale, joins the tailnet as `sentinela` (login URL on first run) and
-publishes `https://sentinela.<tailnet>.ts.net` with `tailscale serve`.
-Enable HTTPS certificates and paste the ACL from
-[`docs/SECURITY.md`](docs/SECURITY.md) (rule 9) in the admin console. Phones
-install the Tailscale app and open that address. No router ports
-([ADR-0004](docs/adr/0004-tailscale-remote-access.md)).
+| File | Purpose |
+|---|---|
+| `release.jks`, `keystore.pass` | Signing identity; retain for every update |
+| `google-services.json` | Firebase Android client for `casa.sentinela.app` |
+| `connection.json` | Server origin and exact TLS certificate fingerprint |
 
-## Android app
+Example connection configuration (replace with the household's values):
 
-`./scripts/build-apk.sh` on the dev PC (JDK 21 + Android SDK command-line
-tools) builds `mobile/build/sentinela.apk`; copy it to the phone and open it
-to install (allow "install unknown apps" once). The app opens the server
-over Tailscale ([ADR-0011](docs/adr/0011-mobile-pwa-capacitor.md)).
-Notifications in the app need the ntfy app on the phone, with its default
-server set to `https://sentinela.<tailnet>.ts.net:8443`
-(`sudo /opt/sentinela/scripts/setup-ntfy.sh` on the server, ADR-0013). Keep a copy of
-`~/.sentinela-android/` (the signing key): updates need the same key.
+```json
+{
+  "domain_url": "https://203.0.113.7:18443",
+  "public_cert_sha256": "<64 hexadecimal characters>"
+}
+```
 
-## Install on a fresh server (Ubuntu 22.04)
+Obtain the fingerprint over trusted SSH with
+`sudo /opt/sentinela/scripts/setup-public.sh status`.
+`SENTINELA_DOMAIN_URL` and `SENTINELA_PUBLIC_CERT_SHA256` override the file;
+`SENTINELA_CONNECTION_JSON` selects another file. Gradle refuses a release
+without a valid HTTPS origin and fingerprint. Never solve a TLS error by
+disabling certificate checks.
 
-1. Mount the recordings disk at `/data` (and the NAS disk at `/srv/nas` if
-   you want the LAN share). The installer refuses to put recordings on `/`.
-2. Copy the repo to `/opt/sentinela` and run `sudo ./scripts/install-server.sh`.
-   It installs Docker, asks for the camera user/password (typed silently,
-   stored only in `/etc/sentinela/secrets.env`, 0600), writes
-   `/etc/sentinela/config.yaml`, applies the LAN-only firewall, sets up Samba,
-   chrony (camera NTP) and the SMART timer, then starts the stack.
-3. Set the share password once: `sudo smbpasswd -a ana`.
-4. Open `http://<server-ip>:8080`; the first visit creates the admin account.
-5. `sudo ./scripts/optimize-host.sh`: removes what an NVR never uses (snap/LXD,
-   cloud-init, VMware tools, multipath/iSCSI, fwupd…), makes Docker and Samba
-   wait for the data disks, enables the hardware watchdog and reboot-on-panic,
-   caps the journal, and lists what starts at boot. Then reboot once.
-   In the BIOS, set "After power failure" to **Power On**.
+```bash
+./scripts/build-apk.sh
+./scripts/publish-apk.sh "What changed"
+```
 
-The camera password must not contain `& ? / # %` or spaces (the camera reads
-it literally from the RTSP URL). Nothing else (VLC, vendor apps) should pull
-RTSP from the camera: it accepts only 3 sessions.
+The signed file is `mobile/build/sentinela.apk`. Install it over the
+existing app, with the same signing key. Since 1.9, Minha conta →
+Aplicativo offers later published versions and opens Android's installer.
+Android asks once to allow this installation source.
 
-| Task | Command (on the server) |
+**Recovery from 1.11:** its APK omitted the certificate pin, so it cannot
+reach the server or its updater. Install 1.12 manually once, without
+uninstalling; subsequent updates use the in-app flow.
+
+Firebase's service-account key is separate from the Android client JSON.
+Deploy it as `/data/fcm/service-account.json`, mode 0600, readable by UID
+1000. It is never packaged in the APK or committed. The app needs neither
+ntfy nor the Tailscale app for the current public access path.
+The `.dev` Android build uses direct notifications.
+
+## Install a fresh server
+
+1. Mount the recording disk at `/data` and the file disk at `/srv/nas`.
+   The installer refuses to record on the root filesystem.
+2. Copy the repository to `/opt/sentinela`, then run
+   `sudo ./scripts/install-server.sh`. Camera credentials are entered
+   silently and kept in `/etc/sentinela/secrets.env` (0600).
+3. Set the LAN share password with `sudo smbpasswd -a ana`.
+   Samba accounts are independent of web accounts.
+4. Open the LAN UI and create the first admin. Configure private remote
+   access with `setup-tailscale.sh`, or explicitly apply the approved
+   ADR-0019 public configuration.
+5. Apply `sudo ./scripts/optimize-host.sh`, check data mounts and host
+   services, and set BIOS "After power failure" to Power On.
+6. Configure backups, isolate the camera and perform the checks in PLAN.
+   An external restic disk and a completed restore drill are still pending.
+
+| Operation on the server | Command |
 |---|---|
 | Logs | `cd /opt/sentinela/deploy && sudo docker compose logs -f --tail=50` |
 | Reset a web password | `cd /opt/sentinela/deploy && sudo docker compose exec -T sentinela sentinela user passwd <user>` |
-| Share password | `sudo smbpasswd -a ana` |
-| Stop / start | `cd /opt/sentinela/deploy && sudo docker compose stop` / `start` |
+| Check public listener/certificate | `sudo /opt/sentinela/scripts/setup-public.sh status` |
+| Check running services | `cd /opt/sentinela/deploy && sudo docker compose ps` |
 
-Recordings go to `/data/recordings/<camera>/<YYYY>/<MM>/<DD>/<HH-MM-SS>.mp4`
-(UTC), 5 minutes each (~24 GB/day). The oldest are deleted after
-`retention_days` (15) or when the disk passes 90 % (≈ 18 days on -).
+Recordings use UTC paths under
+`/data/recordings/<camera>/<YYYY>/<MM>/<DD>/<HH-MM-SS>.mp4`, normally five
+minutes each. Default retention is 15 days, alerts 30 days, with a 90%
+disk cap. Protected segments are excluded from automatic deletion.
 
 ## Develop
 
 ```bash
-cd web && npm ci && npm run build && cd ..   # UI, embedded into the binary
+cd web && npm ci && npm run build && cd ..
 go run ./cmd/sentinela serve -config ./dev-config.yaml
-cd web && npm run dev                        # UI with hot reload on :5173
-make check                                   # vet, tests, staticcheck, lint
+cd web && npm run dev
+make check
 ```
 
-## Layout
+Vite proxies to `http://127.0.0.1:8080`; set `SENTINELA_API` for another
+local API. Android Studio: `cd mobile && npm ci && npm run studio`.
+The SDK and signing configuration must be present on that PC.
+
+## Documentation and code
 
 | Path | Purpose |
 |---|---|
-| `AGENTS.md` | Rules for any AI coding agent working in this repo |
-| `CLAUDE.md` | Claude-specific entry point (imports `AGENTS.md`) |
-| `docs/PLAN.md` | Master plan: scope, phases, status, acceptance criteria |
-| `docs/ARCHITECTURE.md` | Components, data flow, ports, storage layout |
-| `docs/CAMERA.md` | Everything known about the camera + audit results |
-| `docs/SECURITY.md` | Threat model and security rules |
-| `docs/adr/` | Architecture decision records |
-| `cmd/sentinela` | The binary: `serve`, `record`, `user`, `healthcheck` |
-| `internal/` | API, auth, DVRIP/ONVIF drivers, recorder, store |
-| `web/` | React + Vite UI (pt-BR, light/dark themes) |
-| `deploy/` | Docker Compose, go2rtc and example configs |
-| `scripts/` | `install-server.sh`, read-only `camera-audit.sh` |
+| [AGENTS.md](AGENTS.md) / [CLAUDE.md](CLAUDE.md) | Agent rules and entry point |
+| [docs/PLAN.md](docs/PLAN.md) | Current status, historical phases and pending checks |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Components, flows, ports and storage |
+| [docs/CAMERA.md](docs/CAMERA.md) | Allow-listed commands and dated hardware evidence |
+| [docs/SECURITY.md](docs/SECURITY.md) | Authentication, network and secret handling |
+| [docs/RESEARCH.md](docs/RESEARCH.md) / `docs/adr/` | Research history and accepted decisions |
+| `cmd/`, `internal/` | Go API, auth, camera drivers, recording and store |
+| `web/`, `mobile/` | React SPA and native Android wrapper |
+| `deploy/`, `scripts/` | Compose configuration and operator scripts |
 
-## Lineage
-
-This project replaces two earlier attempts (`LUKER2DW/Sentinela`, Go, and
-`LUKER2DW/Local-Cloud`, Django). Their protocol knowledge is kept; their
-architecture is not. See `docs/PLAN.md` §2.
+This replaces the earlier Sentinela Go and Local-Cloud Django projects.
+Protocol knowledge is retained; the current architecture is described here
+and in the ADRs.

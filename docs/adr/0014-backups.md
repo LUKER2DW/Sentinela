@@ -24,6 +24,14 @@ rolling and disposable; user files, config and the DB are not.
 - Samba recycle bin (`.lixeira/%U`, purged after 30 days) catches
   accidental deletes between backups.
 - Off-site copy (B2 or a friend's machine over Tailscale): later, owner's call.
+- Recovery keys introduced later (`/data/acme`, `/data/push`, `/data/fcm`)
+  are not copied by the current DB/config backup script. Keep protected
+  copies separately, including the PC's Android signing directory. A changed
+  TLS certificate requires a new APK pin; signing-key loss prevents an
+  in-place Android update.
+
+External restic media and a completed restore drill remain operator tasks.
+The available local backup does not imply those acceptance checks passed.
 
 ## Consequences
 + Losing `sdc` loses at most a day of DB changes; losing `sdb` loses nothing

@@ -8,15 +8,17 @@ Cursor, etc.) works in this repository. Read it fully before changing code.
 Sentinela v2 is a home NVR for XMEye/Xiongmai cameras. A single Go binary
 (`cmd/sentinela`) owns the API, auth, camera control (DVRIP + ONVIF),
 recording supervision, retention and the SQLite index. **go2rtc** handles all
-live media (RTSP ingest, WebRTC/MSE/HLS out, two-way audio). **ffmpeg** writes
-recordings with `-c copy`. A React + Vite SPA is served by the Go binary.
+live media (RTSP ingest, WebRTC/MSE out, two-way audio). **ffmpeg** copies
+recorded video; optional audio conversion is ADR-0006. A React + Vite SPA is served by the Go binary.
 Target host: old CPU, 4 GB RAM, a dedicated recordings disk, Ubuntu 22.04.
 
 ## 2. Hard constraints (never violate)
 
 1. **No transcoding on the server.** Video is H.265 and the CPU has no HEVC
    hardware decode. Every media path is copy/remux only. Any change that
-   decodes video must come with a measured CPU budget and an ADR.
+   decodes video must come with a measured CPU budget and an ADR. Existing
+   substream exceptions are event snapshots (ADR-0015) and the motion-gated
+   detector (ADR-0016); timeline previews remain copy-only.
 2. **Recording is independent of everything else.** If the API, web UI,
    go2rtc or the database crashes, recording must continue. Recorders are
    supervised ffmpeg processes pulling RTSP directly from the camera.
@@ -28,11 +30,12 @@ Target host: old CPU, 4 GB RAM, a dedicated recordings disk, Ubuntu 22.04.
 4. **Secrets never leave the server.** Camera credentials, RTSP URLs with
    userinfo, session tokens: never in logs, API responses, frontend bundles,
    git, or error messages. Use `internal/auth/redact` helpers.
-5. **No public exposure.** Nothing binds to the WAN. Remote access = Tailscale.
+5. **No additional public exposure.** Tailscale is the private remote path.
    Do not add port-forwarding, DDNS or Cloudflare tunnels. **Exception
    (ADR-0019):** the port-forwarded TLS listener (and the Tailscale Funnel
    listener, currently switched off), behind mandatory 2FA and the
-   closed-door rule. Nothing else may be exposed.
+   closed-door rule. This is the accepted household path after the trial.
+   Nothing else may be exposed.
 6. **Camera writes are allow-listed.** The DVRIP driver may only send commands
    documented in `docs/CAMERA.md`. Any persistent config write must read the
    full object first, change one allow-listed field, read back, and restore
@@ -46,13 +49,13 @@ Target host: old CPU, 4 GB RAM, a dedicated recordings disk, Ubuntu 22.04.
 
 | Area | Choice |
 |---|---|
-| Backend | Go ≥ 1.23, stdlib `net/http` (1.22 routing), `log/slog` |
+| Backend | Go 1.26 (see `go.mod`), stdlib `net/http`, `log/slog` |
 | DB | SQLite via `modernc.org/sqlite` (pure Go), WAL mode |
 | Media | go2rtc (sidecar container), ffmpeg (recorder) |
 | Frontend | React 19 + Vite + TypeScript, TanStack Query, plain CSS tokens |
-| Mobile | PWA + Capacitor Android app wrapping the same SPA (ADR-0011) |
+| Mobile | PWA + Capacitor Android app; FCM wake-ups/direct fallback (ADR-0011, ADR-0020) |
 | Deploy | Docker Compose, Ubuntu 22.04 host (Debian 12/13 also fine) |
-| Remote | Tailscale |
+| Remote | Tailscale/private administration; approved public TLS path (ADR-0019) |
 
 Dependencies must be justified. Prefer stdlib. No ORMs. No web frameworks
 (gin/echo/fiber) — the stdlib router is enough.
@@ -84,6 +87,12 @@ scripts/              operator scripts (audit, backup)
 4. Update docs **only when behaviour changes**. Do not create reports,
    status logs, or per-task markdown files. The plan is updated in place.
 5. Commit messages: Conventional Commits (`feat(dvrip): …`).
+6. Android release configuration lives outside Git in
+   `~/.sentinela-android/connection.json` (HTTPS origin and exact certificate
+   SHA-256), with explicit environment overrides. Release builds must reject
+   missing pins. Verify the packaged pin against the served certificate,
+   sign with the existing keystore, then publish the APK. An APK-only change
+   does not require restarting the NVR stack. Never bypass TLS validation.
 
 ## 6. Coding conventions
 
@@ -110,5 +119,6 @@ scripts/              operator scripts (audit, backup)
   Shinobi, motionEye) into this MIT-intended repo. Ideas only.
   MIT/Apache sources (Frigate, go2rtc, MediaMTX, python-dvr) may be adapted
   with attribution in `NOTICE`.
-- Do not add AI/object detection until Phase 5, and only on the substream.
+- Detection is implemented under Phase 5/ADR-0016. Keep it on substream
+  keyframes and within the accepted budget; no main-stream detection.
 - Do not commit binaries, recordings, snapshots, `.env` or audit output.

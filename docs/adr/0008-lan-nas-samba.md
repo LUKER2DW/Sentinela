@@ -3,13 +3,19 @@
 Status: Accepted · 2026-09-28 (owner request; supersedes the "NAS is scope
 creep" non-goal in PLAN §1.2)
 
+Current amendments: ADR-0014 moves `sda3` from Nuvem Extra to `/srv/backup`;
+ADR-0012 adds the web/mobile file API. Samba still uses its own LAN account
+(`ana` in the supplied configuration); web user/role restrictions do not
+automatically apply to that SMB login. The original decision below is the
+historical setup, with those later changes taking precedence.
+
 ## Context
 The server has Three disks. The owner wants one disk for camera
 recordings and the rest as "cloud" storage reachable from every device on
 the home network at LAN speed. v1 built a web "files" service for this, which
 added a lot of code and failure modes.
 
-## Decision
+## Original decision (later amendments above)
 - Disk layout: `sdc` → `/data` (recordings, ext4 `largefile4`); `sdb` →
   `/srv/nas` and the free tail of the system disk (`sda3`) →
   `/srv/nas/Extra` (LAN storage). Separate filesystems: recordings can never

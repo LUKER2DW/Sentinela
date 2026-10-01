@@ -1,9 +1,8 @@
 # ADR-0019: Remote access without Tailscale on the phone — three-way trial
 
-Status: **Accepted for a trial** · 2026-09-29 (owner decision D8). Suspends
-AGENTS.md §2.5 and ADR-0004 *for the paths below only* until the owner picks
-a winner; the losers are then removed and this ADR is rewritten as the
-decision.
+Status: **Accepted P1 public HTTPS path after the trial** · 2026-09-29
+(owner decision D8). Amends ADR-0004/AGENTS.md only for that TLS/WebRTC path.
+Embedded tailnet was removed; Funnel is disabled.
 
 ## Result (2026-09-29, owner, on the phone)
 P1 (public address) worked, P3 (Funnel) worked, P2 (embedded tailnet) did
@@ -12,10 +11,30 @@ endpoint, app code, AAR; `mobile/tailnet` parked). P3 is switched off in
 the server config, its code kept so it can return by configuration. The
 public listener keeps mandatory two-step login and the closed door; first
 access by invite code enrolls it from outside. The Android app gets
-notifications over its own connection to the public address (PLAN round 4),
-since the ntfy relay lived on the tailnet.
+notifications through Firebase wake-ups and a pinned HTTPS fetch (ADR-0020);
+the direct connection from round 4 remains its fallback.
 
-## Context
+## Current household configuration (2026-09-30)
+
+- `remote.public.self_signed: true`: the fixed IP uses a persistent
+  self-signed certificate under `/data/acme/self`. The ISP did not provide
+  the normal ACME challenge ports used by the original trial options.
+- Public TLS is WAN 18443 → server 7443, plus the approved WebRTC 8555
+  allowance. HTTP-01 on 7080 is off. Camera/SMB/go2rtc APIs remain private.
+- Android trusts normal system CAs or the exact household certificate pin.
+  Browsers may show the self-signed warning; the app must not bypass TLS.
+- APK defaults come from `~/.sentinela-android/connection.json` or explicit
+  environment overrides. Release builds reject missing/malformed pins.
+  `setup-public.sh status` prints the fingerprint over trusted SSH.
+- APK 1.11 omitted its pin and could not connect. Install the same-key 1.12
+  manually once; certificate validation and later in-app updates then work.
+- Invited first access can enroll TOTP using its one-time link; ordinary
+  account/TOTP administration remains on private access.
+
+The trial designs below are historical alternatives, not instructions to
+enable every listener or to reinstall the removed app tailnet.
+
+## Original trial context
 Today every client needs the Tailscale app (ADR-0004). The owner wants to
 install only the Sentinela APK and open it, and also to open the web UI from
 any browser on any network, with the lowest live latency possible. No single
@@ -28,7 +47,7 @@ measure three on the phone and keep one.
 | **P2 Tailscale embedded in the APK** | no | yes | WebRTC over the app's tailnet node, or MSE | None (tailnet only) |
 | **P3 Tailscale Funnel** | yes | yes | MSE over WebSocket (Funnel is TCP only) | Public `*.ts.net` port, login reachable by anyone |
 
-## Decision
+## Historical trial design
 
 ### Access zones (all paths)
 The API tags every request with a zone **by the listener it arrived on**,

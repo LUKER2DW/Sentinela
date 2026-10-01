@@ -3,6 +3,11 @@
 Address: `192.168.1.20` (LAN). This file holds everything we know. Only
 commands listed here may be sent by the DVRIP driver.
 
+Measurements and firmware/config observations are dated evidence. They do
+not imply a fresh hardware check or completion of the hardening checklist.
+Current deployment uses go2rtc 1.9.14; older transport tables retain the
+version measured at their original date.
+
 ## 1. Known facts (from v1 Sentinela hardware work, 2026-07)
 
 | Property | Value | Source |
@@ -74,13 +79,14 @@ PTZ request envelope (message `1400`), verified by v1 on this model:
   command and speed and `Preset: -1`. The driver stops automatically if no
   keepalive arrives for 1 s.
 - Presets: `SetPreset`/`ClearPreset`/`GotoPreset` with `Preset: <id>`, `Step: 0`.
-- **This unit's image is flipped + mirrored** (`PictureFlip=1`,
+- **Historical mount/config observation: flipped + mirrored** (`PictureFlip=1`,
   `PictureMirror=1`), so pan and tilt are inverted: a UI "left" sends
   `DirectionRight`, "up" sends `DirectionDown`. Zoom/focus/iris are not inverted.
   Each axis is configurable (`invert_pan`, `invert_tilt`, both default to
   `invert_pan_tilt`): on 2026-09-30 the owner reported "up" moving down,
-  i.e. the image is now mirrored but no longer flipped, so the house config
-  has `invert_tilt: false`.
+  so the household mapping now has `invert_tilt: false` while retaining
+  pan inversion. The feedback establishes the needed control mapping; the
+  firmware's current flip/mirror flags were not re-read to confirm a change.
 - `Ret` 100 = OK; 515 = OK (upgrade-available variant) for login.
 
 **Forbidden:** firmware upgrade, `Alarm.AlarmOut`, network config, user
@@ -210,3 +216,19 @@ keeps `cam1` connected so the RTSP handshake is not added on top.
 The live view's delay meter reads the camera clock with ONVIF
 `GetSystemDateAndTime` (device service, port 8899, read-only; whole seconds)
 and shows what the OSD should read with zero delay.
+
+## 6. Later operational corrections (2026-09-30)
+
+- This camera ignores the ONVIF PullMessages timeout. The earlier watcher
+  could pull about 45 times/second, with frame loss observed during the
+  affected 2026-09-29 recording window. The watcher now spaces pulls at
+  least one second apart. Existing recorded gaps are not repaired by that
+  change; the recorded investigation is in PLAN round 5.
+- PTZ direction correction uses separate pan/tilt config overrides. No
+  movement or persistent camera write is part of the APK TLS/doc fix.
+- Timeline preview frames are copied from recording keyframes and decoded
+  on the viewing device. The measured substream JPEG/detector exceptions are
+  ADR-0015/0016. A preview's local response time is not a fresh 4G latency
+  measurement.
+- Phone acceptance still covers current playback, previews, PTZ, talk and
+  notifications. Do not replace that check with an old transport benchmark.

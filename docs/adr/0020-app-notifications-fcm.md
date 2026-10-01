@@ -27,7 +27,7 @@ through Google Play services.
   to the user's login session (`fcm_tokens`, migration 0009): ending the
   session removes the registration, and expired sessions are excluded.
   FCM's explicit UNREGISTERED response also removes a token.
-- The service account key lives only on the server
+- The runtime service account key lives on the server
   (`<data_dir>/fcm/service-account.json`, 0600, never in git, logs or the
   API). The app's Firebase client values (`google-services.json`) stay
   outside the repo (`~/.sentinela-android/`) and are compiled in by
@@ -47,3 +47,18 @@ through Google Play services.
   recording and events stay on the Eventos page during a push outage.
 - The Firebase project and its key are owned by the owner; rotating the key
   is replacing one file on the server.
+
+## Build and verification
+
+The owner's source key is retained outside Git in the protected developer
+signing directory. Its runtime copy is 0600/UID 1000 on the server. The
+client JSON and service-account JSON must belong to the same project.
+
+Go tests cover token/session cleanup, user-isolated/expired pending messages
+and data-only requests. Credential OAuth and validation-only API access were
+checked; release/debug Android builds succeeded. Real phone delivery is
+still an acceptance check, not implied by those builds.
+
+Release 1.11's missing TLS pin prevented both the WebView and native event
+fetches from trusting the house. Release 1.12 uses permanent connection
+configuration and refuses builds with no valid pin (ADR-0011/0019).

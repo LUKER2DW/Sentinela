@@ -12,4 +12,7 @@ with talk backchannel, tiny footprint (runs on Pi Zero). Running two media
 servers (v1) doubled config and failure modes.
 
 ## Consequences
-Pin image by digest; generate `go2rtc.yaml` from the DB; API loopback only.
+Pin image by digest; stream definitions come from camera YAML configuration
+and the camera setup scripts, not database camera rows. The control API and
+RTSP restream remain loopback-only. The deployed UI uses WebRTC/MSE; go2rtc's
+other output formats do not imply an exposed browser path.

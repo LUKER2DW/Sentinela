@@ -10,13 +10,13 @@ split into ~9 processes.
 ## Decision
 One Go binary: API, auth, SPA hosting, DVRIP/ONVIF, recorder supervision,
 indexing, retention. Stdlib `net/http`, `log/slog`, `modernc.org/sqlite`.
+ADR-0007 separates its `serve` and `record` modes into independent containers.
 
 ## Consequences
 + ~20–60 MB RSS, static binary, trivial deploy, same language as go2rtc.
 + DVRIP knowledge from v1 and go2rtc is directly portable.
-− A crash takes down API and supervision together → recorders are separate
-  ffmpeg child processes restarted by the container's restart policy, and
-  Docker restarts the binary within seconds.
+− A recorder-mode crash still affects its ffmpeg children; Docker restarts
+  that container. API-mode crashes do not affect recording (ADR-0007).
 
 ## Alternatives
 Django/FastAPI (higher RSS, more services), Rust (slower to build), Node (no win).

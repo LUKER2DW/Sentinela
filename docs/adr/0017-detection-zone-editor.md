@@ -24,9 +24,13 @@ what it detects, so no camera write is needed.
   tap to add points, drag to move, per-zone kinds, sensitivity presets.
 - The camera's motion detection stays as it is: it is the cheap trigger
   that wakes the detector. Its regions are not touched (no DVRIP write).
+- UI amendment (2026-09-30, owner): the Cameras section is unavailable on
+  phone-sized screens and in the Android app. Zone configuration is now a
+  desktop System → Cameras task; the configured zones still filter events
+  viewed on any device.
 
 ## Consequences
-+ Free-form polygons, per-kind zones, editable from the phone; no camera
++ Free-form polygons and per-kind zones, configured on desktop; no camera
   write path, nothing to allow-list in CAMERA.md.
 − Zones only apply to the detector's events; raw camera `motion` events
   still cover the camera's own region (they only feed the timeline and the

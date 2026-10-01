@@ -1,168 +1,221 @@
 # Architecture
 
+Current implementation: 2026-09-30. Dated measurements below remain evidence
+from their original runs; they are not new hardware measurements.
+
 ## 1. Components
 
-| Component | Runs as | Responsibility |
+| Component | Runtime | Responsibility |
 |---|---|---|
-| `sentinela` | container, `sentinela serve` | API, auth, SPA hosting, stream proxy, camera control (DVRIP), ONVIF events, Nuvem file API (ADR-0012) |
-| `recorder` | container, `sentinela record` (same image, ADR-0007) | ffmpeg per camera, segment indexer, retention, heartbeat |
-| `go2rtc` | container (`alexxit/go2rtc`, pinned) | RTSP ingest, WebRTC/MSE/HLS/MJPEG out, two-way audio, snapshots |
-| `detector` | container (`detector/`, ADR-0016) | Motion-gated YOLO26n on substream keyframes; zones; reports people/vehicles/animals to the API over loopback. Capped at 15 % of a core, 192 MB; nothing depends on it |
-| `ntfy` | container (`binwiederhier/ntfy`, pinned) | UnifiedPush relay for notifications in the Android app (ADR-0013); loopback only, relays ciphertext |
-| Tailscale | host package (ADR-0004) | Private remote access; `tailscale serve` terminates HTTPS on :443 for `sentinela.<tailnet>.ts.net` and proxies to 127.0.0.1:8080 |
-| Samba, wsdd, Avahi | host packages (ADR-0008) | LAN file shares "Nuvem" and "Gravacoes" |
-| Host timers | systemd | SMART snapshot (hourly), DB/config backup + restic (nightly, ADR-0014) |
+| `sentinela` | `sentinela serve` container | Auth, SPA/API, camera control, stream proxy, events, Nuvem, notification sending and APK feed |
+| `recorder` | `sentinela record`, same image | Separate ffmpeg supervisor, indexing, retention and heartbeat |
+| `go2rtc` | Pinned container | Live WebRTC/MSE, RTSP restream and talk backchannel |
+| `detector` | Motion-gated sidecar, ADR-0016 | Substream keyframes, YOLO26n, zones and event snapshots; CPU capped at 0.15 core, memory 192 MB |
+| `ntfy` | Legacy Compose service | Earlier UnifiedPush relay, not required by the current Android app |
+| Tailscale | Host package | Optional private access/administration through HTTPS serve |
+| Samba, wsdd, Avahi | Host packages | LAN shares/discovery, independent of the web user's role model |
+| Host timers | systemd | SMART, local DB/config backup, optional restic and trash expiry |
+| Firebase | Outbound service, ADR-0020 | An opaque wake-up signal to Android; no event title, link or picture |
 
-All containers use `network_mode: host` (simplest for WebRTC ICE on LAN) but
-bind only to the addresses listed in §4.
+Host-networked containers still bind sensitive APIs/restreams to loopback.
+The concrete Compose caps are safety limits, not observed steady-state RSS.
 
 ## 2. Data flows
 
 ### 2.1 Live
 
 ```
-browser ──GET /api/cameras/1/stream-ticket──► sentinela (auth check)
-browser ──WS /stream/ws?src=cam1&ticket=…───► sentinela ──proxy──► go2rtc :1984 (loopback)
-browser ◄════ WebRTC (UDP/TCP 8555) ═════════ go2rtc
+browser -> POST /api/cameras/{id}/stream-ticket -> authenticated API
+browser -> WS /stream/ws with short-lived ticket -> API proxy -> go2rtc
+browser <- WebRTC ICE on 8555, or MSE over the authenticated WebSocket
 ```
 
-go2rtc's API/WS port is loopback-only; the browser never talks to it without a
-ticket validated by sentinela. WebRTC ICE on 8555 is reachable on LAN and on
-the Tailscale interface.
+The UI tries H.265 WebRTC when the device supports it, with MSE fallback.
+The browser never gets camera credentials or a raw go2rtc control endpoint.
+Camera ids come from configuration; they are not database camera rows.
 
-### 2.2 Recording
-
-```
-camera RTSP main ──► ffmpeg (-c copy, 300 s mp4 segments) ──► /data/recordings/cam1/2026/09/28/13-00-00.mp4
-                                    │ close
-                                    ▼
-                         indexer (15 s scan + ffprobe) ──► SQLite segments
-                         retention (every 5 min)     ──► delete oldest
-```
-
-The recorder pulls directly from the camera so a go2rtc crash cannot create a
-gap. The camera accepts at most 3 RTSP sessions (recorder + go2rtc main +
-go2rtc sub). If the camera can't serve two RTSP clients reliably (checked in Phase 1),
-switch the recorder source to `rtsp://127.0.0.1:8554/cam1` (go2rtc) — ADR
-required.
-
-### 2.3 Control
+### 2.2 Recording and playback
 
 ```
-browser ──POST /api/cameras/1/ptz {dir:"left",speed:4,ms:350}──► sentinela
-sentinela ──DVRIP login → OPPTZControl start → sleep → stop(Preset:-1)──► camera:34567
+camera main RTSP -> ffmpeg (-c:v copy; optional AAC audio)
+                -> /data/recordings/<camera>/<UTC date>/<UTC time>.mp4
+                -> indexer -> SQLite segments
+                -> retention -> age/disk-cap deletion
 ```
 
-One DVRIP session per camera, serialized by a mutex, closed after 30 s idle.
-Held moves: the UI repeats `start` every 400 ms; the server stops the move if
-no repeat arrives within 1 s (deadman), on release, or on disconnect.
+The recorder connects directly to the camera. API, detector and go2rtc
+failures do not stop recording. A full image deployment restarts the
+recorder container and can create a short gap.
 
-### 2.4 Events
+Five-minute fragmented MP4 segments are the default. Regular retention is
+15 days, alert segments 30 days, and the disk cap is 90%. Protected
+segments are not automatically deleted.
 
-ONVIF PullPoint subscription (or DVRIP alarm callback) → `events` row
-`(camera_id, type, start_utc, end_utc)` → timeline markers, optional push.
+Playback supports HTTP ranges and `?at=<seconds>`: init boxes plus
+fragments beginning at the preceding keyframe. Fragment indexes are cached
+by file size/modification time. Timeline previews use `?at=&gop=1`: one
+video keyframe in a small MP4, or a GOP fallback when trimming is not
+possible. The server copies bytes; the viewing device decodes them.
 
-Object detection (ADR-0016/0017): camera `motion` → `sentinela` marks the
-camera as moving → the detector (polling `/internal/detector/motion` every
-second) decodes substream keyframes from `rtsp://127.0.0.1:8554/<cam>_sub`
-and runs YOLO26n → objects whose base is inside a zone watching their kind
-→ `POST /internal/detector/event` → `human` / `vehicle` / `animal` event
-with the analysed frame as snapshot → review + notification. While the
-detector is healthy, plain `motion` does not notify.
+### 2.3 Camera control
 
-### 2.5 Remote and mobile
+The browser posts operator-authorized PTZ actions. The Go controller owns
+one serialized DVRIP connection per camera, closes it after idle, and stops
+held movement when keepalives cease. Persistent config writes use the
+allow-list and read/modify/read-back/restore procedure in CAMERA.md.
 
-```
-phone (Tailscale app, PWA or Capacitor APK)
-  ──https://sentinela.<tailnet>.ts.net──► tailscaled serve :443 ──► 127.0.0.1:8080 sentinela
-  ◄════ WebRTC ICE on 100.x.y.z:8555 ═════ go2rtc
-ntfy app (UnifiedPush distributor)
-  ──https://sentinela.<tailnet>.ts.net:8443──► tailscaled serve ──► 127.0.0.1:2586 ntfy
-sentinela ──POST RFC 8291 ciphertext──► 127.0.0.1:2586 ntfy ──► phone ──► app decrypts
-```
+Pan and tilt are configurable independently (`invert_pan`, `invert_tilt`)
+and inherit `invert_pan_tilt` when unset. Talk uses go2rtc's backchannel.
+There is no browser-to-camera connection.
 
-`sentinela` trusts `X-Forwarded-For`/`X-Forwarded-Proto` only from loopback.
-The APK's WebView loads the same origin (ADR-0011). The Nuvem is reachable
-remotely through the file API (`/api/nas/*`, ADR-0012); SMB over the tailnet
-only after the owner approves it.
+### 2.4 Events and notifications
 
-## 3. Storage layout
+ONVIF events enter SQLite and the live SSE hub; PullMessages calls are
+spaced at least one second apart for this camera. The detector consumes the
+motion gate, analyzes only substream keyframes, applies zones, and posts
+person/vehicle/animal events over a token-protected loopback endpoint.
+
+Modes Casa/Noite/Fora and per-user preferences decide which events notify.
+While detection is healthy, raw motion stays in the timeline but does not
+send a push. Each user/camera burst is limited to one notice per minute.
+
+- Browsers: Web Push with VAPID and RFC 8291 encryption.
+- Android: an FCM data message with a random id. The app fetches
+  `GET /api/notify/pending/{id}` using its own pinned HTTPS connection and
+  session. Payloads expire in memory after 15 minutes; the cache is bounded.
+- Android fallback: authenticated `GET /api/notify/stream` held by the
+  foreground service when Firebase registration is unavailable.
+
+FCM tokens are tied to login sessions. Logout/revocation deletes them;
+expired sessions are excluded. Registration uses a validation-only FCM
+request before the direct service is stopped.
+
+### 2.5 Remote and Android
+
+ADR-0019 selected the public HTTPS listener as the app/browser path.
+The household's router forwards a public TLS port to `:7443` and permits
+WebRTC on 8555. Public sessions require two-factor login and the closed-door
+policy. Tailscale HTTPS remains the private administrative path; Funnel is
+off and the embedded app tailnet was removed.
+
+The household uses `remote.public.self_signed: true`. Its certificate is
+stored on the server and its exact fingerprint is compiled into the APK.
+Release configuration is `~/.sentinela-android/connection.json`, outside
+Git. The Android WebView loads the selected server origin, preserving
+same-origin cookie/CSRF auth. A bundled page handles connection failures.
+
+### 2.6 Nuvem and accounts
+
+The existing API confines filesystem access through `os.Root`.
+Viewers cannot use Nuvem; operators use personal and shared directories;
+admins can access the share. Top-level folders cannot be renamed, moved or
+deleted through the API. Samba's separate LAN account is not a web account.
+
+Uploads are resumable 8 MiB chunks, at most 4 GiB per file. Desktop folder
+uploads create containing folders, then send files; up to three small
+files are parallel, large files serial. The picker does not represent
+empty directories. A conflicting top folder gets a new name.
+
+Deletes enter the recycle bin; explicit trash purge is permanent. The owner
+column is informative: personal-folder identity or upload/mkdir audit data
+for shared paths. API permissions do not depend on that display column.
+
+Profile photos are resized on the client and served with authentication.
+Admins authorize users by invite links; passwords, optional e-mail sign-in,
+TOTP, device sessions, disabled accounts and audit are in the existing DB.
+
+## 3. Storage
 
 ```
 /data/
-  recordings/<camera>/<YYYY>/<MM>/<DD>/<HH-MM-SS>.mp4   (UTC)
-  db/sentinela.db           SQLite (WAL)
-/srv/nas/                   Nuvem (sdb): <user>/, Compartilhado/, .lixeira/<user>/
-/srv/backup/                sda3: db/sentinela-YYYYMMDD.db (14 kept), etc/ (root 0700)
+  recordings/                 UTC fragmented MP4 files
+  db/sentinela.db              SQLite WAL
+  snapshots/<camera>/          Event JPEGs
+  cache/timelapse/             Prepared timelapse files
+  avatars/                    User photo files
+  push/vapid.json              Browser push signing key, 0600
+  fcm/service-account.json     Firebase private key, 0600, UID 1000
+  acme/self/                   Household TLS certificate/key
+  app/app.json                 Published Android version metadata
+  app/sentinela.apk            Signed APK
+/srv/nas/                      Personal/shared files and recycle bin
+/srv/backup/                   Local DB/config backups
 /etc/sentinela/
-  config.yaml               non-secret config
-  secrets.env               0600: camera usernames/passwords
+  config.yaml                  Server configuration
+  secrets.env                  Camera secrets, root 0600
 ```
+
+Developer-only files in `~/.sentinela-android/`: signing keystore/password,
+Firebase client JSON, connection JSON and the retained service-account
+source. None are committed or sent in the Docker build context.
 
 ## 4. Ports
 
-| Port | Bind | Owner | Notes |
+| Port | Access | Owner / purpose |
+|---|---|---|
+| 8080/tcp | LAN and loopback proxy | API/UI, LAN HTTP |
+| 443/tcp | Tailnet | Tailscale HTTPS serve to loopback 8080 |
+| 7443/tcp | Approved public forwarding | TLS listener, mandatory public auth |
+| 7080/tcp | Off in the household | Optional ACME HTTP-01 challenge listener |
+| 8555/tcp+udp | LAN, tailnet and ADR-0019 public allowance | WebRTC ICE |
+| 1984/tcp, 8554/tcp | Loopback | go2rtc API and RTSP restream |
+| 2586/tcp, tailnet 8443 | Legacy relay | ntfy; not needed for FCM |
+| 22/tcp | LAN/tailnet admins | Key-only SSH |
+| 445/tcp | LAN | Samba; remote SMB remains an explicit owner decision |
+
+The household public URL uses WAN port 18443. Public ports are enabled by
+the marker/config applied by `setup-public.sh`; all other exposure remains
+forbidden. See SECURITY.md for the firewall and ACL rules.
+
+## 5. SQLite
+
+The authoritative schema is `internal/store/migrations/`, through 0009.
+WAL, `busy_timeout=10000`, `synchronous=NORMAL` and foreign keys are enabled.
+
+| Tables/data | Purpose |
+|---|---|
+| `users`, `sessions` | Roles, login identities, invitations, TOTP and revocable sessions |
+| `segments`, `recorder_status` | Recorded-file index and recorder health |
+| `events`, review seen state | Camera/detector events and per-user review |
+| `settings` | House mode, detection settings and zones |
+| `push_subscriptions`, `fcm_tokens` | Browser subscriptions and session-bound Android devices |
+| `audit` | Security, user, camera and file actions |
+
+Cameras remain in `config.yaml`. The recorder can continue writing files
+when indexing fails; later scans recover the index.
+
+## 6. Disk layout (recorded 2026-09-28)
+
+Three disks with separate filesystem roles. Mount points are
+`chattr +i` so a missing data disk cannot silently redirect writes to `/`.
+
+| Device | Mount | Use | Recorded notes |
 |---|---|---|---|
-| 8080/tcp | LAN (ufw) | sentinela | plain HTTP on the LAN; remote users go through 443 |
-| 443/tcp | tailscale0 | tailscaled (`serve`) | HTTPS, proxies to 127.0.0.1:8080 |
-| 8443/tcp | tailscale0 | tailscaled (`serve`) | HTTPS, proxies to the ntfy relay on 127.0.0.1:2586 |
-| 2586/tcp | 127.0.0.1 | ntfy | UnifiedPush relay (ADR-0013) |
-| 1984/tcp | 127.0.0.1 | go2rtc API | never exposed |
-| 8554/tcp | 127.0.0.1 | go2rtc RTSP | internal restream |
-| 8555/tcp+udp | LAN + tailscale0 | go2rtc WebRTC | ICE |
-| 22/tcp | LAN + tailscale0 | ssh | keys only |
-| 445/tcp | LAN (tailscale0 only after approval) | Samba | Nuvem |
+| `sda2`, system disk | `/` | OS and Docker | - |
+| `sda3` | `/srv/backup` | Local DB/config backups | -; removed from Nuvem by ADR-0014 |
+| `sdb1`, NAS disk | `/srv/nas` | Nuvem |  |
+| `sdc1`, data disk | `/data` | Rolling video and application state |  |
 
-Firewall (nftables/ufw): default deny inbound; allow the above; no port
-forwarding on the router.
+The SMART timer snapshots disk state hourly for the System page. This table
+does not claim that the physical risks or backup recovery checks are resolved.
 
-## 5. SQLite schema
+## 7. Deployment and recovery
 
-Authoritative: `internal/store/migrations/`. Cameras are defined in
-`config.yaml` (id = go2rtc stream name), not in the DB.
+`scripts/deploy.sh` builds locally, ships images/configuration/scripts over
+SSH and restarts the Compose stack. The server needs no source tree or
+Go/Node toolchain. CI does not deploy.
 
-```sql
-CREATE TABLE users(id INTEGER PRIMARY KEY, username TEXT UNIQUE NOT NULL,
-  pw_hash TEXT NOT NULL, role TEXT NOT NULL CHECK(role IN('admin','operator','viewer')),
-  created_at TEXT NOT NULL);
-CREATE TABLE sessions(id_hash BLOB PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users,
-  expires_at TEXT NOT NULL, csrf TEXT NOT NULL);
-CREATE TABLE segments(id INTEGER PRIMARY KEY, camera_id TEXT NOT NULL,
-  start_utc TEXT NOT NULL, end_utc TEXT NOT NULL, path TEXT UNIQUE NOT NULL,
-  bytes INTEGER NOT NULL, protected INTEGER NOT NULL DEFAULT 0);
-CREATE INDEX segments_cam_start ON segments(camera_id, start_utc);
-CREATE TABLE events(id INTEGER PRIMARY KEY, camera_id TEXT NOT NULL,
-  type TEXT NOT NULL, start_utc TEXT NOT NULL, end_utc TEXT, meta TEXT);
-CREATE TABLE audit(id INTEGER PRIMARY KEY, at TEXT NOT NULL, user_id INTEGER,
-  action TEXT NOT NULL, target TEXT, ok INTEGER NOT NULL);
-```
+Android-only changes use `build-apk.sh` then `publish-apk.sh`; the published
+version/hash is served through authenticated `/api/app/*`. These operations
+do not require restarting the NVR containers. Same-key APK updates preserve
+the installed app identity.
 
-## 6. Disk layout (server, 2026-09-28)
+Nightly backups cover SQLite and `/etc/sentinela`; restic runs only with a
+configured and mounted external target. Current scripts do not automatically
+copy `/data/fcm`, `/data/acme` or `/data/push`: retain those separately in
+protected recovery storage. Losing the TLS certificate requires a new APK
+pin; losing the Android signing key prevents an in-place app update.
 
-Three disks, one filesystem per role so neither can fill the other
-(ADR-0008). Mounted by UUID with `nofail`; empty mount points are
-`chattr +i`, so a missing disk makes writes fail instead of landing on `/`.
-
-| Device | Mount | Label | Use | Notes |
-|---|---|---|---|---|
-| `sda2` (system disk) | `/` | — | Ubuntu, Docker, images | - |
-| `sda3` | `/srv/backup` | `nuvem-extra` | local backups (ADR-0014); was the Nuvem "Extra" folder until 2026-09-29 | - |
-| `sdb1` (NAS disk) | `/srv/nas` | `nuvem` | LAN share "Nuvem" |  |
-| `sdc1` (data disk) | `/data` | `gravacoes` | recordings, SQLite, backups | -, `largefile4`, `commit=60`|
-
-`vm.dirty_background_bytes=16M` smooths the continuous video writes. The
-host timer `sentinela-disk-health.timer` snapshots SMART hourly into
-`/var/lib/sentinela/disks.json`, shown on the System page.
-
-## 7. Deploy
-
-Manual only (ADR-0010). From the dev PC: `./scripts/deploy.sh` builds the image locally, streams it
-over SSH (`docker save | docker load`), ships `deploy/` + `scripts/` to
-`/opt/sentinela` and restarts the stack with a health check. The server keeps
-no source tree and needs no Go/Node. First-time host setup (Docker, config,
-firewall, NAS, NTP, SMART timer): `sudo ./scripts/install-server.sh`.
-
-Restore drill (monthly, ADR-0014): `sudo restic -r <repo> snapshots`,
-restore the newest `/srv/backup/db/*.db` to a scratch path and run
-`sqlite3 <file> "PRAGMA integrity_check"`; restore one Nuvem file and
-compare its checksum. Write the date in PLAN Phase 9.
+Restore drills use a scratch restore, SQLite integrity check and a restored
+Nuvem-file checksum. External backup and recovery acceptance remain pending
+in PLAN.md.

@@ -2,6 +2,9 @@
 
 Status: **Superseded by ADR-0010** (2026-09-29) · was Accepted 2026-09-28 (owner request)
 
+Historical record only. Its runner, timer and deploy-key instructions are
+not the current installation procedure; use `scripts/deploy.sh` from the PC.
+
 ## Context
 Deploys ran from the dev PC (`scripts/deploy.sh`: build locally, stream the
 image over SSH). The owner wants a push to GitHub to reach the server on its
