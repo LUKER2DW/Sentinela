@@ -1,5 +1,35 @@
 apply plugin: 'com.android.application'
 
+// Public address and TLS pin are durable local build settings, alongside the
+// signing key. Environment variables override them for a different server.
+def privateDir = new File(System.getenv("SENTINELA_KEYSTORE_DIR") ?: new File(System.getProperty("user.home"), ".sentinela-android").path)
+def connectionFile = new File(System.getenv("SENTINELA_CONNECTION_JSON") ?: new File(privateDir, "connection.json").path)
+def connection = connectionFile.exists() ? new groovy.json.JsonSlurper().parse(connectionFile) : [:]
+def addressEnv = System.getenv("SENTINELA_DOMAIN_URL")
+def pinEnv = System.getenv("SENTINELA_PUBLIC_CERT_SHA256")
+def serverAddress = (addressEnv != null ? addressEnv : connection.domain_url ?: "").toString()
+def certificatePin = (pinEnv != null ? pinEnv : connection.public_cert_sha256 ?: "").toString().toLowerCase(Locale.ROOT)
+
+tasks.register('validateReleaseConnection') {
+    doLast {
+        URI address
+        try {
+            address = new URI(serverAddress)
+        } catch (Exception e) {
+            throw new GradleException("Invalid SENTINELA_DOMAIN_URL / connection.json domain_url")
+        }
+        if (address.scheme != "https" || !address.host || address.rawUserInfo != null || address.rawQuery != null || address.rawFragment != null || !(address.path in ["", "/"])) {
+            throw new GradleException("Release APK needs an HTTPS server origin in ~/.sentinela-android/connection.json or SENTINELA_DOMAIN_URL")
+        }
+        if (!(certificatePin ==~ /[0-9a-f]{64}/)) {
+            throw new GradleException("Release APK needs the server certificate SHA-256: set public_cert_sha256 in ~/.sentinela-android/connection.json or SENTINELA_PUBLIC_CERT_SHA256 (64 hex characters)")
+        }
+    }
+}
+tasks.matching { it.name == 'preReleaseBuild' }.configureEach {
+    dependsOn('validateReleaseConnection')
+}
+
 android {
     namespace = "casa.sentinela.app"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -7,16 +37,16 @@ android {
         applicationId "casa.sentinela.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 12
-        versionName "1.11"
+        versionCode 13
+        versionName "1.12"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         // The house's public address shown on the start screen (ADR-0019);
-        // set when building (scripts/build-apk.sh), not in git.
-        buildConfigField "String", "DOMAIN_URL", "\"${System.getenv('SENTINELA_DOMAIN_URL') ?: ''}\""
+        // from connection.json or the environment, never stored in git.
+        buildConfigField "String", "DOMAIN_URL", groovy.json.JsonOutput.toJson(serverAddress)
         // SHA-256 of the public address's self-signed certificate (hex), the
         // only untrusted certificate the app accepts (Pin.java). Printed by
         // `sudo /opt/sentinela/scripts/setup-public.sh status` on the server.
-        buildConfigField "String", "PUBLIC_CERT_SHA256", "\"${System.getenv('SENTINELA_PUBLIC_CERT_SHA256') ?: ''}\""
+        buildConfigField "String", "PUBLIC_CERT_SHA256", groovy.json.JsonOutput.toJson(certificatePin)
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
              // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
@@ -27,7 +57,7 @@ android {
     // (created by scripts/build-apk.sh; back it up). Android Studio and the
     // script sign with the same key, so a release APK installs over the
     // app already on the phone.
-    def ksDir = new File(System.getenv("SENTINELA_KEYSTORE_DIR") ?: new File(System.getProperty("user.home"), ".sentinela-android").path)
+    def ksDir = privateDir
     def ks = new File(ksDir, "release.jks")
     def ksPass = new File(ksDir, "keystore.pass")
     if (ks.exists() && ksPass.exists()) {

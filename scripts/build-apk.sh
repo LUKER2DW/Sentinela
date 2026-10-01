@@ -4,6 +4,8 @@
 #   ./scripts/build-apk.sh                       # -> mobile/build/sentinela.apk
 #   SENTINELA_DOMAIN_URL=https://<public-ip>:<port>   # start screen default (not in git)
 #   SENTINELA_PUBLIC_CERT_SHA256=<hex>   # self-signed public certificate the app pins (setup-public.sh status)
+#   Or save domain_url and public_cert_sha256 once in
+#   ~/.sentinela-android/connection.json (also used by Android Studio).
 #   ~/.sentinela-android/google-services.json must match casa.sentinela.app
 #   (or set SENTINELA_GOOGLE_SERVICES_JSON to the file's absolute path).
 #
@@ -45,12 +47,16 @@ if [[ ! -f "$KS" ]]; then
   echo "==> new signing key in $KS_DIR: back it up (needed for every future update)"
 fi
 
-echo "==> web wrapper (start screen, address ${SENTINELA_DOMAIN_URL:-none})"
+echo "==> web wrapper (start screen, address ${SENTINELA_DOMAIN_URL:-from connection.json})"
 npm ci --no-audit --no-fund --silent
 npm run sync --silent >/dev/null
 
 echo "==> gradle assembleRelease (signed by Gradle with the key above)"
 (cd android && ./gradlew assembleRelease --no-daemon -q)
+
+# Refuse to publish a build whose generated constants lost the certificate
+# pin (for example when a build environment variable was silently omitted).
+node -e 'const fs=require("node:fs"); const b=fs.readFileSync("android/app/build/generated/source/buildConfig/release/casa/sentinela/app/BuildConfig.java","utf8"); if(!/PUBLIC_CERT_SHA256 = "[0-9a-f]{64}";/.test(b)) throw new Error("Release BuildConfig has no valid certificate pin")'
 
 mkdir -p build
 cp android/app/build/outputs/apk/release/app-release.apk build/sentinela.apk
