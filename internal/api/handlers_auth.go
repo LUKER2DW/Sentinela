@@ -237,7 +237,10 @@ func (s *Server) revokeSession(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) me(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"user": userFrom(r), "csrf": sessionFrom(r).CSRF, "zone": zoneFrom(r)})
+	u := userFrom(r)
+	// Optional parts of the dashboard this user may open.
+	features := map[string]bool{"hosting": s.hosting.proxy != nil && u.Role == auth.RoleAdmin}
+	writeJSON(w, http.StatusOK, map[string]any{"user": u, "csrf": sessionFrom(r).CSRF, "zone": zoneFrom(r), "features": features})
 }
 
 func (s *Server) changeOwnPassword(w http.ResponseWriter, r *http.Request) {

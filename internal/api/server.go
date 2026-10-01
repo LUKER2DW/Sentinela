@@ -53,6 +53,9 @@ type Server struct {
 	wizardMu sync.Mutex // one camera search/test at a time
 	push     notifier
 
+	// Self-hosted services: proxy to the apps agent (ADR-0021).
+	hosting hostingState
+
 	// Nuvem file API (ADR-0012); nil when the share is not mounted.
 	nas     *nas.Share
 	nasRoot string
@@ -88,6 +91,7 @@ func New(cfg *config.Config, st *store.Store, web fs.FS, log *slog.Logger) (*Ser
 		s.det.token = tok
 	}
 	s.openNAS()
+	s.openHosting()
 	if keys, err := push.LoadOrCreateKeys(filepath.Join(cfg.DataDir, "push", "vapid.json")); err != nil {
 		log.Warn("notifications disabled: VAPID keys", "err", err)
 	} else {
@@ -234,6 +238,10 @@ func (s *Server) handler(zone string) http.Handler {
 	mux.Handle("POST /api/nas/move", operator(s.nasMove))
 	mux.Handle("DELETE /api/nas/file", operator(s.nasDelete))
 	mux.Handle("DELETE /api/nas/trash", operator(s.nasPurge))
+
+	// Self-hosted services (ADR-0021): admins only; changes from home or
+	// the tailnet (hostingProxy), every change audited.
+	mux.Handle("/api/hosting/", admin(s.hostingProxy))
 
 	mux.Handle("/api/", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		writeErr(w, http.StatusNotFound, "not found")

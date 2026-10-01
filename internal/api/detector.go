@@ -1,17 +1,13 @@
 package api
 
 import (
-	"bytes"
 	"context"
-	"crypto/rand"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -112,22 +108,7 @@ func (s *Server) detection(ctx context.Context, cameraID string) DetectionSettin
 // loadDetectorToken reads or creates the shared secret (0640, same uid as
 // the detector container).
 func loadDetectorToken(dataDir string) (string, error) {
-	p := filepath.Join(dataDir, "detector", "token")
-	if b, err := os.ReadFile(p); err == nil && len(bytes.TrimSpace(b)) >= 32 {
-		return string(bytes.TrimSpace(b)), nil
-	}
-	if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
-		return "", err
-	}
-	buf := make([]byte, 32)
-	if _, err := rand.Read(buf); err != nil {
-		return "", err
-	}
-	tok := hex.EncodeToString(buf)
-	if err := os.WriteFile(p, []byte(tok+"\n"), 0o640); err != nil {
-		return "", err
-	}
-	return tok, nil
+	return loadToken(filepath.Join(dataDir, "detector", "token"))
 }
 
 // detectorHealthy: the sidecar reported within detectorStale.
