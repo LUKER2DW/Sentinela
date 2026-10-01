@@ -7,8 +7,11 @@ fake Docker engine, and an end-to-end run against a real Docker 29.8
 engine (static site from a local folder with `.git`, Node service with a
 secret variable, a two-container Compose project, stop/start/restart,
 live configuration change, GitHub download, delete). The host firewall
-script was exercised on iptables-nft 1.8.7 (Ubuntu 22.04). **Not yet
-enabled on the household server** (`scripts/setup-apps.sh enable`).
+script was exercised on iptables-nft 1.8.7 (Ubuntu 22.04). **Deployed and
+enabled on the household server on 2026-10-01**: script, Dockerfile and
+Compose HTTP smoke tests passed on Docker 29.8.2, including stop/start/
+restart and the camera egress block. Temporary projects were removed.
+Actual reboot and access from another Tailscale device remain untested.
 
 ## Context
 The owner wants Sentinela to also host personal projects — automations,

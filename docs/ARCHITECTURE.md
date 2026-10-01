@@ -1,6 +1,6 @@
 # Architecture
 
-Current implementation: 2026-09-30. Dated measurements below remain evidence
+Current implementation: 2026-10-01. Dated measurements below remain evidence
 from their original runs; they are not new hardware measurements.
 
 ## 1. Components
