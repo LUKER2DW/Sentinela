@@ -36,7 +36,9 @@ case "${1:-status}" in
     for u in "${UNITS[@]}"; do install -m 0644 "$HERE/deploy/host/$u" /etc/systemd/system/; done
     systemctl daemon-reload
     systemctl enable --now sentinela-apps-firewall.service sentinela-apps-firewall.path >/dev/null
-    compose up -d --no-build sentinela apps
+    # Config is read on process startup: an unchanged bind mount does not
+    # make Compose restart the API after apps.enabled was changed.
+    compose up -d --no-build --force-recreate --no-deps sentinela apps
     echo "enabled. Tailscale: allow tag:nvr:$(sed -n 's/^[[:space:]]*port_first:[[:space:]]*\([0-9]*\).*/\1/p' "$CFG" | head -1 | grep . || echo 20000)-$(sed -n 's/^[[:space:]]*port_last:[[:space:]]*\([0-9]*\).*/\1/p' "$CFG" | head -1 | grep . || echo 20099) in the ACL for devices that should open services."
     ;;
   disable)
@@ -56,5 +58,5 @@ esac
 docker ps --filter name=sentinela-apps-1 --format 'agent: {{.Status}}' | grep . || echo "agent: not running"
 ss -tln | grep -q '127.0.0.1:7091 ' && echo "agent API: listening on 127.0.0.1:7091" || echo "agent API: not listening"
 echo "services: $(docker ps -q --filter label=sentinela.app | wc -l) container(s) running"
-"$HERE/scripts/apps-firewall.sh" status | head -3
+"$HERE/scripts/apps-firewall.sh" status | sed -n '1,3p'
 du -sh "$STATE" 2>/dev/null | sed 's/^/state: /' || true

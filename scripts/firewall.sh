@@ -50,14 +50,16 @@ if [[ -f /etc/sentinela/public-access ]]; then
   ufw allow 8555/tcp comment 'public webrtc (ADR-0019 P1)' >/dev/null
   ufw allow 8555/udp comment 'public webrtc (ADR-0019 P1)' >/dev/null
 fi
-# Other LAN devices send IGMP membership reports all the time; ufw has no
-# rule for them and logged each one as a [UFW BLOCK] line, flooding the
-# kernel log. Drop them without logging, like ufw's own "noisy" services.
+# Quiet unmatched multicast discovery after the explicit LAN allowances.
+# Drops remain in place; these packets simply stop filling the kernel log.
 AFTER=/etc/ufw/after.rules
 if ! grep -q 'sentinela-igmp' "$AFTER"; then
   # Before the first COMMIT (the filter table). iptables-restore syntax: no
   # trailing "#" comments, so the marker is an iptables comment.
   sed -i '0,/^COMMIT$/s//-A ufw-after-input -p igmp -m comment --comment sentinela-igmp -j ufw-skip-to-policy-input\nCOMMIT/' "$AFTER"
+fi
+if ! grep -q 'sentinela-discovery' "$AFTER"; then
+  sed -i '0,/^COMMIT$/s//-A ufw-after-input -d 224.0.0.0\/4 -p udp -m multiport --dports 1900,5353 -m comment --comment sentinela-discovery -j ufw-skip-to-policy-input\nCOMMIT/' "$AFTER"
 fi
 ufw --force enable >/dev/null
 ufw status numbered
