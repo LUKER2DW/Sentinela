@@ -36,8 +36,11 @@ accepts 256 MiB). Existing final files are not silently overwritten.
   Previewing a video uses the viewing device; server video transcoding is
   not added. Server thumbnails are limited to bounded JPEG/PNG files.
 - Personal-folder icons show the user's photo. The shared owner column
-  comes from upload/mkdir audit data at that path; it is an informative
-  label, not an access-control or filesystem ownership rule.
+  is who uploaded or created the item, stored on the item itself as the
+  extended attribute `user.sentinela.owner` (2026-10-01), so it survives
+  renames, moves (also over Samba) and database clean-ups; older uploads
+  fall back to the audit log, Samba-made items have none. It is an
+  informative label, not an access-control or filesystem ownership rule.
 - Browser text editing, restore and permanent purge are explicit actions.
   API and Samba deletes share the `.lixeira/<user>/` convention.
 

@@ -89,7 +89,8 @@ func (s *Server) nasList(w http.ResponseWriter, r *http.Request) {
 
 // owners says whose each listed item is, for the Nuvem's owner column and
 // the avatars on personal folders: a personal folder and everything in it
-// belong to that person; in the shared folder, whoever sent or created it.
+// belong to that person; in the shared folder, whoever sent or created it
+// (recorded on the item itself; the audit log covers older uploads).
 func (s *Server) owners(r *http.Request, dir string, entries []nas.Entry) map[string]string {
 	out := map[string]string{}
 	top, _, _ := strings.Cut(dir, "/")
@@ -108,17 +109,24 @@ func (s *Server) owners(r *http.Request, dir string, entries []nas.Entry) map[st
 			}
 		}
 	case top == nas.Shared:
-		paths := make([]string, len(entries))
+		names := make([]string, len(entries))
+		var missing []string
 		for i, e := range entries {
-			paths[i] = dir + "/" + e.Name
+			names[i] = e.Name
 		}
-		by, err := s.Store.Authors(r.Context(), paths)
+		out = s.nas.Owners(dir, names)
+		for _, n := range names {
+			if out[n] == "" {
+				missing = append(missing, dir+"/"+n)
+			}
+		}
+		by, err := s.Store.Authors(r.Context(), missing)
 		if err != nil {
 			return out
 		}
-		for _, e := range entries {
-			if u := by[dir+"/"+e.Name]; u != "" {
-				out[e.Name] = u
+		for _, n := range names {
+			if u := by[dir+"/"+n]; u != "" && out[n] == "" {
+				out[n] = u
 			}
 		}
 	case top != nas.Trash:

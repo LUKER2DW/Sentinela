@@ -239,7 +239,11 @@ func (s *Share) Mkdir(a Access, p string) error {
 	if !a.canChange(p) || !validName(path.Base(p)) {
 		return ErrForbidden
 	}
-	return mapErr(s.root.Mkdir(p, 0o775))
+	if err := s.root.Mkdir(p, 0o775); err != nil {
+		return mapErr(err)
+	}
+	s.SetOwner(p, a.User)
+	return nil
 }
 
 // Move renames a file or folder; the target must not exist. Moving out of
@@ -421,6 +425,7 @@ func (s *Share) WriteChunk(a Access, p string, offset, total int64, body io.Read
 	if err := s.root.Rename(part, final); err != nil {
 		return have, false, mapErr(err)
 	}
+	s.SetOwner(final, a.User)
 	return have, true, nil
 }
 
@@ -461,6 +466,9 @@ func (s *Share) ReplaceText(a Access, p string, data []byte) error {
 		return mapErr(err)
 	}
 	_, werr := f.Write(data)
+	if u := s.Owner(final); u != "" { // the new content keeps its owner
+		setOwner(f, u)
+	}
 	if cerr := f.Close(); werr == nil {
 		werr = cerr
 	}
