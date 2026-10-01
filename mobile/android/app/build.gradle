@@ -37,8 +37,8 @@ android {
         applicationId "casa.sentinela.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 13
-        versionName "1.12"
+        versionCode 14
+        versionName "1.13"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         // The house's public address shown on the start screen (ADR-0019);
         // from connection.json or the environment, never stored in git.
