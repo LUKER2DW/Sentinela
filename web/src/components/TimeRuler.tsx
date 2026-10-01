@@ -19,7 +19,7 @@ interface Props {
   onPick: (ms: number) => void;
   /** Visible window, for the overview ribbon above. */
   onView?: (from: number, to: number) => void;
-  /** The picture at the time under the needle while dragging. */
+  /** The picture at the time under the needle while holding or dragging. */
   preview?: (ms: number) => ReactNode;
 }
 
@@ -99,6 +99,11 @@ export function TimeRuler({ dayStart, data, cursor, now, onPick, onView, preview
         onPick(ms);
       }
     }, 220);
+  };
+
+  const release = () => {
+    touching.current = false;
+    commit();
   };
 
   const onScroll = () => {
@@ -203,7 +208,10 @@ export function TimeRuler({ dayStart, data, cursor, now, onPick, onView, preview
             }
             commit();
           }}
-          onPointerCancel={() => {
+          onPointerCancel={(e) => {
+            // A finger's pointer is cancelled as soon as the ruler starts
+            // panning natively; the touch itself goes on until touchend.
+            if (e.pointerType !== "mouse") return;
             drag.current = null;
             touching.current = false;
             commit();
@@ -211,11 +219,11 @@ export function TimeRuler({ dayStart, data, cursor, now, onPick, onView, preview
           onTouchStart={() => {
             touching.current = true;
             window.clearTimeout(settle.current);
+            // Holding still shows the picture under the needle too.
+            setScrub(Math.min(Math.max(timeAtCenter(), t0), t1));
           }}
-          onTouchEnd={() => {
-            touching.current = false;
-            commit();
-          }}
+          onTouchEnd={release}
+          onTouchCancel={release}
           onWheel={(e) => {
             if (e.ctrlKey) return;
             if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {

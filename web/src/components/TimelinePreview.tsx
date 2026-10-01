@@ -1,41 +1,39 @@
-import { useEffect, useState } from "react";
+import { useEffect, useReducer, useState } from "react";
 import type { Segment } from "../lib/api";
-import { findSegment } from "../lib/segments";
+import { frameFailed, frameFor, onFrames, previewUrl, wantFrame } from "../lib/previewFrames";
 import { fmtTime } from "../lib/time";
 
 /**
  * The picture at a moment of the timeline, shown while hovering the day
- * ribbon or dragging the ruler. The server sends one keyframe, video only
- * (/api/recordings/{id}?at=&gop=1, copied bytes, built once and kept in
- * memory), so the picture is from up to one keyframe interval before the
- * time under the pointer. The last picture stays up while the next loads.
+ * ribbon or holding/dragging on the ribbon or ruler. The picture is from up
+ * to one keyframe interval before the time under the pointer (see
+ * lib/previewFrames). The last picture stays up while the next loads.
  */
 export function TimelinePreview({ segments, ms }: { segments: Segment[]; ms: number }) {
-  const hit = findSegment(segments, ms);
-  const inside = !!hit && new Date(hit.seg.start).getTime() <= ms;
-  // A short rest before asking, so sweeping across the day does not fetch
-  // a file per pixel; rounded to 2 s so nearby positions share one picture.
-  const want = inside && hit ? `/api/recordings/${hit.seg.id}?at=${(Math.floor(hit.offset / 2) * 2).toFixed(0)}&gop=1` : null;
-  const [src, setSrc] = useState<string | null>(null);
-  const [shown, setShown] = useState<string | null>(null);
-  const [failed, setFailed] = useState<string | null>(null);
+  const want = previewUrl(segments, ms);
+  const [, redraw] = useReducer((n: number) => n + 1, 0);
+  useEffect(() => onFrames(redraw), []);
   useEffect(() => {
-    const t = window.setTimeout(() => setSrc(want), 60);
+    if (!want || frameFor(want)) return;
+    // A short rest before asking, so sweeping across the day does not queue
+    // a file per pixel.
+    const t = window.setTimeout(() => wantFrame(want), 40);
     return () => window.clearTimeout(t);
   }, [want]);
+
+  const frame = frameFor(want);
+  const [shown, setShown] = useState(frame);
+  if (frame && frame !== shown) setShown(frame);
 
   return (
     <div className="tl-preview" aria-hidden="true">
       <div className="tl-preview-frame">
-        {!inside ? (
+        {!want ? (
           <span className="tl-preview-none">Sem gravação</span>
         ) : (
           <>
-            {shown && <video key={shown} src={shown} muted playsInline preload="auto" />}
-            {src && src !== shown && failed !== src && (
-              <video key={src} className="loading" src={src} muted playsInline preload="auto" onLoadedData={() => setShown(src)} onError={() => setFailed(src)} />
-            )}
-            {failed === src ? <span className="tl-preview-none">Sem prévia</span> : !shown && <span className="spinner small" />}
+            {shown && <img src={shown} alt="" />}
+            {frameFailed(want) ? <span className="tl-preview-none">Sem prévia</span> : !shown && <span className="spinner small" />}
           </>
         )}
       </div>

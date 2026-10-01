@@ -2307,11 +2307,13 @@ textarea.viewer-text.editing { border: 0; outline: none; resize: none; backgroun
 .tl-preview { display: grid; gap: 4px; justify-items: center; padding: 5px; border-radius: var(--r-md); background: var(--surface); border: 1px solid var(--line-strong);
   box-shadow: var(--shadow-lift); }
 .tl-preview-frame { position: relative; width: 176px; aspect-ratio: 16 / 9; border-radius: var(--r-sm); overflow: hidden; background: var(--video); display: grid; place-items: center; }
-.tl-preview-frame video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.tl-preview-frame img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .tl-preview-frame .spinner.small { width: 18px; height: 18px; border-width: 2px; }
 .tl-preview-none { color: #d0d0cc; font-size: 0.8rem; }
 .tl-preview-time { font-size: 0.8rem; font-weight: 600; font-variant-numeric: tabular-nums; }
 @media (max-width: 760px) { .tl-preview-frame { width: 144px; } }
+/* Holding a finger on the timeline shows the preview, not a text selection. */
+.ribbon, .ruler { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
 .tree-ico.drawn { width: 20px; height: 20px; }
 .tree-ico.drawn .fi svg { max-width: 20px; max-height: 20px; }
 .tree-ico.drawn .fi-ext, .tree-ico.drawn .fi-band { display: none; }
@@ -2441,7 +2443,6 @@ textarea.viewer-text.editing { border: 0; outline: none; resize: none; backgroun
   .player-bar .btn.icon { width: 40px; padding: 0; }
   .player-bar .spacer { flex: 1; min-width: 0; }
 }
-.tl-preview-frame video.loading { opacity: 0; }
 
 /* Phone: back arrow in the top-left corner on pages below a tab. */
 .mobile-back { display: grid; place-items: center; width: 38px; height: 38px; margin: 0 2px 0 -8px; border: 0; border-radius: var(--r-md); background: none;

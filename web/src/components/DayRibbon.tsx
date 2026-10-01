@@ -14,13 +14,15 @@ interface Props {
   label: string;
   /** The detailed ruler's visible window, outlined on the ribbon. */
   view?: [number, number] | null;
-  /** The picture at the hovered time (mouse only). */
+  /** The picture at the hovered (mouse) or held (finger) time. */
   preview?: (ms: number) => ReactNode;
 }
 
 export function DayRibbon({ dayStart, data, cursor, now, onPick, label, view, preview }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const [hover, setHover] = useState<number | null>(null);
+  const held = useRef(false);
+  const tapped = useRef(0); // a finger's lift already picked; skip its click
   const t0 = dayStart.getTime();
   const t1 = t0 + DAY_MS;
   const pct = (ms: number) => `${(((ms - t0) / DAY_MS) * 100).toFixed(3)}%`;
@@ -87,9 +89,27 @@ export function DayRibbon({ dayStart, data, cursor, now, onPick, label, view, pr
         aria-valuemax={limit}
         aria-valuenow={current}
         aria-valuetext={fmtTime(current)}
-        onPointerMove={(e) => setHover(e.pointerType === "mouse" || !preview ? toMs(e.clientX) : null)}
-        onPointerLeave={() => setHover(null)}
-        onClick={(e) => pick(toMs(e.clientX))}
+        onPointerDown={(e) => {
+          if (e.pointerType === "mouse" || !preview) return;
+          // A finger: hold to see the picture, slide to look around, lift to play.
+          held.current = true;
+          setHover(toMs(e.clientX));
+        }}
+        onPointerMove={(e) => setHover(e.pointerType === "mouse" || !preview || held.current ? toMs(e.clientX) : null)}
+        onPointerUp={(e) => {
+          if (!held.current) return;
+          held.current = false;
+          setHover(null);
+          tapped.current = Date.now();
+          pick(toMs(e.clientX));
+        }}
+        // The page took the gesture over (a vertical scroll): nothing picked.
+        onPointerCancel={() => {
+          held.current = false;
+          setHover(null);
+        }}
+        onPointerLeave={() => !held.current && setHover(null)}
+        onClick={(e) => Date.now() - tapped.current > 600 && pick(toMs(e.clientX))}
         onKeyDown={(e) => {
           const step = { ArrowLeft: -60_000, ArrowRight: 60_000, PageDown: -600_000, PageUp: 600_000 }[e.key];
           if (step) {

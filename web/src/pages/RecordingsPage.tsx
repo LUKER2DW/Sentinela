@@ -12,10 +12,13 @@ import { useCameras } from "./LivePage";
 import { findSegment } from "../lib/segments";
 import { TimelapsePanel } from "../components/Timelapse";
 import { TimelinePreview } from "../components/TimelinePreview";
+import { frameFor, previewUrl } from "../lib/previewFrames";
 import { usePinchZoom } from "../lib/pinch";
 import { grabFrame, saveBlob, stamp } from "../lib/capture";
 
 const SPEEDS = [1, 2, 4, 8, 16];
+// A transparent pixel: no browser placeholder over a video still loading.
+const BLANK = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
 
 function toDateInput(d: Date) {
   const p = (n: number) => String(n).padStart(2, "0");
@@ -331,6 +334,11 @@ function Playback({
   const [muted, setMuted] = useState(true);
   const [pos, setPos] = useState<number | null>(requested);
   const [error, setError] = useState("");
+  // Until the first frame plays: the timeline's picture of this moment (if
+  // it was previewed) stands in, with a spinner, instead of the WebView's
+  // grey play-button poster.
+  const [ready, setReady] = useState(false);
+  const [poster] = useState(() => (requested !== null ? frameFor(previewUrl(segments, requested)) : undefined) ?? BLANK);
   const [exportRange, setExportRange] = useState<{ from: number; to?: number } | null>(null);
   const [clipFrom, setClipFrom] = useState<number | null>(null);
   const { can } = useSession();
@@ -460,6 +468,7 @@ function Playback({
           // (one request instead of one per fragment up to it).
           src={`/api/recordings/${current.seg.id}${current.offset > 2 ? `?at=${current.offset.toFixed(1)}` : ""}`}
           preload="auto"
+          poster={poster}
           playsInline
           autoPlay
           muted
@@ -470,8 +479,12 @@ function Playback({
             v.currentTime = current.offset;
             v.playbackRate = speed;
             v.muted = muted;
-            void v.play().catch(() => setPlaying(false));
+            void v.play().catch(() => {
+              setPlaying(false);
+              setReady(true);
+            });
           }}
+          onPlaying={() => setReady(true)}
           onPlay={() => setPlaying(true)}
           onPause={() => setPlaying(false)}
           onTimeUpdate={(e) => {
@@ -489,10 +502,16 @@ function Playback({
             )
           }
         />
-        {error && (
+        {error ? (
           <div className="player-overlay">
             <p>{error}</p>
           </div>
+        ) : (
+          !ready && (
+            <div className="player-overlay">
+              <span className="spinner" />
+            </div>
+          )
         )}
         <div className="player-tag">
           <span className="num">{pos ? fmtTime(pos) : "--:--:--"}</span>
