@@ -25,5 +25,6 @@ function subscribe(l: () => void) {
 }
 
 export function useSeen(cameraId: string): Seen | undefined {
-  return useSyncExternalStore(subscribe, () => seen.get(cameraId));
+  const get = () => seen.get(cameraId);
+  return useSyncExternalStore(subscribe, get, get);
 }

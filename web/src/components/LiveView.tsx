@@ -375,6 +375,7 @@ export function LiveView({ cameraId, cameraName, motion, allowTalk, compact, def
           cameraId={cameraId}
           videoW={dims.w}
           videoH={dims.h}
+          probe
           style={zoom.scale > 1 ? { transform: `translate(${zoom.x}px, ${zoom.y}px) scale(${zoom.scale})` } : undefined}
         />
       )}

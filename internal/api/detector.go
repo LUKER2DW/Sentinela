@@ -364,7 +364,8 @@ func (s *Server) putDetection(w http.ResponseWriter, r *http.Request) {
 }
 
 // probeDetection keeps the detector analysing a camera for a while without
-// motion, so the zone editor can show what it sees. It never opens events.
+// motion, so the live overlay and the zone editor can show what it sees
+// (the camera's own motion detection fires rarely). It never opens events.
 func (s *Server) probeDetection(w http.ResponseWriter, r *http.Request) {
 	cam := s.camera(w, r)
 	if cam == nil {

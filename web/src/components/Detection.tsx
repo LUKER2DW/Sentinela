@@ -156,11 +156,16 @@ export function DetectionCard({ s }: { s: SystemInfo }) {
 /** How detections are drawn over the live view on this device. */
 export function OverlayCard() {
   const overlay = useOverlay();
+  const cams = useCameras();
+  const settings = useQueries({
+    queries: (cams.data ?? []).map((c) => ({ queryKey: ["detection", c.id], queryFn: () => get<DetectionSettings>(`/api/cameras/${c.id}/detection`) })),
+  });
+  const noZones = settings.length > 0 && settings.every((q) => q.data && q.data.zones.length === 0);
   return (
     <section className="card det-overlay">
       <h2>Caixas no ao vivo</h2>
       <p className="faint small" style={{ marginBottom: 10 }}>
-        Neste aparelho. Aparecem enquanto a câmera vê movimento e o detector analisa, a cada 2 segundos.
+        Neste aparelho. Enquanto você assiste a uma câmera, o detector analisa a imagem a cada 2 segundos.
       </p>
       {OVERLAY_OPTIONS.map((o) => (
         <label key={o.key} className={`check-row${o.key !== "boxes" && o.key !== "zones" && !overlay.boxes ? " off" : ""}`}>
@@ -172,7 +177,11 @@ export function OverlayCard() {
           />
           <span>
             {o.label}
-            {o.hint && <span className="faint small det-hint">{o.hint}</span>}
+            {o.key === "zones" && noZones ? (
+              <span className="faint small det-hint">Nenhuma zona desenhada ainda: desenhe em Detecção, Zonas.</span>
+            ) : (
+              o.hint && <span className="faint small det-hint">{o.hint}</span>
+            )}
           </span>
         </label>
       ))}

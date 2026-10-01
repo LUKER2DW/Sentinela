@@ -128,7 +128,11 @@ Detection logic:
 - **Probe**: the zone editor asks `POST /api/cameras/{id}/detection/probe`
   (operator); for 20 s the detector analyses that camera without motion
   and publishes boxes, so the editor shows whether each object would
-  count. A probe never opens events or changes the trackers.
+  count. The live view asks too (any viewer of the camera, every 15 s
+  while the page is visible and boxes are on), because the camera's own
+  motion detection fires rarely (1 motion event in 2 h with cars passing,
+  2026-10-01): ~15 % of one core per watched camera, at low priority. A
+  probe never opens events or changes the trackers.
 - **Settings** per camera: kinds watched when there are no zones
   (`objects`, default people), `ignore_parked` (default on) and `min_size`
   (objects shorter than this share of the picture height are ignored).

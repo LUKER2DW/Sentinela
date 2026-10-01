@@ -48,5 +48,6 @@ export function useOverlay(): OverlayPrefs {
       return () => listeners.delete(l);
     },
     () => current,
+    () => current,
   );
 }

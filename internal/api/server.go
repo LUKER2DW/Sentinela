@@ -189,7 +189,8 @@ func (s *Server) handler(zone string) http.Handler {
 	mux.Handle("GET /api/cameras/{id}/frame.jpeg", viewer(s.frame))
 	mux.Handle("GET /api/cameras/{id}/detection", viewer(s.getDetection))
 	mux.Handle("PUT /api/cameras/{id}/detection", operator(s.putDetection))
-	mux.Handle("POST /api/cameras/{id}/detection/probe", operator(s.probeDetection))
+	// Anyone who may watch the camera: the live overlay asks while someone watches.
+	mux.Handle("POST /api/cameras/{id}/detection/probe", viewer(s.probeDetection))
 
 	// Object detector sidecar (loopback + token, ADR-0016).
 	mux.Handle("GET /internal/detector/config", s.detectorOnly(s.detectorConfig))
