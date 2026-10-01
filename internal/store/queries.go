@@ -370,9 +370,11 @@ func (s *Store) UpsertSegment(ctx context.Context, seg Segment) error {
 	return err
 }
 
-// SegmentPaths returns the set of indexed paths for a camera.
-func (s *Store) SegmentPaths(ctx context.Context, cameraID string) (map[string]int64, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT path,bytes FROM segments WHERE camera_id=?`, cameraID)
+// SegmentPaths returns the indexed paths (and sizes) of a camera's segments
+// starting at or after since; the zero time selects all of them.
+func (s *Store) SegmentPaths(ctx context.Context, cameraID string, since time.Time) (map[string]int64, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT path,bytes FROM segments WHERE camera_id=? AND start_utc>=?`,
+		cameraID, FormatTime(since))
 	if err != nil {
 		return nil, err
 	}

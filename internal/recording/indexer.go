@@ -43,11 +43,14 @@ type Indexer struct {
 	FFprobe string
 	// Probe returns a file's duration; defaults to ffprobe.
 	Probe func(ctx context.Context, path string) (time.Duration, error)
+	// FullEvery is how often Run walks the whole tree; the other ticks walk
+	// only the folders the recorder is writing to (see ScanRecent).
+	FullEvery time.Duration
 }
 
 // NewIndexer returns an indexer using ffprobe.
 func NewIndexer(root string, st *store.Store, log *slog.Logger) *Indexer {
-	ix := &Indexer{Root: root, Store: st, Log: log, FFprobe: "ffprobe"}
+	ix := &Indexer{Root: root, Store: st, Log: log, FFprobe: "ffprobe", FullEvery: time.Hour}
 	ix.Probe = ix.ffprobe
 	return ix
 }
@@ -67,12 +70,24 @@ func (ix *Indexer) ffprobe(ctx context.Context, path string) (time.Duration, err
 	return time.Duration(f * float64(time.Second)), nil
 }
 
-// Run indexes every interval until ctx is cancelled.
+// Run indexes every interval until ctx is cancelled. The first pass and one
+// pass every FullEvery reconcile the whole tree (manual deletions, disk
+// swaps); the others walk only today's and yesterday's folders, so a tick
+// costs the same with 3 or 60 days of recordings on disk.
 func (ix *Indexer) Run(ctx context.Context, interval time.Duration) {
 	t := time.NewTicker(interval)
 	defer t.Stop()
+	var lastFull time.Time
 	for {
-		if err := ix.Scan(ctx); err != nil && ctx.Err() == nil {
+		var err error
+		if now := time.Now(); lastFull.IsZero() || now.Sub(lastFull) >= ix.FullEvery {
+			if err = ix.Scan(ctx); err == nil {
+				lastFull = now
+			}
+		} else {
+			err = ix.ScanRecent(ctx, now)
+		}
+		if err != nil && ctx.Err() == nil {
 			ix.Log.Warn("index scan failed", "err", err)
 		}
 		select {
@@ -92,7 +107,18 @@ type fileInfo struct {
 }
 
 // Scan walks all camera directories once.
-func (ix *Indexer) Scan(ctx context.Context) error {
+func (ix *Indexer) Scan(ctx context.Context) error { return ix.scan(ctx, time.Time{}) }
+
+// ScanRecent walks only the day folders (UTC) of now and of the day before,
+// where the live segment and the ones just closed are. Rows of older days
+// are left alone until the next full Scan.
+func (ix *Indexer) ScanRecent(ctx context.Context, now time.Time) error {
+	d := now.UTC()
+	return ix.scan(ctx, time.Date(d.Year(), d.Month(), d.Day()-1, 0, 0, 0, 0, time.UTC))
+}
+
+// scan indexes segments starting at or after since (zero: all of them).
+func (ix *Indexer) scan(ctx context.Context, since time.Time) error {
 	cams, err := os.ReadDir(ix.Root)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -102,7 +128,7 @@ func (ix *Indexer) Scan(ctx context.Context) error {
 	}
 	for _, c := range cams {
 		if c.IsDir() {
-			if err := ix.scanCamera(ctx, c.Name()); err != nil {
+			if err := ix.scanCamera(ctx, c.Name(), since); err != nil {
 				return err
 			}
 		}
@@ -110,9 +136,17 @@ func (ix *Indexer) Scan(ctx context.Context) error {
 	return nil
 }
 
-func (ix *Indexer) scanCamera(ctx context.Context, cam string) error {
+func (ix *Indexer) scanCamera(ctx context.Context, cam string, since time.Time) error {
+	dirs := []string{filepath.Join(ix.Root, cam)}
+	until := since.AddDate(0, 0, 2)
+	if !since.IsZero() {
+		dirs = dirs[:0]
+		for d := since; d.Before(until); d = d.AddDate(0, 0, 1) {
+			dirs = append(dirs, filepath.Join(ix.Root, cam, filepath.FromSlash(d.Format("2006/01/02"))))
+		}
+	}
 	var files []fileInfo
-	err := filepath.WalkDir(filepath.Join(ix.Root, cam), func(p string, d fs.DirEntry, err error) error {
+	walk := func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() || !strings.HasSuffix(p, ".mp4") {
 			return nil
 		}
@@ -128,16 +162,23 @@ func (ix *Indexer) scanCamera(ctx context.Context, cam string) error {
 		}
 		files = append(files, fileInfo{rel: rel, abs: p, size: info.Size(), mtime: info.ModTime(), start: start})
 		return nil
-	})
-	if err != nil {
-		return err
 	}
-	indexed, err := ix.Store.SegmentPaths(ctx, cam)
+	for _, dir := range dirs {
+		if err := filepath.WalkDir(dir, walk); err != nil { // a missing day folder is skipped
+			return err
+		}
+	}
+	indexed, err := ix.Store.SegmentPaths(ctx, cam, since)
 	if err != nil {
 		return err
 	}
 	stale := make(map[string]bool, len(indexed))
 	for p := range indexed {
+		if !since.IsZero() {
+			if _, start, ok := ParseSegmentPath(p); !ok || !start.Before(until) {
+				continue // outside the walked folders (clock jumped back)
+			}
+		}
 		stale[p] = true
 	}
 	// The live file is the one with the latest start time.

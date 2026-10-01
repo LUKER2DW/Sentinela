@@ -137,6 +137,58 @@ func TestIndexerAndRetention(t *testing.T) {
 	}
 }
 
+func TestIndexerScanRecent(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	root := filepath.Join(dir, "recordings")
+	st, err := store.Open(ctx, filepath.Join(dir, "db", "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	now := time.Now().UTC().Truncate(time.Second)
+	rel := func(t time.Time) string { return "cam1/" + t.Format("2006/01/02/15-04-05") + ".mp4" }
+	oldRel := rel(now.Add(-5 * 24 * time.Hour))
+	yesterdayRel := rel(now.Add(-24 * time.Hour))
+	writeSeg(t, root, oldRel, 4096, now.Add(-5*24*time.Hour))
+	writeSeg(t, root, yesterdayRel, 4096, now.Add(-24*time.Hour))
+
+	ix := NewIndexer(root, st, quiet)
+	var probed []string
+	ix.Probe = func(_ context.Context, p string) (time.Duration, error) {
+		probed = append(probed, filepath.ToSlash(p))
+		return 5 * time.Minute, nil
+	}
+	count := func() int {
+		segs, _ := st.SegmentsBetween(ctx, "cam1", now.Add(-10*24*time.Hour), now.Add(time.Hour))
+		return len(segs)
+	}
+
+	// Recent pass: only today's and yesterday's folders are walked.
+	if err := ix.ScanRecent(ctx, now); err != nil {
+		t.Fatal(err)
+	}
+	if count() != 1 || len(probed) != 1 || !strings.HasSuffix(probed[0], yesterdayRel) {
+		t.Fatalf("recent scan indexed %d, probed %v; want only %s", count(), probed, yesterdayRel)
+	}
+	if err := ix.Scan(ctx); err != nil || count() != 2 {
+		t.Fatalf("full scan indexed %d err=%v, want 2", count(), err)
+	}
+
+	// An old file deleted by hand keeps its row until the next full scan.
+	os.Remove(filepath.Join(root, filepath.FromSlash(oldRel)))
+	if err := ix.ScanRecent(ctx, now); err != nil || count() != 2 {
+		t.Fatalf("recent scan touched old rows: %d err=%v", count(), err)
+	}
+	if err := ix.Scan(ctx); err != nil || count() != 1 {
+		t.Fatalf("full scan kept a deleted file: %d err=%v", count(), err)
+	}
+	if len(probed) != 2 {
+		t.Fatalf("probed %d files, want 2 (each closed file once)", len(probed))
+	}
+}
+
 func TestNewestFileByName(t *testing.T) {
 	dir := t.TempDir()
 	now := time.Now().UTC()
