@@ -111,6 +111,41 @@ services:
     stop_grace_period: 15s
     mem_limit: 256m
 
+  # Self-hosted services agent (ADR-0021): the only container with the
+  # Docker socket, so it is root-equivalent; it gets no camera secrets, no
+  # recordings and only a read-only view of the Nuvem (local projects).
+  # Its API listens on loopback with the token sentinela serve writes to
+  # /data/apps-agent. Started only with the "apps" profile, which
+  # deploy.sh enables while /etc/sentinela/apps-enabled exists
+  # (scripts/setup-apps.sh). Bind paths match the host: Docker reads them.
+  apps:
+    image: sentinela:local
+    profiles: [apps]
+    command: ["apps"]
+    network_mode: host
+    user: "1000:1000"
+    group_add: ["${SENTINELA_DOCKER_GID:-999}"]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      TZ: UTC
+      GOMEMLIMIT: 48MiB
+    volumes:
+      - /etc/sentinela/config.yaml:/etc/sentinela/config.yaml:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /data/apps-agent:/data/apps-agent:ro
+      - /var/lib/sentinela-apps:/var/lib/sentinela-apps
+      - /srv/nas:/srv/nas:ro
+    tmpfs: [/tmp]
+    restart: unless-stopped
+    stop_grace_period: 15s
+    cpus: 0.5
+    mem_limit: 128m
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
   sentinela:
     <<: *sentinela
     command: ["serve"]

@@ -45,10 +45,14 @@ if [[ "$("${SSH[@]}" "docker image inspect sentinela-detector:local --format '{{
 fi
 
 echo "==> restart stack"
-"${SSH[@]}" 'sudo install -d -o 1000 -g 1000 -m 0750 /data/detector'
+"${SSH[@]}" 'sudo install -d -o 1000 -g 1000 -m 0750 /data/detector /data/apps-agent'
 # go2rtc mounts the extra-cameras file: it must exist (else docker makes a directory).
 "${SSH[@]}" 'sudo test -f /etc/sentinela/go2rtc-cameras.yaml || echo "# cameras added by scripts/add-camera.sh" | sudo install -m 0644 /dev/stdin /etc/sentinela/go2rtc-cameras.yaml'
-"${SSH[@]}" "cd /opt/sentinela/deploy && sudo docker compose pull -q go2rtc && sudo SENTINELA_VERSION=${VERSION} docker compose up -d --no-build --remove-orphans && docker image prune -f >/dev/null"
+# The self-hosted services agent (ADR-0021) runs only while
+# scripts/setup-apps.sh has left its marker; it joins the docker group.
+# shellcheck disable=SC2016 # expanded on the server
+APPS_ENV='SENTINELA_DOCKER_GID=$(getent group docker | cut -d: -f3) COMPOSE_PROFILES=$(test -f /etc/sentinela/apps-enabled && echo apps)'
+"${SSH[@]}" "cd /opt/sentinela/deploy && sudo docker compose pull -q go2rtc && sudo SENTINELA_VERSION=${VERSION} ${APPS_ENV} docker compose up -d --no-build --remove-orphans && docker image prune -f >/dev/null"
 
 echo "==> health"
 for _ in $(seq 1 30); do

@@ -1,0 +1,16 @@
+# Self-hosted services firewall (ADR-0021): DOCKER-USER rules that keep
+# services off the LAN/camera and off the internet unless marked public.
+# Installed by scripts/setup-apps.sh. Runs again when Docker restarts.
+[Unit]
+Description=Sentinela self-hosted services firewall
+After=docker.service
+PartOf=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/opt/sentinela/scripts/apps-firewall.sh apply
+ExecReload=/opt/sentinela/scripts/apps-firewall.sh apply
+
+[Install]
+WantedBy=docker.service multi-user.target

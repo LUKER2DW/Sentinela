@@ -1,0 +1,11 @@
+# Re-applies the services firewall when the apps agent changes the list of
+# ports open to the internet (ADR-0021).
+[Unit]
+Description=Watch the services' public ports
+
+[Path]
+PathChanged=/var/lib/sentinela-apps/public-ports
+Unit=sentinela-apps-firewall-reapply.service
+
+[Install]
+WantedBy=multi-user.target

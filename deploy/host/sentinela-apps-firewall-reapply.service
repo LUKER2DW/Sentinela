@@ -1,0 +1,8 @@
+# Started by sentinela-apps-firewall.path when the public ports change.
+[Unit]
+Description=Re-apply the Sentinela self-hosted services firewall
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/sentinela/scripts/apps-firewall.sh apply
