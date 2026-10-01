@@ -23,6 +23,7 @@ import { setZone } from "./lib/access";
 import { AppUpdateBanner } from "./components/AppUpdate";
 import { useCompact } from "./lib/viewport";
 import { Avatar } from "./components/Avatar";
+import { syncNativePush } from "./lib/push";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { refetchOnWindowFocus: true, retry: 1, staleTime: 5_000 } },
@@ -147,6 +148,7 @@ function useUnseenEvents(): number {
 function Shell() {
   const route = useRoute();
   const { user, logout, can } = useSession();
+  useEffect(() => { void syncNativePush()?.catch(() => {}); }, [user.id]);
   const qc = useQueryClient();
   const collapsed = useSidebarCollapsed();
   const compact = useCompact();

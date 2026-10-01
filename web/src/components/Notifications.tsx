@@ -219,9 +219,13 @@ export function DeviceNotifyCard() {
   const [state, setState] = usePushState();
   const [busy, setBusy] = useState(false);
   const [battery, setBattery] = useState(false);
+  const [transport, setTransport] = useState<"firebase" | "direct" | "off">("off");
 
   useEffect(() => {
-    if (state === "on") void nativeStatus()?.then((st) => setBattery(st.batteryOptimized)).catch(() => {});
+    if (state === "on") void nativeStatus()?.then((st) => {
+      setBattery(st.batteryOptimized);
+      setTransport(st.transport ?? (st.running ? "direct" : "off"));
+    }).catch(() => {});
   }, [state]);
 
   const run = async (fn: () => Promise<PushState>) => {
@@ -242,7 +246,9 @@ export function DeviceNotifyCard() {
         icon={on ? "bell" : "bellOff"}
         tone={on ? "kelp" : state === "denied" ? "coral" : undefined}
         title="Neste aparelho"
-        sub={state ? stateText[state] : "Verificando…"}
+        sub={state === "on" && transport === "firebase"
+          ? "O Android recebe os avisos sem manter o app aberto. Os detalhes vêm direto da sua casa."
+          : state ? stateText[state] : "Verificando…"}
         aside={
           state && (
             <span className={`pill${on ? " ok" : ""}`}>
@@ -288,7 +294,7 @@ export function DeviceNotifyCard() {
             <button className="btn ghost" disabled={busy} onClick={() => void run(disablePush)}>
               Desativar
             </button>
-            {isApp() && (
+            {isApp() && transport === "direct" && (
               <button className="btn ghost" onClick={() => void hideOngoing()?.catch(() => toast("Atualize o app para usar esta opção.", true))}>
                 Ocultar aviso fixo
               </button>
@@ -298,7 +304,9 @@ export function DeviceNotifyCard() {
       </div>
       <p className="muted small card-foot">
         {isApp()
-          ? "O app mantém uma conexão direta e cifrada com o servidor da casa; nenhum serviço de terceiros vê os avisos. Tocar num aviso abre a gravação do momento."
+          ? transport === "firebase"
+            ? "O Firebase entrega só um sinal de novo evento. O título, a imagem e a gravação vêm direto do servidor da casa."
+            : "O app mantém uma conexão cifrada com o servidor da casa. Tocar num aviso abre a gravação do momento."
           : "A imagem do evento vem direto do servidor; o serviço de avisos do navegador só vê texto cifrado."}
       </p>
     </section>

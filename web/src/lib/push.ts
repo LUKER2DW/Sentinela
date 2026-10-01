@@ -1,7 +1,8 @@
 // Notifications on this device (ADR-0013): permission, subscription, test.
 // Browsers and the PWA use Web Push. The Android app's WebView has no Push
-// API: its native SentinelaNotify plugin runs a foreground service that
-// keeps /api/notify/stream open and shows each notification itself.
+// API: its native SentinelaNotify plugin uses Firebase as a wake-up signal,
+// then fetches event details directly from the house. On phones without
+// Google Play services it keeps the direct foreground connection.
 import { api, get } from "./api";
 
 export type PushState = "unsupported" | "insecure" | "denied" | "off" | "on";
@@ -9,6 +10,7 @@ export type PushState = "unsupported" | "insecure" | "denied" | "off" | "on";
 interface NativeStatus {
   permission: "granted" | "denied" | "prompt";
   running: boolean;
+  transport?: "firebase" | "direct" | "off"; // apps before 1.11 omit it
   /** Android may pause the service to save battery. */
   batteryOptimized: boolean;
 }
@@ -28,10 +30,13 @@ export const isApp = () => native() !== undefined;
 /** The app's service status (undefined in a browser). */
 export const nativeStatus = () => native()?.<NativeStatus>("status");
 
+/** Refresh the native copy of the signed-in session after app login. */
+export const syncNativePush = () => native()?.<NativeStatus>("sync");
+
 /** Opens Android's "ignore battery optimisation" prompt for the app. */
 export const allowBackground = () => native()?.("allowBackground");
 
-/** Opens Android's switch for the fixed "Conectado à casa" notice (app ≥ 1.10). */
+/** Opens Android's switch for the direct fallback's fixed notice. */
 export const hideOngoing = () => native()?.("hideOngoing");
 
 /** What each event type is called on the settings card. */
