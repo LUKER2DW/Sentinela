@@ -24,6 +24,7 @@ type fakeCamera struct {
 	failSet   bool     // reject every set-config
 	ignoreSet bool     // accept set-config but do not apply it
 	sets      int
+	slowOnce  string // config name answered late, once (a timed-out request)
 }
 
 func newFake(t *testing.T) *fakeCamera {
@@ -78,6 +79,10 @@ func (f *fakeCamera) handle(c net.Conn) {
 			f.reply(c, h, map[string]any{"Ret": 100, "SystemInfo": map[string]any{"DeviceModel": f.model, "SoftWareVersion": "V5"}})
 		case MsgGetConfig:
 			name := req["Name"].(string)
+			if name == f.slowOnce {
+				f.slowOnce = ""
+				time.Sleep(300 * time.Millisecond)
+			}
 			switch name {
 			case cameraParam:
 				cp := map[string]any{}
@@ -252,5 +257,33 @@ func TestSetParamRestoresOnMismatch(t *testing.T) {
 	}
 	if f.sets != 2 || f.param["DayNightColor"] != "0x00000000" {
 		t.Fatalf("restore not performed: sets=%d param=%v", f.sets, f.param)
+	}
+}
+
+// A request that timed out must not leave its late reply on the session:
+// the next request would read it as its own answer.
+func TestTimedOutSessionIsNotReused(t *testing.T) {
+	f := newFake(t)
+	f.slowOnce = "Uart.PTZPreset"
+	c := NewController(f.addr(), "admin", "secret", Invert{}, nil)
+	defer c.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	err := c.with(ctx, func(conn *Conn) error { _, err := conn.GetConfig(ctx, "Uart.PTZPreset"); return err })
+	cancel()
+	if err == nil {
+		t.Fatal("expected a timeout")
+	}
+	time.Sleep(350 * time.Millisecond) // the late reply has arrived by now
+	var got any
+	err = c.with(context.Background(), func(conn *Conn) error {
+		v, err := conn.GetConfig(context.Background(), "NetWork.Nat")
+		got = v
+		return err
+	})
+	if err != nil {
+		t.Fatalf("second request read a stale reply: %v", err)
+	}
+	if m, ok := got.(map[string]any); !ok || m["NatEnable"] != true {
+		t.Fatalf("got %v", got)
 	}
 }

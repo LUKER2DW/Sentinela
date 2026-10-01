@@ -68,7 +68,7 @@ func (c *Controller) with(ctx context.Context, fn func(*Conn) error) error {
 }
 
 func (c *Controller) withLocked(ctx context.Context, fn func(*Conn) error) error {
-	for attempt := 0; attempt < 2; attempt++ {
+	for attempt := 0; ; attempt++ {
 		if c.conn == nil {
 			conn, err := c.dial(ctx, c.Addr, c.User, c.Password)
 			if err != nil {
@@ -76,24 +76,36 @@ func (c *Controller) withLocked(ctx context.Context, fn func(*Conn) error) error
 			}
 			c.conn = conn
 			if c.model == "" {
-				if info, err := conn.SystemInfo(ctx); err == nil {
+				info, err := conn.SystemInfo(ctx)
+				if err == nil {
 					c.model, _ = info["DeviceModel"].(string)
+				} else if isNetErr(err) {
+					c.drop()
+					return err
 				}
 			}
 		}
 		err := fn(c.conn)
 		c.touch()
-		if err == nil || !isNetErr(err) || ctx.Err() != nil {
+		if err == nil || !isNetErr(err) {
 			return err
 		}
-		// Network error: drop the session and retry once with a fresh login.
-		c.conn.Close()
-		c.conn = nil
-		if attempt == 1 {
+		// A timeout or I/O error leaves the session in an unknown state: the
+		// camera's late reply would be read as the answer to the next
+		// request. Never reuse it; retry once with a fresh login.
+		c.drop()
+		if attempt == 1 || ctx.Err() != nil {
 			return err
 		}
 	}
-	return nil
+}
+
+// drop closes the current session (callers hold c.mu).
+func (c *Controller) drop() {
+	if c.conn != nil {
+		c.conn.Close()
+		c.conn = nil
+	}
 }
 
 // isNetErr reports errors that mean the session is dead (worth one re-login).
