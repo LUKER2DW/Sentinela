@@ -18,8 +18,10 @@ Samba remains the separate LAN share; no file-service container is added.
 | Text edit | `PUT /api/nas/text`, bounded to 2 MiB |
 
 Uploads go directly to partial files on the target disk, never buffered as
-a whole file in RAM or `/tmp`. Files are limited to 4 GiB; chunks are 8 MiB
-in the UI. Existing final files are not silently overwritten.
+a whole file in RAM or `/tmp`. File size is not capped (owner, 2026-10-01);
+only free space is checked. The UI starts with 8 MiB chunks and grows them
+with the measured speed (~6 s per request, at most 128 MiB; the server
+accepts 256 MiB). Existing final files are not silently overwritten.
 
 ## Access and presentation
 
@@ -43,7 +45,8 @@ in the UI. Existing final files are not silently overwritten.
 
 Desktop folder selection and drop traversal preserve file paths. Parent
 directories are created first, then files use the same resumable uploader.
-Three small files can transfer in parallel; large files are serial.
+Up to four files under 32 MiB transfer in parallel; larger files are
+serial, since one already fills the link and the disk.
 A conflicting top folder is sent as `Name (2)`, rather than mixed into an
 existing one.
 

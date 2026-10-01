@@ -167,6 +167,13 @@ func TestResumableUpload(t *testing.T) {
 	if _, _, err := s.WriteChunk(ana, "ana/big", 0, 3, strings.NewReader("toolong")); !errors.Is(err, ErrTooLarge) {
 		t.Fatalf("too long: %v", err)
 	}
+	// No size cap: a 5 GiB file is accepted chunk by chunk.
+	if have, done, err := s.WriteChunk(ana, "ana/huge.bin", 0, 5<<30, strings.NewReader("x")); err != nil || done || have != 1 {
+		t.Fatalf("large file: %d %v %v", have, done, err)
+	}
+	if _, _, err := s.WriteChunk(ana, "ana/neg", 0, -1, strings.NewReader("")); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("negative total: %v", err)
+	}
 	if _, _, err := s.WriteChunk(guest, "Compartilhado/x", 0, 1, strings.NewReader("x")); !errors.Is(err, ErrForbidden) {
 		t.Fatalf("viewer upload: %v", err)
 	}

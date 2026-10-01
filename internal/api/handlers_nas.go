@@ -18,8 +18,12 @@ import (
 	"github.com/LUKER2DW/sentinela/internal/sysinfo"
 )
 
-// maxChunk bounds one upload request; clients send ≤ 32 MiB (ADR-0012).
-const maxChunk = 64 << 20
+// maxChunk bounds one upload request. Clients grow chunks from 8 to 128 MiB
+// with the measured speed (ADR-0012); the file size itself is unbounded.
+const maxChunk = 256 << 20
+
+// uploadIdle is how long an upload may go without receiving a byte.
+const uploadIdle = time.Minute
 
 // inlineTypes may be shown in the browser; everything else is a download.
 // Served with a sandbox CSP and nosniff so a user file can never run script
@@ -56,7 +60,7 @@ func (s *Server) nasErr(w http.ResponseWriter, err error) {
 	case errors.Is(err, nas.ErrInvalid):
 		writeErr(w, http.StatusBadRequest, "invalid path or name")
 	case errors.Is(err, nas.ErrTooLarge):
-		writeErr(w, http.StatusRequestEntityTooLarge, "file too large (max 4 GB)")
+		writeErr(w, http.StatusRequestEntityTooLarge, "file too large")
 	case errors.Is(err, nas.ErrNoThumb):
 		writeErr(w, http.StatusNotFound, "no thumbnail")
 	default:
@@ -199,17 +203,11 @@ func (s *Server) nasUpload(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "offset and total are required")
 		return
 	}
-	if total > nas.MaxUpload {
-		s.nasErr(w, nas.ErrTooLarge)
-		return
-	}
 	if d, err := sysinfo.DiskUsage(s.nasRoot); err == nil && d.Total > 0 && uint64(total-offset) > d.Free {
 		writeErr(w, http.StatusInsufficientStorage, "not enough free space in the Nuvem")
 		return
 	}
-	// A stalled phone must not hold the request forever.
-	_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(5 * time.Minute))
-	body := http.MaxBytesReader(w, r.Body, maxChunk)
+	body := &idleReader{r: http.MaxBytesReader(w, r.Body, maxChunk), rc: http.NewResponseController(w), idle: uploadIdle}
 	a := s.nasAccess(r)
 	p := q.Get("path")
 	have, done, err := s.nas.WriteChunk(a, p, offset, total, body)
@@ -231,6 +229,24 @@ func (s *Server) nasUpload(w http.ResponseWriter, r *http.Request) {
 		s.audit(r, "nas.upload", clean, true, strconv.FormatInt(total, 10)+" bytes")
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"offset": have, "done": done})
+}
+
+// idleReader keeps pushing the read deadline forward while bytes arrive: a
+// stalled phone frees the request after `idle` of silence, while a large
+// chunk on a slow link takes as long as it needs.
+type idleReader struct {
+	r    io.Reader
+	rc   *http.ResponseController
+	idle time.Duration
+	next time.Time
+}
+
+func (d *idleReader) Read(p []byte) (int, error) {
+	if now := time.Now(); !now.Before(d.next) {
+		_ = d.rc.SetReadDeadline(now.Add(d.idle))
+		d.next = now.Add(time.Second)
+	}
+	return d.r.Read(p)
 }
 
 // textTypes may be edited in the browser (small, plain text).

@@ -13,6 +13,7 @@ import (
 	"path"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -21,9 +22,6 @@ const Shared = "Compartilhado"
 
 // Trash is the recycle bin folder, shared with Samba (deploy/nas/smb.conf).
 const Trash = ".lixeira"
-
-// MaxUpload is the largest file accepted by the upload API.
-const MaxUpload int64 = 4 << 30
 
 const partSuffix = ".sentinela-part"
 
@@ -374,8 +372,8 @@ func (s *Share) PartSize(a Access, p string) (int64, error) {
 // memory or /tmp. When the last byte arrives the partial file is renamed to
 // p. It returns the bytes now on disk and whether the file is complete.
 func (s *Share) WriteChunk(a Access, p string, offset, total int64, body io.Reader) (int64, bool, error) {
-	if total < 0 || total > MaxUpload {
-		return 0, false, ErrTooLarge
+	if total < 0 {
+		return 0, false, ErrInvalid
 	}
 	part, err := s.partPath(a, p)
 	if err != nil {
@@ -401,7 +399,7 @@ func (s *Share) WriteChunk(a Access, p string, offset, total int64, body io.Read
 		return have, false, err
 	}
 	// One byte more than allowed tells us the client sent too much.
-	n, err := io.Copy(f, io.LimitReader(body, total-offset+1))
+	n, err := copyLarge(f, io.LimitReader(body, total-offset+1))
 	cerr := f.Close()
 	have = offset + n
 	if n > total-offset {
@@ -424,6 +422,16 @@ func (s *Share) WriteChunk(a Access, p string, offset, total int64, body io.Read
 		return have, false, mapErr(err)
 	}
 	return have, true, nil
+}
+
+// uploadBufs hold 1 MiB copy buffers: a network body would otherwise reach
+// the file through os.File.ReadFrom's generic 32 KiB copy, 32× the writes.
+var uploadBufs = sync.Pool{New: func() any { b := make([]byte, 1<<20); return &b }}
+
+func copyLarge(dst io.Writer, src io.Reader) (int64, error) {
+	b := uploadBufs.Get().(*[]byte)
+	defer uploadBufs.Put(b)
+	return io.CopyBuffer(struct{ io.Writer }{dst}, src, *b) // hide ReadFrom so the buffer is used
 }
 
 // MaxText bounds a text file edited in the browser.

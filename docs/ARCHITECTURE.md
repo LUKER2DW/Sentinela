@@ -140,9 +140,12 @@ Viewers cannot use Nuvem; operators use personal and shared directories;
 admins can access the share. Top-level folders cannot be renamed, moved or
 deleted through the API. Samba's separate LAN account is not a web account.
 
-Uploads are resumable 8 MiB chunks, at most 4 GiB per file. Desktop folder
-uploads create containing folders, then send files; up to three small
-files are parallel, large files serial. The picker does not represent
+Uploads are resumable chunks with no file-size cap (only free space): the
+first is 8 MiB, later ones grow with the measured speed to ~6 s each, up to
+128 MiB. A request may stay silent for at most a minute. Desktop folder
+uploads create containing folders, then send files; up to four files under
+32 MiB are parallel, larger files serial. Plain-HTTP downloads use
+sendfile; TLS listeners accept ~4 MiB HTTP/2 receive windows. The picker does not represent
 empty directories. A conflicting top folder gets a new name.
 
 Deletes enter the recycle bin; explicit trash purge is permanent. The owner

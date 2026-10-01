@@ -178,6 +178,12 @@ func serve(ctx context.Context, log *slog.Logger, cfgPath string) error {
 	errc := make(chan error, len(servers))
 	for _, hs := range servers {
 		hs.ReadHeaderTimeout, hs.IdleTimeout, hs.MaxHeaderBytes = 10*time.Second, 2*time.Minute, 64<<10
+		// HTTP/2 (TLS listeners) lets a client send at most 1 MiB per round
+		// trip by default, which caps Nuvem uploads on far links (~100 ms
+		// RTT → ~10 MB/s). Raise it to the documented maximum (< 4 MiB);
+		// buffers fill only while the disk lags behind the network.
+		const h2Window = 4<<20 - 1
+		hs.HTTP2 = &http.HTTP2Config{MaxReceiveBufferPerStream: h2Window, MaxReceiveBufferPerConnection: h2Window}
 		go func() {
 			log.Info("sentinela serving", "addr", hs.Addr, "tls", hs.TLSConfig != nil, "version", version, "cameras", len(cfg.Cameras))
 			if hs.TLSConfig != nil {

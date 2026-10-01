@@ -159,8 +159,21 @@ export function sortEntries(entries: NasEntry[], key: SortKey, asc: boolean): Na
   });
 }
 
-/** 8 MiB: small enough for smooth progress and cheap retries on 4G. */
-export const CHUNK = 8 << 20;
+/**
+ * Upload chunk sizes. The first chunk is small (quick first progress, cheap
+ * retry on 4G); later ones grow so each request carries ~6 s of data, which
+ * on a fast link means a few large requests instead of many round trips.
+ */
+export const CHUNK_MIN = 8 << 20;
+export const CHUNK_MAX = 128 << 20;
+const CHUNK_SECONDS = 6;
+
+/** Next chunk size from the last one's speed: at most 4× growth, whole MiB. */
+export function nextChunk(prev: number, bytes: number, ms: number): number {
+  const rate = bytes / Math.max(ms, 1) * 1000;
+  const want = Math.min(rate * CHUNK_SECONDS, prev * 4, CHUNK_MAX);
+  return Math.max(CHUNK_MIN, Math.floor(want / (1 << 20)) * (1 << 20));
+}
 
 export interface UploadProgress {
   sent: number;
@@ -178,12 +191,16 @@ export async function uploadFile(
   signal: AbortSignal,
 ): Promise<void> {
   const q = `path=${encodeURIComponent(target)}`;
-  let offset = (await get<{ offset: number }>(`/api/nas/upload?${q}`)).offset;
+  // Only a file bigger than one chunk can have a useful partial upload to
+  // resume; small ones skip the extra round trip (a 409 still resyncs).
+  let offset = file.size > CHUNK_MIN ? (await get<{ offset: number }>(`/api/nas/upload?${q}`)).offset : 0;
   if (offset > file.size) offset = 0;
   onProgress({ sent: offset, total: file.size });
+  let chunk = CHUNK_MIN;
   let failures = 0;
   do {
-    const end = Math.min(offset + CHUNK, file.size);
+    const end = Math.min(offset + chunk, file.size);
+    const started = performance.now();
     try {
       const res = await fetch(`/api/nas/upload?${q}&offset=${offset}&total=${file.size}`, {
         method: "PUT",
@@ -198,13 +215,18 @@ export async function uploadFile(
         continue;
       }
       if (!res.ok) throw new ApiError(res.status, data.error ?? `HTTP ${res.status}`);
+      chunk = nextChunk(chunk, end - offset, performance.now() - started);
       offset = data.offset ?? end;
       failures = 0;
       onProgress({ sent: offset, total: file.size });
     } catch (e) {
       if (signal.aborted || (e instanceof ApiError && e.status < 500 && e.status !== 408)) throw e;
       if (++failures > 4) throw e;
+      chunk = CHUNK_MIN; // the link got worse: retry small
       await new Promise((r) => setTimeout(r, 1000 * 2 ** failures));
+      // What reached the disk before the drop is kept: ask where to go on.
+      offset = (await get<{ offset: number }>(`/api/nas/upload?${q}`).catch(() => ({ offset }))).offset;
+      if (offset > file.size) offset = 0;
     }
   } while (offset < file.size);
 }
@@ -278,5 +300,9 @@ export function renameTop(picked: Picked[], taken: Set<string>): Picked[] {
   });
 }
 
-/** Files below this go up to three at a time: many small files are latency-bound. */
-export const SMALL_UPLOAD = 4 << 20;
+/**
+ * Files below this go up to four at a time: a folder of photos or phone
+ * videos is limited by round trips, not bandwidth. Bigger files go alone.
+ */
+export const SMALL_UPLOAD = 32 << 20;
+export const PARALLEL_UPLOADS = 4;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { crumbs, foldersOf, label, parentPath, renameTop, restorePath, type Picked } from "./nas";
+import { CHUNK_MAX, CHUNK_MIN, crumbs, foldersOf, label, nextChunk, parentPath, renameTop, restorePath, type Picked } from "./nas";
 
 describe("nas paths", () => {
   it("builds breadcrumbs with friendly names and hides the bin's user level", () => {
@@ -65,5 +65,20 @@ describe("folder uploads", () => {
     const out = renameTop([f("Fotos/a.jpg"), f("solto.txt")], new Set(["Fotos", "Fotos (2)"]));
     expect(out.map((p) => p.rel)).toEqual(["Fotos (3)/a.jpg", "solto.txt"]);
     expect(renameTop([f("Novas/a.jpg")], new Set(["Fotos"]))[0].rel).toBe("Novas/a.jpg");
+  });
+});
+
+describe("upload chunk sizing", () => {
+  const MiB = 1 << 20;
+  it("grows on a fast link, at most 4× per step, up to the cap", () => {
+    // 8 MiB in 80 ms (~100 MB/s, gigabit LAN): wants 600 MiB, gets 32 MiB.
+    expect(nextChunk(CHUNK_MIN, 8 * MiB, 80)).toBe(32 * MiB);
+    expect(nextChunk(64 * MiB, 64 * MiB, 600)).toBe(CHUNK_MAX);
+  });
+  it("stays small on a slow link", () => {
+    // 8 MiB in 16 s (~0.5 MB/s, weak 4G): ~3 MiB per 6 s → the 8 MiB floor.
+    expect(nextChunk(CHUNK_MIN, 8 * MiB, 16_000)).toBe(CHUNK_MIN);
+    // 2 MB/s → ~12 MiB, whole MiB.
+    expect(nextChunk(CHUNK_MIN, 8 * MiB, 4_000)).toBe(12 * MiB);
   });
 });

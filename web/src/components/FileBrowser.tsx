@@ -32,6 +32,7 @@ import {
   pickedFromDrop,
   pickedFromList,
   renameTop,
+  PARALLEL_UPLOADS,
   SMALL_UPLOAD,
   type DateFilter,
   type Picked,
@@ -257,15 +258,28 @@ export function FileBrowser({
     setPending(null);
   }
 
-  // Large files go one at a time (gentle on the old server and on 4G);
-  // small ones up to three at a time, since a folder of photos is limited
-  // by round trips, not bandwidth. Chunks resume after a dropped connection.
+  // Folder listings touched by finished uploads, refreshed together at most
+  // every 1.5 s: a folder of 500 photos must not re-list the folder 500 times.
+  const toRefresh = useRef(new Set<string>());
+  const refreshTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const refreshSoon = (...paths: string[]) => {
+    paths.forEach((p) => toRefresh.current.add(p));
+    refreshTimer.current ??= setTimeout(() => {
+      refreshTimer.current = undefined;
+      refresh(...toRefresh.current);
+      toRefresh.current.clear();
+    }, 1500);
+  };
+
+  // Large files go one at a time (one already fills the link and the disk);
+  // smaller ones up to PARALLEL_UPLOADS at a time, since a folder of photos
+  // is limited by round trips, not bandwidth. Chunks resume after a drop.
   useEffect(() => {
     const big = (u: Upload) => u.file.size >= SMALL_UPLOAD;
     const running = uploads.filter((u) => sending.current.has(u.id));
     for (const next of uploads) {
       if (next.state !== "waiting" || sending.current.has(next.id)) continue;
-      const room = running.length === 0 || (running.length < 3 && !big(next) && !running.some(big));
+      const room = running.length === 0 || (running.length < PARALLEL_UPLOADS && !big(next) && !running.some(big));
       if (!room) break;
       running.push(next);
       sending.current.add(next.id);
@@ -274,7 +288,7 @@ export function FileBrowser({
       uploadFile(next.file, next.target, ({ sent, total }) => patch({ sent, total }), next.ctrl.signal)
         .then(() => {
           patch({ state: "done", sent: next.file.size });
-          refresh(parentPath(next.target), path);
+          refreshSoon(parentPath(next.target), path);
         })
         .catch((e) => patch(next.ctrl.signal.aborted ? { state: "cancelled" } : { state: "error", error: errText(e) }))
         .finally(() => {
