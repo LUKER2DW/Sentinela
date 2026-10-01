@@ -274,3 +274,23 @@ func TestThumbnail(t *testing.T) {
 	}
 	_, _ = io.Copy(io.Discard, f)
 }
+
+func TestThumbPruneKeepsRecent(t *testing.T) {
+	dir := t.TempDir()
+	th := NewThumbs(dir)
+	old, fresh := filepath.Join(dir, "old.jpg"), filepath.Join(dir, "fresh.jpg")
+	for _, p := range []string{old, fresh} {
+		if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	long := time.Now().Add(-100 * 24 * time.Hour)
+	_ = os.Chtimes(old, long, long)
+	th.Prune(90 * 24 * time.Hour)
+	if _, err := os.Stat(old); !os.IsNotExist(err) {
+		t.Error("unused thumbnail kept")
+	}
+	if _, err := os.Stat(fresh); err != nil {
+		t.Error("recent thumbnail removed")
+	}
+}

@@ -72,17 +72,23 @@ func (s *Server) getAvatar(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "no picture")
 		return
 	}
-	b, err := os.ReadFile(s.avatarPath(u.ID))
+	f, err := os.Open(s.avatarPath(u.ID))
 	if err != nil {
 		writeErr(w, http.StatusNotFound, "no picture")
 		return
 	}
-	ct := http.DetectContentType(b)
-	if !avatarTypes[ct] {
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil || st.Size() > maxAvatar {
 		writeErr(w, http.StatusNotFound, "no picture")
 		return
 	}
-	st, _ := os.Stat(s.avatarPath(u.ID))
+	b, err := io.ReadAll(f)
+	ct := http.DetectContentType(b)
+	if err != nil || !avatarTypes[ct] {
+		writeErr(w, http.StatusNotFound, "no picture")
+		return
+	}
 	w.Header().Set("Content-Type", ct)
 	w.Header().Set("Cache-Control", "private, max-age=300")
 	w.Header().Set("X-Content-Type-Options", "nosniff")

@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // Thumbnail limits (ADR-0012): JPEG/PNG only, never video (no transcoding).
@@ -58,7 +59,11 @@ func (t *Thumbs) Get(s *Share, a Access, p string) (string, error) {
 	clean, _ := Clean(p)
 	sum := sha256.Sum256(fmt.Appendf(nil, "%s|%d|%d", clean, info.Size(), info.ModTime().UnixNano()))
 	out := filepath.Join(t.Dir, hex.EncodeToString(sum[:16])+".jpg")
-	if _, err := os.Stat(out); err == nil {
+	if st, err := os.Stat(out); err == nil {
+		// Mark it used (at most once a week) so Prune keeps it.
+		if now := time.Now(); now.Sub(st.ModTime()) > 7*24*time.Hour {
+			_ = os.Chtimes(out, now, now)
+		}
 		return out, nil
 	}
 	t.gate <- struct{}{}
@@ -86,6 +91,26 @@ func (t *Thumbs) Get(s *Share, a Access, p string) (string, error) {
 		return "", err
 	}
 	return out, os.Rename(tmp.Name(), out)
+}
+
+// Prune deletes thumbnails not used for maxAge (and stale temporary files):
+// the cache lives on the recordings disk and would otherwise only grow. A
+// pruned thumbnail is made again when it is next shown.
+func (t *Thumbs) Prune(maxAge time.Duration) {
+	entries, err := os.ReadDir(t.Dir)
+	if err != nil {
+		return
+	}
+	cut := time.Now().Add(-maxAge)
+	for _, e := range entries {
+		info, err := e.Info()
+		if err != nil || e.IsDir() {
+			continue
+		}
+		if info.ModTime().Before(cut) || strings.HasPrefix(e.Name(), ".thumb-") && time.Since(info.ModTime()) > time.Hour {
+			_ = os.Remove(filepath.Join(t.Dir, e.Name()))
+		}
+	}
 }
 
 func decodeLimited(r io.ReadSeeker, name string) (image.Image, error) {

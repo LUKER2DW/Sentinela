@@ -270,9 +270,10 @@ func (s *Server) timelapsePrepare(w http.ResponseWriter, r *http.Request) {
 	key := p.key()
 	dir := s.timelapseDir()
 	if path := s.tl.ready(dir, key); path != "" {
-		st, _ := os.Stat(path)
-		writeJSON(w, http.StatusOK, tlJob{State: "ready", Done: 1, Total: 1, Bytes: st.Size()})
-		return
+		if st, err := os.Stat(path); err == nil {
+			writeJSON(w, http.StatusOK, tlJob{State: "ready", Done: 1, Total: 1, Bytes: st.Size()})
+			return
+		}
 	}
 	s.tl.mu.Lock()
 	if s.tl.jobs == nil {
@@ -418,6 +419,17 @@ func (s *Server) keyframeTimelapse(ctx context.Context, picks []recording.Pick, 
 		return fmt.Errorf("%w: %s", err, stderr.String())
 	}
 	return nil
+}
+
+// pruneJobs forgets finished jobs (their files, if any, answer by themselves).
+func (t *tlJobs) pruneJobs() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for k, j := range t.jobs {
+		if j.State == "ready" || j.State == "failed" || j.State == "empty" {
+			delete(t.jobs, k)
+		}
+	}
 }
 
 // pruneTimelapses drops prepared files older than timelapseKeep and keeps

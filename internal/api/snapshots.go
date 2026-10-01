@@ -165,6 +165,17 @@ func (s *Server) eventSnapshot(w http.ResponseWriter, r *http.Request) {
 	http.ServeContent(w, r, "", info.ModTime(), f)
 }
 
+// PruneCaches trims the disk caches the API keeps on the recordings disk:
+// prepared timelapses (hours), Nuvem thumbnails unused for 90 days, and the
+// record of finished timelapse jobs. Called hourly.
+func (s *Server) PruneCaches() {
+	pruneTimelapses(s.timelapseDir(), time.Now())
+	s.tl.pruneJobs()
+	if s.thumbs != nil {
+		s.thumbs.Prune(90 * 24 * time.Hour)
+	}
+}
+
 // PurgeSnapshots deletes snapshot files older than maxAge (called hourly;
 // events of that age are gone too).
 func (s *Server) PurgeSnapshots(maxAge time.Duration) {

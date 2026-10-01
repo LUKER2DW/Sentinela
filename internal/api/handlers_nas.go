@@ -195,7 +195,7 @@ func (s *Server) nasUpload(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	offset, err1 := strconv.ParseInt(q.Get("offset"), 10, 64)
 	total, err2 := strconv.ParseInt(q.Get("total"), 10, 64)
-	if err1 != nil || err2 != nil || offset < 0 || total < 0 {
+	if err1 != nil || err2 != nil || offset < 0 || total < 0 || offset > total {
 		writeErr(w, http.StatusBadRequest, "offset and total are required")
 		return
 	}
