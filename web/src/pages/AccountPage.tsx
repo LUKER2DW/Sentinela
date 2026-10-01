@@ -17,7 +17,6 @@ import { roleLabel } from "../components/UsersAdmin";
 import { href, navigate } from "../lib/router";
 import { useCompact } from "../lib/viewport";
 import { isApp } from "../lib/push";
-import { BackToMore } from "../components/MoreMenu";
 import { Avatar, removeAvatar, uploadAvatar } from "../components/Avatar";
 
 const roleText = {
@@ -47,7 +46,6 @@ export function AccountPage({ params }: { params: URLSearchParams }) {
 
   return (
     <>
-      {compact && <BackToMore />}
       <header className="page-head">
         <div className="title">
           <h1>{sub ? ACCOUNT_SECTIONS.find((x) => x.id === section)?.label : "Minha conta"}</h1>

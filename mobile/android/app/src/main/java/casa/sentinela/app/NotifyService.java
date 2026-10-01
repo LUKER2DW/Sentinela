@@ -162,12 +162,13 @@ public class NotifyService extends Service {
     private Notification ongoing() {
         return new NotificationCompat.Builder(this, Notifier.CHANNEL_SERVICE)
                 .setSmallIcon(R.drawable.ic_stat_sentinela)
-                .setContentTitle("Sentinela atento aos eventos")
-                .setContentText("Toque e segure para ocultar este aviso fixo")
+                .setContentTitle("Conectado à casa")
+                .setContentText("Toque para ocultar este aviso; os alertas continuam")
                 .setPriority(NotificationCompat.PRIORITY_MIN)
-                .setOngoing(true)
+                .setSilent(true)
                 .setShowWhen(false)
-                .setContentIntent(Notifier.openApp(this, null, ONGOING_ID))
+                .setVisibility(NotificationCompat.VISIBILITY_SECRET)
+                .setContentIntent(Notifier.serviceChannelSettings(this, ONGOING_ID))
                 .build();
     }
 

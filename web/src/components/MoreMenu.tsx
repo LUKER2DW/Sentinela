@@ -120,12 +120,3 @@ export function MoreMenu({ version, unread }: { version?: string; unread: number
     </div>
   );
 }
-
-/** Phone sub-pages opened from "Mais": a way back to the menu. */
-export function BackToMore() {
-  return (
-    <a className="back-link" href={href("system")}>
-      <Icon name="chevronLeft" /> Mais
-    </a>
-  );
-}

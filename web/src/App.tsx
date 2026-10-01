@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, fetchSystem, get, onUnauthorized, setCsrf, type ReviewList, type User } from "./lib/api";
-import { href, useRoute } from "./lib/router";
+import { href, navigate, useRoute } from "./lib/router";
 import { SessionProvider, ToastProvider, useSession } from "./lib/session";
 import { LiveEventsProvider, useActiveEvents } from "./lib/liveEvents";
 import { toggleSidebar, useSidebarCollapsed } from "./lib/sidebar";
@@ -113,6 +113,15 @@ const NAV = [
 const roleLabel = { admin: "Administrador", operator: "Operador", viewer: "Visualizador" } as const;
 const pageTitle: Record<string, string> = { relogio: "Relógio", conta: "Minha conta" };
 
+/** Where the phone's back arrow goes from a page, or null on a top page. */
+function upFrom(page: string, params: URLSearchParams): (() => void) | null {
+  const p = params.get("p");
+  if (page === "nuvem" && p) return () => navigate("nuvem", p.includes("/") ? { p: p.split("/").slice(0, -1).join("/") } : undefined, { push: true });
+  if (page === "system" && params.get("s")) return () => navigate("system", undefined, { push: true });
+  if (page === "conta" || page === "relogio") return () => navigate("system", undefined, { push: true });
+  return null;
+}
+
 /** True when the server runs a newer build than this page (auto deploy). */
 function useNewVersion(): boolean {
   const q = useQuery({
@@ -141,6 +150,9 @@ function Shell() {
   const qc = useQueryClient();
   const collapsed = useSidebarCollapsed();
   const compact = useCompact();
+  // Phone: a back arrow on every page below a tab (a "Mais" page, a Nuvem
+  // folder): one level up, the same place every time.
+  const up = upFrom(route.page, route.params);
   // Phone: pages opened from "Mais" keep that tab lit.
   const current = (page: string) => route.page === page || (compact && page === "system" && (route.page === "conta" || route.page === "relogio"));
   const eventsToday = useUnseenEvents();
@@ -232,6 +244,11 @@ function Shell() {
         <AppUpdateBanner />
         {/* Phone: brand bar with the turning lighthouse (the sidebar is a tab bar there). */}
         <header className="mobile-bar">
+          {up && (
+            <button className="mobile-back" onClick={up} aria-label="Voltar" title="Voltar">
+              <Icon name="chevronLeft" />
+            </button>
+          )}
           <a className="mobile-brand" href={href("live")} aria-label="Sentinela, ao vivo">
             <LighthouseMark />
             <span>Sentinela</span>

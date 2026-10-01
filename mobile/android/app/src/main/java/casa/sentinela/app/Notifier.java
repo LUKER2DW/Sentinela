@@ -1,6 +1,7 @@
 package casa.sentinela.app;
 
 import android.Manifest;
+import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
@@ -50,9 +51,37 @@ final class Notifier {
         ch.enableVibration(true);
         nm.createNotificationChannel(ch);
         NotificationChannel svc = new NotificationChannel(CHANNEL_SERVICE, "Conexão com a casa", NotificationManager.IMPORTANCE_MIN);
-        svc.setDescription("Aviso fixo exigido pelo Android enquanto o app espera os eventos. Pode ser ocultado.");
+        svc.setDescription("Aviso exigido pelo Android enquanto o app espera os eventos. Desligue para ocultar; os avisos de eventos continuam.");
         svc.setShowBadge(false);
+        svc.setSound(null, null);
+        svc.enableVibration(false);
+        svc.setLockscreenVisibility(Notification.VISIBILITY_SECRET);
         nm.createNotificationChannel(svc);
+    }
+
+    /** Android's settings for the fixed "Conexão com a casa" notice (one switch hides it). */
+    static void openServiceChannelSettings(Context ctx) {
+        Intent i = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                ? new Intent(android.provider.Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+                        .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, ctx.getPackageName())
+                        .putExtra(android.provider.Settings.EXTRA_CHANNEL_ID, CHANNEL_SERVICE)
+                : new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:" + ctx.getPackageName()));
+        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        try {
+            ctx.startActivity(i);
+        } catch (RuntimeException ignored) {
+            // no such screen on this phone
+        }
+    }
+
+    /** Pending intent for the fixed notice: straight to its switch. */
+    static PendingIntent serviceChannelSettings(Context ctx, int request) {
+        Intent i = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                ? new Intent(android.provider.Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+                        .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, ctx.getPackageName())
+                        .putExtra(android.provider.Settings.EXTRA_CHANNEL_ID, CHANNEL_SERVICE)
+                : new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:" + ctx.getPackageName()));
+        return PendingIntent.getActivity(ctx, request, i, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
     }
 
     /** Opens the app on an in-app path such as "/#/events". */

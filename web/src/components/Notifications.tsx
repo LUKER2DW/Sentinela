@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   allowBackground,
+  hideOngoing,
   disablePush,
   enablePush,
   getMode,
@@ -287,6 +288,11 @@ export function DeviceNotifyCard() {
             <button className="btn ghost" disabled={busy} onClick={() => void run(disablePush)}>
               Desativar
             </button>
+            {isApp() && (
+              <button className="btn ghost" onClick={() => void hideOngoing()?.catch(() => toast("Atualize o app para usar esta opção.", true))}>
+                Ocultar aviso fixo
+              </button>
+            )}
           </>
         )}
       </div>

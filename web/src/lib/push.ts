@@ -31,6 +31,9 @@ export const nativeStatus = () => native()?.<NativeStatus>("status");
 /** Opens Android's "ignore battery optimisation" prompt for the app. */
 export const allowBackground = () => native()?.("allowBackground");
 
+/** Opens Android's switch for the fixed "Conectado à casa" notice (app ≥ 1.10). */
+export const hideOngoing = () => native()?.("hideOngoing");
+
 /** What each event type is called on the settings card. */
 export const TYPE_LABEL: Record<string, string> = {
   human: "Pessoa",

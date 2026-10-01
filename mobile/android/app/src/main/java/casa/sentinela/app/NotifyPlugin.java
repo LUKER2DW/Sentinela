@@ -107,6 +107,17 @@ public class NotifyPlugin extends Plugin {
         call.resolve(status());
     }
 
+    /**
+     * Opens Android's switch for the "Conexão com a casa" channel only: turning
+     * it off hides the fixed notice while event notifications keep coming (the
+     * service keeps running; Android only hides its notice).
+     */
+    @PluginMethod
+    public void hideOngoing(PluginCall call) {
+        Notifier.openServiceChannelSettings(getContext());
+        call.resolve();
+    }
+
     private void openNotificationSettings() {
         try {
             Intent i = new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)

@@ -513,9 +513,17 @@ function Playback({
           <button className="btn skip" aria-label="Avançar 10 segundos" title="Avançar 10 s (→)" onClick={() => skip(10)}>
             +10
           </button>
-          <div className="segmented" role="group" aria-label="Velocidade">
+          {/* Phone: one button that cycles the speeds, so the bar fits the width. */}
+          <button
+            className="btn speed-cycle"
+            aria-label={`Velocidade ${speed}×, tocar para mudar`}
+            onClick={() => setSpeed(SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.length])}
+          >
+            {speed}×
+          </button>
+          <div className="segmented speed-seg" role="group" aria-label="Velocidade">
             {SPEEDS.map((s) => (
-              <button key={s} aria-pressed={speed === s} onClick={() => setSpeed(s)} className={s > 4 ? "hide-sm" : undefined}>
+              <button key={s} aria-pressed={speed === s} onClick={() => setSpeed(s)}>
                 {s}×
               </button>
             ))}

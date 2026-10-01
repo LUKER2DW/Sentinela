@@ -8,7 +8,7 @@ import { VolumeMeter } from "./NuvemPage";
 import { AddCameraCard } from "../components/AddCamera";
 import { DetectionCard } from "../components/Detection";
 import { useCompact } from "../lib/viewport";
-import { BackToMore, MoreMenu } from "../components/MoreMenu";
+import { MoreMenu } from "../components/MoreMenu";
 import { Icon } from "../components/Icon";
 import { NoticesPanel, useSystemNotices } from "../components/Notices";
 import { UsersAdmin, auditLabel } from "../components/UsersAdmin";
@@ -60,7 +60,6 @@ export function SystemPage({ params }: { params: URLSearchParams }) {
 
   return (
     <>
-      {compact && <BackToMore />}
       <header className="page-head">
         <div className="title">
           <h1>{compact ? SECTIONS.find((x) => x.id === section)?.label : "Sistema"}</h1>

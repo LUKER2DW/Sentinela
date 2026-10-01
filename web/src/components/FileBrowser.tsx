@@ -867,6 +867,11 @@ export function FileBrowser({
                         : "Arraste arquivos ou pastas para cá, use Enviar ou o botão direito."
                       : "Nada por aqui ainda."}
               </span>
+              {compact && path !== "" && !filtered && (
+                <button className="btn" onClick={() => onNavigate(parentPath(path))}>
+                  <Icon name="chevronLeft" /> Voltar
+                </button>
+              )}
             </div>
           ) : (
             <>
