@@ -28,6 +28,51 @@ func TestMigrateIdempotent(t *testing.T) {
 	}
 }
 
+func TestNotifyOptInMigration(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "t.db")
+	s, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := s.CreateFirstUser(ctx, "admin", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetUserNotify(ctx, id, `{"follow_mode":false,"types":["motion","human"]}`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DB().ExecContext(ctx, `DELETE FROM schema_migrations WHERE version='0010_notify_opt_in'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s, err = Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	u, err := s.UserByID(ctx, id)
+	if err != nil || u.Notify != `{"follow_mode":true,"types":[]}` {
+		t.Fatalf("migration did not reset existing user: %v, %v", u, err)
+	}
+	if err := s.SetUserNotify(ctx, id, `{"follow_mode":true,"types":["human"]}`); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s, err = Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, err = s.UserByID(ctx, id)
+	if err != nil || u.Notify != `{"follow_mode":true,"types":["human"]}` {
+		t.Fatalf("migration reapplied after opt-in: %v, %v", u, err)
+	}
+}
+
 func TestFirstUserOnlyOnce(t *testing.T) {
 	s := openTest(t)
 	ctx := context.Background()

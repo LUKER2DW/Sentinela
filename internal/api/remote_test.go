@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -8,6 +9,40 @@ import (
 
 	"github.com/LUKER2DW/sentinela/internal/auth"
 )
+
+func TestOutsideLoginNoticeRequiresOptIn(t *testing.T) {
+	_, srv := newTestServer(t)
+	ctx := context.Background()
+	id, err := srv.Store.CreateFirstUser(ctx, "admin", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	user, err := srv.Store.UserByID(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream := srv.push.subscribe(id)
+	defer srv.push.unsubscribe(stream)
+	srv.alertOutsideLogin(user, "192.0.2.1", ZonePublic)
+	select {
+	case <-stream:
+		t.Fatal("unselected login notice was sent")
+	default:
+	}
+	if err := srv.Store.SetUserNotify(ctx, id, `{"follow_mode":true,"types":["login"]}`); err != nil {
+		t.Fatal(err)
+	}
+	user, err = srv.Store.UserByID(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.alertOutsideLogin(user, "192.0.2.1", ZonePublic)
+	select {
+	case <-stream:
+	default:
+		t.Fatal("selected login notice was not sent")
+	}
+}
 
 // newPublicServer serves srv on a second listener in a public zone. The
 // cookie jar ignores ports, so a client's cookies from the private test

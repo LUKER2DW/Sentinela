@@ -85,8 +85,8 @@ func Notifies(mode, typ string) bool {
 	return false
 }
 
-// EventTypes are the event types a user can turn notifications on or off for.
-var EventTypes = []string{"human", "vehicle", "animal", "line", "intrusion", "tamper", "motion"}
+// EventTypes are the camera and login notice types a user can select.
+var EventTypes = []string{"human", "vehicle", "animal", "line", "intrusion", "tamper", "motion", "login"}
 
 // NotifyPrefs are one user's notification choices (Minha conta).
 type NotifyPrefs struct {
@@ -97,7 +97,7 @@ type NotifyPrefs struct {
 }
 
 func defaultPrefs() NotifyPrefs {
-	return NotifyPrefs{FollowMode: true, Types: slices.Clone(EventTypes)}
+	return NotifyPrefs{FollowMode: true, Types: []string{}}
 }
 
 // prefsOf returns the user's choices, or the defaults.
@@ -114,7 +114,13 @@ func prefsOf(u *store.User) NotifyPrefs {
 
 // Wants reports whether the user asked to be told about typ in mode.
 func (p NotifyPrefs) Wants(mode, typ string) bool {
-	return slices.Contains(p.Types, typ) && (!p.FollowMode || Notifies(mode, typ))
+	return p.Enabled(typ) && (!p.FollowMode || Notifies(mode, typ))
+}
+
+// Enabled reports whether this user explicitly selected a notification type.
+// Security login notices do not depend on the camera house mode.
+func (p NotifyPrefs) Enabled(typ string) bool {
+	return slices.Contains(p.Types, typ)
 }
 
 type notifier struct {

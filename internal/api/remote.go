@@ -237,8 +237,7 @@ func qrSVG(text string) (string, error) {
 	return b.String(), nil
 }
 
-// alertOutsideLogin tells the user and every admin about a login from a
-// public zone (ADR-0019), so an unexpected one is noticed at once.
+// alertOutsideLogin tells users who opted in about a login from a public zone.
 func (s *Server) alertOutsideLogin(u *store.User, ip, zone string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -253,13 +252,15 @@ func (s *Server) alertOutsideLogin(u *store.User, ip, zone string) {
 		"url":   "/#/system",
 	}
 	sent := map[int64]bool{u.ID: true}
-	s.sendAll(ctx, u.ID, msg)
+	if prefsOf(u).Enabled("login") {
+		s.sendAll(ctx, u.ID, msg)
+	}
 	users, err := s.Store.ListUsers(ctx)
 	if err != nil {
 		return
 	}
 	for _, a := range users {
-		if a.Role == auth.RoleAdmin && !sent[a.ID] {
+		if a.Role == auth.RoleAdmin && !sent[a.ID] && !a.Disabled && !a.Pending && prefsOf(&a).Enabled("login") {
 			sent[a.ID] = true
 			s.sendAll(ctx, a.ID, msg)
 		}

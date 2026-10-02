@@ -39,7 +39,7 @@ export const allowBackground = () => native()?.("allowBackground");
 /** Opens Android's switch for the direct fallback's fixed notice. */
 export const hideOngoing = () => native()?.("hideOngoing");
 
-/** What each event type is called on the settings card. */
+/** Labels for the camera and login notice choices. */
 export const TYPE_LABEL: Record<string, string> = {
   human: "Pessoa",
   vehicle: "Veículo",
@@ -48,6 +48,7 @@ export const TYPE_LABEL: Record<string, string> = {
   intrusion: "Entrada na área",
   tamper: "Câmera mexida ou tapada",
   motion: "Movimento",
+  login: "Novo acesso de fora de casa",
 };
 
 export interface NotifyPrefs {

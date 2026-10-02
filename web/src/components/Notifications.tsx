@@ -23,9 +23,9 @@ import { Icon } from "./Icon";
 import { CardHead } from "./CardHead";
 
 export const MODES: { value: ModeSettings["mode"]; label: string; hint: string }[] = [
-  { value: "home", label: "Casa", hint: "Só avisa se mexerem na câmera." },
-  { value: "night", label: "Noite", hint: "Avisa alertas: pessoa, linha cruzada, área invadida, câmera mexida." },
-  { value: "away", label: "Fora", hint: "Avisa tudo, inclusive movimento." },
+  { value: "home", label: "Casa", hint: "Dos tipos ativados, só avisa se mexerem na câmera." },
+  { value: "night", label: "Noite", hint: "Dos tipos ativados, permite alertas de pessoa, linha, área e câmera." },
+  { value: "away", label: "Fora", hint: "Permite todos os tipos ativados, inclusive movimento." },
 ];
 
 const MODE_CARDS: { value: ModeSettings["mode"]; label: string; icon: string; when: string; notifies: string[]; quiet: string }[] = [
@@ -51,7 +51,7 @@ const MODE_CARDS: { value: ModeSettings["mode"]; label: string; icon: string; wh
     icon: "away",
     when: "Casa vazia.",
     notifies: ["Pessoa, veículo e animal", "Linha, área e obstrução", "Movimento (se o detector estiver parado)"],
-    quiet: "Tudo o que acontece avisa.",
+    quiet: "Só os tipos ativados na conta enviam avisos.",
   },
 ];
 
@@ -91,7 +91,7 @@ export function ModeCard() {
         <ModeSwitch compact />
         {cur && (
           <p className="muted small">
-            {autoNight ? `Noite automática até ${s.night_to}. ` : ""}Avisa: {cur.notifies.join(", ").toLowerCase()}.
+            {autoNight ? `Noite automática até ${s.night_to}. ` : ""}Pode avisar: {cur.notifies.join(", ").toLowerCase()}.
           </p>
         )}
       </section>
@@ -103,7 +103,7 @@ export function ModeCard() {
         <div>
           <h2>Modo da casa</h2>
           <p className="muted small">
-            Define o que manda aviso para o celular. Tudo continua gravado e aparece aqui nos Eventos, em qualquer modo.
+            Filtra os tipos de aviso que cada pessoa ativou na conta. Tudo continua gravado e aparece aqui nos Eventos.
           </p>
         </div>
         <span className="pill ok">
@@ -130,7 +130,7 @@ export function ModeCard() {
                 {!on && effective === m.value && <span className="mode-on soft">Automático</span>}
               </span>
               <span className="muted small">{m.when}</span>
-              <span className="mode-list-title small">Avisa:</span>
+              <span className="mode-list-title small">Pode avisar:</span>
               <ul className="mode-list">
                 {m.notifies.map((n) => (
                   <li key={n}>{n}</li>
@@ -313,7 +313,7 @@ export function DeviceNotifyCard() {
   );
 }
 
-/** Icon and group for each event type on the "what notifies me" list. */
+/** Icon and group for each notice choice. */
 const TYPE_META: Record<string, { icon: string; group: "alert" | "camera" | "other"; hint: string }> = {
   human: { icon: "user", group: "alert", hint: "Alguém aparece na imagem" },
   vehicle: { icon: "car", group: "alert", hint: "Carro, moto ou bicicleta" },
@@ -322,6 +322,7 @@ const TYPE_META: Record<string, { icon: string; group: "alert" | "camera" | "oth
   intrusion: { icon: "zone", group: "alert", hint: "Alguém entra na área marcada" },
   tamper: { icon: "camera", group: "camera", hint: "Câmera coberta, virada ou sem imagem" },
   motion: { icon: "motion", group: "other", hint: "Qualquer mudança na imagem; avisa muito" },
+  login: { icon: "lock", group: "other", hint: "Entrada pelo acesso público; independe do modo da casa" },
 };
 const GROUPS: { id: "alert" | "camera" | "other"; label: string }[] = [
   { id: "alert", label: "Detecção" },
@@ -348,7 +349,7 @@ export function NotifyTypesCard() {
       <CardHead
         icon="events"
         title="O que me avisa"
-        sub="Só para você: cada pessoa escolhe os próprios avisos. Tudo continua gravado e aparece em Eventos."
+        sub="Nenhum aviso vem ativado. Marque os tipos que quer receber; tudo continua gravado e aparece em Eventos."
         aside={
           d && (
             <span className="pill num">
@@ -434,7 +435,7 @@ export function HouseModeCard() {
         icon={effective === "night" ? "moon" : effective === "away" ? "away" : "home"}
         tone="sea"
         title="Modo da casa"
-        sub="Vale para todos da casa. Muda o que manda aviso, não o que é gravado."
+        sub="Vale para todos da casa. Filtra os avisos que cada pessoa ativou; não muda o que é gravado."
         aside={effective && <span className="pill ok">Agora: {MODES.find((m) => m.value === effective)?.label}</span>}
       />
       <ModeSwitch />
