@@ -2,8 +2,8 @@
 check:
 	go vet ./...
 	go test ./...
-	@command -v staticcheck >/dev/null && staticcheck ./... || echo "staticcheck not installed"
-	@command -v govulncheck >/dev/null && govulncheck ./... || echo "govulncheck not installed"
+	@if command -v staticcheck >/dev/null; then staticcheck ./...; else echo "staticcheck not installed"; fi
+	@if command -v govulncheck >/dev/null; then govulncheck ./...; else echo "govulncheck not installed"; fi
 	cd web && npm run lint && npm test
 web:
 	cd web && npm ci && npm run build
