@@ -3,6 +3,7 @@
 # (ADR-0010): the server never builds or pulls code by itself.
 #
 #   ./scripts/deploy.sh                 # uses ana@192.168.1.10
+#   ./scripts/deploy.sh --services      # API/dashboard + apps; recorders keep running
 #   SENTINELA_HOST=user@host ./scripts/deploy.sh
 #
 # Builds the image here (fast machine), streams it to the server with
@@ -12,10 +13,22 @@
 # the source tree, Go or Node. First-time server setup: install-server.sh.
 set -euo pipefail
 
+SERVICES_ONLY=0
+case "${1:-}" in
+  "") ;;
+  --services) SERVICES_ONLY=1 ;;
+  *) echo "Usage: $0 [--services]" >&2; exit 2 ;;
+esac
+if (( $# > 1 )); then echo "Usage: $0 [--services]" >&2; exit 2; fi
+
 HOST="${SENTINELA_HOST:-ana@192.168.1.10}"
 KEY="${SENTINELA_SSH_KEY:-$HOME/.ssh/id_ed25519_sentinela}"
 SSH=(ssh -i "$KEY" -o BatchMode=yes -o ConnectTimeout=10 "$HOST")
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
+if (( SERVICES_ONLY )); then
+  "${SSH[@]}" 'test -f /etc/sentinela/apps-enabled' || { echo "!! services are not enabled on this server" >&2; exit 1; }
+fi
 
 VERSION="$(git describe --always --dirty 2>/dev/null || echo dev)"
 if [[ "$VERSION" == *-dirty ]]; then
@@ -25,8 +38,10 @@ fi
 echo "==> build sentinela:${VERSION}"
 docker build -q -t sentinela:local -t "sentinela:${VERSION}" --build-arg VERSION="${VERSION}" . >/dev/null
 
-echo "==> build sentinela-detector"
-docker build -q -t sentinela-detector:local detector >/dev/null
+if (( ! SERVICES_ONLY )); then
+  echo "==> build sentinela-detector"
+  docker build -q -t sentinela-detector:local detector >/dev/null
+fi
 
 echo "==> ship deploy files"
 # shellcheck disable=SC2016 # $USER expands on the server
@@ -38,10 +53,12 @@ docker save sentinela:local | gzip -1 | "${SSH[@]}" 'gunzip | docker load -q'
 
 # The detector image is large (~500 MB) and rarely changes: ship it only
 # when the server has a different build.
-DET_ID="$(docker image inspect sentinela-detector:local --format '{{.Id}}')"
-if [[ "$("${SSH[@]}" "docker image inspect sentinela-detector:local --format '{{.Id}}' 2>/dev/null")" != "$DET_ID" ]]; then
-  echo "==> ship detector image"
-  docker save sentinela-detector:local | gzip -1 | "${SSH[@]}" 'gunzip | docker load -q'
+if (( ! SERVICES_ONLY )); then
+  DET_ID="$(docker image inspect sentinela-detector:local --format '{{.Id}}')"
+  if [[ "$("${SSH[@]}" "docker image inspect sentinela-detector:local --format '{{.Id}}' 2>/dev/null")" != "$DET_ID" ]]; then
+    echo "==> ship detector image"
+    docker save sentinela-detector:local | gzip -1 | "${SSH[@]}" 'gunzip | docker load -q'
+  fi
 fi
 
 echo "==> restart stack"
@@ -52,7 +69,11 @@ echo "==> restart stack"
 # scripts/setup-apps.sh has left its marker; it joins the docker group.
 # shellcheck disable=SC2016 # expanded on the server
 APPS_ENV='SENTINELA_DOCKER_GID=$(getent group docker | cut -d: -f3) COMPOSE_PROFILES=$(test -f /etc/sentinela/apps-enabled && echo apps)'
-"${SSH[@]}" "cd /opt/sentinela/deploy && sudo docker compose pull -q go2rtc && sudo SENTINELA_VERSION=${VERSION} ${APPS_ENV} docker compose up -d --no-build --remove-orphans && docker image prune -f >/dev/null"
+if (( SERVICES_ONLY )); then
+  "${SSH[@]}" "cd /opt/sentinela/deploy && sudo SENTINELA_VERSION=${VERSION} ${APPS_ENV} docker compose up -d --no-build --no-deps sentinela apps"
+else
+  "${SSH[@]}" "cd /opt/sentinela/deploy && sudo docker compose pull -q go2rtc && sudo SENTINELA_VERSION=${VERSION} ${APPS_ENV} docker compose up -d --no-build --remove-orphans && docker image prune -f >/dev/null"
+fi
 
 echo "==> health"
 for _ in $(seq 1 30); do

@@ -15,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 // Compose services (ADR-0021). The Compose file is first normalized by
@@ -415,6 +417,111 @@ func composeFile(work, chosen string) (string, error) {
 // renderedCompose is the rewritten file the agent runs, kept in the release.
 const renderedCompose = ".sentinela-compose.json"
 
+// Environment files have already been imported into the encrypted manager.
+// Prepare a release-only input so Compose doesn't try to reopen deleted
+// files. Manager values are resolved by the helper's environment at runtime.
+func (a *Agent) composeInput(app *App, work, file string) (string, error) {
+	root, err := os.OpenRoot(work)
+	if err != nil {
+		return "", err
+	}
+	defer root.Close()
+	b, err := readProjectText(root, file)
+	if err != nil {
+		return "", err
+	}
+	var doc map[string]any
+	if yaml.Unmarshal(b, &doc) != nil {
+		return "", errors.New("arquivo Compose inválido")
+	}
+	services, _ := doc["services"].(map[string]any)
+	a.mu.Lock()
+	vault := a.vaults[app.ID]
+	a.mu.Unlock()
+	for _, raw := range services {
+		s, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		refs, ok := s["env_file"]
+		if !ok {
+			continue
+		}
+		list, ok := refs.([]any)
+		if !ok {
+			list = []any{refs}
+		}
+		kept := []any{}
+		for _, ref := range list {
+			name, ok := ref.(string)
+			if !ok {
+				if m, ok := ref.(map[string]any); ok {
+					name, _ = m["path"].(string)
+				}
+			}
+			rel := path.Join(app.Dir, path.Dir(file), strings.ReplaceAll(name, "\\", "/"))
+			if name == "" || !slices.Contains(vault.Files, rel) {
+				kept = append(kept, ref)
+			}
+		}
+		if len(kept) == 0 {
+			delete(s, "env_file")
+		} else {
+			s["env_file"] = kept
+		}
+	}
+	out, err := yaml.Marshal(doc)
+	if err != nil {
+		return "", err
+	}
+	name := path.Join(path.Dir(file), ".sentinela-input.yaml")
+	if err := root.WriteFile(name, out, 0o600); err != nil {
+		return "", err
+	}
+	return name, nil
+}
+
+// The rendered file contains variable references, never manager values.
+// Escape literal dollars before replacing known values to avoid an extra
+// interpolation of a command's shell variables when Compose reads it again.
+func protectComposeValues(v any, vars []EnvVar) any {
+	slices.SortFunc(vars, func(x, y EnvVar) int {
+		if len(x.Value) != len(y.Value) {
+			return len(y.Value) - len(x.Value)
+		}
+		return strings.Compare(x.Key, y.Key)
+	})
+	var pairs []string
+	seen := map[string]bool{}
+	for _, e := range vars {
+		if e.Value != "" && !seen[e.Value] {
+			seen[e.Value] = true
+			pairs = append(pairs, strings.ReplaceAll(e.Value, "$", "$$"), "${"+e.Key+"}")
+		}
+	}
+	replacer := strings.NewReplacer(pairs...)
+	var walk func(any) any
+	walk = func(v any) any {
+		switch value := v.(type) {
+		case string:
+			return replacer.Replace(strings.ReplaceAll(value, "$", "$$"))
+		case map[string]any:
+			for key, child := range value {
+				value[key] = walk(child)
+			}
+			return value
+		case []any:
+			for i, child := range value {
+				value[i] = walk(child)
+			}
+			return value
+		default:
+			return v
+		}
+	}
+	return walk(v)
+}
+
 // composeUp normalizes, checks and rewrites the project in work, assigns
 // its ports, then brings it up. It returns the services and ports.
 func (a *Agent) composeUp(ctx context.Context, app *App, work string, build bool, logf func(string, ...any)) ([]string, []Port, error) {
@@ -423,7 +530,12 @@ func (a *Agent) composeUp(ctx context.Context, app *App, work string, build bool
 		return nil, nil, err
 	}
 	logf("Lendo %s", file)
-	raw, err := a.composeCLI(ctx, app, work, []string{"-f", file, "config", "--format", "json"}, logf)
+	input, err := a.composeInput(app, work, file)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer os.Remove(filepath.Join(work, input))
+	raw, err := a.composeCLI(ctx, app, work, []string{"-f", input, "config", "--format", "json"}, logf)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -431,6 +543,21 @@ func (a *Agent) composeUp(ctx context.Context, app *App, work string, build bool
 	if err != nil {
 		return nil, nil, err
 	}
+	a.mu.Lock()
+	vars := slices.Clone(a.vaults[app.ID].Vars)
+	a.mu.Unlock()
+	for _, raw := range plan.doc["services"].(map[string]any) {
+		s := raw.(map[string]any)
+		env, _ := s["environment"].(map[string]any)
+		if env == nil {
+			env = map[string]any{}
+		}
+		for _, e := range vars {
+			env[e.Key] = e.Value
+		}
+		s["environment"] = env
+	}
+	protectComposeValues(plan.doc, vars)
 	want := App{ID: app.ID}
 	for _, r := range plan.ports {
 		want.Ports = append(want.Ports, r.port)
@@ -502,11 +629,14 @@ func (a *Agent) composeCheck(ctx context.Context, app *App, logf func(string, ..
 		if err != nil || st == nil || st.ExitCode == 0 && !st.OOMKilled {
 			continue // finished jobs (migrations…) are fine
 		}
+		a.mu.Lock()
+		a.observeExitLocked(app.ID, c.Name, st)
+		a.mu.Unlock()
 		_ = a.Eng.Logs(ctx, c.Name, LogOptions{Tail: 30}, func(_ int, s string) { logf("  %s | %s", c.Service, s) })
 		if st.OOMKilled {
 			return fmt.Errorf("%s passou do limite de memória (%d MB)", c.Service, app.MemoryMB)
 		}
-		return fmt.Errorf("%s parou logo após iniciar (código %d)", c.Service, st.ExitCode)
+		return fmt.Errorf("%s: %s", c.Service, exitReason(st))
 	}
 	return nil
 }

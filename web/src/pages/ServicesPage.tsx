@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Icon } from "../components/Icon";
 import { Buoy } from "../components/Buoy";
+import { ServiceFiles } from "../components/ServiceFiles";
+import { ServiceSecrets } from "../components/ServiceSecrets";
 import { navigate } from "../lib/router";
 import { useToast } from "../lib/session";
 import { useCompact } from "../lib/viewport";
@@ -56,7 +58,7 @@ export function ServicesPage({ params }: { params: URLSearchParams }) {
 
   const open = (id: string) => navigate("servicos", { s: id }, { push: compact });
 
-  if (compact && current) return <ServiceDetail svc={current} info={info.data} />;
+  if (compact && current) return <ServiceDetail key={current.id} svc={current} info={info.data} />;
 
   return (
     <>
@@ -75,7 +77,7 @@ export function ServicesPage({ params }: { params: URLSearchParams }) {
         <div className="empty svc-empty">
           <Buoy tone="idle" />
           <strong>Nenhum serviço ainda</strong>
-          <p>Traga um projeto do GitHub ou de uma pasta do servidor. O Sentinela instala, inicia e mantém o serviço rodando, inclusive depois de reiniciar.</p>
+          <p>Envie um ZIP, traga um projeto do GitHub ou selecione uma pasta do servidor. O Sentinela instala, inicia e acompanha o serviço.</p>
           <button className="btn primary" onClick={() => setCreating(true)} disabled={!info.data || !!info.data.docker_error}>
             <Icon name="plus" /> Novo serviço
           </button>
@@ -150,7 +152,7 @@ function Capacity({ info, onGitHub }: { info: HostingInfo; onGitHub: () => void 
 
 // ---------- detail ----------
 
-type Tab = "out" | "deploy" | "config";
+type Tab = "out" | "deploy" | "files" | "secrets" | "config";
 
 function ServiceDetail({ svc, info }: { svc: Service; info?: HostingInfo }) {
   const qc = useQueryClient();
@@ -165,7 +167,7 @@ function ServiceDetail({ svc, info }: { svc: Service; info?: HostingInfo }) {
     onSuccess: (_, a) => {
       refresh();
       if (a === "deploy") setTab("deploy");
-      toast({ deploy: "Deploy na fila.", start: "Serviço iniciado.", stop: "Serviço parado.", restart: "Serviço reiniciado." }[a]);
+      toast({ deploy: "Deploy na fila.", start: "Início solicitado. Acompanhe o diagnóstico e a saída.", stop: "Serviço parado.", restart: "Reinício solicitado. Acompanhe o diagnóstico e a saída." }[a]);
     },
     onError: (e: Error) => toast(e.message, true),
   });
@@ -226,9 +228,13 @@ function ServiceDetail({ svc, info }: { svc: Service; info?: HostingInfo }) {
         </div>
       </header>
 
-      {svc.needs_deploy && <p className="notice">A fonte ou a preparação mudou. Clique em Atualizar para aplicar.</p>}
+      {svc.needs_deploy && <p className="notice">O projeto ou a preparação mudou. Clique em Atualizar para aplicar.</p>}
       {st.error && st.state !== "deploying" && <p className="notice error">{st.error}</p>}
       {st.oom_killed && <p className="notice error">O serviço passou do limite de memória ({svc.memory_mb} MB). Aumente o limite em Configurações.</p>}
+      {st.job?.phase === "failed" && <p className="notice error" role="alert">Último deploy falhou: {st.job.error} <button className="btn ghost small" onClick={() => setTab("deploy")}>Ver log do deploy</button></p>}
+      {st.last_exit && !running && <p className="notice error" role="alert">{st.last_exit.reason}</p>}
+      {st.retry_at && <p className="notice small">Reinícios pausados para conter as quedas. Próxima tentativa: {new Date(st.retry_at).toLocaleTimeString("pt-BR")}.</p>}
+      <ServiceDiagnostics svc={svc} />
 
       <Links svc={svc} info={info} />
       <Facts svc={svc} />
@@ -238,6 +244,8 @@ function ServiceDetail({ svc, info }: { svc: Service; info?: HostingInfo }) {
           [
             ["out", "Saída"],
             ["deploy", "Deploy"],
+            ["files", "Arquivos"],
+            ["secrets", "Secrets"],
             ["config", "Configurações"],
           ] as const
         ).map(([id, label]) => (
@@ -249,11 +257,24 @@ function ServiceDetail({ svc, info }: { svc: Service; info?: HostingInfo }) {
       <div role="tabpanel">
         {tab === "out" && <LogView svc={svc} />}
         {tab === "deploy" && <DeployLog svc={svc} />}
+        {tab === "files" && <ServiceFiles svc={svc} />}
+        {tab === "secrets" && <ServiceSecrets svc={svc} />}
         {tab === "config" && info && <ConfigTab svc={svc} info={info} />}
       </div>
       {deleting && <DeleteDialog svc={svc} onClose={() => setDeleting(false)} />}
     </div>
   );
+}
+
+function ServiceDiagnostics({ svc }: { svc: Service }) {
+  const st = svc.status;
+  const events = st.events ?? [];
+  if (!st.last_exit && events.length === 0) return null;
+  return <details className="svc-diagnostics" open={st.state === "crashloop" || st.state === "exited" || st.state === "failed"}>
+    <summary>Diagnóstico <span className="muted small">{st.restarts ?? 0} tentativa(s) automática(s){st.last_exit ? ` · última saída: ${st.last_exit.code}` : ""}</span></summary>
+    {st.last_exit && <p className="small">Última parada em {new Date(st.last_exit.at).toLocaleString("pt-BR")}: {st.last_exit.reason}</p>}
+    <ol className="svc-event-list">{events.slice().reverse().map((e,i) => <li key={i}><time className="small muted">{new Date(e.at).toLocaleString("pt-BR")}</time><span>{e.message}</span></li>)}</ol>
+  </details>;
 }
 
 function copy(text: string, toast: (t: string, e?: boolean) => void) {
@@ -377,11 +398,15 @@ function LogPane({ children, empty }: { children: ReactNode; empty: boolean }) {
 }
 
 function LogView({ svc }: { svc: Service }) {
-  const q = useQuery({ queryKey: ["hosting", "logs", svc.id], queryFn: () => hosting.logs(svc.id, 400), refetchInterval: 3_000, enabled: !!svc.deployed });
+  const q = useQuery({ queryKey: ["hosting", "logs", svc.id], queryFn: () => hosting.logs(svc.id, 400), refetchInterval: 3_000 });
+  const [errorsOnly, setErrorsOnly] = useState(false);
   const lines = q.data?.lines ?? [];
   return (
+    <div className="stack-sm">
+      {q.isError && <p className="notice error" role="alert">Não foi possível ler os logs: {q.error.message}</p>}
+      <div className="svc-log-toolbar"><span className="muted small">Saída atualizada a cada 3 segundos · {lines.length} linha(s)</span><span className="grow" /><button className="btn ghost small" aria-pressed={errorsOnly} onClick={() => setErrorsOnly((x) => !x)}>{errorsOnly ? "Mostrar tudo" : "Erros e avisos"}</button><button className="btn ghost small" disabled={!lines.length} onClick={() => downloadLog(svc.id, "saida", lines.map((l) => l.t))}><Icon name="download" /> Baixar log</button></div>
     <LogPane empty={lines.length === 0}>
-      {lines.map((l, i) => {
+      {lines.filter((l) => !errorsOnly || l.s === 2 || /\b(error|erro|falha|failed|exception|fatal)\b/i.test(l.t)).map((l, i) => {
         const { time, text } = splitLogLine(l.t);
         return (
           <span key={i} className={`svc-line${l.s === 2 ? " stderr" : ""}`}>
@@ -393,7 +418,16 @@ function LogView({ svc }: { svc: Service }) {
         );
       })}
     </LogPane>
+    {errorsOnly && lines.length > 0 && !lines.some((l) => l.s === 2 || /\b(error|erro|falha|failed|exception|fatal)\b/i.test(l.t)) && <p className="hint">Nenhum erro ou aviso nestas linhas. Confira também o Diagnóstico: falhas nativas podem encerrar o processo sem escrever no log.</p>}
+    </div>
   );
+}
+
+function downloadLog(id: string, kind: string, lines: string[]) {
+  const url = URL.createObjectURL(new Blob([lines.join("\n") + "\n"], { type: "text/plain;charset=utf-8" }));
+  const link = document.createElement("a");
+  link.href = url; link.download = `${id}-${kind}.log`; link.click();
+  URL.revokeObjectURL(url);
 }
 
 function DeployLog({ svc }: { svc: Service }) {
@@ -403,6 +437,8 @@ function DeployLog({ svc }: { svc: Service }) {
   const lines = q.data?.lines ?? [];
   return (
     <div className="stack-sm">
+      {q.isError && <p className="notice error" role="alert">Não foi possível ler o log do deploy: {q.error.message}</p>}
+      {job?.error && <p className="notice error" role="alert">{job.error}</p>}
       {job && (
         <p className={`small svc-job ${job.phase}`}>
           {job.kind === "recreate" ? "Aplicando configurações" : "Deploy"}: {phaseLabel[job.phase]}
@@ -410,6 +446,7 @@ function DeployLog({ svc }: { svc: Service }) {
           <span className="muted"> {relative(job.started)}</span>
         </p>
       )}
+      <div className="svc-log-toolbar"><span className="small muted">Preparação, início e validação do serviço</span><span className="grow" /><button className="btn ghost small" disabled={!lines.length} onClick={() => downloadLog(svc.id, "deploy", lines)}><Icon name="download" /> Baixar log</button></div>
       <LogPane empty={lines.length === 0}>
         {lines.map((l, i) => (
           <span key={i} className={`svc-line${l.includes("✗") ? " err" : l.includes("✓") ? " ok" : ""}`}>
@@ -483,7 +520,7 @@ function SourceFields({ cfg, set }: { cfg: AppConfig; set: SetCfg }) {
         </div>
       ) : (
         <p className="small">
-          Pasta <strong>{cfg.path}</strong>
+          {cfg.source === "zip" ? "Projeto enviado por ZIP" : <>Pasta de origem <strong>{cfg.path}</strong></>}. Edite o projeto protegido na aba Arquivos.
         </p>
       )}
       <div className="field">
@@ -799,8 +836,22 @@ function NewServiceDialog({ info, onClose, onCreated }: { info: HostingInfo; onC
   const [step, setStep] = useState(0);
   const [cfg, setCfg] = useState<AppConfig>(() => emptyConfig(info));
   const [det, setDet] = useState<Detection | null>(null);
+  const [zipFile, setZipFile] = useState<File | null>(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const uploaded = useRef("");
+  useEffect(() => () => { if (uploaded.current) void hosting.dropUpload(uploaded.current).catch(() => {}); }, []);
   const inspect = useMutation({
-    mutationFn: () => hosting.inspect({ source: cfg.source, repo: normalizeRepo(cfg.repo ?? ""), ref: cfg.ref, path: cfg.path, dir: cfg.dir }),
+    mutationFn: async () => {
+      let sourcePath = cfg.path;
+      if (cfg.source === "zip" && zipFile && !sourcePath) {
+        setUploadProgress(0);
+        const u = await hosting.upload(zipFile, setUploadProgress);
+        sourcePath = u.path;
+        uploaded.current = u.path;
+        setCfg((c) => ({ ...c, path: u.path, name: c.name || zipFile.name.replace(/\.zip$/i, "") }));
+      }
+      return hosting.inspect({ source: cfg.source, repo: normalizeRepo(cfg.repo ?? ""), ref: cfg.ref, path: sourcePath, dir: cfg.dir });
+    },
     onSuccess: (d) => {
       setDet(d);
       setCfg((c) => fromDetection(c, d));
@@ -810,16 +861,24 @@ function NewServiceDialog({ info, onClose, onCreated }: { info: HostingInfo; onC
   const create = useMutation({
     mutationFn: () => hosting.create({ ...cfg, repo: normalizeRepo(cfg.repo ?? "") }, true),
     onSuccess: (s) => {
+      uploaded.current = "";
       void qc.invalidateQueries({ queryKey: ["hosting"] });
       toast("Serviço criado. O primeiro deploy começou.");
       onCreated(s.id);
     },
     onError: (e: Error) => toast(e.message, true),
   });
-  const sourceOk = cfg.source === "github" ? /^[^/\s]+\/[^/\s]+$/.test(normalizeRepo(cfg.repo ?? "")) : !!cfg.path;
+  const sourceOk = cfg.source === "github" ? /^[^/\s]+\/[^/\s]+$/.test(normalizeRepo(cfg.repo ?? "")) : cfg.source === "zip" ? !!zipFile || !!cfg.path : !!cfg.path;
   const problems = formProblems(cfg);
+  const pending = inspect.isPending || create.isPending;
+  const changeSource = (source: AppConfig["source"]) => {
+    if (cfg.source === source) return;
+    if (uploaded.current) { void hosting.dropUpload(uploaded.current).catch(() => {}); uploaded.current = ""; }
+    setZipFile(null); setDet(null); inspect.reset();
+    setCfg((c) => ({ ...c, source, path: "" }));
+  };
   return (
-    <div className="dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="ns-title" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="ns-title" onMouseDown={(e) => e.target === e.currentTarget && !pending && onClose()}>
       <form
         className="dialog wide svc-new"
         onSubmit={(e) => {
@@ -834,14 +893,14 @@ function NewServiceDialog({ info, onClose, onCreated }: { info: HostingInfo; onC
             <h2 id="ns-title">Novo serviço</h2>
             <p className="muted small">O código é copiado para o servidor e roda isolado, com memória e processador limitados.</p>
           </div>
-          <button type="button" className="btn ghost icon small" aria-label="Fechar" onClick={onClose}>
+          <button type="button" className="btn ghost icon small" aria-label="Fechar" disabled={pending} onClick={onClose}>
             <Icon name="x" />
           </button>
         </div>
         <ol className="stepper" aria-label="Etapas">
           {STEPS.map((s, i) => (
             <li key={s} className={i === step ? "on" : i < step ? "done" : ""}>
-              <button type="button" disabled={i > step} onClick={() => setStep(i)}>
+              <button type="button" disabled={i > step || pending} onClick={() => setStep(i)}>
                 <span className="step-n">{i < step ? <Icon name="check" /> : i + 1}</span>
                 {s}
               </button>
@@ -852,12 +911,13 @@ function NewServiceDialog({ info, onClose, onCreated }: { info: HostingInfo; onC
         {step === 0 && (
           <div className="step-body">
             <div className="segmented svc-source" role="group" aria-label="De onde vem o código">
-              <button type="button" aria-pressed={cfg.source === "github"} onClick={() => setCfg((c) => ({ ...c, source: "github" }))}>
+              <button type="button" disabled={pending} aria-pressed={cfg.source === "github"} onClick={() => changeSource("github")}>
                 <Icon name="network" /> GitHub
               </button>
-              <button type="button" aria-pressed={cfg.source === "local"} disabled={!info.local_root} onClick={() => setCfg((c) => ({ ...c, source: "local" }))}>
+              <button type="button" aria-pressed={cfg.source === "local"} disabled={!info.local_root || pending} onClick={() => changeSource("local")}>
                 <Icon name="folder" /> Pasta no servidor
               </button>
+              <button type="button" aria-pressed={cfg.source === "zip"} disabled={pending} onClick={() => changeSource("zip")}><Icon name="upload" /> Enviar ZIP</button>
             </div>
             {cfg.source === "github" ? (
               <div className="svc-grid">
@@ -878,6 +938,17 @@ function NewServiceDialog({ info, onClose, onCreated }: { info: HostingInfo; onC
                   <label htmlFor="ns-ref">Branch</label>
                   <input id="ns-ref" className="input" value={cfg.ref} onChange={(e) => setCfg((c) => ({ ...c, ref: e.target.value }))} spellCheck={false} />
                 </div>
+              </div>
+            ) : cfg.source === "zip" ? (
+              <div className="field svc-zip-upload">
+                <label htmlFor="ns-zip">Projeto em .zip</label>
+                <input id="ns-zip" className="input" type="file" accept=".zip,application/zip" disabled={inspect.isPending} onChange={(e) => {
+                  if (uploaded.current) { void hosting.dropUpload(uploaded.current).catch(() => {}); uploaded.current = ""; }
+                  setZipFile(e.target.files?.[0] ?? null); setCfg((c) => ({ ...c, path: "" })); inspect.reset();
+                }} />
+                <span className="hint">Até 300 MB compactado e 1 GB extraído. Inclua a .env se necessária; seus valores ficam protegidos no servidor. Dependências serão instaladas na preparação.</span>
+                {zipFile && <p className="small">{zipFile.name} · {fmtBytes(zipFile.size)}</p>}
+                {inspect.isPending && <p className="notice small" role="status">{uploadProgress < 100 ? `Enviando ZIP… ${uploadProgress}%` : "ZIP enviado. Extraindo e analisando o projeto…"}</p>}
               </div>
             ) : (
               <FolderPicker root={info.local_root} value={cfg.path ?? ""} onPick={(p) => setCfg((c) => ({ ...c, path: p }))} />
@@ -927,7 +998,7 @@ function NewServiceDialog({ info, onClose, onCreated }: { info: HostingInfo; onC
           )}
           {step === 2 && (
             <button className="btn primary" disabled={problems.length > 0 || create.isPending}>
-              <Icon name="download" /> Criar e implantar
+              <Icon name="download" /> {cfg.source === "local" ? "Mover e implantar" : "Criar e implantar"}
             </button>
           )}
         </div>
@@ -1013,7 +1084,7 @@ function FolderPicker({ root, value, onPick }: { root: string; value: string; on
           </li>
         ))}
       </ul>
-      <p className="hint">Copie o projeto (com a pasta .git, se tiver) para a Nuvem pela rede de casa. node_modules e .venv não são copiados: a preparação instala de novo.</p>
+      <p className="notice small">Ao implantar, esta pasta será transferida da Nuvem para a área protegida de Serviços. Depois, edite seus arquivos pela aba Arquivos. As dependências são instaladas novamente a cada deploy.</p>
     </div>
   );
 }

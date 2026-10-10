@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/cipher"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -48,43 +49,52 @@ type Agent struct {
 	Log     *slog.Logger
 
 	// Host facts, injectable for tests.
-	now       func() time.Time
-	memFreeMB func() int
-	bootID    func() string
-	uptime    func() time.Duration
-	portFree  func(port int, proto string) bool
-	tailnetIP func() string
-	lanIP     func() string
+	now        func() time.Time
+	memFreeMB  func() int
+	bootID     func() string
+	uptime     func() time.Duration
+	portFree   func(port int, proto string) bool
+	tailnetIP  func() string
+	lanIP      func() string
+	settleTime time.Duration
+	fileMu     sync.Mutex // source imports, uploads and editor mutations
 
-	mu      sync.Mutex
-	apps    []*App
-	bootSeq string
-	run     map[string]*svcState
-	ghToken string
-	jobs    chan string // app ids
+	mu          sync.Mutex
+	apps        []*App
+	bootSeq     string
+	run         map[string]*svcState
+	ghToken     string
+	vaultCipher cipher.AEAD
+	vaults      map[string]secretVault
+	jobs        chan string // app ids
 	// startAfter: no service starts before this (host boot delay).
 	startAfter time.Time
 	lastPublic string
 }
 
-// svcState is what the agent knows about a service right now (not stored).
+// svcState holds live container data and the persisted diagnostic history.
 type svcState struct {
 	job       *Job
 	queued    string // "deploy" or "recreate" while waiting in the queue
 	container *ContainerState
 	// Compose: containers seen, and whether `up` ran since the agent started.
-	members   []Summary
-	crashed   []string // members that exited with an error or OOM
-	composeUp bool
-	samples   map[string]*Sample
-	cpu       float64
-	mem       Sample
-	disk      int64
-	diskAt    time.Time
-	restarts  []time.Time
-	pauseTill time.Time
-	err       string
-	log       *ring
+	members      []Summary
+	crashed      []string // members that exited with an error or OOM
+	composeUp    bool
+	samples      map[string]*Sample
+	cpu          float64
+	mem          Sample
+	disk         int64
+	diskAt       time.Time
+	restarts     []time.Time
+	pauseTill    time.Time
+	err          string
+	log          *ring
+	events       []ServiceEvent
+	lastExit     *ServiceExit
+	restartCount int
+	lastStops    map[string]time.Time
+	secrets      []string // includes the candidate release while a deploy runs
 }
 
 // Job is the current or last deploy of a service.
@@ -100,8 +110,8 @@ type Job struct {
 // NewAgent prepares an agent; call Load, then Run.
 func NewAgent(cfg config.Apps, eng Engine, sources map[string]Source, log *slog.Logger) *Agent {
 	return &Agent{Cfg: cfg, Eng: eng, Sources: sources, Log: log, now: time.Now, memFreeMB: memAvailableMB,
-		bootID: hostBootID, uptime: hostUptime, portFree: portFree, tailnetIP: tailnetIPv4, lanIP: lanIPv4,
-		run: map[string]*svcState{}, jobs: make(chan string, 64)}
+		bootID: hostBootID, uptime: hostUptime, portFree: portFree, tailnetIP: tailnetIPv4, lanIP: lanIPv4, settleTime: 10 * time.Second,
+		run: map[string]*svcState{}, jobs: make(chan string, 64), vaults: map[string]secretVault{}}
 }
 
 func (a *Agent) stateFile() string       { return filepath.Join(a.Cfg.StateDir, "state.json") }
@@ -123,6 +133,12 @@ func (a *Agent) workDir(app *App, dep *Deployment) string {
 }
 
 func (a *Agent) source(app *App) (Source, error) {
+	if app.Managed {
+		return projectSource{Dir: filepath.Join(a.appDir(app.ID), "project")}, nil
+	}
+	if app.Source == SourceZip {
+		return projectSource{Dir: filepath.Join(a.Cfg.StateDir, "uploads", app.Path)}, nil
+	}
 	if s := a.Sources[app.Source]; s != nil {
 		return s, nil
 	}
@@ -141,6 +157,9 @@ func (a *Agent) Load() error {
 	if err := os.MkdirAll(filepath.Join(a.Cfg.StateDir, "apps"), 0o750); err != nil {
 		return err
 	}
+	if err := a.openVaultKey(); err != nil {
+		return err
+	}
 	var sf stateFile
 	if b, err := os.ReadFile(a.stateFile()); err == nil {
 		if err := json.Unmarshal(b, &sf); err != nil {
@@ -155,6 +174,41 @@ func (a *Agent) Load() error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.apps = sf.Apps
+	for _, app := range a.apps {
+		v, err := a.readVault(a.vaultFile(app.ID), app.ID)
+		if err != nil {
+			return err
+		}
+		// Migrate older plain-text secret entries on the first upgraded start.
+		var legacy []EnvVar
+		for _, e := range app.Env {
+			if e.Secret || sensitiveKey(e.Key) {
+				e.Secret = true
+				if e.Value != "" {
+					legacy = append(legacy, e)
+				}
+			}
+		}
+		v = mergeVault(v, legacy, nil, false)
+		if err := a.storeVaultLocked(app.ID, v); err != nil {
+			return err
+		}
+		for i := range app.Env {
+			if sensitiveKey(app.Env[i].Key) {
+				app.Env[i].Secret = true
+			}
+			if app.Env[i].Secret {
+				for _, e := range v.Vars {
+					if e.Key == app.Env[i].Key {
+						app.Env[i].Value = e.Value
+					}
+				}
+			}
+		}
+		if app.Deployed != nil {
+			app.Deployed.FileEnv = slices.Clone(v.Vars)
+		}
+	}
 	boot := a.bootID()
 	if sf.BootID != "" && boot != "" && sf.BootID != boot {
 		for _, app := range a.apps {
@@ -169,14 +223,19 @@ func (a *Agent) Load() error {
 		a.startAfter = a.now().Add(time.Duration(a.Cfg.BootDelaySeconds)*time.Second - up)
 	}
 	for _, app := range a.apps {
-		a.rt(app.ID)
+		a.loadDiagnostics(app.ID)
 	}
 	return a.saveLocked()
 }
 
 // saveLocked writes the state file atomically (0600: it holds env values).
 func (a *Agent) saveLocked() error {
-	b, err := json.MarshalIndent(stateFile{BootID: a.bootSeq, Apps: a.apps}, "", " ")
+	apps := make([]*App, len(a.apps))
+	for i, app := range a.apps {
+		safe := app.masked()
+		apps[i] = &safe
+	}
+	b, err := json.MarshalIndent(stateFile{BootID: a.bootSeq, Apps: apps}, "", " ")
 	if err != nil {
 		return err
 	}
@@ -190,7 +249,7 @@ func (a *Agent) saveLocked() error {
 func (a *Agent) rt(id string) *svcState {
 	r := a.run[id]
 	if r == nil {
-		r = &svcState{log: newRing(3000), samples: map[string]*Sample{}}
+		r = &svcState{log: newRing(3000), samples: map[string]*Sample{}, lastStops: map[string]time.Time{}}
 		a.run[id] = r
 	}
 	return r
@@ -219,6 +278,7 @@ func (a *Agent) snapshot(id string) *App {
 	if app.Deployed != nil {
 		d := *app.Deployed
 		d.Services = slices.Clone(app.Deployed.Services)
+		d.FileEnv = slices.Clone(app.Deployed.FileEnv)
 		c.Deployed = &d
 	}
 	return &c
@@ -285,6 +345,7 @@ func (a *Agent) Enqueue(id, kind string) error {
 		if r.queued == "recreate" && kind == "deploy" {
 			r.queued = kind // a deploy also applies the settings
 			r.job.Kind = kind
+			a.saveDiagnosticsLocked(id)
 			return nil
 		}
 		return errBusy
@@ -293,6 +354,7 @@ func (a *Agent) Enqueue(id, kind string) error {
 	r.job = &Job{Kind: kind, Phase: "queued", Started: a.now()}
 	select {
 	case a.jobs <- id:
+		a.saveDiagnosticsLocked(id)
 		return nil
 	default:
 		r.queued, r.job = "", nil
@@ -327,15 +389,16 @@ func (a *Agent) runJob(ctx context.Context, id string) {
 	a.mu.Lock()
 	job.Finished = a.now()
 	if err != nil {
-		job.Phase, job.Error = "failed", err.Error()
-		r.err = err.Error()
+		job.Phase, job.Error = "failed", a.redactLocked(id, err.Error())
+		r.err = job.Error
 	} else {
 		job.Phase, r.err = "done", ""
 	}
+	a.eventLocked(id, "deploy", "Deploy: "+job.Phase+" "+job.Error)
 	a.mu.Unlock()
 	if err != nil {
 		logf("✗ %v", err)
-		a.Log.Warn("apps: job failed", "app", id, "kind", kind, "err", err)
+		a.Log.Warn("apps: job failed", "app", id, "kind", kind, "err", job.Error)
 	} else if kind == "deploy" {
 		logf("✓ Deploy concluído")
 	} else {
@@ -348,6 +411,7 @@ func (a *Agent) setPhase(id, phase string) {
 	a.mu.Lock()
 	if r := a.run[id]; r != nil && r.job != nil {
 		r.job.Phase = phase
+		a.saveDiagnosticsLocked(id)
 	}
 	a.mu.Unlock()
 }
@@ -355,6 +419,7 @@ func (a *Agent) setPhase(id, phase string) {
 func (a *Agent) logLine(id, line string) {
 	a.mu.Lock()
 	r := a.rt(id)
+	line = a.redactLocked(id, line)
 	a.mu.Unlock()
 	r.log.add(a.now().Format("15:04:05") + " " + line)
 }
@@ -376,6 +441,10 @@ func (a *Agent) deploy(ctx context.Context, id string, job *Job, logf func(strin
 	if app == nil {
 		return errNoApp
 	}
+	if err := a.importProject(ctx, app, logf); err != nil {
+		return err
+	}
+	app = a.snapshot(id)
 	src, err := a.source(app)
 	if err != nil {
 		return err
@@ -383,7 +452,9 @@ func (a *Agent) deploy(ctx context.Context, id string, job *Job, logf func(strin
 	if free := a.memFreeMB(); free > 0 && free < minFreeMB {
 		return fmt.Errorf("pouca memória livre no servidor (%d MB): deploy adiado para proteger as gravações", free)
 	}
-	if app.Source == SourceLocal {
+	if app.Managed {
+		logf("Lendo o projeto protegido de %s", app.Name)
+	} else if app.Source == SourceLocal {
 		logf("Lendo a pasta %s", app.Path)
 	} else {
 		logf("Buscando %s @ %s", app.Repo, app.Ref)
@@ -398,7 +469,7 @@ func (a *Agent) deploy(ctx context.Context, id string, job *Job, logf func(strin
 	if v.Commit != "" {
 		logf("Commit %s %s %s", v.Commit[:12], v.Branch, v.Message)
 	}
-	rel := v.Label + "-" + strconv.FormatInt(a.now().Unix(), 36)
+	rel := v.Label + "-" + strconv.FormatInt(a.now().UnixNano(), 36)
 	dir := a.releaseDir(id, rel)
 	partial := dir + ".partial"
 	_ = os.RemoveAll(partial)
@@ -417,6 +488,16 @@ func (a *Agent) deploy(ctx context.Context, id string, job *Job, logf func(strin
 	work := a.workDir(app, dep)
 	if st, err := os.Stat(work); err != nil || !st.IsDir() {
 		return fail(fmt.Errorf("a pasta %q não existe na fonte", app.Dir))
+	}
+	if err = a.absorbEnv(ctx, id, dir); err != nil {
+		return fail(err)
+	}
+	a.mu.Lock()
+	dep.FileEnv = slices.Clone(a.vaults[id].Vars)
+	a.rt(id).secrets = envSecrets(dep.FileEnv)
+	a.mu.Unlock()
+	if len(dep.FileEnv) > 0 {
+		logf("Injetando %d variáveis do gerenciador de secrets", len(dep.FileEnv))
 	}
 	for _, d := range []string{"data", "cache"} {
 		if err := os.MkdirAll(filepath.Join(a.appDir(id), d), 0o750); err != nil {
@@ -463,6 +544,17 @@ func (a *Agent) deploy(ctx context.Context, id string, job *Job, logf func(strin
 			return err // keep the release: it is what runs now
 		}
 	} else if err := a.activate(ctx, cur, dep, logf); err != nil {
+		if cur.Deployed != nil && cur.Desired == Running {
+			logf("A nova versão falhou; restaurando a versão anterior")
+			restoreCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
+			restoreErr := a.activate(restoreCtx, cur, cur.Deployed, logf)
+			cancel()
+			if restoreErr != nil {
+				err = fmt.Errorf("%w; restauração falhou: %v", err, restoreErr)
+			}
+		} else {
+			_ = a.Eng.Remove(ctx, containerName(id))
+		}
 		return fail(err)
 	}
 	a.mu.Lock()
@@ -645,15 +737,15 @@ func (a *Agent) activate(ctx context.Context, app *App, dep *Deployment, logf fu
 		return err
 	}
 	if st == nil || !st.Running {
-		code := 0
-		if st != nil {
-			code = st.ExitCode
-		}
+		a.mu.Lock()
+		a.rt(app.ID).container = st
+		a.observeExitLocked(app.ID, name, st)
+		a.mu.Unlock()
 		_ = a.Eng.Logs(ctx, name, LogOptions{Tail: 30}, func(_ int, s string) { logf("  %s", s) })
-		if st != nil && st.OOMKilled {
-			return fmt.Errorf("o serviço passou do limite de memória (%d MB) e foi encerrado", app.MemoryMB)
+		if st != nil {
+			return errors.New(exitReason(st))
 		}
-		return fmt.Errorf("o serviço parou logo após iniciar (código %d); veja o log acima", code)
+		return errors.New("o contêiner desapareceu durante a validação do início")
 	}
 	a.mu.Lock()
 	a.rt(app.ID).container = st
@@ -663,9 +755,7 @@ func (a *Agent) activate(ctx context.Context, app *App, dep *Deployment, logf fu
 }
 
 // settleTime is how long a fresh container must survive (short in tests).
-var settleTime = 3 * time.Second
-
-func (a *Agent) settle() time.Duration { return settleTime }
+func (a *Agent) settle() time.Duration { return a.settleTime }
 
 // canStart enforces the shared limits before a service (re)starts.
 func (a *Agent) canStart(app *App) error {
@@ -727,7 +817,7 @@ func (a *Agent) scriptSpec(app *App, dep *Deployment) Spec {
 	return Spec{
 		Image: dep.Image, WorkingDir: wd, User: user,
 		Binds: []string{a.releaseDir(app.ID, dep.Release) + ":/app", filepath.Join(base, "data") + ":/data", filepath.Join(base, "cache") + ":/cache"},
-		Env:   a.env(app, true),
+		Env:   a.envFor(app, dep, true),
 	}
 }
 
@@ -742,7 +832,7 @@ func (a *Agent) spec(app *App, dep *Deployment) (Spec, error) {
 		}
 		s.Cmd = []string{"sh", "-c", start}
 	} else {
-		s = Spec{Image: dep.Image, Env: a.env(app, false),
+		s = Spec{Image: dep.Image, Env: a.envFor(app, dep, false),
 			Binds: []string{filepath.Join(a.appDir(app.ID), "data") + ":/data"}}
 		if strings.TrimSpace(app.Start) != "" {
 			s.Cmd = []string{"sh", "-c", app.Start}
@@ -771,6 +861,10 @@ func (a *Agent) spec(app *App, dep *Deployment) (Spec, error) {
 // env is the service's environment: Sentinela's defaults, then the user's
 // variables (which win).
 func (a *Agent) env(app *App, script bool) []string {
+	return a.envFor(app, app.Deployed, script)
+}
+
+func (a *Agent) envFor(app *App, dep *Deployment, script bool) []string {
 	vars := map[string]string{}
 	var order []string
 	set := func(k, v string) {
@@ -792,6 +886,17 @@ func (a *Agent) env(app *App, script bool) []string {
 			{"DENO_DIR", "/cache/deno"}} {
 			set(kv[0], kv[1])
 		}
+	}
+	if dep != nil {
+		for _, e := range dep.FileEnv {
+			set(e.Key, e.Value)
+		}
+	}
+	a.mu.Lock()
+	secrets := slices.Clone(a.vaults[app.ID].Vars)
+	a.mu.Unlock()
+	for _, e := range secrets {
+		set(e.Key, e.Value)
 	}
 	for _, e := range app.Env {
 		set(e.Key, e.Value)
@@ -830,6 +935,9 @@ func (a *Agent) noteRestart(r *svcState, id string, now time.Time) bool {
 	if now.Before(r.pauseTill) {
 		return false
 	}
+	if !r.pauseTill.IsZero() {
+		r.pauseTill, r.err = time.Time{}, ""
+	}
 	cut := now.Add(-crashWindow)
 	r.restarts = slices.DeleteFunc(r.restarts, func(t time.Time) bool { return t.Before(cut) })
 	r.restarts = append(r.restarts, now)
@@ -838,19 +946,21 @@ func (a *Agent) noteRestart(r *svcState, id string, now time.Time) bool {
 		r.restarts = nil
 		r.err = fmt.Sprintf("parou %d vezes em %s; nova tentativa em %s", crashLimit, crashWindow, crashPause)
 		a.Log.Warn("apps: crash loop, pausing", "app", id)
+		a.eventLocked(id, "pause", r.err)
 		return false
 	}
+	r.restartCount++
+	a.eventLocked(id, "restart", fmt.Sprintf("Tentativa automática de início #%d", r.restartCount))
 	return true
 }
 
-func (a *Agent) reconcileOne(ctx context.Context, id string) {
+func (a *Agent) reconcileOne(ctx context.Context, id string) error {
 	app := a.snapshot(id)
 	if app == nil {
-		return
+		return errNoApp
 	}
 	if app.Mode == ModeCompose {
-		a.reconcileCompose(ctx, app)
-		return
+		return a.reconcileCompose(ctx, app)
 	}
 	name := containerName(id)
 	st, err := a.Eng.Inspect(ctx, name)
@@ -860,17 +970,21 @@ func (a *Agent) reconcileOne(ctx context.Context, id string) {
 	busy := a.busyLocked(r)
 	if err == nil {
 		r.container = st
+		if !busy && app.Desired == Running {
+			a.observeExitLocked(id, name, st)
+		}
 	}
 	startAfter := a.startAfter
 	a.mu.Unlock()
 	if err != nil || busy || app.Deployed == nil {
-		return
+		a.noteErr(id, err)
+		return err
 	}
 	running := st != nil && st.Running
 	switch {
 	case app.Desired == Running && !running:
 		if now.Before(startAfter) {
-			return
+			return nil
 		}
 		// Every attempt counts toward the crash-loop pause, so a service that
 		// cannot start is not retried every 15 s forever.
@@ -878,7 +992,7 @@ func (a *Agent) reconcileOne(ctx context.Context, id string) {
 		ok := a.noteRestart(r, id, now)
 		a.mu.Unlock()
 		if !ok {
-			return
+			return nil
 		}
 		var err error
 		if st == nil {
@@ -892,18 +1006,22 @@ func (a *Agent) reconcileOne(ctx context.Context, id string) {
 			r.container = now
 			a.mu.Unlock()
 		}
+		return err
 	case app.Desired == Stopped && running:
-		a.noteErr(id, a.Eng.Stop(ctx, name, stopGrace))
+		err := a.Eng.Stop(ctx, name, stopGrace)
+		a.noteErr(id, err)
+		return err
 	case running:
 		a.sample(ctx, id, []string{name})
 	}
+	return nil
 }
 
 // reconcileCompose keeps a compose project up: once per agent start (after
 // a reboot, containers exist but are stopped) it runs `up`; later only
 // containers that crashed (non-zero exit, OOM) are started again, so
 // finished one-off jobs stay finished.
-func (a *Agent) reconcileCompose(ctx context.Context, app *App) {
+func (a *Agent) reconcileCompose(ctx context.Context, app *App) error {
 	id := app.ID
 	members, err := a.projectContainers(ctx, id)
 	now := a.now()
@@ -916,7 +1034,8 @@ func (a *Agent) reconcileCompose(ctx context.Context, app *App) {
 	upDone, startAfter := r.composeUp, a.startAfter
 	a.mu.Unlock()
 	if err != nil || busy || app.Deployed == nil {
-		return
+		a.noteErr(id, err)
+		return err
 	}
 	var running []string
 	for _, m := range members {
@@ -927,20 +1046,24 @@ func (a *Agent) reconcileCompose(ctx context.Context, app *App) {
 	switch {
 	case app.Desired == Stopped:
 		for _, n := range running {
-			a.noteErr(id, a.Eng.Stop(ctx, n, stopGrace))
+			err := a.Eng.Stop(ctx, n, stopGrace)
+			a.noteErr(id, err)
+			if err != nil {
+				return err
+			}
 		}
 		a.mu.Lock()
 		r.composeUp = false
 		a.mu.Unlock()
-		return
+		return nil
 	case now.Before(startAfter):
-		return
+		return nil
 	case !upDone || len(members) == 0:
 		a.mu.Lock()
 		ok := a.noteRestart(r, id, now)
 		a.mu.Unlock()
 		if !ok {
-			return
+			return nil
 		}
 		err := a.canStart(app)
 		if err == nil {
@@ -950,7 +1073,7 @@ func (a *Agent) reconcileCompose(ctx context.Context, app *App) {
 		r.composeUp = err == nil
 		a.mu.Unlock()
 		a.noteErr(id, err)
-		return
+		return err
 	}
 	var crashed []string
 	for _, m := range members {
@@ -962,6 +1085,9 @@ func (a *Agent) reconcileCompose(ctx context.Context, app *App) {
 			continue
 		}
 		crashed = append(crashed, m.Name)
+		a.mu.Lock()
+		a.observeExitLocked(id, m.Name, st)
+		a.mu.Unlock()
 	}
 	a.mu.Lock()
 	r.crashed = crashed
@@ -973,21 +1099,18 @@ func (a *Agent) reconcileCompose(ctx context.Context, app *App) {
 		if !ok {
 			break
 		}
-		a.noteErr(id, a.Eng.Start(ctx, name))
+		err := a.Eng.Start(ctx, name)
+		a.noteErr(id, err)
+		if err != nil {
+			return err
+		}
 	}
 	a.sample(ctx, id, running)
+	return nil
 }
 
 func (a *Agent) noteErr(id string, err error) {
-	if err == nil {
-		return
-	}
-	a.mu.Lock()
-	if r := a.run[id]; r != nil {
-		r.err = err.Error()
-	}
-	a.mu.Unlock()
-	a.Log.Warn("apps: supervise", "app", id, "err", err)
+	a.rememberError(id, err)
 }
 
 // sample reads resource usage of the running containers; CPU% comes from

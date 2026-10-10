@@ -299,7 +299,7 @@ func TestDeployScriptService(t *testing.T) {
 	if got.Deployed == nil || got.Desired != Running || got.Status.State != "running" || got.Status.Job.Phase != "done" {
 		t.Fatalf("after deploy: %+v %+v", got.App, got.Status)
 	}
-	if eng.called("pull node:22-alpine") != 1 || eng.called("create sapp-meu-bot-setup") != 1 || eng.called("rm sapp-meu-bot-setup") == 0 {
+	if eng.called("pull node:22-bookworm-slim") != 1 || eng.called("create sapp-meu-bot-setup") != 1 || eng.called("rm sapp-meu-bot-setup") == 0 {
 		t.Fatalf("calls %v", eng.calls)
 	}
 	c := eng.containers["sapp-meu-bot"]

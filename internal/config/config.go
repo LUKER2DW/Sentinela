@@ -97,13 +97,15 @@ type Apps struct {
 
 // DefaultRuntimes are the base images offered for script services.
 var DefaultRuntimes = map[string]string{
-	"node":   "node:22-alpine",
-	"python": "python:3.13-slim",
-	"go":     "golang:1.26-alpine",
-	"bun":    "oven/bun:1-alpine",
-	"deno":   "denoland/deno:alpine",
-	"static": "busybox:1.37",
-	"shell":  "alpine:3.22",
+	// glibc's canvas builds support the household i5 without AVX.
+	"node":        "node:22-bookworm-slim",
+	"node-alpine": "node:22-alpine",
+	"python":      "python:3.13-slim",
+	"go":          "golang:1.26-alpine",
+	"bun":         "oven/bun:1-alpine",
+	"deno":        "denoland/deno:alpine",
+	"static":      "busybox:1.37",
+	"shell":       "alpine:3.22",
 }
 
 // Remote configures the ADR-0019 trial paths. Requests on FunnelListen and

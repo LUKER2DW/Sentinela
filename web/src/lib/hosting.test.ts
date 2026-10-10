@@ -33,6 +33,7 @@ describe("hosting helpers", () => {
     expect(sourceText(cfg())).toBe("ana/bot");
     expect(sourceText(cfg({ ref: "dev", dir: "api" }))).toBe("ana/bot @ dev / api");
     expect(sourceText(cfg({ source: "local", path: "ana/bot" }))).toBe("pasta ana/bot");
+    expect(sourceText(cfg({ source: "zip", path: "0123456789abcdef01234567" }))).toBe("Projeto enviado por ZIP");
     expect(versionText({ commit: "0123456789abcdef", version: "0123456789ab" })).toBe("0123456");
     expect(versionText({ commit: "", version: "local-20261001-101500" })).toBe("pasta de 20261001-101500");
   });
@@ -48,6 +49,7 @@ describe("hosting helpers", () => {
     expect(stateTone("running")).toBe("ok");
     expect(stateTone("deploying")).toBe("busy");
     expect(stateTone("crashloop")).toBe("bad");
+    expect(stateTone("failed")).toBe("bad");
     expect(stateTone("stopped")).toBe("idle");
   });
 
@@ -58,5 +60,7 @@ describe("hosting helpers", () => {
     expect(formProblems(cfg({ runtime: "static", start: "" }))).toEqual([]);
     expect(formProblems(cfg({ env: [{ key: "A", value: "" }, { key: "A", value: "" }] }))).toHaveLength(1);
     expect(formProblems(cfg({ source: "local", path: "" }))).toHaveLength(1);
+    expect(formProblems(cfg({ source: "zip", path: "" }))).toHaveLength(1);
+    expect(formProblems(cfg({ source: "zip", path: "0123456789abcdef01234567" }))).toEqual([]);
   });
 });

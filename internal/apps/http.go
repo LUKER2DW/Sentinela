@@ -45,15 +45,19 @@ type Status struct {
 	Error     string     `json:"error,omitempty"`
 	Job       *Job       `json:"job,omitempty"`
 	// Containers of a compose service, running/total.
-	Running int     `json:"running,omitempty"`
-	Total   int     `json:"total,omitempty"`
-	CPU     float64 `json:"cpu_pct"`
-	Mem     uint64  `json:"mem_bytes"`
-	MemMax  uint64  `json:"mem_limit"`
-	NetRx   uint64  `json:"net_rx"`
-	NetTx   uint64  `json:"net_tx"`
-	Pids    uint64  `json:"pids"`
-	Disk    int64   `json:"disk_bytes"`
+	Running  int            `json:"running,omitempty"`
+	Total    int            `json:"total,omitempty"`
+	CPU      float64        `json:"cpu_pct"`
+	Mem      uint64         `json:"mem_bytes"`
+	MemMax   uint64         `json:"mem_limit"`
+	NetRx    uint64         `json:"net_rx"`
+	NetTx    uint64         `json:"net_tx"`
+	Pids     uint64         `json:"pids"`
+	Disk     int64          `json:"disk_bytes"`
+	LastExit *ServiceExit   `json:"last_exit,omitempty"`
+	Restarts int            `json:"restarts"`
+	RetryAt  *time.Time     `json:"retry_at,omitempty"`
+	Events   []ServiceEvent `json:"events,omitempty"`
 }
 
 // Link is an address the service answers on.
@@ -80,7 +84,20 @@ func (a *Agent) view(app *App, r *svcState) View {
 	st := &v.Status
 	running := false
 	if r != nil {
-		st.Job, st.Error, st.Disk = r.job, r.err, r.disk
+		st.Error, st.Disk, st.Restarts = r.err, r.disk, r.restartCount
+		st.Events = slices.Clone(r.events)
+		if r.job != nil {
+			j := *r.job
+			st.Job = &j
+		}
+		if r.lastExit != nil {
+			x := *r.lastExit
+			st.LastExit = &x
+		}
+		if a.now().Before(r.pauseTill) {
+			t := r.pauseTill
+			st.RetryAt = &t
+		}
 		if app.Mode == ModeCompose {
 			st.Total = len(r.members)
 			for _, m := range r.members {
@@ -107,6 +124,8 @@ func (a *Agent) view(app *App, r *svcState) View {
 	switch {
 	case r != nil && a.busyLocked(r):
 		st.State = "deploying"
+	case !running && r != nil && r.job != nil && r.job.Phase == "failed":
+		st.State = "failed"
 	case app.Deployed == nil:
 		st.State = "never"
 	case running && app.Desired == Running && app.Mode == ModeCompose && r.composeUp && st.Running < composeExpected(r):
@@ -264,6 +283,12 @@ func (a *Agent) Create(in App) (View, error) {
 		in.CPUs = a.Cfg.CPUs
 	}
 	in.Desired, in.Deployed, in.NeedsDeploy = Stopped, nil, false
+	in.Managed = false // a client cannot select protected paths by claiming ownership
+	for i := range in.Env {
+		if sensitiveKey(in.Env[i].Key) {
+			in.Env[i].Secret = true
+		}
+	}
 	if err := in.Validate(a.limits()); err != nil {
 		return View{}, err
 	}
@@ -286,8 +311,18 @@ func (a *Agent) Create(in App) (View, error) {
 	in.CreatedAt = a.now().UTC()
 	in.UpdatedAt = in.CreatedAt
 	app := in
+	var secrets []EnvVar
+	for _, e := range in.Env {
+		if e.Secret {
+			secrets = append(secrets, e)
+		}
+	}
+	if err := a.storeVaultLocked(app.ID, secretVault{Vars: secrets}); err != nil {
+		return View{}, err
+	}
 	a.apps = append(a.apps, &app)
 	if err := a.saveLocked(); err != nil {
+		a.apps = a.apps[:len(a.apps)-1]
 		return View{}, err
 	}
 	return a.view(&app, a.rt(app.ID)), nil
@@ -304,7 +339,21 @@ func (a *Agent) Update(id string, in App) (View, error) {
 		a.mu.Unlock()
 		return View{}, errNoApp
 	}
-	mergeSecrets(in.Env, cur.Env)
+	if a.busyLocked(a.rt(id)) {
+		a.mu.Unlock()
+		return View{}, errBusy
+	}
+	for i := range in.Env {
+		if sensitiveKey(in.Env[i].Key) || slices.ContainsFunc(a.vaults[id].Vars, func(e EnvVar) bool { return e.Key == in.Env[i].Key }) {
+			in.Env[i].Secret = true
+		}
+	}
+	mergeSecrets(in.Env, a.vaults[id].Vars)
+	in.Managed = cur.Managed
+	if cur.Managed && (in.Source != cur.Source || in.Path != cur.Path) {
+		a.mu.Unlock()
+		return View{}, errors.New("edite o projeto protegido na aba Arquivos; para outra fonte, crie outro serviço")
+	}
 	in.Desired, in.Deployed, in.CreatedAt = cur.Desired, cur.Deployed, cur.CreatedAt
 	if in.Mode == ModeCompose && cur.Mode == ModeCompose {
 		in.Ports = cur.Ports // they come from the Compose file
@@ -321,6 +370,28 @@ func (a *Agent) Update(id string, in App) (View, error) {
 	runChanged := !slices.Equal(cur.Env, in.Env) || !slices.Equal(cur.Ports, in.Ports) || cur.Exposure != in.Exposure ||
 		cur.MemoryMB != in.MemoryMB || cur.CPUs != in.CPUs || cur.Start != in.Start || cur.Root != in.Root
 	in.UpdatedAt = a.now().UTC()
+	vault := a.vaults[id]
+	// Imported keys stay in the manager; removing a manually configured
+	// secret also removes that entry from the encrypted vault.
+	vault.Vars = slices.Clone(vault.Vars)
+	for _, prev := range cur.Env {
+		if prev.Secret && !slices.ContainsFunc(in.Env, func(e EnvVar) bool { return e.Key == prev.Key && e.Secret }) {
+			vault.Vars = slices.DeleteFunc(vault.Vars, func(e EnvVar) bool { return e.Key == prev.Key })
+		}
+	}
+	for _, e := range in.Env {
+		if e.Secret {
+			vault = mergeVault(vault, []EnvVar{e}, nil, true)
+		}
+	}
+	if len(vault.Vars) > maxEnv {
+		a.mu.Unlock()
+		return View{}, errors.New("limite de 64 secrets atingido")
+	}
+	if err := a.storeVaultLocked(id, vault); err != nil {
+		a.mu.Unlock()
+		return View{}, err
+	}
 	*cur = in
 	err := a.saveLocked()
 	v := a.view(cur, a.run[id])
@@ -338,6 +409,8 @@ func (a *Agent) Update(id string, in App) (View, error) {
 
 // Delete stops and removes a service with its files, volumes and images.
 func (a *Agent) Delete(ctx context.Context, id string) error {
+	a.fileMu.Lock()
+	defer a.fileMu.Unlock()
 	app := a.snapshot(id)
 	if app == nil {
 		return errNoApp
@@ -366,6 +439,7 @@ func (a *Agent) Delete(ctx context.Context, id string) error {
 	a.mu.Lock()
 	a.apps = slices.DeleteFunc(a.apps, func(x *App) bool { return x.ID == id })
 	delete(a.run, id)
+	delete(a.vaults, id)
 	err := a.saveLocked()
 	a.mu.Unlock()
 	if rerr := os.RemoveAll(a.appDir(id)); err == nil {
@@ -414,9 +488,9 @@ func (a *Agent) SetDesired(ctx context.Context, id, desired string) error {
 		a.refresh(ctx, id, mode)
 		return nil
 	}
-	a.reconcileOne(ctx, id)
+	err = a.reconcileOne(ctx, id)
 	a.refresh(ctx, id, mode)
-	return nil
+	return err
 }
 
 // refresh re-reads a service's containers so the answer to an action shows
@@ -501,6 +575,21 @@ func (a *Agent) Inspect(ctx context.Context, in App) (Detection, error) {
 		return Detection{}, err
 	}
 	d.Version = &v
+	var env secretVault
+	if in.Source == SourceZip {
+		env, err = a.readVault(a.uploadVaultFile(in.Path), "upload:"+in.Path)
+	} else {
+		env, err = collectEnv(ctx, tmp)
+	}
+	if err != nil {
+		return Detection{}, err
+	}
+	for _, e := range env.Vars {
+		d.EnvKeys = append(d.EnvKeys, e.Key)
+	}
+	if len(env.Files) > 0 {
+		d.Notes = append(d.Notes, fmt.Sprintf("%d variáveis detectadas: serão guardadas no gerenciador de secrets; os arquivos .env serão removidos do projeto", len(env.Vars)))
+	}
 	return d, nil
 }
 
@@ -566,7 +655,7 @@ func (a *Agent) Logs(ctx context.Context, id string, tail int) ([]LogLine, error
 	lines := []LogLine{}
 	for _, t := range targets {
 		err := a.Eng.Logs(ctx, t.name, LogOptions{Tail: tail, Timestamps: true}, func(s int, text string) {
-			lines = append(lines, LogLine{Stream: s, Text: text, Service: t.svc})
+			lines = append(lines, LogLine{Stream: s, Text: a.safeText(id, text), Service: t.svc})
 		})
 		if err != nil && !errors.Is(err, errNotFound) {
 			return nil, err
@@ -592,6 +681,16 @@ func (a *Agent) Handler(token string) http.Handler {
 	mux.HandleFunc("GET /v1/apps", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, http.StatusOK, a.Views()) })
 	mux.HandleFunc("POST /v1/apps", a.hCreate)
 	mux.HandleFunc("POST /v1/inspect", a.hInspect)
+	mux.HandleFunc("POST /v1/uploads", a.hUpload)
+	mux.HandleFunc("DELETE /v1/uploads/{upload}", a.hDropUpload)
+	mux.HandleFunc("GET /v1/apps/{id}/files", a.hFiles)
+	mux.HandleFunc("GET /v1/apps/{id}/files/text", a.hReadFile)
+	mux.HandleFunc("PUT /v1/apps/{id}/files/text", a.hWriteFile)
+	mux.HandleFunc("PUT /v1/apps/{id}/files/upload", a.hUploadFile)
+	mux.HandleFunc("POST /v1/apps/{id}/files/folder", a.hMkdir)
+	mux.HandleFunc("DELETE /v1/apps/{id}/files", a.hDeleteFile)
+	mux.HandleFunc("GET /v1/apps/{id}/secrets", a.hSecrets)
+	mux.HandleFunc("PUT /v1/apps/{id}/secrets", a.hSaveSecrets)
 	mux.HandleFunc("GET /v1/local", a.hLocal)
 	mux.HandleFunc("GET /v1/apps/{id}", func(w http.ResponseWriter, r *http.Request) {
 		v, err := a.viewOf(r.PathValue("id"))
@@ -657,8 +756,9 @@ func (a *Agent) hInfo(w http.ResponseWriter, r *http.Request) {
 		"docker": ver, "docker_error": derr,
 		"hosts":      map[string]string{"lan": lan, "tailnet": tailnet, "public": public},
 		"port_first": a.Cfg.PortFirst, "port_last": a.Cfg.PortLast,
-		"runtimes":   a.Cfg.Runtimes,
-		"local_root": local,
+		"runtimes":         a.Cfg.Runtimes,
+		"local_root":       local,
+		"max_upload_bytes": maxDownload,
 		"limits": map[string]any{"memory_mb": a.Cfg.MemoryMB, "max_memory_mb": a.Cfg.MaxMemoryMB, "total_memory_mb": a.Cfg.TotalMemoryMB,
 			"cpus": a.Cfg.CPUs, "max_cpus": a.Cfg.MaxCPUs, "build_cpus": a.Cfg.BuildCPUs, "build_memory_mb": a.Cfg.BuildMemoryMB, "max_apps": a.Cfg.MaxApps},
 		"used_memory_mb": used, "apps": n, "mem_free_mb": a.memFreeMB(),
@@ -787,14 +887,21 @@ func (a *Agent) hDeployLog(w http.ResponseWriter, r *http.Request) {
 	if lines == nil {
 		lines = []string{}
 	}
+	for i := range lines {
+		lines[i] = a.safeText(id, lines[i])
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"job": job, "lines": lines})
 }
 
 func readBody(w http.ResponseWriter, r *http.Request, v any) bool {
-	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256<<10))
+	return readBodySize(w, r, v, 256<<10)
+}
+
+func readBodySize(w http.ResponseWriter, r *http.Request, v any, limit int64) bool {
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, limit))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(v); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body: " + err.Error()})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "corpo JSON inválido ou maior que o limite"})
 		return false
 	}
 	return true

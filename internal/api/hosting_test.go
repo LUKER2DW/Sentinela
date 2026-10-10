@@ -96,7 +96,9 @@ func TestHostingZonePolicy(t *testing.T) {
 		}
 	}
 	for _, c := range [][2]string{{"POST", "/api/hosting/apps"}, {"PUT", "/api/hosting/apps/bot"}, {"DELETE", "/api/hosting/apps/bot"},
-		{"PUT", "/api/hosting/github-token"}, {"POST", "/api/hosting/inspect"}} {
+		{"PUT", "/api/hosting/github-token"}, {"POST", "/api/hosting/inspect"}, {"POST", "/api/hosting/uploads"},
+		{"PUT", "/api/hosting/apps/bot/secrets"}, {"PUT", "/api/hosting/apps/bot/files/text"}, {"PUT", "/api/hosting/apps/bot/files/upload"},
+		{"DELETE", "/api/hosting/apps/bot/files"}} {
 		if code := call(c[0], c[1]); code != 403 {
 			t.Errorf("%s %s from outside = %d, want 403", c[0], c[1], code)
 		}

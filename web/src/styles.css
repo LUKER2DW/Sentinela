@@ -2574,7 +2574,7 @@ a.svc-url:hover { text-decoration: underline; }
 .svc-msg { color: var(--muted); }
 .svc-mem { display: block; margin-top: 6px; height: 6px; }
 
-.svc-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); }
+.svc-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); overflow-x: auto; }
 .svc-tabs button { height: 38px; padding: 0 14px; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px; background: none; color: var(--muted);
   font: inherit; font-weight: 600; cursor: pointer; }
 .svc-tabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--sea); }
@@ -2628,6 +2628,26 @@ textarea.input { height: auto; padding: 9px 12px; resize: vertical; line-height:
 .svc-folder-name { font-weight: 500; overflow-wrap: anywhere; }
 .svc-folders li:not(.on):hover { background: var(--surface-2); }
 
+.svc-log-toolbar, .svc-file-toolbar, .svc-file-create { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.svc-file-toolbar .grow, .svc-log-toolbar .grow { flex: 1; }
+.svc-files { min-width: 0; }
+.svc-file-create .input { flex: 1; min-width: 120px; }
+.svc-file-list { list-style: none; padding: 4px; margin: 0; border: 1px solid var(--line); border-radius: var(--r-md); max-height: 440px; overflow: auto; }
+.svc-file-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; gap: 12px; align-items: center; padding: 5px 8px; border-radius: var(--r-sm); }
+.svc-file-list li:hover { background: var(--surface-2); }
+.svc-file-name { display: flex; align-items: center; gap: 10px; border: 0; background: none; padding: 6px 0; cursor: pointer; color: inherit; text-align: left; font: inherit; min-width: 0; }
+.svc-file-name svg { width: 18px; height: 18px; flex: none; color: var(--sea-strong); }
+.svc-file-name span { overflow-wrap: anywhere; }
+.svc-file-text { min-height: 360px; width: 100%; tab-size: 2; }
+.svc-file-delete { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.svc-file-delete p { flex: 1; margin: 0; }
+.svc-secret-row, .svc-file-editor .svc-row.env { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto; align-items: center; gap: 8px; }
+.svc-diagnostics { padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--r-md); }
+.svc-diagnostics summary { cursor: pointer; font-weight: 600; }
+.svc-diagnostics summary span { font-weight: 400; margin-left: 8px; }
+.svc-event-list { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 10px; max-height: 220px; overflow: auto; }
+.svc-event-list li { display: grid; grid-template-columns: 155px minmax(0, 1fr); gap: 10px; font-size: 0.85rem; overflow-wrap: anywhere; }
+
 @media (max-width: 1100px) {
   .svc-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
@@ -2649,6 +2669,11 @@ textarea.input { height: auto; padding: 9px 12px; resize: vertical; line-height:
   .svc-row.env { grid-template-columns: minmax(0, 1fr) auto auto; }
   .svc-row.env input:nth-child(2) { grid-column: 1 / -1; grid-row: 2; }
   .svc-log { height: 52dvh; }
+  .svc-file-date { display: none; }
+  .svc-file-list li { grid-template-columns: minmax(0, 1fr) auto auto; gap: 6px; }
+  .svc-secret-row, .svc-file-editor .svc-row.env { grid-template-columns: minmax(0, 1fr) auto; }
+  .svc-secret-row input:nth-child(2), .svc-file-editor .svc-row.env input:nth-child(2) { grid-column: 1 / -1; grid-row: 2; }
+  .svc-event-list li { grid-template-columns: 1fr; gap: 2px; }
 }
 
 /* ---------- detection overlay on the live view (ADR-0016) ---------- */

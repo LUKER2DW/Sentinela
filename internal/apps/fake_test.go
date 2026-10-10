@@ -26,7 +26,10 @@ type fakeEngine struct {
 	// setupExit is the exit code of "-setup" containers.
 	setupExit int
 	// crash: service containers stop right after starting.
-	crash bool
+	crash        bool
+	crashVersion string
+	crashExit    int
+	output       string
 	// compose: stdout of `docker compose config`, and the project members.
 	composeConfig string
 	members       []Summary
@@ -118,9 +121,13 @@ func (f *fakeEngine) Start(_ context.Context, name string) error {
 		return errNotFound
 	}
 	helper := strings.HasSuffix(name, "-setup") || strings.HasSuffix(name, "-compose")
-	c.running = !helper && !f.crash
-	if f.crash && !helper {
-		c.exit = 1
+	crash := f.crash || f.crashVersion != "" && c.spec.Labels["sentinela.version"] == f.crashVersion
+	c.running = !helper && !crash
+	if crash && !helper {
+		c.exit = f.crashExit
+		if c.exit == 0 {
+			c.exit = 1
+		}
 	}
 	if strings.HasSuffix(name, "-setup") {
 		c.exit = f.setupExit
@@ -160,6 +167,7 @@ func (f *fakeEngine) Logs(_ context.Context, name string, _ LogOptions, line fun
 	f.mu.Lock()
 	c := f.containers[name]
 	cfg := f.composeConfig
+	output := f.output
 	f.mu.Unlock()
 	if c != nil && strings.HasSuffix(name, "-compose") && slices.Contains(c.spec.Cmd, "config") {
 		for _, l := range strings.Split(cfg, "\n") {
@@ -168,6 +176,9 @@ func (f *fakeEngine) Logs(_ context.Context, name string, _ LogOptions, line fun
 		return nil
 	}
 	line(1, "2026-10-01T10:00:00.000000000Z hello from "+name)
+	if output != "" {
+		line(2, output)
+	}
 	return nil
 }
 func (f *fakeEngine) Inspect(_ context.Context, name string) (*ContainerState, error) {
@@ -238,10 +249,10 @@ func testAppsCfg(t *testing.T) config.Apps {
 // newTestAgent returns an agent with fakes and instant settling.
 func newTestAgent(t *testing.T) (*Agent, *fakeEngine, *fakeSource) {
 	t.Helper()
-	settleTime = 0
 	eng := newFakeEngine()
 	src := &fakeSource{sha: "0123456789abcdef0123456789abcdef01234567", files: map[string]string{"package.json": `{"scripts":{"start":"node x"}}`}}
 	a := NewAgent(testAppsCfg(t), eng, map[string]Source{SourceGitHub: src}, quiet)
+	a.settleTime = 0
 	a.memFreeMB = func() int { return 2000 }
 	a.bootID = func() string { return "boot-1" }
 	a.uptime = func() time.Duration { return time.Hour }

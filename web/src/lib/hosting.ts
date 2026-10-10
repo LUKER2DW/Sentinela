@@ -1,7 +1,7 @@
 // Client for the self-hosted services API (/api/hosting/*, ADR-0021). The
 // API forwards to the apps agent; admins only, changes from home/tailnet.
 import { useQuery } from "@tanstack/react-query";
-import { api, get } from "./api";
+import { api, apiUpload, get } from "./api";
 
 /** Whether this user may open the Serviços page (admin, platform on). */
 export function useHostingEnabled(): boolean {
@@ -13,10 +13,10 @@ export function useHostingEnabled(): boolean {
   return !!q.data?.features?.hosting;
 }
 
-export type Source = "github" | "local";
+export type Source = "github" | "local" | "zip";
 export type Mode = "script" | "dockerfile" | "compose";
 export type Exposure = "local" | "lan" | "tailnet" | "public";
-export type State = "never" | "deploying" | "running" | "partial" | "stopped" | "exited" | "crashloop" | "waiting";
+export type State = "never" | "deploying" | "running" | "partial" | "stopped" | "exited" | "crashloop" | "waiting" | "failed";
 
 export interface EnvVar {
   key: string;
@@ -74,6 +74,7 @@ export interface AppConfig {
 }
 
 export interface Service extends AppConfig {
+  managed: boolean;
   desired: "running" | "stopped";
   deployed?: Deployment;
   needs_deploy: boolean;
@@ -95,6 +96,10 @@ export interface Service extends AppConfig {
     net_tx: number;
     pids: number;
     disk_bytes: number;
+    last_exit?: { at: string; code: number; oom: boolean; reason: string; container?: string };
+    restarts: number;
+    retry_at?: string;
+    events?: { at: string; kind: string; message: string }[];
   };
   links: { kind: "lan" | "tailnet" | "public" | "local" | "internal"; url: string; service?: string }[];
 }
@@ -122,9 +127,11 @@ export interface HostingInfo {
   mem_free_mb: number;
   github_token: boolean;
   boot_waiting: boolean;
+  max_upload_bytes: number;
 }
 
 export interface Detection {
+  env_keys?: string[];
   mode: Mode;
   runtime?: string;
   setup?: string;
@@ -147,6 +154,13 @@ export interface LocalFolder {
 const base = "/api/hosting";
 const enc = encodeURIComponent;
 
+export type FileScope = "project" | "data";
+export interface ProjectFile { name: string; path: string; dir: boolean; bytes: number; modified: string; secret: boolean }
+export interface FileDocument { kind: "text" | "env"; revision: string; content?: string; env?: EnvVar[] }
+export interface ServiceSecrets { env: EnvVar[]; files: string[] | null; encrypted: boolean; revision: string }
+const filesURL = (id: string, scope: FileScope, path: string, action = "") =>
+  `${base}/apps/${enc(id)}/files${action}?scope=${scope}&path=${enc(path)}`;
+
 export const hosting = {
   info: () => get<HostingInfo>(`${base}/info`),
   list: () => get<Service[]>(`${base}/apps`),
@@ -163,6 +177,23 @@ export const hosting = {
   local: (path: string) => get<{ root: string; path: string; folders: LocalFolder[] }>(`${base}/local?path=${enc(path)}`),
   setToken: (token: string) => api<{ ok: boolean }>("PUT", `${base}/github-token`, { token }),
   dropToken: () => api<{ ok: boolean }>("DELETE", `${base}/github-token`),
+  upload: (file: File, progress?: (percent: number) => void) => {
+    if (!file.name.toLowerCase().endsWith(".zip")) return Promise.reject(new Error("Escolha um arquivo .zip."));
+    if (file.size > 300 * 1024 * 1024) return Promise.reject(new Error("O ZIP deve ter no máximo 300 MB."));
+    return apiUpload<{ path: string; bytes: number }>("POST", `${base}/uploads`, file, progress);
+  },
+  dropUpload: (path: string) => api<{ ok: boolean }>("DELETE", `${base}/uploads/${enc(path)}`),
+  secrets: (id: string) => get<ServiceSecrets>(`${base}/apps/${enc(id)}/secrets`),
+  saveSecrets: (id: string, env: EnvVar[], revision: string) => api<{ ok: boolean; restarting: boolean }>("PUT", `${base}/apps/${enc(id)}/secrets`, { env, revision }),
+  files: (id: string, scope: FileScope, path: string) => get<{ entries: ProjectFile[] }>(filesURL(id, scope, path)),
+  readFile: (id: string, scope: FileScope, path: string) => get<FileDocument>(filesURL(id, scope, path, "/text")),
+  writeFile: (id: string, scope: FileScope, path: string, doc: FileDocument) => api<{ ok: boolean; secrets_imported?: boolean }>("PUT", filesURL(id, scope, path, "/text"), doc),
+  mkdir: (id: string, scope: FileScope, path: string) => api<{ ok: boolean }>("POST", filesURL(id, scope, path, "/folder")),
+  deleteFile: (id: string, scope: FileScope, path: string) => api<{ ok: boolean }>("DELETE", filesURL(id, scope, path)),
+  uploadFile: (id: string, scope: FileScope, path: string, file: File, progress?: (percent: number) => void) => {
+    if (file.size > 50 * 1024 * 1024) return Promise.reject(new Error("Cada arquivo deve ter no máximo 50 MB."));
+    return apiUpload<{ ok: boolean; secrets_imported?: boolean }>("PUT", filesURL(id, scope, path, "/upload"), file, progress);
+  },
 };
 
 // ---------- pure helpers (tested) ----------
@@ -176,6 +207,7 @@ export const stateLabel: Record<State, string> = {
   exited: "Parou sozinho",
   crashloop: "Caindo repetidamente",
   waiting: "Aguardando o servidor ligar",
+  failed: "Falha no deploy",
 };
 
 /** The buoy colour of a state: ok, busy, bad or idle. */
@@ -189,6 +221,7 @@ export function stateTone(s: State): "ok" | "busy" | "bad" | "idle" {
     case "exited":
     case "crashloop":
     case "partial":
+    case "failed":
       return "bad";
   }
   return "idle";
@@ -234,7 +267,7 @@ export const validRepo = (s: string) => /^[A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z
 
 /** Where the code comes from, in a few words. */
 export function sourceText(a: Pick<AppConfig, "source" | "repo" | "ref" | "path" | "dir">): string {
-  const where = a.source === "local" ? `pasta ${a.path}` : `${a.repo}${a.ref && a.ref !== "main" ? ` @ ${a.ref}` : ""}`;
+  const where = a.source === "zip" ? "Projeto enviado por ZIP" : a.source === "local" ? `pasta ${a.path}` : `${a.repo}${a.ref && a.ref !== "main" ? ` @ ${a.ref}` : ""}`;
   return a.dir ? `${where} / ${a.dir}` : where;
 }
 
@@ -256,6 +289,7 @@ export function splitLogLine(line: string): { time: string; text: string } {
 /** Starting commands for a runtime when nothing was detected. */
 export const runtimeDefaults: Record<string, { setup: string; start: string; port: number }> = {
   node: { setup: "npm ci || npm install", start: "npm start", port: 3000 },
+  "node-alpine": { setup: "npm ci || npm install", start: "npm start", port: 3000 },
   python: {
     setup: "python -m venv .venv && .venv/bin/pip install -r requirements.txt",
     start: ".venv/bin/python main.py",
@@ -270,6 +304,7 @@ export const runtimeDefaults: Record<string, { setup: string; start: string; por
 
 export const runtimeLabel: Record<string, string> = {
   node: "Node.js",
+  "node-alpine": "Node.js Alpine",
   python: "Python",
   go: "Go",
   bun: "Bun",
@@ -309,6 +344,7 @@ export function formProblems(c: AppConfig): string[] {
   if (!c.name.trim()) out.push("Dê um nome ao serviço.");
   if (c.source === "github" && !validRepo(c.repo ?? "")) out.push("Informe o repositório como dono/nome.");
   if (c.source === "local" && !c.path) out.push("Escolha a pasta do projeto.");
+  if (c.source === "zip" && !c.path) out.push("Envie o ZIP do projeto.");
   if (c.mode === "script" && c.runtime !== "static" && !c.start?.trim()) out.push("Informe o comando que inicia o serviço.");
   const keys = new Set<string>();
   for (const e of c.env) {

@@ -29,6 +29,7 @@ const (
 const (
 	SourceGitHub = "github"
 	SourceLocal  = "local"
+	SourceZip    = "zip"
 )
 
 // Exposure says who can reach a service's ports.
@@ -55,6 +56,8 @@ type App struct {
 	Ref  string `json:"ref,omitempty"`
 	// Path is the folder of a local source, relative to apps.local_root.
 	Path string `json:"path,omitempty"`
+	// Managed sources live in the service's protected project directory.
+	Managed bool `json:"managed"`
 	// Dir is an optional subdirectory of the source (monorepos).
 	Dir     string `json:"dir,omitempty"`
 	Mode    string `json:"mode"`
@@ -117,6 +120,8 @@ type Deployment struct {
 	Image    string    `json:"image"`
 	Release  string    `json:"release"` // directory under releases/
 	At       time.Time `json:"at"`
+	// FileEnv is private deployment configuration, never returned to clients.
+	FileEnv []EnvVar `json:"-"`
 }
 
 var (
@@ -190,14 +195,19 @@ func (a *App) Validate(l Limits) error {
 	case SourceLocal:
 		a.Repo, a.Ref = "", ""
 		a.Path = cleanRel(a.Path)
-		if !l.Local {
+		if !l.Local && !a.Managed {
 			bad("local folders are not enabled on this server (apps.local_root)")
 		}
 		if a.Path == "" || !validRel(a.Path) {
 			bad("folder: a path inside the local root")
 		}
+	case SourceZip:
+		a.Repo, a.Ref = "", ""
+		if !uploadPattern.MatchString(a.Path) {
+			bad("archive: upload a ZIP project first")
+		}
 	default:
-		bad("source: github or local")
+		bad("source: github, local or zip")
 	}
 	if a.Dir != "" && !validRel(a.Dir) {
 		bad("subfolder: a relative path inside the source")
@@ -330,6 +340,11 @@ func (a App) masked() App {
 	}
 	a.Env = env
 	a.Ports = append([]Port(nil), a.Ports...)
+	if a.Deployed != nil {
+		d := *a.Deployed
+		d.FileEnv = nil
+		a.Deployed = &d
+	}
 	return a
 }
 

@@ -51,7 +51,10 @@ func (s GitHubSource) Snapshot(ctx context.Context, app *App, v Version, dir str
 // LocalSource reads project folders under Root (the Nuvem by default): a
 // project copied there with its .git deploys like a repository, at the
 // commit its working copy is on. Everything is read through os.Root.
-type LocalSource struct{ Root string }
+type LocalSource struct {
+	Root    string
+	Working bool
+}
 
 func (s LocalSource) open(rel string) (*os.Root, error) {
 	if s.Root == "" {
@@ -77,7 +80,7 @@ func (s LocalSource) Resolve(_ context.Context, app *App) (Version, error) {
 		return Version{}, err
 	}
 	defer r.Close()
-	if v, ok := gitHead(r); ok {
+	if v, ok := gitHead(r); ok && !s.Working {
 		return v, nil
 	}
 	newest := time.Time{}
@@ -96,7 +99,11 @@ func (s LocalSource) Resolve(_ context.Context, app *App) (Version, error) {
 	if newest.IsZero() {
 		return Version{}, errors.New("a pasta está vazia")
 	}
-	return Version{Label: "local-" + newest.UTC().Format("20060102-150405")}, nil
+	format := "20060102-150405"
+	if s.Working {
+		format += ".000000000"
+	}
+	return Version{Label: "local-" + newest.UTC().Format(format)}, nil
 }
 
 // skipDir: folders never copied from a local project (VCS internals, and

@@ -31,6 +31,7 @@ type Detection struct {
 	Found   []string `json:"found"`
 	Notes   []string `json:"notes,omitempty"`
 	Version *Version `json:"version,omitempty"`
+	EnvKeys []string `json:"env_keys,omitempty"`
 }
 
 // ComposeService summarizes one service of a Compose file.

@@ -93,7 +93,7 @@ services:
 
   # Self-hosted services agent (ADR-0021): the only container with the
   # Docker socket, so it is root-equivalent; it gets no camera secrets, no
-  # recordings and only a read-only view of the Nuvem (local projects).
+  # recordings; Nuvem access lets it transfer the selected local project.
   # Its API listens on loopback with the token sentinela serve writes to
   # /data/apps-agent. Started only with the "apps" profile, which
   # deploy.sh enables while /etc/sentinela/apps-enabled exists
@@ -116,7 +116,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - /data/apps-agent:/data/apps-agent:ro
       - /var/lib/sentinela-apps:/var/lib/sentinela-apps
-      - /srv/nas:/srv/nas:ro
+      - /srv/nas:/srv/nas
     tmpfs: [/tmp]
     restart: unless-stopped
     stop_grace_period: 15s

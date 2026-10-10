@@ -32,8 +32,8 @@ The host is an old CPU with 4 GB RAM that must keep recording
 process with `/var/run/docker.sock` — root-equivalent — so it has no
 network listener except `127.0.0.1:7091`, accepts only loopback requests
 with a token (`/data/apps-agent/token`, written by `sentinela serve`), gets
-no camera secrets, no recordings, and the Nuvem read-only (local
-projects). It runs as uid 1000 in the docker group, read-only root,
+no camera secrets, no recordings, and access to the configured Nuvem root
+for explicitly selected local project transfers. It runs as uid 1000 in the docker group, read-only root,
 no capabilities, 0.5 CPU, 128 MB. The internet-facing API never touches
 Docker: `/api/hosting/*` forwards to the agent after the usual session,
 role and CSRF checks.
@@ -49,9 +49,44 @@ audited (never request bodies: they carry environment values).
 redirect (no git binary, no arbitrary URLs); a fine-grained read-only
 token is optional for private repositories, stored 0600 and never
 returned. Local folders come from `apps.local_root` (default the Nuvem),
-read through `os.Root`; branch and commit are read from `.git` without
-git. Snapshots skip `.git`, `node_modules`, `.venv`. Archives are
-extracted through `os.Root` (no `..`, no symlink escapes), ≤ 1 GB.
+read through `os.Root`. As amended by the owner's request on 2026-10-10,
+the first deploy copies the selected folder into a private per-service
+`project` directory on the system disk, commits ownership, then removes
+the original from Nuvem. Failure before ownership is saved preserves the
+original. The services explorer edits this owned working tree and persistent
+`data`, with bounded UTF-8 editing, file/folder creation, upload and deletion;
+changes to code require Update. Git internals and agent files are inaccessible
+through the explorer; paths and symlinks cannot escape the selected root.
+Snapshots use the current working files and skip `.git`, `node_modules`,
+`.venv`. Direct ZIP upload accepts ≤ 300 MiB compressed / 1 GiB extracted,
+100,000 entries, no traversal, links or duplicate files. One enclosing
+folder is stripped; unused uploads expire after 24 hours (at most five
+pending projects). GitHub downloads retain their repository update flow.
+
+**Secrets (owner amendment, 2026-10-10).** Real `.env`, `.env.*`, other
+`.env`-prefixed names and `*.env` files are parsed as literal dotenv,
+including quoted multiline values; example/sample/template files are left
+as templates. All imported variables move to an AES-256-GCM vault outside
+project and release directories, authenticated for that service. Files are
+deleted only after the encrypted vault is saved. Upload staging also uses
+an encrypted vault; editor/upload of an env file imports directly without
+writing plaintext. The key is a server-only 0600 `secrets.key`, vaults are
+0600 `apps/<id>/secrets.enc`; backups must include both. A missing key with
+existing vaults fails closed. Legacy manually marked secrets are migrated
+out of the state JSON on upgrade; credential-like variable names are
+automatically marked secret.
+
+The manager returns names and blank values, supports replacement/addition/
+deletion, checks revisions to reject stale edits, and recreates a running
+service after saving. Blank values preserve existing entries. Setup and
+runtime receive variables through Docker environment, including Compose
+interpolation and member environments; rendered Compose files keep variable
+references instead of vault values. The vault protects storage in the
+agent's state, not a compromised root/Docker account or the service that
+legitimately receives its own secrets. Known values (including a bounded
+encrypted rotation history) are redacted from dashboard output, deploy
+logs and errors; JSON/YAML credential fields and private keys are masked
+or refused in the text editor. No values are returned by the secrets API.
 
 **Three ways to run**, suggested by detection (compose file, Dockerfile,
 package.json/bun/deno, requirements/pyproject, go.mod, index.html):
@@ -84,6 +119,16 @@ host boot (new `boot_id`), only services marked to start automatically
 come back, and none before the host has been up `boot_delay_seconds`
 (default 120 s), so the NVR starts first. Compose one-off jobs that exit 0
 are left alone.
+Startup validation waits 10 seconds. Deployment errors, last exit code,
+OOM/SIGILL explanation, restart count, pause deadline and 40 diagnostic
+events persist across agent restarts. A failed single-container update
+attempts to restore the previously running release and keeps the failure
+visible in the dashboard. Logs remain readable for failed/stopped services,
+with separate deploy/output views and download/filter controls. The default
+Node runtime is Debian (`node:22-bookworm-slim`), tested with native canvas
+on the household CPU without AVX; Alpine remains an explicit option.
+`scripts/deploy.sh --services` updates only the API/dashboard and apps
+agent, leaving independent recorders and media containers running.
 
 **Network and exposure.** Services join bridges named `sn-*` (`sn-apps`,
 or one per Compose network). Ports come from `apps.port_first..last`

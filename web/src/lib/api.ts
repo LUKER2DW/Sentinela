@@ -239,6 +239,29 @@ export async function api<T>(method: string, path: string, body?: unknown): Prom
 
 export const get = <T>(path: string) => api<T>("GET", path);
 
+/** Binary upload with session, CSRF, readable errors and byte progress. */
+export function apiUpload<T>(method: string, path: string, file: Blob, progress?: (percent: number) => void): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const req = new XMLHttpRequest();
+    req.open(method, path);
+    req.withCredentials = true;
+    req.setRequestHeader("Content-Type", file.type || "application/octet-stream");
+    if (csrf) req.setRequestHeader("X-CSRF-Token", csrf);
+    req.upload.onprogress = (e) => { if (e.lengthComputable) progress?.(Math.round(e.loaded / e.total * 100)); };
+    req.onerror = () => reject(new Error("O envio foi interrompido. Confira a conexão e tente novamente."));
+    req.onabort = () => reject(new Error("Envio cancelado."));
+    req.onload = () => {
+      let data: unknown;
+      try { data = JSON.parse(req.responseText); } catch { data = null; }
+      if (req.status < 200 || req.status >= 300) {
+        if (req.status === 401) unauthorizedListeners.forEach((l) => l());
+        reject(new ApiError(req.status, (data as { error?: string } | null)?.error ?? `HTTP ${req.status}`));
+      } else resolve(data as T);
+    };
+    req.send(file);
+  });
+}
+
 /** GET /api/system, also syncing the UI clock to the server's. */
 export async function fetchSystem(): Promise<SystemInfo> {
   const t0 = Date.now();

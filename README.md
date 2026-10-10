@@ -54,6 +54,7 @@ From the development PC:
 
 ```bash
 ./scripts/deploy.sh
+./scripts/deploy.sh --services  # somente API/dashboard e Serviços; mantém gravadores
 ```
 
 The script builds images locally, sends them over SSH using
