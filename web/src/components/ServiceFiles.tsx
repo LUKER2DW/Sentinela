@@ -60,7 +60,7 @@ export function ServiceFiles({ svc }: { svc: Service }) {
         <button aria-pressed={scope === "project"} disabled={!svc.managed} onClick={() => { setScope("project"); changeFolder(""); }}><Icon name="folder" /> Projeto protegido</button>
         <button aria-pressed={scope === "data"} disabled={!svc.deployed} onClick={() => { setScope("data"); changeFolder(""); }}><Icon name="archive" /> Dados persistentes</button>
       </div>
-      <p className="hint">{scope === "project" ? "As alterações ficam guardadas e entram em execução ao clicar em Atualizar. A .env pode ser editada sem revelar os valores guardados." : "Estes dados sobrevivem aos deploys. Alterá-los afeta o serviço atual; pare o serviço antes de editar arquivos que ele esteja usando."}</p>
+      <p className="hint">{scope === "project" ? "As alterações ficam guardadas e entram em execução ao clicar em Atualizar. Arquivos .env enviados são importados para a aba Secrets e removidos do projeto." : "Estes dados sobrevivem aos deploys. Alterá-los afeta o serviço atual; pare o serviço antes de editar arquivos que ele esteja usando."}</p>
       {!svc.managed && <p className="hint">Projetos locais e ZIP são transferidos para a área protegida no primeiro deploy. Projetos GitHub são atualizados pelo repositório.</p>}
       {error && <p className="notice error" role="alert">{error.message}</p>}
       {selected ? (

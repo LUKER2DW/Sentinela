@@ -229,10 +229,10 @@ function ServiceDetail({ svc, info }: { svc: Service; info?: HostingInfo }) {
       </header>
 
       {svc.needs_deploy && <p className="notice">O projeto ou a preparação mudou. Clique em Atualizar para aplicar.</p>}
-      {st.error && st.state !== "deploying" && <p className="notice error">{st.error}</p>}
+      {st.error && st.state !== "deploying" && st.error !== st.job?.error && (running || st.error !== st.last_exit?.reason) && <p className="notice error">{st.error}</p>}
       {st.oom_killed && <p className="notice error">O serviço passou do limite de memória ({svc.memory_mb} MB). Aumente o limite em Configurações.</p>}
       {st.job?.phase === "failed" && <p className="notice error" role="alert">Último deploy falhou: {st.job.error} <button className="btn ghost small" onClick={() => setTab("deploy")}>Ver log do deploy</button></p>}
-      {st.last_exit && !running && <p className="notice error" role="alert">{st.last_exit.reason}</p>}
+      {st.last_exit && !running && st.last_exit.reason !== st.job?.error && <p className="notice error" role="alert">{st.last_exit.reason}</p>}
       {st.retry_at && <p className="notice small">Reinícios pausados para conter as quedas. Próxima tentativa: {new Date(st.retry_at).toLocaleTimeString("pt-BR")}.</p>}
       <ServiceDiagnostics svc={svc} />
 
@@ -438,7 +438,7 @@ function DeployLog({ svc }: { svc: Service }) {
   return (
     <div className="stack-sm">
       {q.isError && <p className="notice error" role="alert">Não foi possível ler o log do deploy: {q.error.message}</p>}
-      {job?.error && <p className="notice error" role="alert">{job.error}</p>}
+      {job?.error && job.error !== svc.status.job?.error && <p className="notice error" role="alert">{job.error}</p>}
       {job && (
         <p className={`small svc-job ${job.phase}`}>
           {job.kind === "recreate" ? "Aplicando configurações" : "Deploy"}: {phaseLabel[job.phase]}
