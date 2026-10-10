@@ -19,7 +19,9 @@ func TestStatusWriterReadFrom(t *testing.T) {
 		t.Fatal(err)
 	}
 	var sw *statusWriter
+	done := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer close(done)
 		if _, ok := w.(io.ReaderFrom); !ok {
 			t.Error("server writer has no ReadFrom")
 		}
@@ -35,6 +37,7 @@ func TestStatusWriterReadFrom(t *testing.T) {
 	}
 	n, _ := io.Copy(io.Discard, res.Body)
 	res.Body.Close()
+	<-done // the client can receive the body before ReadFrom updates its counters
 	if n != 100_000 || sw.code != http.StatusOK || sw.bytes != 100_000 {
 		t.Fatalf("got %d bytes, logged code %d bytes %d", n, sw.code, sw.bytes)
 	}
