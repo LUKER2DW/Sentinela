@@ -333,7 +333,8 @@ func (a *Agent) hSaveSecrets(w http.ResponseWriter, r *http.Request) {
 		Env      []EnvVar `json:"env"`
 		Revision string   `json:"revision"`
 	}
-	if !readBody(w, r, &body) {
+	// 64 values of 8 KiB can occupy over 3 MiB after JSON escaping.
+	if !readBodySize(w, r, &body, 4<<20) {
 		return
 	}
 	id := r.PathValue("id")

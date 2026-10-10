@@ -108,6 +108,28 @@ func TestHostingZonePolicy(t *testing.T) {
 	}
 }
 
+func TestHostingLargeSecretsBody(t *testing.T) {
+	const size = 3 << 20 // JSON escaping can expand 64 x 8 KiB to 3 MiB.
+	agent := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n, err := io.Copy(io.Discard, r.Body)
+		if err != nil || n != size {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(agent.Close)
+	_, srv := newTestServerWith(t, "apps: {enabled: true, agent: "+strings.TrimPrefix(agent.URL, "http://")+"}\n")
+	r := httptest.NewRequest(http.MethodPut, "/api/hosting/apps/bot/secrets", strings.NewReader(strings.Repeat("x", size)))
+	ctx := context.WithValue(r.Context(), zoneKey, ZoneLAN)
+	ctx = context.WithValue(ctx, userKey, &store.User{ID: 1, Username: "admin", Role: "admin"})
+	w := httptest.NewRecorder()
+	srv.hostingProxy(w, r.WithContext(ctx))
+	if w.Code != http.StatusOK {
+		t.Fatalf("large secrets body: %d %s", w.Code, w.Body.String())
+	}
+}
+
 func TestHostingOff(t *testing.T) {
 	ts, _ := newTestServer(t)
 	admin := newClient(t, ts.URL)

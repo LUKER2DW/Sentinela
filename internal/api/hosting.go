@@ -109,7 +109,7 @@ func (s *Server) hostingProxy(w http.ResponseWriter, r *http.Request) {
 		limit = 300 << 20
 	case r.Method == http.MethodPut && strings.HasSuffix(rest, "/files/upload"):
 		limit = 50 << 20
-	case r.Method == http.MethodPut && strings.HasSuffix(rest, "/files/text"):
+	case r.Method == http.MethodPut && (strings.HasSuffix(rest, "/files/text") || strings.HasSuffix(rest, "/secrets")):
 		limit = 4 << 20
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, limit)

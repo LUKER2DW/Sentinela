@@ -4,12 +4,47 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"slices"
 	"strings"
 	"testing"
 )
+
+func TestManagerAcceptsMaximumEscapedValues(t *testing.T) {
+	a, _, _ := newTestAgent(t)
+	v, err := a.Create(nodeApp())
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := appRequest(t, a, http.MethodGet, "/v1/apps/"+v.ID+"/secrets", nil)
+	var doc struct {
+		Env      []EnvVar `json:"env"`
+		Revision string   `json:"revision"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &doc); err != nil {
+		t.Fatal(err)
+	}
+	doc.Env = make([]EnvVar, maxEnv)
+	for i := range doc.Env {
+		doc.Env[i] = EnvVar{Key: fmt.Sprintf("SECRET_%02d", i), Value: strings.Repeat("\x01", maxEnvVal), Secret: true}
+	}
+	body, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w = appRequest(t, a, http.MethodPut, "/v1/apps/"+v.ID+"/secrets", body)
+	if w.Code != http.StatusOK {
+		t.Fatalf("save maximum values: %d %s", w.Code, w.Body.String())
+	}
+	if err := a.Load(); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(a.vaults[v.ID].Vars, doc.Env) {
+		t.Fatal("maximum values did not survive reload")
+	}
+}
 
 func TestVaultKeyAndAuthentication(t *testing.T) {
 	a, _, _ := newTestAgent(t)
