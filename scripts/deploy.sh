@@ -27,7 +27,7 @@ SSH=(ssh -i "$KEY" -o BatchMode=yes -o ConnectTimeout=10 "$HOST")
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 if (( SERVICES_ONLY )); then
-  "${SSH[@]}" 'test -f /etc/sentinela/apps-enabled' || { echo "!! services are not enabled on this server" >&2; exit 1; }
+  "${SSH[@]}" 'sudo test -f /etc/sentinela/apps-enabled' || { echo "!! services are not enabled on this server" >&2; exit 1; }
 fi
 
 VERSION="$(git describe --always --dirty 2>/dev/null || echo dev)"
@@ -68,7 +68,7 @@ echo "==> restart stack"
 # The self-hosted services agent (ADR-0021) runs only while
 # scripts/setup-apps.sh has left its marker; it joins the docker group.
 # shellcheck disable=SC2016 # expanded on the server
-APPS_ENV='SENTINELA_DOCKER_GID=$(getent group docker | cut -d: -f3) COMPOSE_PROFILES=$(test -f /etc/sentinela/apps-enabled && echo apps)'
+APPS_ENV='SENTINELA_DOCKER_GID=$(getent group docker | cut -d: -f3) COMPOSE_PROFILES=$(sudo test -f /etc/sentinela/apps-enabled && echo apps)'
 if (( SERVICES_ONLY )); then
   "${SSH[@]}" "cd /opt/sentinela/deploy && sudo SENTINELA_VERSION=${VERSION} ${APPS_ENV} docker compose up -d --no-build --no-deps sentinela apps"
 else
