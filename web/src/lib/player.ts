@@ -65,6 +65,32 @@ const TRANSPORT_TTL = 10 * 60_000;
 const MAX_QUEUE_MS = 2_000;
 const MAX_QUEUE_BYTES = 8 * 1024 * 1024;
 
+// Live-edge guard for WebRTC. The camera's Wi-Fi delivers every 150 KB
+// keyframe 0.35–0.7 s late (measured 2026-11-06); Chrome's adaptive jitter
+// buffer answers by growing without bound (0.3 s → 2 s in under a minute,
+// and jitterBufferTarget cannot cap it). Above this delay for
+// LAG_SAMPLES checks in a row, the view moves to MSE, whose catch-up keeps
+// the delay bounded.
+export const WEBRTC_MAX_DELAY = 1.0;
+const LAG_CHECK_MS = 2_000;
+const LAG_SAMPLES = 3;
+
+// MSE live edge: seek when further behind than MSE_SEEK_LAG, keep about
+// MSE_CUSHION buffered (at the very edge every late fragment is a stall).
+export const MSE_SEEK_LAG = 1.2;
+const MSE_CUSHION = 0.3;
+
+/** Playback rate that drains an MSE backlog of `lag` seconds. */
+export function catchUpRate(lag: number): number {
+  return lag > 0.7 ? 1.12 : lag > 0.45 ? 1.05 : 1;
+}
+
+/** True when the last `n` delay samples all exceed `limit` (null = unknown). */
+export function persistentlyLate(samples: (number | null)[], limit = WEBRTC_MAX_DELAY, n = LAG_SAMPLES): boolean {
+  if (samples.length < n) return false;
+  return samples.slice(-n).every((s) => s !== null && s > limit);
+}
+
 export function webrtcRecentlyFailed(now = Date.now()): boolean {
   try {
     const at = Number(localStorage.getItem(transportKey()) ?? 0);
@@ -105,6 +131,8 @@ export class LivePlayer {
   private objectUrl?: string;
   private transport?: Transport;
   private webrtcFailedAt = 0;
+  private lagTimer?: number;
+  private lagSamples: (number | null)[] = [];
   private micOn = false;
   // Bumped by every connect/teardown: a connect still waiting for its ticket
   // when a newer one starts gives up instead of opening a second socket.
@@ -304,6 +332,7 @@ export class LivePlayer {
         this.retry = 0;
         void this.video.play().catch(() => {});
         rememberWebrtc(true);
+        this.watchWebrtcLag(pc);
         this.emit({ state: "playing", transport: "webrtc" });
       } else if (pc.connectionState === "failed") {
         if (!this.opts.talk) this.fallbackToMSE();
@@ -327,6 +356,25 @@ export class LivePlayer {
     this.fallbackTimer = window.setTimeout(() => {
       if (pc === this.pc && pc.connectionState !== "connected" && !this.opts.talk) this.fallbackToMSE();
     }, 6000);
+  }
+
+  /** Moves a WebRTC view whose jitter buffer keeps growing to MSE (not while talking: talk needs WebRTC). */
+  private watchWebrtcLag(pc: RTCPeerConnection) {
+    window.clearTimeout(this.lagTimer);
+    this.lagSamples = [];
+    if (this.opts.talk || this.opts.prefer === "webrtc") return;
+    const check = () => {
+      this.lagTimer = window.setTimeout(() => {
+        if (pc !== this.pc) return;
+        void this.bufferDelay().then((d) => {
+          if (pc !== this.pc) return;
+          this.lagSamples = [...this.lagSamples.slice(-(LAG_SAMPLES - 1)), d];
+          if (persistentlyLate(this.lagSamples)) this.fallbackToMSE();
+          else check();
+        });
+      }, LAG_CHECK_MS);
+    };
+    check();
   }
 
   private fallbackToMSE() {
@@ -419,11 +467,11 @@ export class LivePlayer {
         // jump only when far behind. A small cushion stays buffered: at the
         // very edge every late fragment is a visible stall.
         const lag = end - this.video.currentTime;
-        if (lag > 1.5 || this.video.currentTime < latestStart) {
+        if (lag > MSE_SEEK_LAG || this.video.currentTime < latestStart) {
           // Seek within the intact buffered GOP; never throw away reference frames.
-          this.video.currentTime = Math.max(latestStart, end - 0.35);
+          this.video.currentTime = Math.max(latestStart, end - MSE_CUSHION);
           this.video.playbackRate = 1;
-        } else this.video.playbackRate = lag > 0.8 ? 1.1 : lag > 0.4 ? 1.03 : 1;
+        } else this.video.playbackRate = catchUpRate(lag);
         // Keep ~10 s of history so memory stays flat.
         if (end - start > 20 && !sb.updating) {
           sb.remove(start, end - 10);
@@ -491,6 +539,8 @@ export class LivePlayer {
   private teardown() {
     this.gen++;
     window.clearTimeout(this.fallbackTimer);
+    window.clearTimeout(this.lagTimer);
+    this.lagSamples = [];
     if (this.ws || this.pc || this.ms) this.opts.onTeardown?.();
     const ws = this.ws;
     this.ws = undefined;

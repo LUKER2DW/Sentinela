@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "./api";
 import { setZone } from "./access";
-import { LivePlayer, webrtcRecentlyFailed, type PlayerOptions } from "./player";
+import { LivePlayer, WEBRTC_MAX_DELAY, catchUpRate, persistentlyLate, webrtcRecentlyFailed, type PlayerOptions } from "./player";
 
 vi.mock("./api", () => ({ api: vi.fn() }));
 
@@ -208,7 +208,7 @@ describe("live player reconnect ownership", () => {
     expect(status).toHaveBeenCalledTimes(count);
     socket.receive(new ArrayBuffer(4));
     source.buffers[0].finish([[0, 2]]);
-    expect(await player.bufferDelay()).toBeCloseTo(0.35);
+    expect(await player.bufferDelay()).toBeCloseTo(0.3);
   });
 
   it("does not let old buffer events append or reconnect the replacement stream", async () => {
@@ -339,10 +339,10 @@ describe("MSE latency and intact frame queues", () => {
     video.playbackRate = 1.1;
     buffer.finish([[0, 8]]);
 
-    expect(video.currentTime).toBeCloseTo(7.65);
+    expect(video.currentTime).toBeCloseTo(7.7);
     expect(video.playbackRate).toBe(1);
     expect(buffer.appended).toHaveLength(1);
-    expect(await player.bufferDelay()).toBeCloseTo(0.35);
+    expect(await player.bufferDelay()).toBeCloseTo(0.3);
   });
 
   it("seeks into the newest buffered range when the playhead falls in a gap", async () => {
@@ -351,7 +351,7 @@ describe("MSE latency and intact frame queues", () => {
     const buffer = mseResponse(socket).buffers[0];
     video.currentTime = 3.6;
     buffer.finish([[0, 1], [4, 5]]);
-    expect(video.currentTime).toBeCloseTo(4.65);
+    expect(video.currentTime).toBeCloseTo(4.7);
   });
 
   it("preserves every queued fragment in arrival order while within the budget", async () => {
@@ -478,5 +478,20 @@ describe("WebRTC failure cooldown", () => {
     const { player: lan } = createPlayer({ prefer: undefined });
     await connect(lan);
     expect(lan.currentTransport).toBe("webrtc");
+  });
+});
+
+describe("live-edge guard", () => {
+  it("moves off WebRTC only after a sustained large jitter buffer", () => {
+    expect(persistentlyLate([1.2, 1.3])).toBe(false);
+    expect(persistentlyLate([0.4, 1.2, 1.3, 1.6])).toBe(true);
+    expect(persistentlyLate([1.2, 0.8, 1.6])).toBe(false);
+    expect(persistentlyLate([1.2, null, 1.6])).toBe(false);
+    expect(WEBRTC_MAX_DELAY).toBeLessThanOrEqual(1);
+  });
+  it("catches up faster the further behind MSE is", () => {
+    expect(catchUpRate(0.2)).toBe(1);
+    expect(catchUpRate(0.5)).toBeGreaterThan(1);
+    expect(catchUpRate(1.0)).toBeGreaterThan(catchUpRate(0.5));
   });
 });
