@@ -2505,6 +2505,27 @@ textarea.viewer-text.editing { border: 0; outline: none; resize: none; backgroun
 .player:fullscreen .player-bar { padding-bottom: calc(10px + var(--sa-bottom)); }
 .player:fullscreen .player-tag:not(.rec-tag) { top: calc(12px + var(--sa-top)); }
 
+/* Rotation expands the existing player without reopening its stream. */
+body.live-fullscreen { overflow: hidden; }
+body.live-fullscreen .page { animation: none; }
+body.live-fullscreen .side-nav,
+body.live-fullscreen .topbar,
+body.live-fullscreen .mobile-bar,
+body.live-fullscreen .update-toast { visibility: hidden; pointer-events: none; }
+.player.viewport-fullscreen {
+  --fs-left: max(env(safe-area-inset-left, 0px), var(--safe-area-inset-left, 0px));
+  --fs-right: max(env(safe-area-inset-right, 0px), var(--safe-area-inset-right, 0px));
+  position: fixed; inset: 0; z-index: 80; width: 100vw; height: 100vh; height: 100dvh;
+  max-width: none; margin: 0; border-radius: 0; aspect-ratio: auto; touch-action: none;
+}
+.player.viewport-fullscreen .player-bar {
+  padding-bottom: calc(10px + var(--sa-bottom));
+  padding-left: calc(12px + var(--fs-left)); padding-right: calc(12px + var(--fs-right));
+}
+.player.viewport-fullscreen .player-tag { left: calc(12px + var(--fs-left)); }
+.player.viewport-fullscreen .player-tag:not(.rec-tag) { top: calc(12px + var(--sa-top)); }
+.player.viewport-fullscreen .player-tag.motion { left: auto; right: calc(12px + var(--fs-right)); }
+
 /* Live bar: HD/SD is one toggle showing the stream playing. */
 .player-bar .btn.stream-toggle { min-width: 44px; padding: 0 10px; font-weight: 700; letter-spacing: 0.02em; }
 

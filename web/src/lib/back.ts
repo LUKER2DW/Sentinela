@@ -2,6 +2,7 @@
 // close what is on top (fullscreen, a sheet, a dialog), else go back a page,
 // else return to Ao vivo. false = nothing left; the app then handles it
 // (second press leaves).
+import { EXIT_PLAYER_FULLSCREEN } from "./playerFullscreen";
 
 declare global {
   interface Window {
@@ -11,7 +12,12 @@ declare global {
 
 function closeTopmost(): boolean {
   if (document.fullscreenElement) {
-    void document.exitFullscreen();
+    void document.exitFullscreen().catch(() => {});
+    return true;
+  }
+  const player = document.querySelector<HTMLElement>(".player.viewport-fullscreen");
+  if (player) {
+    player.dispatchEvent(new Event(EXIT_PLAYER_FULLSCREEN));
     return true;
   }
   const sheet = [...document.querySelectorAll<HTMLDialogElement>("dialog[open]")].pop();

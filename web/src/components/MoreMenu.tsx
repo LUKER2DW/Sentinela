@@ -7,7 +7,6 @@ import { OceanScene } from "./Doodles";
 import { Icon } from "./Icon";
 import { Avatar } from "./Avatar";
 import { roleLabel } from "./UsersAdmin";
-import { useHostingEnabled } from "../lib/hosting";
 
 function Row({
   to,
@@ -62,7 +61,6 @@ function Row({
 export function MoreMenu({ version, unread }: { version?: string; unread: number }) {
   const { user, logout } = useSession();
   const { newer, info } = useAppUpdate();
-  const hosting = useHostingEnabled();
   const count = (n: number) => (n > 0 ? <span className="count-badge">{n}</span> : null);
   return (
     <div className="more">
@@ -107,7 +105,6 @@ export function MoreMenu({ version, unread }: { version?: string; unread: number
       <section className="menu-group" aria-label="Ferramentas">
         <h2 className="menu-title">Ferramentas</h2>
         <div className="menu-list">
-          {hosting && <Row to={href("servicos")} icon="app" label="Serviços" hint="Seus projetos rodando no servidor" />}
           <Row to={href("relogio")} icon="timer" label="Medir atraso" hint="Compara o relógio da câmera com o do servidor" />
         </div>
       </section>

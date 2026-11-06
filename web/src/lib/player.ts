@@ -58,15 +58,17 @@ export function webrtcSupportsH265(): boolean {
   return !!caps?.codecs.some((c) => c.mimeType.toLowerCase() === "video/h265");
 }
 
-// Per-device memory of a failed WebRTC path (no HEVC decoder, blocked UDP):
-// skip straight to MSE for a week instead of waiting 6 s every time.
-const TRANSPORT_KEY = "sentinela.webrtcFailedAt";
-const TRANSPORT_TTL = 7 * 24 * 3_600_000;
+// A temporary network failure must not disable the faster path for a week,
+// or follow the viewer from Funnel to LAN. Old unscoped failures are ignored.
+const transportKey = () => `sentinela.webrtcFailedAt.${getZone()}`;
+const TRANSPORT_TTL = 10 * 60_000;
+const MAX_QUEUE_MS = 2_000;
+const MAX_QUEUE_BYTES = 8 * 1024 * 1024;
 
 export function webrtcRecentlyFailed(now = Date.now()): boolean {
   try {
-    const at = Number(localStorage.getItem(TRANSPORT_KEY) ?? 0);
-    return at > 0 && now - at < TRANSPORT_TTL;
+    const at = Number(localStorage.getItem(transportKey()) ?? 0);
+    return at > 0 && now >= at && now - at < TRANSPORT_TTL;
   } catch {
     return false;
   }
@@ -74,8 +76,8 @@ export function webrtcRecentlyFailed(now = Date.now()): boolean {
 
 function rememberWebrtc(ok: boolean) {
   try {
-    if (ok) localStorage.removeItem(TRANSPORT_KEY);
-    else localStorage.setItem(TRANSPORT_KEY, String(Date.now()));
+    if (ok) localStorage.removeItem(transportKey());
+    else localStorage.setItem(transportKey(), String(Date.now()));
   } catch {
     /* private mode: probe again next time */
   }
@@ -93,7 +95,8 @@ export class LivePlayer {
   private pc?: RTCPeerConnection;
   private ms?: MediaSource;
   private sb?: SourceBuffer;
-  private queue: ArrayBuffer[] = [];
+  private queue: { data: ArrayBuffer; at: number }[] = [];
+  private queueBytes = 0;
   private mic?: MediaStream;
   private stopped = false;
   private retry = 0;
@@ -101,7 +104,7 @@ export class LivePlayer {
   private fallbackTimer?: number;
   private objectUrl?: string;
   private transport?: Transport;
-  private webrtcFailed = false;
+  private webrtcFailedAt = 0;
   private micOn = false;
   // Bumped by every connect/teardown: a connect still waiting for its ticket
   // when a newer one starts gives up instead of opening a second socket.
@@ -162,7 +165,9 @@ export class LivePlayer {
     if (this.opts.prefer) return this.opts.prefer;
     // Tailscale Funnel carries TCP only: no path for WebRTC media (ADR-0019).
     if (getZone() === "funnel") return "mse";
-    if (!this.webrtcFailed && !webrtcRecentlyFailed() && webrtcSupportsH265()) return "webrtc";
+    const sinceFailure = Date.now() - this.webrtcFailedAt;
+    const coolingDown = this.webrtcFailedAt > 0 && sinceFailure >= 0 && sinceFailure < TRANSPORT_TTL;
+    if (!coolingDown && !webrtcRecentlyFailed() && webrtcSupportsH265()) return "webrtc";
     return "mse";
   }
 
@@ -189,6 +194,7 @@ export class LivePlayer {
     const transport = this.pickTransport();
     this.transport = transport;
     ws.onopen = () => {
+      if (this.ws !== ws) return;
       if (transport === "webrtc") void this.startWebRTC();
       else this.startMSE();
     };
@@ -220,7 +226,14 @@ export class LivePlayer {
   private async onMessage(msg: { type: string; value: string }) {
     switch (msg.type) {
       case "webrtc/answer":
-        await this.pc?.setRemoteDescription({ type: "answer", sdp: msg.value });
+        {
+          const pc = this.pc;
+          try {
+            await pc?.setRemoteDescription({ type: "answer", sdp: msg.value });
+          } catch {
+            if (pc && pc === this.pc) this.scheduleRetry("negociação de vídeo falhou");
+          }
+        }
         break;
       case "webrtc/candidate":
         if (msg.value) await this.pc?.addIceCandidate({ candidate: msg.value, sdpMid: "0" }).catch(() => {});
@@ -247,12 +260,18 @@ export class LivePlayer {
     pc.addTransceiver("video", { direction: "recvonly" });
     if (this.opts.talk && canTalk()) {
       try {
-        this.mic = await navigator.mediaDevices.getUserMedia({
+        const mic = await navigator.mediaDevices.getUserMedia({
           audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
         });
+        if (pc !== this.pc) {
+          mic.getTracks().forEach((t) => t.stop());
+          return;
+        }
+        this.mic = mic;
         this.setMic(this.micOn);
         pc.addTransceiver(this.mic.getAudioTracks()[0], { direction: "sendrecv" });
       } catch {
+        if (pc !== this.pc) return;
         this.emit({ state: "error", message: "Microfone bloqueado pelo navegador" });
         pc.addTransceiver("audio", { direction: "recvonly" });
       }
@@ -261,6 +280,7 @@ export class LivePlayer {
     }
     const stream = new MediaStream();
     pc.ontrack = (ev) => {
+      if (pc !== this.pc) return;
       // A small jitter buffer (150 ms): with none, Wi-Fi jitter made the 2K
       // picture stutter and smear; this costs a fraction of the delay.
       const r = ev.receiver as unknown as { jitterBufferTarget?: number | null; playoutDelayHint?: number };
@@ -274,6 +294,7 @@ export class LivePlayer {
       if (this.video.srcObject !== stream) this.video.srcObject = stream;
     };
     pc.onicecandidate = (ev) => {
+      if (pc !== this.pc) return;
       this.send({ type: "webrtc/candidate", value: ev.candidate ? ev.candidate.candidate : "" });
     };
     pc.onconnectionstatechange = () => {
@@ -289,8 +310,18 @@ export class LivePlayer {
         else this.scheduleRetry("WebRTC falhou");
       }
     };
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
+    try {
+      const offer = await pc.createOffer();
+      if (pc !== this.pc) return;
+      await pc.setLocalDescription(offer);
+      if (pc !== this.pc) return;
+    } catch {
+      if (pc === this.pc) {
+        if (!this.opts.talk) this.fallbackToMSE();
+        else this.scheduleRetry("negociação de vídeo falhou");
+      }
+      return;
+    }
     this.send({ type: "webrtc/offer", value: pc.localDescription!.sdp });
     // If no media path within 6 s (firewall, codec), use MSE.
     this.fallbackTimer = window.setTimeout(() => {
@@ -299,7 +330,7 @@ export class LivePlayer {
   }
 
   private fallbackToMSE() {
-    this.webrtcFailed = true;
+    this.webrtcFailedAt = Date.now();
     rememberWebrtc(false);
     this.retry = 0;
     void this.connect();
@@ -327,6 +358,7 @@ export class LivePlayer {
   }
 
   private openSourceBuffer(mime: string) {
+    if (this.ms) return;
     const MS = mediaSourceClass()!;
     const ms = new MS();
     this.ms = ms;
@@ -338,10 +370,16 @@ export class LivePlayer {
     ms.addEventListener(
       "sourceopen",
       () => {
+        if (ms !== this.ms) return;
         try {
           const sb = ms.addSourceBuffer(mime);
           sb.mode = "segments";
-          sb.addEventListener("updateend", () => this.pump());
+          sb.addEventListener("updateend", () => {
+            if (sb === this.sb) this.pump();
+          });
+          sb.addEventListener("error", () => {
+            if (sb === this.sb) this.scheduleRetry("fragmento de vídeo inválido");
+          });
           this.sb = sb;
           this.pump();
           void this.video.play().catch(() => {});
@@ -356,10 +394,12 @@ export class LivePlayer {
   }
 
   private appendMSE(buf: ArrayBuffer) {
-    this.queue.push(buf);
+    if (this.transport !== "mse") return;
+    this.queue.push({ data: buf, at: performance.now() });
+    this.queueBytes += buf.byteLength;
     // Dropping fragments mid-GOP smears every frame up to the next keyframe:
     // a backlog this long reopens the stream from a fresh keyframe instead.
-    if (this.queue.length > 300) {
+    if (this.queueBytes > MAX_QUEUE_BYTES || performance.now() - this.queue[0].at > MAX_QUEUE_MS) {
       this.restart();
       return;
     }
@@ -368,25 +408,37 @@ export class LivePlayer {
 
   private pump() {
     const sb = this.sb;
-    if (!sb || sb.updating || !this.queue.length) return;
+    if (!sb || sb.updating) return;
     try {
       const buffered = sb.buffered;
       if (buffered.length) {
         const end = buffered.end(buffered.length - 1);
         const start = buffered.start(0);
+        const latestStart = buffered.start(buffered.length - 1);
         // Stay near the live edge: play a little faster while behind and
         // jump only when far behind. A small cushion stays buffered: at the
         // very edge every late fragment is a visible stall.
         const lag = end - this.video.currentTime;
-        if (lag > 3) this.video.currentTime = end - 0.3;
-        else this.video.playbackRate = lag > 1 ? 1.1 : lag > 0.5 ? 1.03 : 1;
+        if (lag > 1.5 || this.video.currentTime < latestStart) {
+          // Seek within the intact buffered GOP; never throw away reference frames.
+          this.video.currentTime = Math.max(latestStart, end - 0.35);
+          this.video.playbackRate = 1;
+        } else this.video.playbackRate = lag > 0.8 ? 1.1 : lag > 0.4 ? 1.03 : 1;
         // Keep ~10 s of history so memory stays flat.
         if (end - start > 20 && !sb.updating) {
           sb.remove(start, end - 10);
           return;
         }
       }
-      sb.appendBuffer(this.queue.shift()!);
+      const next = this.queue.shift();
+      if (next) {
+        if (performance.now() - next.at > MAX_QUEUE_MS) {
+          this.restart();
+          return;
+        }
+        this.queueBytes -= next.data.byteLength;
+        sb.appendBuffer(next.data);
+      }
     } catch {
       // QuotaExceeded or a detached buffer: appending the rest would skip
       // frames the next ones depend on. Start over from a keyframe.
@@ -408,6 +460,7 @@ export class LivePlayer {
     const pc = this.pc;
     if (!pc) return null;
     const stats = await pc.getStats();
+    if (pc !== this.pc) return null;
     let out: number | null = null;
     stats.forEach((st) => {
       const s = st as { type: string; kind?: string; jitterBufferDelay?: number; jitterBufferEmittedCount?: number };
@@ -427,6 +480,7 @@ export class LivePlayer {
 
   private scheduleRetry(message: string) {
     if (this.stopped) return;
+    window.clearTimeout(this.retryTimer);
     this.teardown();
     this.retry++;
     const delay = Math.min(30_000, 1000 * 2 ** Math.min(this.retry, 5));
@@ -450,14 +504,16 @@ export class LivePlayer {
     this.mic = undefined;
     this.sb = undefined;
     this.queue = [];
-    if (this.ms && this.ms.readyState === "open") {
+    this.queueBytes = 0;
+    const ms = this.ms;
+    this.ms = undefined;
+    if (ms && ms.readyState === "open") {
       try {
-        this.ms.endOfStream();
+        ms.endOfStream();
       } catch {
         /* already closed */
       }
     }
-    this.ms = undefined;
     if (this.objectUrl) {
       URL.revokeObjectURL(this.objectUrl);
       this.objectUrl = undefined;

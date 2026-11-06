@@ -24,6 +24,7 @@ import { ClockPage } from "./components/DelayMeter";
 import { setZone } from "./lib/access";
 import { AppUpdateBanner } from "./components/AppUpdate";
 import { useCompact } from "./lib/viewport";
+import { mobilePage, useMobileViewport } from "./lib/mobileViewport";
 import { Avatar } from "./components/Avatar";
 import { syncNativePush } from "./lib/push";
 
@@ -150,7 +151,13 @@ function useUnseenEvents(): number {
 }
 
 function Shell() {
-  const route = useRoute();
+  const requestedRoute = useRoute();
+  const mobile = useMobileViewport();
+  const page = mobilePage(requestedRoute.page, mobile);
+  const route = page === requestedRoute.page ? requestedRoute : { page, params: new URLSearchParams() };
+  useEffect(() => {
+    if (page !== requestedRoute.page) window.location.replace(href(page));
+  }, [page, requestedRoute.page]);
   const { user, logout, can } = useSession();
   useEffect(() => { void syncNativePush()?.catch(() => {}); }, [user.id]);
   const qc = useQueryClient();
@@ -162,7 +169,7 @@ function Shell() {
   // Phone: pages opened from "Mais" keep that tab lit.
   const current = (page: string) =>
     route.page === page || (compact && page === "system" && (route.page === "conta" || route.page === "relogio" || route.page === "servicos"));
-  // Serviços: a sidebar entry on the computer; on the phone it is under "Mais".
+  // Serviços stays on the computer, including when a phone rotates sideways.
   const hostingOn = useHostingEnabled();
   const eventsToday = useUnseenEvents();
   const updated = useNewVersion();
@@ -197,7 +204,7 @@ function Shell() {
           </button>
         </div>
         <div className="nav-list">
-          {NAV.filter((n) => (n.page !== "nuvem" || can("operator")) && (n.page !== "servicos" || (hostingOn && !compact))).map((n) => (
+          {NAV.filter((n) => (n.page !== "nuvem" || can("operator")) && (n.page !== "servicos" || (hostingOn && !mobile))).map((n) => (
             <a
               key={n.page}
               className="nav-item"
@@ -280,12 +287,12 @@ function Shell() {
             <SystemPage params={route.params} />
           ) : route.page === "conta" ? (
             <AccountPage params={route.params} />
-          ) : route.page === "servicos" && hostingOn ? (
+          ) : route.page === "servicos" && hostingOn && !mobile ? (
             <ServicesPage params={route.params} />
           ) : route.page === "relogio" ? (
             <ClockPage />
           ) : (
-            <LivePage params={route.params} />
+            <LivePage params={route.params} autoFullscreen={route.page === "live"} />
           )}
         </div>
       </main>

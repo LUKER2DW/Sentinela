@@ -8,6 +8,8 @@ import { Icon } from "./Icon";
 import { Boat } from "./Doodles";
 import { DelayMeter } from "./DelayMeter";
 import { DetectionOverlay } from "./DetectionOverlay";
+import { useMobileLandscape } from "../lib/mobileViewport";
+import { usePlayerFullscreen } from "../lib/playerFullscreen";
 
 interface Props {
   cameraId: string;
@@ -16,6 +18,7 @@ interface Props {
   allowTalk?: boolean;
   compact?: boolean;
   defaultStream?: "main" | "sub";
+  autoFullscreen?: boolean;
 }
 
 const transportLabel = { webrtc: "WebRTC", mse: "MSE" } as const;
@@ -36,8 +39,10 @@ const TALK_IDLE_MS = 30_000;
 
 type Point = { x: number; y: number };
 
-export function LiveView({ cameraId, cameraName, motion, allowTalk, compact, defaultStream = "main" }: Props) {
+export function LiveView({ cameraId, cameraName, motion, allowTalk, compact, defaultStream = "main", autoFullscreen = false }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
+  const mobileLandscape = useMobileLandscape();
+  const { expanded, toggle: fullscreen } = usePlayerFullscreen(wrapRef, autoFullscreen && mobileLandscape);
   const videoRef = useRef<HTMLVideoElement>(null);
   const playerRef = useRef<LivePlayer | null>(null);
   const [stream, setStream] = useState<"main" | "sub">(defaultStream);
@@ -226,37 +231,6 @@ export function LiveView({ cameraId, cameraName, motion, allowTalk, compact, def
     };
   }, [playing]);
 
-  // Leaving fullscreen releases the landscape lock.
-  useEffect(() => {
-    const onFs = () => {
-      if (!document.fullscreenElement) (screen.orientation as ScreenOrientation & { unlock?: () => void })?.unlock?.();
-    };
-    document.addEventListener("fullscreenchange", onFs);
-    return () => document.removeEventListener("fullscreenchange", onFs);
-  }, []);
-
-  const fullscreen = () => {
-    const el = wrapRef.current;
-    if (!el) return;
-    if (document.fullscreenElement) {
-      void document.exitFullscreen();
-      return;
-    }
-    if (el.requestFullscreen) {
-      void el
-        .requestFullscreen()
-        .then(() => {
-          // Phones: turn the picture sideways (only works in fullscreen).
-          const o = screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> };
-          return o?.lock?.("landscape");
-        })
-        .catch(() => {});
-    } else {
-      // iPhone Safari only lets the <video> itself go fullscreen.
-      (videoRef.current as HTMLVideoElement & { webkitEnterFullscreen?: () => void })?.webkitEnterFullscreen?.();
-    }
-  };
-
   // ---------- touch: tap shows the bar, double-tap fullscreen, pinch zoom ----------
   const pointers = useRef(new Map<number, Point>());
   const pinch = useRef<{ dist: number; scale: number } | null>(null);
@@ -346,7 +320,7 @@ export function LiveView({ cameraId, cameraName, motion, allowTalk, compact, def
   return (
     <div
       ref={wrapRef}
-      className={`player${touch ? " touch" : ""}${zoom.scale > 1 ? " zoomed" : ""}`}
+      className={`player${touch ? " touch" : ""}${zoom.scale > 1 ? " zoomed" : ""}${expanded ? " viewport-fullscreen" : ""}`}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
@@ -480,7 +454,7 @@ export function LiveView({ cameraId, cameraName, motion, allowTalk, compact, def
             {stream === "main" ? "HD" : "SD"}
           </button>
         )}
-        <button className="btn icon" onClick={fullscreen} aria-label="Tela cheia" title="Tela cheia">
+        <button className="btn icon" onClick={fullscreen} aria-pressed={expanded} aria-label={expanded ? "Sair da tela cheia" : "Tela cheia"} title={expanded ? "Sair da tela cheia" : "Tela cheia"}>
           <Icon name="fullscreen" />
         </button>
       </div>

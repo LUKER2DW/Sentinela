@@ -41,7 +41,7 @@ function RecordingPill({ cameraId }: { cameraId: string }) {
   );
 }
 
-export function LivePage({ params }: { params: URLSearchParams }) {
+export function LivePage({ params, autoFullscreen = false }: { params: URLSearchParams; autoFullscreen?: boolean }) {
   const cams = useCameras();
   const now = useNow();
   const list = cams.data ?? [];
@@ -61,7 +61,7 @@ export function LivePage({ params }: { params: URLSearchParams }) {
   // Grid when asked (or several cameras and none picked); one camera otherwise.
   const view = params.get("view") ?? (list.length > 1 && !params.get("cam") ? "grid" : "single");
   if (view === "grid") return <Grid cams={list} now={now} />;
-  return <Single cam={selected ?? list[0]} now={now} />;
+  return <Single cam={selected ?? list[0]} now={now} autoFullscreen={autoFullscreen} />;
 }
 
 /** Uma câmera / Grade switch in the page header. */
@@ -109,7 +109,7 @@ function Grid({ cams, now }: { cams: Camera[]; now: number }) {
   );
 }
 
-function Single({ cam, now }: { cam: Camera; now: number }) {
+function Single({ cam, now, autoFullscreen }: { cam: Camera; now: number; autoFullscreen: boolean }) {
   const { can } = useSession();
   const active = useActiveEvents();
   const dayStart = startOfDay(now);
@@ -147,6 +147,7 @@ function Single({ cam, now }: { cam: Camera; now: number }) {
             allowTalk={can("operator")}
             motion={(active[cam.id] ?? []).length > 0}
             defaultStream={stream}
+            autoFullscreen={autoFullscreen}
           />
           {narrow && <PtzPanel cameraId={cam.id} canControl={can("operator")} />}
           <section className="card" aria-label="Hoje">
