@@ -129,8 +129,10 @@ open `http://<server>:8080` to create the admin.
 
 Recordings use UTC paths under
 `/data/recordings/<camera>/<YYYY>/<MM>/<DD>/<HH-MM-SS>.mp4`, normally five
-minutes each. Default retention is 15 days, alerts 30 days, with a 90%
-disk cap. Protected segments are excluded from automatic deletion.
+minutes each. By default there is no age limit: recordings, events and
+snapshots are kept until the disk reaches 95%, then the oldest are
+overwritten (`retention_days` > 0 sets an age limit). Protected segments
+are excluded from automatic deletion.
 
 ## Develop
 

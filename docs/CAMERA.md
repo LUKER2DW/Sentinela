@@ -217,6 +217,17 @@ The live view's delay meter reads the camera clock with ONVIF
 `GetSystemDateAndTime` (device service, port 8899, read-only; whole seconds)
 and shows what the OSD should read with zero delay.
 
+**Clock check (2026-10-10):** the owner's screenshot showed 23:11:03 on
+Windows, 23:10:56 in the server-synchronized UI and 23:10:53 burned into
+the picture. Initial SSH/ONVIF measurements confirmed Windows ~5.8 s ahead
+of the NTP server and the camera ~3 s behind; later Windows samples were
+aligned without agent changes, while camera skew remained ~2.6 s (±0.5 s).
+The active LAN player used MSE with ~0.6–1.6 s buffered, and a 20 s copy-only
+RTP sample via go2rtc had no missing packets, fixed 12 fps and 2 s keyframes,
+with no accumulating arrival delay. Compare the OSD with the corrected
+delay-meter clock, not Windows or the uncorrected header. This sample does
+not establish long-term artifact-free operation or current 4G latency.
+
 ## 6. Later operational corrections (2026-09-30)
 
 - This camera ignores the ONVIF PullMessages timeout. The earlier watcher
@@ -224,6 +235,16 @@ and shows what the OSD should read with zero delay.
   affected 2026-09-29 recording window. The watcher now spaces pulls at
   least one second apart. Existing recorded gaps are not repaired by that
   change; the recorded investigation is in PLAN round 5.
+- **ONVIF subscription address (2026-11-06):** since 2026-11-03 23:27 UTC
+  `CreatePullPointSubscription` answers `SubscriptionReference/Address`
+  with the unused wired static address (`http://192.168.1.10:8899/event_service/N`)
+  instead of the address it answers on. Every PullMessages to it timed out,
+  so no motion event (and no person detection, which waits for motion) was
+  recorded for three days. The client now keeps only the path of a
+  device-reported service address and uses the configured host/port. Read-only;
+  no camera setting was changed.
+- While the camera moves under PTZ (and 3 s after; 15 s after a preset
+  goto) its own motion opens no event, snapshot, detection or notification.
 - PTZ direction correction uses separate pan/tilt config overrides. No
   movement or persistent camera write is part of the APK TLS/doc fix.
 - Timeline preview frames are copied from recording keyframes and decoded

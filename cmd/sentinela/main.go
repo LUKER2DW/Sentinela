@@ -137,7 +137,7 @@ func serve(ctx context.Context, log *slog.Logger, cfgPath string) error {
 	for i := range cfg.Cameras {
 		cam := &cfg.Cameras[i]
 		w := &onvif.Watcher{CameraID: cam.ID, Client: onvif.NewClient(cam.Host, cam.ONVIFPort, cam.User, cam.Password),
-			Store: st, Log: log, Sink: srv.HandleEvent}
+			Store: st, Log: log, Sink: srv.HandleEvent, Quiet: srv.MotionQuiet, Health: srv.NoteEventWatch}
 		wg.Add(1)
 		go func() { defer wg.Done(); w.Run(ctx) }()
 	}
@@ -223,6 +223,15 @@ func publicTLS(dataDir, domain, email string) *tls.Config {
 	return c
 }
 
+// snapshotMaxAge keeps snapshots back to the oldest event plus a day; with
+// no events left, 30 days.
+func snapshotMaxAge(ctx context.Context, st *store.Store) time.Duration {
+	if oldest, ok, err := st.OldestEventStart(ctx); err == nil && ok {
+		return time.Since(oldest) + 24*time.Hour
+	}
+	return 30 * 24 * time.Hour
+}
+
 // maintenance purges sessions hourly and writes a nightly DB backup.
 func maintenance(ctx context.Context, log *slog.Logger, cfg *config.Config, st *store.Store, srv *api.Server) {
 	t := time.NewTicker(time.Hour)
@@ -230,8 +239,9 @@ func maintenance(ctx context.Context, log *slog.Logger, cfg *config.Config, st *
 	lastBackup := ""
 	for {
 		_ = st.PurgeExpiredSessions(ctx)
-		// Event snapshots live as long as alert recordings (ADR-0015).
-		srv.PurgeSnapshots(30 * 24 * time.Hour)
+		// Event snapshots live as long as their events, which retention
+		// keeps as long as the recordings (ADR-0015).
+		srv.PurgeSnapshots(snapshotMaxAge(ctx, st))
 		srv.PruneCaches()
 		_ = st.PurgeSeenBefore(ctx, time.Now().Add(-31*24*time.Hour))
 		day := time.Now().UTC().Format("20060102")

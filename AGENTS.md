@@ -33,8 +33,9 @@ Target host: old CPU, 4 GB RAM, a dedicated recordings disk, Ubuntu 22.04.
 5. **No additional public exposure.** Tailscale is the private remote path.
    Do not add port-forwarding, DDNS or Cloudflare tunnels. **Exception
    (ADR-0019):** the port-forwarded TLS listener (and the Tailscale Funnel
-   listener, currently switched off), behind mandatory 2FA and the
-   closed-door rule. This is the accepted household path after the trial.
+   listener, currently switched off), behind the closed-door rule, login
+   limits and optional per-account 2FA (ADR-0019 amendment, 2026-11-06).
+   This is the accepted household path after the trial.
    **Exception (ADR-0021):** a self-hosted service the owner explicitly
    marks "Internet" (off by default), on its own port of the services
    range, behind the services firewall. Nothing else may be exposed.

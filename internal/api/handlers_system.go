@@ -266,6 +266,7 @@ func (s *Server) system(w http.ResponseWriter, r *http.Request) {
 		"disk_health":  health,
 		"backup":       backup,
 		"detector":     s.detectorInfo(),
+		"event_watch":  s.eventWatchInfo(),
 	})
 }
 

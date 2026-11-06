@@ -40,6 +40,8 @@ type Server struct {
 	totpPending pendingTOTP
 	go2rtc      *url.URL
 	ctrl        map[string]*dvrip.Controller
+	ptzQuiet    quietWindows // cameras moving under PTZ: their own motion is not an event
+	evWatch     eventWatch   // ONVIF event subscription health per camera
 	hub         *Hub
 	stateMu     sync.Mutex
 	stateTTL    map[string]cachedState

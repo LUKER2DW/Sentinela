@@ -1,7 +1,9 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ApiError, api, type User } from "../lib/api";
-import { canChangeConnection, changeConnection, isPublicZone, zoneLabel } from "../lib/access";
+import { canChangeConnection, changeConnection, zoneLabel } from "../lib/access";
 import { policyError } from "../lib/password";
+import { offerToSavePassword, pickSavedPassword } from "../lib/credentials";
+import { appIntentURL, currentAppPath, isAndroidBrowser, tryOpenInAppOnce } from "../lib/openInApp";
 import { LighthouseMark } from "../components/Lighthouse";
 import { Panorama } from "../components/Panorama";
 import { Anchor, Compass } from "../components/Decor";
@@ -59,7 +61,6 @@ function saveLogin(name: string, remember: boolean) {
 function loginError(msg: string): string {
   if (msg.includes("invalid username")) return "Usuário, e-mail ou senha incorretos.";
   if (msg.includes("invalid code")) return "Código incorreto ou já usado. Espere o próximo código e tente de novo.";
-  if (msg.includes("not set up")) return "Fora de casa, esta conta precisa da verificação em 2 etapas. Ative-a em casa: Minha conta → Verificação em 2 etapas.";
   if (msg.includes("from this address")) return "Muitas tentativas erradas deste endereço. Espere uma hora.";
   if (msg.includes("for this account")) return "Muitas tentativas nesta conta. Espere uma hora.";
   if (msg.includes("too many")) return "Muitas tentativas. Espere um minuto e tente de novo.";
@@ -73,6 +74,10 @@ export function AuthPage({ mode, onDone, downMessage, onRetry }: Props) {
   const setup = mode === "setup";
   const [invite, setInvite] = useState<Invite | null>(inviteFromLink);
   const inApp = canChangeConnection();
+  // A link opened in the phone's browser jumps to the app (once).
+  useEffect(() => {
+    if (invite?.code) tryOpenInAppOnce();
+  }, [invite]);
   const back = () => {
     leaveInvite();
     setInvite(null);
@@ -119,6 +124,12 @@ export function AuthPage({ mode, onDone, downMessage, onRetry }: Props) {
             <SetupForm onDone={onDone} />
           ) : invite ? (
             invite.code ? (
+              <>
+              {isAndroidBrowser() && (
+                <a className="btn block primary auth-open-app" href={appIntentURL(currentAppPath(), window.location.href)}>
+                  Abrir no aplicativo Sentinela
+                </a>
+              )}
               <InviteForm
                 invite={invite}
                 onDone={(u) => {
@@ -127,6 +138,7 @@ export function AuthPage({ mode, onDone, downMessage, onRetry }: Props) {
                 }}
                 onBack={back}
               />
+              </>
             ) : (
               <div className="stack-sm">
                 <p className="notice error" role="alert">
@@ -182,7 +194,7 @@ function RememberBox({ value, onChange }: { value: boolean; onChange: (v: boolea
       <input type="checkbox" checked={value} onChange={(e) => onChange(e.target.checked)} />
       <span>
         Manter conectado neste aparelho
-        <span className="muted small"> por 30 dias</span>
+        <span className="muted small"> enquanto for usado</span>
       </span>
     </label>
   );
@@ -219,6 +231,19 @@ function LoginForm({ onDone }: { onDone: (u: User) => void }) {
   const [remember, setRemember] = useState(true);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const inApp = canChangeConnection();
+  const picked = useRef(false);
+
+  // In the app, offer the passwords saved in Android's password manager.
+  useEffect(() => {
+    if (!inApp || picked.current) return;
+    picked.current = true;
+    void pickSavedPassword().then((s) => {
+      if (!s) return;
+      setLogin((cur) => cur || s.username);
+      setPassword((cur) => cur || s.password);
+    });
+  }, [inApp]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -226,9 +251,10 @@ function LoginForm({ onDone }: { onDone: (u: User) => void }) {
     setBusy(true);
     const username = login.trim();
     try {
-      const body = { username, password, remember, ...(askCode ? { code: code.replace(/\s/g, "") } : {}) };
+      const body = { username, password, remember: remember || inApp, ...(askCode ? { code: code.replace(/\s/g, "") } : {}) };
       const r = await api<{ user: User }>("POST", "/api/login", body);
-      saveLogin(username, remember);
+      saveLogin(username, remember || inApp);
+      await offerToSavePassword(username, password);
       onDone(r.user);
     } catch (err) {
       if (err instanceof ApiError && err.mfa) {
@@ -265,7 +291,7 @@ function LoginForm({ onDone }: { onDone: (u: User) => void }) {
       </div>
       <PasswordField label="Senha" value={password} onChange={setPassword} autoComplete="current-password" autoFocus={!!initial && !askCode} />
       {askCode && <OtpField value={code} onChange={setCode} hint="Esta conta usa verificação em 2 etapas: abra o app autenticador e digite o código do Sentinela." />}
-      <RememberBox value={remember} onChange={setRemember} />
+      {!inApp && <RememberBox value={remember} onChange={setRemember} />}
       <ErrorNote text={error} />
       <Submit busy={busy}>Entrar</Submit>
     </form>
@@ -275,10 +301,7 @@ function LoginForm({ onDone }: { onDone: (u: User) => void }) {
 function InviteForm({ invite, onDone, onBack }: { invite: Invite; onDone: (u: User) => void; onBack: () => void }) {
   const login = invite.login;
   const [password, setPassword] = useState("");
-  const [confirm, setConfirm] = useState("");
   const [remember, setRemember] = useState(true);
-  const [totp, setTotp] = useState<{ qr_svg: string; secret: string } | null>(null);
-  const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -287,19 +310,12 @@ function InviteForm({ invite, onDone, onBack }: { invite: Invite; onDone: (u: Us
     setError("");
     const bad = policyError(password);
     if (bad) return setError(bad);
-    if (password !== confirm) return setError("As senhas não são iguais.");
     setBusy(true);
     try {
-      const body = { login, code: invite.code, password, remember, ...(totp ? { totp_code: code.replace(/\s/g, "") } : {}) };
-      const r = await api<{ user?: User; totp_required?: boolean; qr_svg?: string; secret?: string }>("POST", "/api/invite/accept", body);
-      if (r.totp_required && r.qr_svg && r.secret) {
-        setTotp({ qr_svg: r.qr_svg, secret: r.secret });
-        return;
-      }
-      if (r.user) {
-        saveLogin(login, remember);
-        onDone(r.user);
-      }
+      const r = await api<{ user: User }>("POST", "/api/invite/accept", { login, code: invite.code, password, remember });
+      saveLogin(login, remember);
+      await offerToSavePassword(login, password);
+      onDone(r.user);
     } catch (err) {
       setError(loginError((err as Error).message));
     } finally {
@@ -309,31 +325,16 @@ function InviteForm({ invite, onDone, onBack }: { invite: Invite; onDone: (u: Us
 
   return (
     <form onSubmit={submit} className="auth-form">
-      {!totp ? (
-        <>
-          <div className="field">
-            <label htmlFor="il">Convite para</label>
-            {/* Lets the browser's password manager save the new password under this name. */}
-            <input id="il" className="input" name="username" autoComplete="username" value={login} readOnly />
-          </div>
-          <PasswordField label="Crie a sua senha" value={password} onChange={setPassword} autoComplete="new-password" meter autoFocus />
-          <PasswordField label="Repita a senha" value={confirm} onChange={setConfirm} autoComplete="new-password" matches={password} />
-          <RememberBox value={remember} onChange={setRemember} />
-        </>
-      ) : (
-        <div className="stack-sm">
-          <p className="small">
-            Fora de casa, a conta precisa da <strong>verificação em 2 etapas</strong>. Escaneie o QR com um app autenticador (Google Authenticator, Microsoft Authenticator, Aegis…) e digite o código que aparecer.
-          </p>
-          <img className="totp-qr" src={`data:image/svg+xml;utf8,${encodeURIComponent(totp.qr_svg)}`} alt="QR code da verificação em 2 etapas" />
-          <p className="muted small">
-            Sem câmera? Digite a chave no app: <code className="totp-secret">{totp.secret.replace(/(.{4})/g, "$1 ").trim()}</code>
-          </p>
-          <OtpField value={code} onChange={setCode} hint="O código muda a cada 30 segundos." />
-        </div>
-      )}
+      <p className="small">
+        Conta: <strong>{login}</strong>
+      </p>
+      {/* Hidden, but lets the password manager save the new password under this name. */}
+      <input className="sr-only" name="username" autoComplete="username" value={login} readOnly tabIndex={-1} aria-hidden="true" />
+      <PasswordField label="Nova senha" value={password} onChange={setPassword} autoComplete="new-password" meter autoFocus />
+      <p className="muted small">Toque no olho para conferir o que digitou.</p>
+      {!canChangeConnection() && <RememberBox value={remember} onChange={setRemember} />}
       <ErrorNote text={error} />
-      <Submit busy={busy}>{totp ? "Confirmar e entrar" : isPublicZone() ? "Continuar" : "Criar senha e entrar"}</Submit>
+      <Submit busy={busy}>Salvar senha e entrar</Submit>
       <button type="button" className="btn ghost block" onClick={onBack}>
         Voltar para o login
       </button>
@@ -342,7 +343,7 @@ function InviteForm({ invite, onDone, onBack }: { invite: Invite; onDone: (u: Us
 }
 
 function SetupForm({ onDone }: { onDone: (u: User) => void }) {
-  const [username, setUsername] = useState("admin");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState("");

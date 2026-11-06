@@ -14,6 +14,7 @@ import (
 	"html"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -51,14 +52,14 @@ func (c *Client) security() string {
 }
 
 // call posts a SOAP envelope to url with an optional WS-Addressing header.
-func (c *Client) call(ctx context.Context, url, action, body string) ([]byte, error) {
+func (c *Client) call(ctx context.Context, endpoint, action, body string) ([]byte, error) {
 	hdr := c.security()
 	if action != "" {
-		hdr += `<a:Action s:mustUnderstand="1">` + action + `</a:Action><a:To s:mustUnderstand="1">` + html.EscapeString(url) + `</a:To>`
+		hdr += `<a:Action s:mustUnderstand="1">` + action + `</a:Action><a:To s:mustUnderstand="1">` + html.EscapeString(endpoint) + `</a:To>`
 	}
 	env := `<?xml version="1.0" encoding="UTF-8"?><s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope" xmlns:a="http://www.w3.org/2005/08/addressing">` +
 		`<s:Header>` + hdr + `</s:Header><s:Body>` + body + `</s:Body></s:Envelope>`
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(env))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(env))
 	if err != nil {
 		return nil, err
 	}
@@ -113,7 +114,29 @@ func (c *Client) Subscribe(ctx context.Context) (*Subscription, error) {
 	if err := xml.Unmarshal(data, &r); err != nil || strings.TrimSpace(r.Addr) == "" {
 		return nil, errors.New("onvif: no subscription address")
 	}
-	return &Subscription{c: c, URL: strings.TrimSpace(r.Addr)}, nil
+	return &Subscription{c: c, URL: c.rebase(strings.TrimSpace(r.Addr))}, nil
+}
+
+// rebase points a device-reported service address at the host Sentinela
+// actually reaches. This camera advertises the wired static address from
+// NetWork.NetCommon (192.168.1.10) even while it answers on Wi-Fi/DHCP, so
+// using the reported host verbatim made every pull time out (2026-11-03).
+// Only scheme, host and port are replaced; the path and query are kept.
+func (c *Client) rebase(addr string) string {
+	base, err := url.Parse(c.Base)
+	if err != nil || base.Host == "" {
+		return addr
+	}
+	u, err := url.Parse(addr)
+	if err != nil {
+		return addr
+	}
+	if u.Host == "" {
+		// A relative reference: resolve it against the base.
+		return base.ResolveReference(u).String()
+	}
+	u.Scheme, u.Host, u.User = base.Scheme, base.Host, nil
+	return u.String()
 }
 
 // Notification is one decoded event message.

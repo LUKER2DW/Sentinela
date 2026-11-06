@@ -138,6 +138,8 @@ export interface SystemInfo {
   nas_host: string;
   disk_health: { updated: string; mounts: Record<string, DiskHealth> } | null;
   backup: BackupStatus | null;
+  /** ONVIF event subscription per camera: motion events (and the detector) depend on it. */
+  event_watch?: Record<string, { ok: boolean; since: string; error?: string }>;
   detector?: {
     healthy: boolean;
     last_seen?: string;

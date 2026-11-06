@@ -79,6 +79,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(NotifyPlugin.class);
         registerPlugin(ConnectionPlugin.class);
         registerPlugin(UpdatePlugin.class);
+        registerPlugin(CredentialsPlugin.class);
         Connection.migrate(this);
         // This launch's server (or the bundled start screen), before the bridge loads.
         config = Connection.capConfig(this);
@@ -128,11 +129,23 @@ public class MainActivity extends BridgeActivity {
         openFromNotification(intent);
     }
 
-    /** A notification carries an in-app path such as "/#/events". */
+    /**
+     * A notification carries an in-app path such as "/#/events"; an invite
+     * or password-reset link opened in the phone's browser hands one over as
+     * {@code sentinela://open?path=/%23/convite...}. Only "/#/" pages of the
+     * chosen server are opened, never another site.
+     */
     private void openFromNotification(Intent intent) {
         String path = intent == null ? null : intent.getStringExtra(Notifier.EXTRA_PATH);
+        if (path != null) {
+            intent.removeExtra(Notifier.EXTRA_PATH);
+        } else if (intent != null && Intent.ACTION_VIEW.equals(intent.getAction()) && intent.getData() != null
+                && "sentinela".equals(intent.getData().getScheme()) && "open".equals(intent.getData().getHost())) {
+            path = intent.getData().getQueryParameter("path");
+            intent.setData(null);
+            if (path == null || !path.startsWith("/#/")) return;
+        }
         if (path == null || !path.startsWith("/") || path.startsWith("//")) return;
-        intent.removeExtra(Notifier.EXTRA_PATH);
         if (rendererGone) return;
         String server = getBridge().getServerUrl();
         if (server == null) return; // start screen: no server chosen yet

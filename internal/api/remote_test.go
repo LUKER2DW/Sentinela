@@ -63,10 +63,10 @@ func TestPublicZoneTwoStepLogin(t *testing.T) {
 	}
 
 	out := newClient(t, pub.URL)
-	if code, m, _ := out.do("GET", "/api/setup", ""); code != 200 || m["zone"] != ZoneFunnel || m["mfa"] != true {
+	if code, m, _ := out.do("GET", "/api/setup", ""); code != 200 || m["zone"] != ZoneFunnel || m["needs_setup"] != false {
 		t.Fatalf("public setup status %d %v", code, m)
 	}
-	// Closed door: nothing but login without a 2FA session.
+	// Closed door: nothing but login without a session.
 	for _, p := range []string{"/api/cameras", "/api/me", "/healthz", "/stream/ws?ticket=x", "/api/nope"} {
 		if code, _, _ := out.do("GET", p, ""); code != 404 {
 			t.Errorf("GET %s from outside = %d, want 404", p, code)
@@ -75,14 +75,13 @@ func TestPublicZoneTwoStepLogin(t *testing.T) {
 	if code, _, _ := out.do("POST", "/api/setup", `{"username":"x","password":"long enough pw"}`); code != 404 {
 		t.Errorf("setup from outside = %d", code)
 	}
-	// A session made at home does not open the public door.
-	pubAsHome := &client{t: t, base: pub.URL, hc: home.hc}
-	if code, _, _ := pubAsHome.do("GET", "/api/cameras", ""); code != 404 {
-		t.Fatalf("home session honoured outside: %d", code)
+	// Two-step login is optional: without it the password alone signs in.
+	noCode := newClient(t, pub.URL)
+	if code, _, body := noCode.do("POST", "/api/login", `{"username":"admin","password":"long enough pw"}`); code != 200 {
+		t.Fatalf("login without 2FA enrolled = %d %s", code, body)
 	}
-	// No 2FA enrolled: refused even with the right password.
-	if code, _, _ := out.do("POST", "/api/login", `{"username":"admin","password":"long enough pw"}`); code != 403 {
-		t.Fatalf("login without 2FA enrolled = %d", code)
+	if code, _, _ := noCode.do("GET", "/api/cameras", ""); code != 200 {
+		t.Fatalf("cameras after password login = %d", code)
 	}
 
 	// Enroll at home.
@@ -100,6 +99,15 @@ func TestPublicZoneTwoStepLogin(t *testing.T) {
 		t.Fatalf("totp enable = %d %s", code, body)
 	}
 
+	// Once enabled, the code is required, and the session made without it
+	// no longer opens the public door.
+	if code, _, _ := noCode.do("GET", "/api/cameras", ""); code != 404 {
+		t.Fatalf("password-only session after enabling 2FA = %d", code)
+	}
+	pubAsHome := &client{t: t, base: pub.URL, hc: home.hc}
+	if code, _, _ := pubAsHome.do("GET", "/api/cameras", ""); code != 404 {
+		t.Fatalf("home session without code honoured outside: %d", code)
+	}
 	if code, m, _ := out.do("POST", "/api/login", `{"username":"admin","password":"long enough pw"}`); code != 401 || m["mfa"] != true {
 		t.Fatalf("login without code = %d %v", code, m)
 	}

@@ -34,6 +34,21 @@ the direct connection from round 4 remains its fallback.
 The trial designs below are historical alternatives, not instructions to
 enable every listener or to reinstall the removed app tailnet.
 
+## Amendment (2026-11-06, owner): two-step login is optional
+
+The owner chose convenience for the household: two-step login is no longer
+required from outside. It stays available and, once an account turns it
+on, its code is asked everywhere and a session made without it does not
+open the public door. Without it, the public path relies on the password
+policy, the closed door (nothing behind the login answers without a
+session), per-account and per-address limits, and the outside-login push
+alert. Invite/password-reset links no longer enroll TOTP. The Android app's
+session no longer expires (it ends on sign-out, device revocation, password
+change or account disable); remembered browser sessions slide 30 days from
+last use. Accepted risk: a leaked password alone now opens the account
+remotely; accounts that want the stronger setting turn TOTP on in Minha
+conta.
+
 ## Original trial context
 Today every client needs the Tailscale app (ADR-0004). The owner wants to
 install only the Sentinela APK and open it, and also to open the web UI from

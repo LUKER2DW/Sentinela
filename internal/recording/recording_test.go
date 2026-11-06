@@ -20,7 +20,7 @@ var quiet = slog.New(slog.NewTextHandler(io.Discard, nil))
 func testCfg(t *testing.T) *config.Config {
 	t.Helper()
 	cfg, err := config.Parse([]byte(`
-recording: {segment_seconds: 300, max_disk_percent: 90}
+recording: {segment_seconds: 300, max_disk_percent: 90, alert_retention_days: 30}
 cameras:
   - {id: cam1, host: 192.168.1.20, user_env: U, password_env: P, retention_days: 7}
 `), func(k string) string { return map[string]string{"U": "admin", "P": "Pa@ss"}[k] })
@@ -249,7 +249,67 @@ func TestTieredRetention(t *testing.T) {
 	}
 }
 
-// Disk pressure deletes until 2 points below the limit, not just under it.
+// Retention 0 keeps everything by age; only disk pressure deletes, and
+// events older than the oldest remaining recording go with it.
+func TestUnlimitedRetentionFillsDisk(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	root := filepath.Join(dir, "recordings")
+	st, err := store.Open(ctx, filepath.Join(dir, "db", "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	cfg, err := config.Parse([]byte(`
+cameras:
+  - {id: cam1, host: 192.168.1.20, user_env: U, password_env: P}
+`), func(k string) string { return map[string]string{"U": "admin", "P": "Pa@ss"}[k] })
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	var rels []string
+	for i := 0; i < 22; i++ { // 400 days old down to 190, 10 days apart
+		s := now.Add(-time.Duration(400-10*i) * 24 * time.Hour)
+		rel := "cam1/" + s.Format("2006/01/02/15-04-05") + ".mp4"
+		writeSeg(t, root, rel, 4096, s.Add(5*time.Minute))
+		if err := st.UpsertSegment(ctx, store.Segment{CameraID: "cam1", Start: s, End: s.Add(5 * time.Minute), Path: rel, Bytes: 4096}); err != nil {
+			t.Fatal(err)
+		}
+		id, _ := st.OpenEvent(ctx, "cam1", "motion", s.Add(time.Minute), "")
+		_ = st.CloseEvent(ctx, id, s.Add(2*time.Minute))
+		rels = append(rels, rel)
+	}
+	ret := NewRetention(root, st, cfg, quiet)
+	ret.Disk = func(string) (sysinfo.Disk, error) { return sysinfo.Disk{Total: 100, Pct: 50}, nil }
+	if n, err := ret.Enforce(ctx); err != nil || n != 0 {
+		t.Fatalf("age retention deleted %d err=%v, want 0", n, err)
+	}
+	if oldest, ok, _ := st.OldestEventStart(ctx); !ok || now.Sub(oldest) < 399*24*time.Hour {
+		t.Fatalf("events purged without disk pressure: %v %v", oldest, ok)
+	}
+	// Full disk (95 % default): the oldest batch goes, then 93 % stops.
+	pcts := []float64{96, 93}
+	ret.Disk = func(string) (sysinfo.Disk, error) {
+		p := pcts[0]
+		if len(pcts) > 1 {
+			pcts = pcts[1:]
+		}
+		return sysinfo.Disk{Total: 100, Pct: p}, nil
+	}
+	if n, err := ret.Enforce(ctx); err != nil || n != 20 {
+		t.Fatalf("disk retention deleted %d err=%v, want one batch of 20", n, err)
+	}
+	if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(rels[20]))); err != nil {
+		t.Fatalf("newer recording deleted: %v", err)
+	}
+	// Events older than the oldest recording left (190+10 days) are gone.
+	if oldest, ok, _ := st.OldestEventStart(ctx); !ok || now.Sub(oldest) > 201*24*time.Hour {
+		t.Fatalf("oldest event %v ok=%v, want the one of the oldest kept recording", oldest, ok)
+	}
+}
+
+// Disk pressure deletes until 1 point below the limit, not just under it.
 func TestDiskPressureHysteresis(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()

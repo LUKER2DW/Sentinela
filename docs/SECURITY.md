@@ -8,7 +8,7 @@ are superseded where noted by ADR-0019 and ADR-0020.
 | Threat | Control and current limits |
 |---|---|
 | Camera attacked from the internet | Never forward camera ports. Cloud/P2P, UPnP and WAN egress isolation remain operator checks; do not assume they are complete |
-| Public server login attacked | Only the approved TLS/WebRTC path; mandatory TOTP, closed door and rate limits |
+| Public server login attacked | Only the approved TLS/WebRTC path; closed door, rate limits, outside-login alert, optional TOTP (ADR-0019 amendment) |
 | Stolen phone/session | Native app lock, revocable sessions, expiration and session-bound FCM tokens |
 | LAN guest or IoT attack | Firewall and camera isolation; a separate camera VLAN where available |
 | Secrets in Git/logs/bundles | Runtime secret files, redaction, ignored local release files and review before commit |
@@ -32,8 +32,9 @@ are superseded where noted by ADR-0019 and ADR-0020.
    authenticated session when consumed.
 4. Passwords use argon2id (64 MiB, 3 iterations, one lane). Policy is at
    least 10 characters mixing two kinds, or a 16-character passphrase;
-   common passwords are rejected. Remembered sessions last 30 days,
-   otherwise 12 hours. Cookies are HttpOnly, SameSite=Strict and Secure
+   common passwords are rejected. Remembered browser sessions last 30 days
+   from last use (sliding), otherwise 12 hours; Android app sessions do not
+   expire and end on sign-out, revocation, password change or disable. Cookies are HttpOnly, SameSite=Strict and Secure
    for HTTPS. Unsafe requests require CSRF and a valid Origin. Forwarded
    headers are trusted only from loopback. Limits include 5 requests/minute
    per IP, 10 outside-login attempts/account/hour and 20 failed sign-ins or
@@ -107,8 +108,9 @@ are superseded where noted by ADR-0019 and ADR-0020.
     forwards WAN 18443 to TLS 7443, with the approved WebRTC 8555 allowance.
     Funnel is disabled; embedded tailnet enrollment/app keys were removed.
     Public zones are determined by listener, never by a client header:
-    - A public session must be created with password and TOTP. Home sessions
-      without MFA are ignored there.
+    - TOTP is optional (ADR-0019 amendment, 2026-11-06). For an account
+      with TOTP, a public session must be created with the code; its
+      sessions without MFA are ignored there.
     - Before MFA authentication, only the shell, setup-status and permitted
       authentication/invite onboarding endpoints answer. Protected APIs,
       first-admin setup and public health checks remain closed.

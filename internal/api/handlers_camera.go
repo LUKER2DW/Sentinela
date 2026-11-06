@@ -102,6 +102,7 @@ func (s *Server) ptz(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	ctrl := s.ctrl[cam.ID]
 	var err error
+	s.ptzQuiet.hold(cam.ID, ptzSettle)
 	switch body.Action {
 	case "start":
 		err = ctrl.Start(ctx, body.Op, body.Dir, body.Speed)
@@ -141,6 +142,9 @@ func (s *Server) preset(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 2*dvrip.DefaultTimeout)
 	defer cancel()
+	if body.Action == "goto" {
+		s.ptzQuiet.hold(cam.ID, presetSettle)
+	}
 	err = s.ctrl[cam.ID].Preset(ctx, body.Action, id)
 	if body.Action != "goto" {
 		s.audit(r, "camera.preset."+body.Action, fmt.Sprintf("%s#%d", cam.ID, id), err == nil, "")

@@ -52,7 +52,7 @@ export function SecurityCard() {
   });
   const disable = useMutation({
     mutationFn: () => api("POST", "/api/me/totp/disable", { password }),
-    onSuccess: () => done("Verificação em 2 etapas desativada. Os acessos de fora foram encerrados."),
+    onSuccess: () => done("Verificação em 2 etapas desativada."),
     onError: (e: Error) => toast(e.message.includes("password") ? "Senha incorreta." : e.message, true),
   });
 
@@ -62,7 +62,7 @@ export function SecurityCard() {
         icon="shield"
         tone={on ? "kelp" : "amber"}
         title="Verificação em 2 etapas"
-        sub={on ? "Fora de casa, o login pede o código do app autenticador." : "Sem ela, esta conta não entra de fora de casa."}
+        sub={on ? "O login pede o código do app autenticador, em casa e fora." : "Opcional: com ela, o login também pede um código do app autenticador."}
         aside={
           <span className={`pill${on ? " ok" : ""}`}>
             <span className={`dot ${on ? "ok" : "warn"}`} /> {on ? "Ativa" : "Desligada"}

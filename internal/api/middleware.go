@@ -20,8 +20,34 @@ import (
 
 const sessionCookie = "sentinela_session"
 
-// SessionTTL is how long a login lasts (docs/SECURITY.md).
+// SessionTTL is how long a remembered browser login lasts without use
+// (docs/SECURITY.md). It slides: use pushes it forward once a day.
 const SessionTTL = 30 * 24 * time.Hour
+
+// appSessionTTL: the Android app stays signed in until the user signs out
+// (owner decision, 2026-11-06). A far expiry keeps the schema unchanged.
+const appSessionTTL = 100 * 365 * 24 * time.Hour
+
+// sessionRefresh: a sliding session is pushed forward at most once a day.
+const sessionRefresh = 24 * time.Hour
+
+func sessionTTL(remember, app bool) time.Duration {
+	switch {
+	case app:
+		return appSessionTTL
+	case remember:
+		return SessionTTL
+	default:
+		return shortSessionTTL
+	}
+}
+
+// isAppRequest: the Capacitor app appends "SentinelaApp/" to its WebView
+// user agent (mobile/capacitor.config.ts). A browser faking it only gets a
+// longer session for an account whose password it already proved.
+func isAppRequest(r *http.Request) bool {
+	return strings.Contains(r.UserAgent(), "SentinelaApp/")
+}
 
 type ctxKey int
 
@@ -41,15 +67,19 @@ func sessionFrom(r *http.Request) *store.Session {
 	return s
 }
 
-// session attaches the logged-in user (if any) to the request context. In
-// public zones only sessions made with two-step login count (ADR-0019).
+// session attaches the logged-in user (if any) to the request context.
 func (s *Server) session(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		c, err := r.Cookie(sessionCookie)
 		if err == nil && c.Value != "" && len(c.Value) < 100 {
 			sess, u, err := s.Store.SessionByHash(r.Context(), auth.HashToken(c.Value))
-			if err == nil && PublicZone(zoneFrom(r)) && (!sess.MFA || !u.TOTP) {
+			// Outside, an account with two-step login only counts with a
+			// session made with the code.
+			if err == nil && PublicZone(zoneFrom(r)) && u.TOTP && !sess.MFA {
 				err = store.ErrNotFound
+			}
+			if err == nil && sess.Remember {
+				s.slideSession(w, r, c.Value, sess)
 			}
 			if err == nil {
 				ctx := context.WithValue(r.Context(), userKey, u)
@@ -230,3 +260,19 @@ func isHTTPS(r *http.Request) bool {
 }
 
 func hostPort(host string, port int) string { return net.JoinHostPort(host, strconv.Itoa(port)) }
+
+// slideSession pushes a remembered session's expiry forward (at most once a
+// day), so a device in use is never signed out by age.
+func (s *Server) slideSession(w http.ResponseWriter, r *http.Request, tok string, sess *store.Session) {
+	exp := time.Now().Add(sessionTTL(true, isAppRequest(r)))
+	if exp.Sub(sess.ExpiresAt) < sessionRefresh {
+		return
+	}
+	if err := s.Store.ExtendSession(r.Context(), sess.IDHash, exp); err != nil {
+		s.Log.Warn("session refresh failed", "err", err)
+		return
+	}
+	sess.ExpiresAt = exp
+	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: tok, Path: "/", HttpOnly: true,
+		Secure: s.Cfg.SecureCookies || isHTTPS(r), SameSite: http.SameSiteStrictMode, Expires: exp})
+}

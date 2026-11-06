@@ -21,6 +21,17 @@ const stateLabel: Record<string, string> = {
   stopped: "Parado",
 };
 
+/** How long recordings are kept: 0 days means until the disk is full, then the oldest are overwritten. */
+export function retentionLabel(cams: { retention_days: number }[]): string {
+  if (cams.length === 0 || cams.some((c) => c.retention_days <= 0)) return "até encher o disco (as mais antigas são substituídas)";
+  return `até ${Math.max(...cams.map((c) => c.retention_days))} dias`;
+}
+
+/** Every camera's motion events are arriving (unknown counts as fine until the watcher reports). */
+export function eventsOk(s: Pick<SystemInfo, "event_watch">): boolean {
+  return Object.values(s.event_watch ?? {}).every((w) => w.ok);
+}
+
 /** Days of recording that fit, from the real rate; null while unknown. */
 export function recordingDays(s: SystemInfo): number | null {
   const recBytes = s.storage.reduce((a, x) => a + x.bytes, 0);
@@ -167,6 +178,13 @@ function StatusTiles({ s }: { s: SystemInfo }) {
       value: !s.detector ? "desligado" : s.detector.healthy ? "Analisando" : "Sem sinal",
       to: "detection",
     },
+    {
+      icon: "bell",
+      label: "Eventos da câmera",
+      ok: eventsOk(s),
+      value: eventsOk(s) ? "Recebendo" : "Sem eventos de movimento",
+      to: "detection",
+    },
   ];
   return (
     <div className="status-tiles">
@@ -192,7 +210,7 @@ function CamerasCard() {
             <div>
               <strong>{c.name}</strong>
               <p className="muted small">
-                {c.id} · guarda {c.retention_days} dias · áudio {c.record_audio ? "gravado" : "desligado"}
+                {c.id} · {c.retention_days > 0 ? `guarda ${c.retention_days} dias` : "guarda até encher o disco"} · áudio {c.record_audio ? "gravado" : "desligado"}
               </p>
             </div>
             <a className="btn small ghost" href={href("live", { view: "single", cam: c.id })}>
@@ -309,7 +327,7 @@ function Recorders({ s }: { s: SystemInfo }) {
         <dt>Áudio</dt>
         <dd>{cams.data?.every((c) => c.record_audio) ? "gravado" : "desligado"}</dd>
         <dt>Guardar por</dt>
-        <dd>até {Math.max(...(cams.data ?? [{ retention_days: 0 }]).map((c) => c.retention_days))} dias</dd>
+        <dd>{retentionLabel(cams.data ?? [])}</dd>
       </dl>
     </section>
   );

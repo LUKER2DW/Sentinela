@@ -61,7 +61,7 @@ func (s *Server) setupStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	z := zoneFrom(r)
 	writeJSON(w, http.StatusOK, map[string]any{"needs_setup": n == 0 && !PublicZone(z), "version": Version,
-		"zone": z, "mfa": PublicZone(z)})
+		"zone": z})
 }
 
 // setup creates the first admin. It only works while no user exists.
@@ -142,13 +142,9 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusForbidden, "account disabled")
 		return
 	}
-	// Two-step login is mandatory outside (a leaked password alone opens
-	// nothing remotely) and asked at home too of accounts that have it.
-	if public && !u.TOTP {
-		_ = s.Store.Audit(r.Context(), u.ID, u.Username, "login", ip, false, zone+": no 2fa")
-		writeErr(w, http.StatusForbidden, "two-step login is not set up for this account")
-		return
-	}
+	// Two-step login is optional (ADR-0019 amendment, 2026-11-06): accounts
+	// that turned it on are asked for the code everywhere, the others sign
+	// in with the password alone.
 	if u.TOTP {
 		if strings.TrimSpace(c.Code) == "" {
 			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "code required", "mfa": true})
@@ -171,14 +167,16 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 
 // startSession logs userID in on this device; mfa marks a two-step login.
 // Without remember the session lasts 12 hours and its cookie ends with the
-// browser.
+// browser. The Android app always remembers and its session does not
+// expire: it ends only when the user signs out, revokes the device, changes
+// the password or an admin disables the account.
 func (s *Server) startSession(w http.ResponseWriter, r *http.Request, userID int64, mfa, remember bool) {
 	tok, csrf := auth.NewToken(), auth.NewToken()
-	ttl := SessionTTL
-	if !remember {
-		ttl = shortSessionTTL
+	app := isAppRequest(r)
+	if app {
+		remember = true
 	}
-	exp := time.Now().Add(ttl)
+	exp := time.Now().Add(sessionTTL(remember, app))
 	ua := r.UserAgent()
 	if len(ua) > maxUA {
 		ua = ua[:maxUA]
@@ -419,10 +417,9 @@ func (s *Server) reinvite(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.invited(u, code))
 }
 
-// acceptInvite is the first access: the invited person proves the code and
-// picks a password. From outside (public zone) the account also gets
-// two-step login right away: the first call answers totp_required with a
-// QR code, the second brings the authenticator's code (ADR-0019).
+// acceptInvite is the first access (or a password reset): the invited
+// person proves the code and picks a password. Two-step login is optional
+// and is turned on later in Minha conta (ADR-0019 amendment).
 func (s *Server) acceptInvite(w http.ResponseWriter, r *http.Request) {
 	ip := clientIP(r)
 	if s.tooManyFailures(ip) {
@@ -437,7 +434,6 @@ func (s *Server) acceptInvite(w http.ResponseWriter, r *http.Request) {
 		Login    string `json:"login"`
 		Code     string `json:"code"`
 		Password string `json:"password"`
-		TOTPCode string `json:"totp_code,omitempty"`
 		Remember *bool  `json:"remember,omitempty"`
 	}
 	if err := readJSON(r, &body); err != nil {
@@ -469,45 +465,20 @@ func (s *Server) acceptInvite(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	secret, step := "", int64(0)
-	if public {
-		secret = s.totpPending.get(u.ID)
-		if secret == "" || strings.TrimSpace(body.TOTPCode) == "" {
-			if secret == "" {
-				secret = auth.NewTOTPSecret()
-				s.totpPending.put(u.ID, secret)
-			}
-			uri := auth.TOTPURI("Sentinela", u.Username, secret)
-			svg, err := qrSVG(uri)
-			if err != nil {
-				writeErr(w, http.StatusInternalServerError, "could not draw the QR code")
-				return
-			}
-			writeJSON(w, http.StatusOK, map[string]any{"totp_required": true, "secret": secret, "uri": uri, "qr_svg": svg})
-			return
-		}
-		var ok bool
-		if step, ok = auth.VerifyTOTP(secret, body.TOTPCode, time.Now(), 0); !ok {
-			s.failed(ip)
-			writeErr(w, http.StatusUnauthorized, "invalid code")
-			return
-		}
-	}
 	hash, err := auth.HashPassword(body.Password)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := s.Store.RedeemInvite(ctx, u.ID, u.InviteHash, hash, secret, step); err != nil {
+	if err := s.Store.RedeemInvite(ctx, u.ID, u.InviteHash, hash, "", 0); err != nil {
 		writeErr(w, http.StatusConflict, "invalid or expired invite")
 		return
 	}
-	s.totpPending.drop(u.ID)
 	_ = s.Store.Audit(ctx, u.ID, u.Username, "invite.accept", ip, true, zone)
 	if public {
 		go s.alertOutsideLogin(u, ip, zone)
 	}
-	s.startSession(w, r, u.ID, public, body.Remember == nil || *body.Remember)
+	s.startSession(w, r, u.ID, false, body.Remember == nil || *body.Remember)
 }
 
 func (s *Server) targetUser(w http.ResponseWriter, r *http.Request) *store.User {

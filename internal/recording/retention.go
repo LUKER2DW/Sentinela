@@ -17,6 +17,8 @@ import (
 // Retention deletes old segments: first by per-camera age (segments that
 // overlap an Alert event are kept for AlertRetentionDays instead), then
 // oldest-first while the disk is above MaxDiskPercent, alert or not.
+// A retention of 0 days means no age limit: the disk fills up to
+// MaxDiskPercent and the oldest recordings are overwritten from then on.
 // Protected segments are never deleted.
 type Retention struct {
 	Root  string
@@ -54,11 +56,22 @@ func (r *Retention) Run(ctx context.Context, interval time.Duration) {
 func (r *Retention) Enforce(ctx context.Context) (int, error) {
 	deleted := 0
 	alertDays := r.Cfg.Recording.AlertRetentionDays
+	// unlimited: some tier has no age limit, so events are kept as long as
+	// recordings exist instead of for a fixed number of days.
+	unlimited := alertDays <= 0
 	maxDays := alertDays
-	alertCutoff := r.now().Add(-time.Duration(alertDays) * 24 * time.Hour)
+	// Zero time: alert segments are never deleted by age.
+	var alertCutoff time.Time
+	if alertDays > 0 {
+		alertCutoff = r.now().Add(-time.Duration(alertDays) * 24 * time.Hour)
+	}
 	alertTypes := review.AlertTypes()
 	for i := range r.Cfg.Cameras {
 		cam := &r.Cfg.Cameras[i]
+		if cam.RetentionDays <= 0 {
+			unlimited = true
+			continue
+		}
 		maxDays = max(maxDays, cam.RetentionDays)
 		cutoff := r.now().Add(-time.Duration(cam.RetentionDays) * 24 * time.Hour)
 		for {
@@ -84,9 +97,9 @@ func (r *Retention) Enforce(ctx context.Context) (int, error) {
 		if err != nil {
 			return deleted, err
 		}
-		// Start only above the limit; once started, go on to 2 points below
+		// Start only above the limit; once started, go on to 1 point below
 		// it, so the disk does not sit at the edge deleting every pass.
-		if d.Total == 0 || (guard == 0 && d.Pct < limit) || (guard > 0 && d.Pct < limit-2) {
+		if d.Total == 0 || (guard == 0 && d.Pct < limit) || (guard > 0 && d.Pct < limit-1) {
 			break
 		}
 		segs, err := r.Store.OldestSegments(ctx, 20)
@@ -104,9 +117,17 @@ func (r *Retention) Enforce(ctx context.Context) (int, error) {
 			deleted++
 		}
 	}
-	// Events (and their review state) live as long as the longest tier.
-	if maxDays > 0 {
+	// Events (and their review state) live as long as the longest tier;
+	// without an age limit, as long as the recordings they point into (a
+	// day of slack keeps an event that started just before the oldest
+	// segment).
+	switch {
+	case !unlimited && maxDays > 0:
 		_ = r.Store.PurgeEventsBefore(ctx, r.now().Add(-time.Duration(maxDays)*24*time.Hour))
+	case unlimited:
+		if oldest, err := r.Store.OldestSegments(ctx, 1); err == nil && len(oldest) == 1 {
+			_ = r.Store.PurgeEventsBefore(ctx, oldest[0].Start.Add(-24*time.Hour))
+		}
 	}
 	return deleted, nil
 }

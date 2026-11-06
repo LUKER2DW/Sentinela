@@ -299,6 +299,12 @@ func (s *Store) SessionByHash(ctx context.Context, idHash []byte) (*Session, *Us
 	return &sess, u, nil
 }
 
+// ExtendSession moves a session's expiry (sliding "keep me signed in").
+func (s *Store) ExtendSession(ctx context.Context, idHash []byte, expires time.Time) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE sessions SET expires_at=? WHERE id_hash=?`, FormatTime(expires), idHash)
+	return err
+}
+
 // DeleteSession removes one session.
 func (s *Store) DeleteSession(ctx context.Context, idHash []byte) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE id_hash=?`, idHash)
@@ -694,6 +700,19 @@ func (s *Store) EventByID(ctx context.Context, id int64) (*Event, error) {
 		e.End = &t
 	}
 	return &e, nil
+}
+
+// OldestEventStart returns the start of the oldest stored event (ok=false
+// when there is none).
+func (s *Store) OldestEventStart(ctx context.Context) (time.Time, bool, error) {
+	var v sql.NullString
+	if err := s.db.QueryRowContext(ctx, `SELECT min(start_utc) FROM events`).Scan(&v); err != nil {
+		return time.Time{}, false, err
+	}
+	if !v.Valid || v.String == "" {
+		return time.Time{}, false, nil
+	}
+	return mustTime(v.String), true, nil
 }
 
 // PurgeEventsBefore deletes events older than t.

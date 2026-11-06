@@ -9,9 +9,9 @@ secure_cookies: false
 
 recording:
   segment_seconds: 300              # 5-minute MP4 files
-  max_disk_percent: 90              # above this, oldest recordings are deleted
-  default_retention_days: 15        # owner decision (PLAN Phase 9 D1): ~18–24 GB/day, ≤ 360 GB of -
-  alert_retention_days: 30          # segments overlapping an Alert (line, area, person, tamper) stay longer
+  max_disk_percent: 95              # above this, oldest recordings are overwritten
+  default_retention_days: 0         # 0 = no age limit: fill the disk, then overwrite the oldest (owner, 2026-11-06)
+  alert_retention_days: 0           # > 0: segments overlapping an Alert (line, area, person, tamper) are kept this long
   stall_seconds: 20                 # restart ffmpeg if no data for this long
 
 # Shown on the System and Nuvem pages. Paths are as seen inside the container.
@@ -57,7 +57,7 @@ cameras:
     rtsp_port: 554
     dvrip_port: 34567
     onvif_port: 8899                # audited: ONVIF is on 8899, not 80
-    retention_days: 15
+    retention_days: 0               # 0 = until the disk is full
     record_audio: true              # audio is AAC-encoded (ADR-0006); false = pure copy
     invert_pan_tilt: true           # this unit is mounted flipped + mirrored
     # invert_tilt: false            # per axis: image mirrored but not flipped

@@ -131,3 +131,50 @@ func TestParseSystemTime(t *testing.T) {
 		t.Fatal("want error for a response without UTCDateTime")
 	}
 }
+
+func TestRebaseSubscriptionAddress(t *testing.T) {
+	c := NewClient("192.168.1.20", 8899, "u", "p")
+	tests := []struct{ in, want string }{
+		// The camera reports its unused wired static address.
+		{"http://192.168.1.10:8899/event_service/61", "http://192.168.1.20:8899/event_service/61"},
+		{"http://192.168.1.10/event_service/7?x=1", "http://192.168.1.20:8899/event_service/7?x=1"},
+		{"/event_service/3", "http://192.168.1.20:8899/event_service/3"},
+		{"http://192.168.1.20:8899/event_service/2", "http://192.168.1.20:8899/event_service/2"},
+	}
+	for _, tt := range tests {
+		if got := c.rebase(tt.in); got != tt.want {
+			t.Errorf("rebase(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
+// While the camera moves under PTZ its own motion opens no event; tamper
+// and other types still do.
+func TestWatcherQuietDuringPTZ(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	quiet := true
+	var got []string
+	w := &Watcher{CameraID: "cam1", Store: st, Quiet: func(string) bool { return quiet },
+		Sink: func(_, typ string, _ int64, active bool, _ time.Time) {
+			if active {
+				got = append(got, typ)
+			}
+		}}
+	now := time.Now()
+	cell := Notification{Topic: "tns1:RuleEngine/CellMotionDetector/Motion", Items: map[string]string{"IsMotion": "true"}}
+	w.Handle(ctx, cell, now)
+	w.Handle(ctx, Notification{Topic: "tns1:VideoSource/TamperDetector", Items: map[string]string{"IsTamper": "true"}}, now)
+	cell.Items["IsMotion"] = "false"
+	w.Handle(ctx, cell, now.Add(time.Second))
+	quiet = false
+	cell.Items["IsMotion"] = "true"
+	w.Handle(ctx, cell, now.Add(5*time.Second))
+	if len(got) != 2 || got[0] != "tamper" || got[1] != "motion" {
+		t.Fatalf("opened = %v, want [tamper motion]", got)
+	}
+}

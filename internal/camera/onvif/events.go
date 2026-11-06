@@ -28,9 +28,17 @@ type Watcher struct {
 	// nothing to say: pulling again right away made ~45 requests a second,
 	// which starved its encoder (frames dropped on every stream).
 	MinPull time.Duration
+	// Quiet, when set and true, keeps a motion event from opening: the
+	// camera is moving under PTZ and sees its own movement.
+	Quiet func(cameraID string) bool
+	// Health, when set, hears whether events are flowing: ok after a
+	// successful pull, not ok (with the redacted reason) when a session
+	// ends. Called only when the state changes.
+	Health func(cameraID string, ok bool, reason string)
 
-	open   map[string]openEvent
-	topics map[string]bool // "type|topic" -> last active state
+	open    map[string]openEvent
+	healthy *bool
+	topics  map[string]bool // "type|topic" -> last active state
 }
 
 type openEvent struct {
@@ -62,7 +70,9 @@ func (w *Watcher) Run(ctx context.Context) {
 		if time.Since(started) > 2*time.Minute {
 			backoff = minBackoff
 		}
-		w.Log.Warn("onvif events: session ended", "camera", w.CameraID, "err", redact.Secrets(errString(err), w.Client.Password))
+		reason := redact.Secrets(errString(err), w.Client.Password)
+		w.Log.Warn("onvif events: session ended", "camera", w.CameraID, "err", reason)
+		w.health(false, reason)
 		select {
 		case <-ctx.Done():
 		case <-time.After(backoff):
@@ -70,6 +80,14 @@ func (w *Watcher) Run(ctx context.Context) {
 		backoff = min(backoff*2, 2*time.Minute)
 	}
 	w.closeAll(time.Now())
+}
+
+func (w *Watcher) health(ok bool, reason string) {
+	if w.Health == nil || (w.healthy != nil && *w.healthy == ok) {
+		return
+	}
+	w.healthy = &ok
+	w.Health(w.CameraID, ok, reason)
 }
 
 func errString(err error) string {
@@ -97,6 +115,7 @@ func (w *Watcher) session(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		w.health(true, "")
 		now := time.Now()
 		for _, m := range msgs {
 			w.Handle(ctx, m, now)
@@ -143,6 +162,9 @@ func (w *Watcher) transition(ctx context.Context, typ string, active bool, now t
 	ev, isOpen := w.open[typ]
 	switch {
 	case active && !isOpen:
+		if typ == "motion" && w.Quiet != nil && w.Quiet(w.CameraID) {
+			return
+		}
 		id, err := w.Store.OpenEvent(ctx, w.CameraID, typ, now, "")
 		if err != nil {
 			w.Log.Warn("store event", "err", err)

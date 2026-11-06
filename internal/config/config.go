@@ -290,10 +290,10 @@ func (c *Config) applyDefaults() {
 	}
 	c.Apps.Runtimes = rt
 	defInt(&c.Recording.SegmentSeconds, 300)
-	defInt(&c.Recording.MaxDiskPercent, 90)
-	defInt(&c.Recording.DefaultRetentionDays, 15)
+	// Retention days 0 = no age limit: record until the disk reaches
+	// MaxDiskPercent, then overwrite the oldest (owner decision, 2026-11-06).
+	defInt(&c.Recording.MaxDiskPercent, 95)
 	defInt(&c.Recording.StallSeconds, 20)
-	defInt(&c.Recording.AlertRetentionDays, 30)
 	for i := range c.Cameras {
 		cam := &c.Cameras[i]
 		def(&cam.Name, cam.ID)
@@ -314,6 +314,14 @@ func (c *Config) validate() error {
 	}
 	if c.Recording.MaxDiskPercent < 50 || c.Recording.MaxDiskPercent > 98 {
 		errs = append(errs, errors.New("recording.max_disk_percent must be 50..98"))
+	}
+	if c.Recording.DefaultRetentionDays < 0 || c.Recording.AlertRetentionDays < 0 {
+		errs = append(errs, errors.New("recording retention days must be 0 (until the disk is full) or more"))
+	}
+	for _, cam := range c.Cameras {
+		if cam.RetentionDays < 0 {
+			errs = append(errs, fmt.Errorf("camera %s: retention_days must be 0 (until the disk is full) or more", cam.ID))
+		}
 	}
 	if l := c.Remote.FunnelListen; l != "" {
 		// Funnel traffic arrives from tailscaled on this host only.

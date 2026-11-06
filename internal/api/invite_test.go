@@ -1,6 +1,7 @@
 package api
 
 import (
+	"net/http"
 	"strconv"
 	"strings"
 	"testing"
@@ -76,7 +77,9 @@ func TestInviteLink(t *testing.T) {
 	}
 }
 
-func TestInviteFromOutsideEnrollsTwoStep(t *testing.T) {
+// Two-step login is optional (ADR-0019 amendment): an invite redeemed from
+// outside signs in with the new password alone.
+func TestInviteFromOutsideWithoutTwoStep(t *testing.T) {
 	priv, srv := newTestServer(t)
 	admin := newClient(t, priv.URL)
 	admin.do("POST", "/api/setup", `{"username":"admin","password":"long enough pw"}`)
@@ -85,24 +88,15 @@ func TestInviteFromOutsideEnrollsTwoStep(t *testing.T) {
 
 	pub := newPublicServer(t, srv, ZonePublic)
 	out := newClient(t, pub.URL)
-	req := `{"login":"joao","code":"` + invite + `","password":"casa2026!x"`
-	code, m, body := out.do("POST", "/api/invite/accept", req+"}")
-	secret, _ := m["secret"].(string)
-	if code != 200 || m["totp_required"] != true || secret == "" {
-		t.Fatalf("first step = %d %s", code, body)
+	req := `{"login":"joao","code":"` + invite + `","password":"casa2026!x"}`
+	if code, m, body := out.do("POST", "/api/invite/accept", req); code != 200 || m["totp_required"] != nil {
+		t.Fatalf("accept = %d %s", code, body)
 	}
-	if code, _, _ := out.do("GET", "/api/me", ""); code != 404 {
-		t.Fatalf("session before the code = %d", code)
-	}
-	if code, _, _ := out.do("POST", "/api/invite/accept", req+`,"totp_code":"000000"}`); code != 401 {
-		t.Fatalf("wrong totp = %d", code)
-	}
-	c, _ := auth.TOTPCode(secret, auth.TOTPStep(time.Now()))
-	if code, _, body := out.do("POST", "/api/invite/accept", req+`,"totp_code":"`+c+`"}`); code != 200 {
-		t.Fatalf("second step = %d %s", code, body)
-	}
-	if code, m, _ := out.do("GET", "/api/me", ""); code != 200 || m["user"].(map[string]any)["totp"] != true {
+	if code, m, _ := out.do("GET", "/api/me", ""); code != 200 || m["user"].(map[string]any)["totp"] != false {
 		t.Fatalf("me after accept = %d %v", code, m)
+	}
+	if code, _, _ := out.do("POST", "/api/invite/accept", req); code != 401 {
+		t.Fatalf("invite reused = %d", code)
 	}
 }
 
@@ -140,5 +134,31 @@ func TestRememberMe(t *testing.T) {
 		if len(ck) != 1 || ck[0].Expires.IsZero() == tc.persistent {
 			t.Fatalf("%s: cookie %+v", tc.body, ck)
 		}
+	}
+}
+
+// The Android app stays signed in until the user signs out, even when the
+// page asked not to remember.
+func TestAppSessionDoesNotExpire(t *testing.T) {
+	priv, _ := newTestServer(t)
+	newClient(t, priv.URL).do("POST", "/api/setup", `{"username":"admin","password":"long enough pw"}`)
+	req, _ := http.NewRequest("POST", priv.URL+"/api/login",
+		strings.NewReader(`{"username":"admin","password":"long enough pw","remember":false}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Linux; Android 14; wv) Chrome/129 Mobile Safari/537.36 SentinelaApp/1")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	ck := resp.Cookies()
+	if resp.StatusCode != 200 || len(ck) != 1 || ck[0].Expires.Before(time.Now().Add(50*365*24*time.Hour)) {
+		t.Fatalf("app login = %d, cookie %+v", resp.StatusCode, ck)
+	}
+}
+
+func TestSessionTTL(t *testing.T) {
+	if sessionTTL(false, false) != shortSessionTTL || sessionTTL(true, false) != SessionTTL || sessionTTL(false, true) != appSessionTTL {
+		t.Fatal("sessionTTL tiers")
 	}
 }

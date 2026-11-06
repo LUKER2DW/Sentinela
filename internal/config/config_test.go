@@ -16,7 +16,7 @@ cameras:
 		t.Fatal(err)
 	}
 	cam := c.Camera("cam1")
-	if cam.ONVIFPort != 8899 || cam.DVRIPPort != 34567 || cam.RetentionDays != 15 || !cam.Recording() || !cam.AudioRecording() {
+	if cam.ONVIFPort != 8899 || cam.DVRIPPort != 34567 || cam.RetentionDays != 0 || c.Recording.MaxDiskPercent != 95 || !cam.Recording() || !cam.AudioRecording() {
 		t.Fatalf("defaults not applied: %+v", cam)
 	}
 	if got := cam.RTSPURL(1); got != "rtsp://192.168.1.20:554/user=admin&password=Pa@ss&channel=1&stream=1.sdp?real_stream" {
@@ -30,6 +30,7 @@ func TestValidate(t *testing.T) {
 		"bad id":        `cameras: [{id: "Cam 1", host: 10.0.0.2, user_env: U, password_env: P}]`,
 		"dup id":        `cameras: [{id: a, host: 10.0.0.2, user_env: U, password_env: P}, {id: a, host: 10.0.0.3, user_env: U, password_env: P}]`,
 		"bad segment":   "recording: {segment_seconds: 5}\ncameras: []",
+		"neg retention": "recording: {default_retention_days: -1}\ncameras: []",
 		"funnel on lan": "remote: {funnel_listen: '0.0.0.0:8081'}",
 		"public lan ip": "remote: {public: {domain: '192.168.1.10'}}",
 	}

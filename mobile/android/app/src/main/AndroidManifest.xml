@@ -25,6 +25,15 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!-- Invite / password-reset links opened in the browser hand the
+                 page over to the app (web/src/lib/openInApp.ts). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="sentinela" android:host="open" />
+            </intent-filter>
+
         </activity>
 
         <!-- Fallback when Firebase or Google Play services is unavailable. -->

@@ -37,8 +37,8 @@ android {
         applicationId "casa.sentinela.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 15
-        versionName "1.14"
+        versionCode 16
+        versionName "1.15"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         // The house's public address shown on the start screen (ADR-0019);
         // from connection.json or the environment, never stored in git.
@@ -103,6 +103,10 @@ dependencies {
     implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
     implementation "androidx.biometric:biometric:1.1.0"
+    // Google Password Manager "Save password?" sheet and saved-login picker
+    // for the login screen (CredentialsPlugin).
+    implementation "androidx.credentials:credentials:1.5.0"
+    implementation "androidx.credentials:credentials-play-services-auth:1.5.0"
     // Android push transport (ADR-0020). The server uses the small HTTP v1
     // client in Go; only this app needs the Firebase SDK.
     implementation platform('com.google.firebase:firebase-bom:34.19.0')
