@@ -18,7 +18,7 @@ version measured at their original date.
 | Audio | G.711 A-law (PCMA) 8 kHz mono | ONVIF + ffprobe |
 | ONVIF | Profile T media source; `SetUser` unsupported (password change fails) | v1 KNOWN_ISSUES #12 |
 | Control | PTZ only via DVRIP TCP 34567 (ONVIF PTZ not used) | v1 IPC_NT98566_PTZ.md |
-| Vendor client | VideoPlayTool 4.0.3.3 (unsigned exe; never executed) | v1 |
+| Vendor client | VideoPlayTool desktop 4.0.3.3 (`Bin\VideoPlayToolVersion.ini`), web component 5.1.7.5 (`Web\WebVersion.txt`, modified 2026-11-06); `Bin\VideoPlayTool.exe` not Authenticode-signed; never executed by this project. Hashes and bundled components in §7.10 | v1; PC inventory 2026-11-06 |
 
 ### 1.1 RTSP URLs (XMEye convention)
 
@@ -181,6 +181,10 @@ Other findings:
 - [ ] Set NTP to the server's IP `192.168.1.10` (chrony already serves the
       LAN) and keep TZ `BRT3`.
 - [ ] Router: block all WAN traffic from the camera's IP/MAC.
+- [ ] Advanced → Upgrade: untick "Automatic firmware upgrade" (and "Prompt for
+      the latest updates"). Both were ticked in the web UI on 2026-11-06
+      (owner screenshot); the camera can replace its own firmware from the
+      vendor cloud. Not changed by the agent.
 - [ ] If telnet/9527 is open: note it; do not use; rely on network isolation.
 
 ## 5. Measurements (Phase 1)
