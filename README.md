@@ -9,7 +9,7 @@ ffmpeg copies H.265 video into fragmented MP4 recordings.
 
 Live view, recordings, camera control, event review, detection zones,
 Nuvem, accounts and the Capacitor Android app are deployed. The current
-Android release is **1.14 (version code 15)**. Outstanding operator checks,
+Android release is **1.16 (version code 17)**. Outstanding operator checks,
 camera isolation, backup recovery and future work are in
 [the master plan](docs/PLAN.md).
 

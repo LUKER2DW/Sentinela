@@ -65,6 +65,20 @@ export function useAppUpdate() {
   return { info: info.data ?? null, release: rel.data, newer };
 }
 
+/** First app version whose plugin reads the size correctly. */
+const SIZE_FIXED_IN = 17;
+
+/**
+ * The size as the installed plugin can read it. Up to 1.15 the plugin used
+ * Capacitor's getLong, which ignores JSON numbers that fit an int (every
+ * APK), so it refused every update. Adding 2^32 makes the number a Long for
+ * those versions; they use it only as an upper bound while downloading, and
+ * the SHA-256 check still decides what is installed.
+ */
+export function nativeSize(size: number, versionCode: number): number {
+  return versionCode > 0 && versionCode < SIZE_FIXED_IN && size < 2 ** 31 ? size + 2 ** 32 : size;
+}
+
 /**
  * Downloads and installs the release. Resolves "installing" when Android's
  * installer opened, or "permission" when the one-time "install unknown
@@ -73,17 +87,22 @@ export function useAppUpdate() {
 export async function installUpdate(rel: AppRelease, onProgress: (pct: number) => void): Promise<"installing" | "permission"> {
   const cap = bridge();
   if (!cap || !rel.sha256 || !rel.size) throw new Error("Atualização indisponível.");
+  const size = rel.size;
   let sub: Listener | undefined;
   try {
     sub = await cap.Plugins?.SentinelaUpdate?.addListener?.("progress", (d) => {
-      const p = d as { sent: number; total: number };
-      if (p.total > 0) onProgress(Math.round((100 * p.sent) / p.total));
+      const p = d as { sent: number };
+      onProgress(Math.min(100, Math.round((100 * p.sent) / size)));
     });
   } catch {
     // progress is optional
   }
+  const info = await appInfo();
   try {
-    const r = await cap.nativePromise!<{ state: "installing" | "permission" }>("SentinelaUpdate", "install", { sha256: rel.sha256, size: rel.size });
+    const r = await cap.nativePromise!<{ state: "installing" | "permission" }>("SentinelaUpdate", "install", {
+      sha256: rel.sha256,
+      size: nativeSize(size, info?.versionCode ?? 0),
+    });
     return r.state;
   } finally {
     void sub?.remove();

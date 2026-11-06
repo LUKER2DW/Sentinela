@@ -67,7 +67,9 @@ public class UpdatePlugin extends Plugin {
     @PluginMethod
     public void install(PluginCall call) {
         final String sha = call.getString("sha256", "").toLowerCase(Locale.ROOT);
-        final long size = call.getLong("size", 0L);
+        // Not call.getLong: Capacitor returns the default for JSON numbers
+        // that fit an int (every APK size), which made 1.14/1.15 refuse.
+        final long size = call.getData().optLong("size", 0L);
         String server = getBridge().getServerUrl();
         if (!sha.matches("[0-9a-f]{64}") || size <= 0 || server == null || !server.startsWith("https://")) {
             call.reject("Atualização indisponível.");
