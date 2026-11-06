@@ -2,6 +2,7 @@ package onvif
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"strings"
 	"time"
@@ -60,27 +61,46 @@ func (w *Watcher) Run(ctx context.Context) {
 	const minBackoff = 5 * time.Second
 	backoff := minBackoff
 	for ctx.Err() == nil {
-		started := time.Now()
-		err := w.session(ctx)
+		delivered, err := w.session(ctx)
 		if ctx.Err() != nil {
 			break
 		}
-		// A session that ran for a while was healthy: reconnect promptly
-		// instead of waiting the backoff left by an earlier failure.
-		if time.Since(started) > 2*time.Minute {
-			backoff = minBackoff
+		wait := backoff
+		switch {
+		case errors.Is(err, errRotate):
+			// Planned: the camera refused Renew, the subscription was used
+			// until just before it expired. Subscribe again right away.
+			w.Log.Debug("onvif events: subscription rotated", "camera", w.CameraID)
+			backoff, wait = minBackoff, 0
+		case delivered:
+			// The session worked: reconnect promptly instead of waiting a
+			// backoff left by earlier failures.
+			backoff, wait = minBackoff, time.Second
+			fallthrough
+		default:
+			reason := redact.Secrets(errString(err), w.Client.Password)
+			w.Log.Warn("onvif events: session ended", "camera", w.CameraID, "err", reason)
+			if !delivered {
+				w.health(false, reason)
+				backoff = min(backoff*2, 2*time.Minute)
+			}
 		}
-		reason := redact.Secrets(errString(err), w.Client.Password)
-		w.Log.Warn("onvif events: session ended", "camera", w.CameraID, "err", reason)
-		w.health(false, reason)
-		select {
-		case <-ctx.Done():
-		case <-time.After(backoff):
+		if wait > 0 {
+			select {
+			case <-ctx.Done():
+			case <-time.After(wait):
+			}
 		}
-		backoff = min(backoff*2, 2*time.Minute)
 	}
 	w.closeAll(time.Now())
 }
+
+// errRotate ends a session whose subscription could not be renewed, just
+// before the camera drops it.
+var errRotate = errors.New("onvif: subscription rotated")
+
+// subscriptionTTL is the InitialTerminationTime asked in Subscribe.
+const subscriptionTTL = 120 * time.Second
 
 func (w *Watcher) health(ok bool, reason string) {
 	if w.Health == nil || (w.healthy != nil && *w.healthy == ok) {
@@ -97,10 +117,11 @@ func errString(err error) string {
 	return err.Error()
 }
 
-func (w *Watcher) session(ctx context.Context) error {
+// session runs one subscription; delivered reports at least one good pull.
+func (w *Watcher) session(ctx context.Context) (delivered bool, err error) {
 	sub, err := w.Client.Subscribe(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer func() {
 		c, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -108,13 +129,18 @@ func (w *Watcher) session(ctx context.Context) error {
 		_ = sub.Unsubscribe(c)
 	}()
 	w.Log.Info("onvif events: subscribed", "camera", w.CameraID)
-	lastRenew := time.Now()
+	subscribed := time.Now()
+	lastRenew := subscribed
+	// expires: when the camera drops the subscription if Renew keeps
+	// failing (this camera answers ResourceUnknownFault to Renew).
+	expires := subscribed.Add(subscriptionTTL)
 	for ctx.Err() == nil {
 		started := time.Now()
 		msgs, err := sub.Pull(ctx, 10*time.Second)
 		if err != nil {
-			return err
+			return delivered, err
 		}
+		delivered = true
 		w.health(true, "")
 		now := time.Now()
 		for _, m := range msgs {
@@ -122,10 +148,15 @@ func (w *Watcher) session(ctx context.Context) error {
 		}
 		w.expire(ctx, now)
 		if now.Sub(lastRenew) > 50*time.Second {
-			if err := sub.Renew(ctx); err != nil {
-				return err
+			if err := sub.Renew(ctx); err == nil {
+				expires = now.Add(subscriptionTTL)
+			} else if ctx.Err() == nil {
+				w.Log.Debug("onvif events: renew refused", "camera", w.CameraID, "err", redact.Secrets(err.Error(), w.Client.Password))
 			}
 			lastRenew = now
+		}
+		if time.Until(expires) < 15*time.Second {
+			return true, errRotate
 		}
 		// A full batch may have more waiting; anything else keeps the pace.
 		if wait := w.MinPull - time.Since(started); wait > 0 && len(msgs) < pullLimit {
@@ -135,7 +166,7 @@ func (w *Watcher) session(ctx context.Context) error {
 			}
 		}
 	}
-	return nil
+	return delivered, nil
 }
 
 // Handle applies one notification. Several topics map to one type (this
