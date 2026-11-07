@@ -37,3 +37,13 @@ The available local backup does not imply those acceptance checks passed.
 + Losing `sdc` loses at most a day of DB changes; losing `sdb` loses nothing
   that reached the USB disk the night before.
 − restic is a host package and one more timer.
+
+## Restore drill (2026-11-07)
+
+`scripts/restore-drill.sh` proves the backups restore without touching the
+running system: the newest local database copy passes `integrity_check`
+and has its schema and users, the config backup validates with the current
+image (secrets included), and when restic is configured and its disk is
+mounted, a 2 % data sample is checked and the newest database copy is
+restored from the latest snapshot and checked the same way. Run it monthly
+and after any backup change.
