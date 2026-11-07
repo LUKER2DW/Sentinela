@@ -2766,3 +2766,11 @@ textarea.input { height: auto; padding: 9px 12px; resize: vertical; line-height:
 .changelog-version h3 { margin: 0 0 6px; }
 .changelog-group h4 { margin: 12px 0 4px; font-size: 0.95rem; color: var(--sea-strong); }
 .changelog-group ul { margin: 0 0 0 20px; display: grid; gap: 4px; }
+
+/* System menu groups (Minha conta / Casa) and the profile strip */
+.sys-nav-group { padding: 10px 12px 4px; font-size: 0.75rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.sys-nav-group:not(:first-child) { margin-top: 6px; border-top: 1px solid var(--line); padding-top: 12px; }
+.profile-card { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.profile-card .account-who { flex: 1 1 240px; min-width: 0; }
+.profile-card .account-who h2 { margin: 0 0 2px; }
+@media (max-width: 900px) { .sys-nav-group { display: none; } }

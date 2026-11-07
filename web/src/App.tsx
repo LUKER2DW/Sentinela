@@ -169,7 +169,9 @@ function Shell() {
   const up = upFrom(route.page, route.params);
   // Phone: pages opened from "Mais" keep that tab lit.
   const current = (page: string) =>
-    route.page === page || (compact && page === "system" && (route.page === "conta" || route.page === "relogio" || route.page === "servicos"));
+    route.page === page ||
+    (page === "system" && route.page === "conta") ||
+    (compact && page === "system" && (route.page === "relogio" || route.page === "servicos"));
   // Serviços stays on the computer, including when a phone rotates sideways.
   const hostingOn = useHostingEnabled();
   const setupGuide = useSetupGuidePending();
@@ -295,7 +297,11 @@ function Shell() {
           ) : route.page === "system" ? (
             <SystemPage params={route.params} />
           ) : route.page === "conta" ? (
-            <AccountPage params={route.params} />
+            compact ? (
+              <AccountPage params={route.params} />
+            ) : (
+              <SystemPage params={new URLSearchParams({ s: `me-${route.params.get("s") ?? "security"}` })} />
+            )
           ) : route.page === "servicos" && hostingOn && !mobile ? (
             <ServicesPage params={route.params} />
           ) : route.page === "relogio" ? (

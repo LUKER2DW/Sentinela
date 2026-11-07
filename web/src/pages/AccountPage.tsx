@@ -26,7 +26,8 @@ const roleText = {
   viewer: "Você assiste ao vivo e às gravações e vê os eventos.",
 } as const;
 
-type Section = "security" | "devices" | "notify" | "look" | "app";
+export type AccountSection = "security" | "devices" | "notify" | "look" | "app";
+type Section = AccountSection;
 export const ACCOUNT_SECTIONS: { id: Section; label: string; icon: string; hint: string }[] = [
   { id: "security", label: "Senha e acesso", icon: "key", hint: "Senha e verificação em 2 etapas" },
   { id: "devices", label: "Aparelhos", icon: "monitor", hint: "Onde a conta está aberta" },
@@ -93,33 +94,7 @@ export function AccountPage({ params }: { params: URLSearchParams }) {
             </nav>
           )}
           <div className="sys-body" key={section} role="tabpanel" aria-label={ACCOUNT_SECTIONS.find((x) => x.id === section)?.label}>
-            {section === "security" && (
-              <div className="grid-2 set-grid">
-                <PasswordCard />
-                <SecurityCard />
-              </div>
-            )}
-            {section === "devices" && <DevicesCard />}
-            {section === "notify" && (
-              <div className="grid-2 set-grid">
-                <div className="stack">
-                  <DeviceNotifyCard />
-                  <HouseModeCard />
-                </div>
-                <NotifyTypesCard />
-              </div>
-            )}
-            {section === "look" && (
-              <div className="set-grid single">
-                <AppearanceCard />
-              </div>
-            )}
-            {section === "app" && (
-              <div className="set-grid single">
-                <AppPairingCard />
-                <AppCard />
-              </div>
-            )}
+            <AccountBody section={section} />
           </div>
         </div>
       </div>
@@ -230,6 +205,62 @@ function PasswordCard() {
           </button>
         </div>
       </form>
+    </section>
+  );
+}
+
+/** One category of the signed-in user's settings (also shown inside the
+ *  System page on computers). */
+export function AccountBody({ section }: { section: AccountSection }) {
+  return (
+    <>
+        {section === "security" && (
+          <div className="grid-2 set-grid">
+            <PasswordCard />
+            <SecurityCard />
+          </div>
+        )}
+        {section === "devices" && <DevicesCard />}
+        {section === "notify" && (
+          <div className="grid-2 set-grid">
+            <div className="stack">
+              <DeviceNotifyCard />
+              <HouseModeCard />
+            </div>
+            <NotifyTypesCard />
+          </div>
+        )}
+        {section === "look" && (
+          <div className="set-grid single">
+            <AppearanceCard />
+          </div>
+        )}
+        {section === "app" && (
+          <div className="set-grid single">
+            <AppPairingCard />
+            <AppCard />
+          </div>
+        )}
+    </>
+  );
+}
+
+/** Who is signed in, with the picture, role and "Sair": the top of the
+ *  account categories inside the System page. */
+export function ProfileCard() {
+  const { user, logout } = useSession();
+  return (
+    <section className="card profile-card">
+      <AvatarPicker name={user.username} role={user.role} />
+      <div className="account-who">
+        <h2>{user.username}</h2>
+        <p className="muted small">
+          {roleLabel[user.role]}, conta desde {fmtDate(user.created_at)}. {roleText[user.role]}
+        </p>
+      </div>
+      <button className="btn small ghost danger" onClick={logout} aria-label="Sair" title="Sair">
+        <Icon name="logout" /> <span className="sair-label">Sair</span>
+      </button>
     </section>
   );
 }

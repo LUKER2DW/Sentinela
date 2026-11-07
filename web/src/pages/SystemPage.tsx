@@ -8,6 +8,7 @@ import { VolumeMeter } from "./NuvemPage";
 import { AddCameraCard } from "../components/AddCamera";
 import { ReopenSetupGuide } from "../components/SetupGuide";
 import { ChangelogCard, UpdatesCard } from "../components/Changelog";
+import { ACCOUNT_SECTIONS, AccountBody, ProfileCard, type AccountSection } from "./AccountPage";
 import { DetectionCard, OverlayCard } from "../components/Detection";
 import { useCompact } from "../lib/viewport";
 import { MoreMenu } from "../components/MoreMenu";
@@ -43,7 +44,15 @@ export function recordingDays(s: SystemInfo): number | null {
   return daily > 0 && s.disk.total > 0 ? Math.max(0, Math.floor(budget / daily)) : null;
 }
 
-type Section = "overview" | "recording" | "cameras" | "detection" | "server" | "updates" | "users" | "audit";
+type HouseSection = "overview" | "recording" | "cameras" | "detection" | "server" | "updates" | "users" | "audit";
+// The signed-in user's own categories ("Minha conta") live in the same menu
+// on computers, as "me-<category>".
+type Section = HouseSection | `me-${AccountSection}`;
+const ME_SECTIONS: { id: Section; label: string; icon: string; admin?: boolean }[] = ACCOUNT_SECTIONS.map((x) => ({
+  id: `me-${x.id}` as Section,
+  label: x.label,
+  icon: x.icon,
+}));
 const SECTIONS: { id: Section; label: string; icon: string; admin?: boolean }[] = [
   { id: "overview", label: "Visão geral", icon: "gauge" },
   { id: "recording", label: "Gravação", icon: "recordings" },
@@ -64,8 +73,10 @@ export function SystemPage({ params }: { params: URLSearchParams }) {
   // Users, the audit log and cameras stay on the computer (owner's choice):
   // rare, wide, and risky to fat-finger on a phone.
   const sections = SECTIONS.filter((x) => (!x.admin || can("admin")) && !(compact && (x.admin || x.id === "cameras")));
+  const all = compact ? sections : [...ME_SECTIONS, ...sections];
   const asked = params.get("s") as Section | null;
-  const section: Section = sections.some((x) => x.id === asked) ? asked! : "overview";
+  const section: Section = all.some((x) => x.id === asked) ? asked! : "overview";
+  const mine = section.startsWith("me-");
   const pick = (id: Section) => navigate("system", { s: id });
 
   // Phone: "Mais" is a menu of everything that is not on the tab bar; each
@@ -77,13 +88,21 @@ export function SystemPage({ params }: { params: URLSearchParams }) {
       <header className="page-head">
         <div className="title">
           <h1>{compact ? SECTIONS.find((x) => x.id === section)?.label : "Sistema"}</h1>
-          {!compact && <span className="sub">Gravação, câmeras, servidor{can("admin") ? " e usuários" : ""}.</span>}
+          {!compact && <span className="sub">Sua conta, a casa e o servidor, num só lugar.</span>}
         </div>
         {s && !compact && <span className="pill">Versão {s.version}</span>}
       </header>
       <div className="sys-layout">
         {!compact && (
           <nav className="sys-nav" role="tablist" aria-label="Categorias">
+            <span className="sys-nav-group">Minha conta</span>
+            {ME_SECTIONS.map((x) => (
+              <button key={x.id} role="tab" aria-selected={section === x.id} onClick={() => pick(x.id)}>
+                <Icon name={x.icon} />
+                <span>{x.label}</span>
+              </button>
+            ))}
+            <span className="sys-nav-group">Casa</span>
             {sections.map((x) => (
               <button key={x.id} role="tab" aria-selected={section === x.id} onClick={() => pick(x.id)}>
                 <Icon name={x.icon} />
@@ -91,22 +110,27 @@ export function SystemPage({ params }: { params: URLSearchParams }) {
                 {x.id === "overview" && unread.length > 0 && <span className="count-badge">{unread.length}</span>}
               </button>
             ))}
-            <a className="sys-nav-link" href={href("conta")}>
-              <Icon name="user" />
-              <span>Minha conta</span>
-            </a>
           </nav>
         )}
         <div className="sys-body" key={section} role="tabpanel">
-          {sys.isError && <p className="notice error">Não foi possível ler o estado do servidor.</p>}
-          {s && <SectionBody section={section} s={s} admin={can("admin")} />}
+          {mine ? (
+            <div className="stack">
+              <ProfileCard />
+              <AccountBody section={section.slice(3) as AccountSection} />
+            </div>
+          ) : (
+            <>
+              {sys.isError && <p className="notice error">Não foi possível ler o estado do servidor.</p>}
+              {s && <SectionBody section={section as HouseSection} s={s} admin={can("admin")} />}
+            </>
+          )}
         </div>
       </div>
     </>
   );
 }
 
-function SectionBody({ section, s, admin }: { section: Section; s: SystemInfo; admin: boolean }): ReactNode {
+function SectionBody({ section, s, admin }: { section: HouseSection; s: SystemInfo; admin: boolean }): ReactNode {
   switch (section) {
     case "overview":
       return (
