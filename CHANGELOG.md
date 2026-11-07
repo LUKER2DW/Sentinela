@@ -7,6 +7,8 @@ All notable changes to Sentinela. The format follows
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-11-07
+
 The first public release. Highlights of what is in it:
 
 ### Cameras and live view
@@ -16,6 +18,8 @@ The first public release. Highlights of what is in it:
 - Low-latency WebRTC live view with MSE fallback, grids and full screen.
 - Preset tours: the camera visits chosen positions until stopped, until its
   time is up, or until someone takes manual control.
+- Each camera says what it has (PTZ, white light, speaker); the live page
+  shows only those controls. Streams of ONVIF cameras are found in the editor.
 
 ### Recording and review
 - 24/7 copy-only recording in fragmented MP4, with a supervised recorder
@@ -34,7 +38,9 @@ The first public release. Highlights of what is in it:
 - Roles, per-camera visibility, invites, optional TOTP two-step login,
   revocable sessions, audit log, closed-door public listener.
 - One Android APK for every house, paired by a QR code that carries the
-  server's address and certificate pin.
+  server's address and certificate pin. It has no Firebase project built in:
+  each house's server hands it its own.
+- English and Brazilian Portuguese, picked from the device.
 
 ### Files and services
 - Cloud: SMB share and web file browser with uploads, previews and a
@@ -52,4 +58,5 @@ The first public release. Highlights of what is in it:
   with checksum checks and automatic rollback; System → Updates shows
   the schedule and these notes.
 
-[Unreleased]: https://github.com/LUKER2DW/Sentinela/commits/main
+[Unreleased]: https://github.com/LUKER2DW/Sentinela/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/LUKER2DW/Sentinela/releases/tag/v1.0.0
