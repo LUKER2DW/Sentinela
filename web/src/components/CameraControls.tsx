@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, get, type ControlState, type DayNight } from "../lib/api";
+import { api, get, type ControlState, type DayNight, type Preset, type TourState } from "../lib/api";
 import { useToast } from "../lib/session";
 import { dayNightLabel } from "../lib/time";
 import { Icon } from "./Icon";
@@ -326,6 +326,7 @@ export function CameraSettings({ cameraId, canControl, isAdmin }: { cameraId: st
             <Icon name="plus" /> Salvar posição atual
           </button>
         )}
+        {presets.length >= 2 && !editing && <PresetTour cameraId={cameraId} presets={presets} canControl={canControl} />}
       </section>
 
       {confirmClear !== null && (
@@ -414,4 +415,123 @@ export function CameraSettings({ cameraId, canControl, isAdmin }: { cameraId: st
       )}
     </>
   );
+}
+
+const tourDwells = [10, 20, 30, 60, 120];
+const tourHours = [0.5, 1, 4, 12];
+const tourHourLabel = (h: number) => (h < 1 ? `${h * 60} min` : `${h} h`);
+
+/** Preset tour: the camera visits the chosen positions in turn until stopped,
+ *  until its time is up, or until someone moves it by hand. */
+function PresetTour({ cameraId, presets, canControl }: { cameraId: string; presets: Preset[]; canControl: boolean }) {
+  const toast = useToast();
+  const qc = useQueryClient();
+  const key = ["tour", cameraId];
+  const tour = useQuery({
+    queryKey: key,
+    queryFn: () => get<TourState>(`/api/cameras/${cameraId}/tour`),
+    refetchInterval: (q) => (q.state.data?.running ? 5_000 : false),
+  });
+  const [picked, setPicked] = useState<number[]>([]);
+  const [dwell, setDwell] = useState(20);
+  const [hours, setHours] = useState(1);
+  const chosen = picked.length ? picked : presets.map((p) => p.id);
+  const start = useMutation({
+    mutationFn: () => api("PUT", `/api/cameras/${cameraId}/tour`, { presets: chosen, dwell_seconds: dwell, hours }),
+    onSuccess: () => {
+      toast("Ronda iniciada");
+      void qc.invalidateQueries({ queryKey: key });
+    },
+    onError: (e: Error) => toast(`Ronda: ${e.message}`, true),
+  });
+  const stop = useMutation({
+    mutationFn: () => api("DELETE", `/api/cameras/${cameraId}/tour`),
+    onSuccess: () => {
+      toast("Ronda parada");
+      void qc.invalidateQueries({ queryKey: key });
+    },
+    onError: (e: Error) => toast(`Ronda: ${e.message}`, true),
+  });
+  const st = tour.data;
+  const toggle = (id: number) =>
+    setPicked((cur) => {
+      const base = cur.length ? cur : presets.map((p) => p.id);
+      return base.includes(id) ? base.filter((x) => x !== id) : [...base, id];
+    });
+
+  if (st?.running) {
+    const ends = st.ends_at ? new Date(st.ends_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
+    return (
+      <div className="tour" aria-live="polite">
+        <p>
+          <strong>Ronda ativa</strong>: posições {st.presets?.join(" → ")}, {st.dwell_seconds} s em cada
+          {st.current ? `; agora na ${st.current}` : ""}
+          {ends ? `; termina às ${ends}` : ""}.
+        </p>
+        {st.last_error && <p className="muted small">Último erro: {st.last_error}</p>}
+        <button className="btn small" disabled={!canControl || stop.isPending} onClick={() => stop.mutate()}>
+          <Icon name="x" /> Parar ronda
+        </button>
+      </div>
+    );
+  }
+  if (!canControl) return null;
+  return (
+    <div className="tour">
+      <h3>Ronda</h3>
+      <p className="muted small">A câmera passa pelas posições marcadas, em ordem. Mexer nela à mão encerra a ronda.</p>
+      <div className="presets" role="group" aria-label="Posições da ronda">
+        {presets.map((p) => (
+          <button
+            key={p.id}
+            className={`chip${chosen.includes(p.id) ? " on" : ""}`}
+            aria-pressed={chosen.includes(p.id)}
+            onClick={() => toggle(p.id)}
+          >
+            <span className="num">{p.id}</span>
+          </button>
+        ))}
+      </div>
+      <div className="row-gap" style={{ marginTop: 8 }}>
+        <label className="field">
+          <span>Tempo em cada</span>
+          <select className="input" value={dwell} onChange={(e) => setDwell(Number(e.target.value))}>
+            {tourDwells.map((d) => (
+              <option key={d} value={d}>
+                {d < 60 ? `${d} s` : `${d / 60} min`}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          <span>Duração</span>
+          <select className="input" value={hours} onChange={(e) => setHours(Number(e.target.value))}>
+            {tourHours.map((h) => (
+              <option key={h} value={h}>
+                {tourHourLabel(h)}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <button
+        className="btn small"
+        style={{ marginTop: 10 }}
+        disabled={chosen.length < 2 || start.isPending}
+        onClick={() => start.mutate()}
+      >
+        Iniciar ronda
+      </button>
+      {st && !st.running && st.stop_reason && <p className="muted small">Última ronda: {tourReason(st.stop_reason)}.</p>}
+    </div>
+  );
+}
+
+function tourReason(r: string): string {
+  if (r === "time is up") return "terminou no horário";
+  if (r === "the camera did not answer") return "a câmera não respondeu";
+  if (r.startsWith("manual control by ")) return `encerrada pelo controle manual de ${r.slice(18)}`;
+  if (r.startsWith("stopped by ")) return `parada por ${r.slice(11)}`;
+  if (r === "server stopping") return "interrompida ao reiniciar o servidor";
+  return "parada";
 }

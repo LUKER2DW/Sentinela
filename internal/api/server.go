@@ -41,6 +41,8 @@ type Server struct {
 	go2rtc      *url.URL
 	ctrl        map[string]*dvrip.Controller
 	ptzQuiet    quietWindows // cameras moving under PTZ: their own motion is not an event
+	tours       ptzTours     // preset tours, one per camera
+	tourGoto    tourGoto     // tests replace the camera move
 	evWatch     eventWatch   // ONVIF event subscription health per camera
 	hub         *Hub
 	stateMu     sync.Mutex
@@ -113,6 +115,7 @@ func (s *Server) Hub() *Hub { return s.hub }
 
 // Close releases camera sessions.
 func (s *Server) Close() {
+	s.tours.stopAll()
 	for _, c := range s.ctrl {
 		c.Close()
 	}
@@ -177,6 +180,9 @@ func (s *Server) handler(zone string) http.Handler {
 	mux.Handle("GET /api/cameras/{id}/clock", viewer(s.cameraClock))
 	mux.Handle("POST /api/cameras/{id}/ptz", operator(s.ptz))
 	mux.Handle("POST /api/cameras/{id}/presets/{preset}", operator(s.preset))
+	mux.Handle("GET /api/cameras/{id}/tour", viewer(s.getTour))
+	mux.Handle("PUT /api/cameras/{id}/tour", operator(s.putTour))
+	mux.Handle("DELETE /api/cameras/{id}/tour", operator(s.deleteTour))
 	mux.Handle("PUT /api/cameras/{id}/light", operator(s.setLight))
 	mux.Handle("PUT /api/cameras/{id}/daynight", operator(s.setDayNight))
 

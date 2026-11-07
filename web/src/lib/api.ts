@@ -48,6 +48,20 @@ export interface ControlState {
   cloud_p2p?: boolean;
 }
 
+/** Preset tour of one camera (GET /api/cameras/{id}/tour). */
+export interface TourState {
+  running: boolean;
+  presets?: number[];
+  current?: number;
+  dwell_seconds?: number;
+  started_by?: string;
+  started_at?: string;
+  ends_at?: string;
+  stopped_at?: string;
+  stop_reason?: string;
+  last_error?: string;
+}
+
 export interface Segment {
   id: number;
   camera_id: string;

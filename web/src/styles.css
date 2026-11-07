@@ -469,6 +469,10 @@ input[type="range"]:disabled { opacity: 0.45; cursor: not-allowed; }
 .chip:hover:not(:disabled) { background: var(--sea-soft); color: var(--sea-strong); }
 .chip:active:not(:disabled) { background: var(--sea); color: var(--sea-ink); }
 .chip:disabled { opacity: 0.45; cursor: not-allowed; }
+.chip.on { background: var(--sea-soft); color: var(--sea-strong); box-shadow: inset 0 0 0 2px var(--sea); }
+.tour { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); display: grid; gap: 6px; }
+.tour h3 { margin: 0; font-size: 1rem; }
+.tour .field span { font-size: 0.9rem; color: var(--muted); }
 
 .toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 40px; }
 .toggle-row > span { display: inline-flex; align-items: center; gap: 10px; }
