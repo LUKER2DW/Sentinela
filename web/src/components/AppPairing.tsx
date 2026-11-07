@@ -1,6 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { get } from "../lib/api";
 import { CopyField } from "../pages/NuvemPage";
+import { isApp } from "../lib/push";
+import { canChangeConnection, changeConnection } from "../lib/access";
+import { Icon } from "./Icon";
 
 /** GET /api/app/pairing: the ways the Android app can reach this house. */
 interface PairingOption {
@@ -20,6 +23,35 @@ const kindLabel = {
  *  app with the house's address and certificate; the app asks before it
  *  switches. */
 export function AppPairingCard() {
+  // Inside the app the QR code is something to scan, not to show: this phone
+  // is already paired; it can switch houses from the start screen.
+  if (isApp()) return <AppConnectionCard />;
+  return <PairingCodes />;
+}
+
+function AppConnectionCard() {
+  return (
+    <section className="card" aria-label="Conexão do app">
+      <div className="card-head">
+        <h2>Conexão deste celular</h2>
+      </div>
+      <p className="setup-status ok">
+        <Icon name="check" /> Conectado a <code>{location.host}</code>
+      </p>
+      <p className="muted small">
+        Para conectar outro celular, abra Sistema → Aplicativo no computador e aponte a câmera desse celular para o QR
+        code. Se a casa mudar de endereço, este app procura os outros endereços dela sozinho.
+      </p>
+      {canChangeConnection() && (
+        <button className="btn small" onClick={changeConnection}>
+          <Icon name="refresh" /> Trocar de casa ou de endereço
+        </button>
+      )}
+    </section>
+  );
+}
+
+function PairingCodes() {
   const q = useQuery({ queryKey: ["app", "pairing"], queryFn: () => get<{ options: PairingOption[] }>("/api/app/pairing") });
   const opts = q.data?.options ?? [];
   return (
@@ -28,7 +60,7 @@ export function AppPairingCard() {
         <h2>Conectar o app Android</h2>
       </div>
       <p className="muted small">
-        Instale o app Sentinela, abra-o e aponte a câmera do celular para o código. O app mostra o endereço e pergunta
+        Instale o app Sentinela no celular, abra-o e aponte a câmera do celular para o código. O app mostra o endereço e pergunta
         antes de conectar. Ou copie o código de pareamento e cole na tela inicial do app.
       </p>
       {q.isLoading && <p className="muted">Carregando…</p>}

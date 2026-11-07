@@ -165,7 +165,7 @@ server then offers to the phones by itself
 ## Android app
 
 One APK works with every Sentinela server. Install it from a release, open
-it, and on a computer go to **Minha conta → Aplicativo**: point the phone's
+it, and on a computer go to **Sistema → Aplicativo**: point the phone's
 camera at the QR code and confirm. The code carries the house's address and,
 for a self-signed certificate, its fingerprint, so the app trusts exactly
 that server and nothing else. Notifications arrive through Firebase when you

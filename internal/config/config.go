@@ -43,6 +43,10 @@ type Config struct {
 	// (ADR-0023); both mounted read-only like DiskHealthFile.
 	UpdateStatusFile  string `yaml:"update_status_file"`
 	UpdateUnitsMarker string `yaml:"update_units_marker"`
+	// ConfigApplyFile / ConfigUnitsMarker: result of the last settings
+	// change applied by the host, and whether its unit exists (ADR-0024).
+	ConfigApplyFile   string `yaml:"config_apply_file"`
+	ConfigUnitsMarker string `yaml:"config_units_marker"`
 	// Timezone for schedules shown to people (night mode); storage stays UTC.
 	Timezone string `yaml:"timezone"`
 	// PushSubject identifies the sender to push services (VAPID "sub").
@@ -316,6 +320,8 @@ func (c *Config) applyDefaults() {
 	def(&c.BackupStatusFile, "/host/backup.json")
 	def(&c.UpdateStatusFile, "/host/update.json")
 	def(&c.UpdateUnitsMarker, "/host/update-units")
+	def(&c.ConfigApplyFile, "/host/config-apply.json")
+	def(&c.ConfigUnitsMarker, "/host/config-units")
 	def(&c.Timezone, defaultTimezone())
 	def(&c.PushSubject, "mailto:admin@sentinela.invalid")
 	if c.Remote.Public.Domain != "" {

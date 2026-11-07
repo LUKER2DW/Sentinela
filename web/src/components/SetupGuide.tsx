@@ -305,8 +305,8 @@ function AppStep() {
     <div className="stack">
       <Step title="App Android">
         <p className="muted small">
-          O mesmo app serve para qualquer casa: ele se conecta ao endereço que você escolher aqui. Também fica em Minha
-          conta → Aplicativo, para cada pessoa da casa.
+          O mesmo app serve para qualquer casa: ele se conecta ao endereço que você escolher aqui. Também fica em Sistema
+          → Aplicativo, para cada pessoa da casa.
         </p>
       </Step>
       <AppPairingCard />

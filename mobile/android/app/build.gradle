@@ -1,7 +1,7 @@
 apply plugin: 'com.android.application'
 
 // One APK serves any house: the person picks the server on the start
-// screen or with the house's pairing QR (Minha conta -> Aplicativo), which also carries
+// screen or with the house's pairing QR (Sistema -> Aplicativo), which also carries
 // the certificate pin. A build may still carry a default server and pin
 // (~/.sentinela-android/connection.json or SENTINELA_DOMAIN_URL /
 // SENTINELA_PUBLIC_CERT_SHA256), e.g. for the household's own phones.

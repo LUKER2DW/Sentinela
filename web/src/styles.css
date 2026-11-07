@@ -624,7 +624,9 @@ table.table { width: 100%; border-collapse: collapse; }
 .decor .decor-hatch { stroke-width: 1; opacity: 0.7; }
 .decor-letters text { fill: currentColor; stroke: none; font-family: var(--serif); font-size: 10px; font-weight: 600; text-anchor: middle; }
 .main > .page { position: relative; }
-.bg-doodles { position: absolute; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; color: var(--doodle); }
+/* Fixed to the window (right of the sidebar), so the scenery stays put
+   while pages change and scroll. */
+.bg-doodles { position: fixed; top: 0; right: 0; bottom: 0; left: var(--side, 0); z-index: 0; overflow: hidden; pointer-events: none; color: var(--doodle); transition: left 0.25s ease; }
 .bg-doodles .bd { position: absolute; opacity: 0.22; }
 .bd-gulls { width: 72px; top: 18px; left: 44%; }
 .bd-star { width: 46px; bottom: 36px; right: 22px; transform: rotate(18deg); }
@@ -635,6 +637,7 @@ table.table { width: 100%; border-collapse: collapse; }
 .bd-compass { width: 120px; bottom: -40px; left: 46%; opacity: 0.14 !important; }
 @media (max-width: 760px) {
   /* Phone: a few finds stay in the margins, fainter. */
+  .bg-doodles { left: 0; }
   .bd-bottle, .bd-wave, .bd-compass, .bd-anchor { display: none; }
   .bg-doodles .bd { opacity: 0.14; }
   .bd-gulls { width: 56px; top: 64px; left: auto; right: 18px; }
@@ -2774,3 +2777,27 @@ textarea.input { height: auto; padding: 9px 12px; resize: vertical; line-height:
 .profile-card .account-who { flex: 1 1 240px; min-width: 0; }
 .profile-card .account-who h2 { margin: 0 0 2px; }
 @media (max-width: 900px) { .sys-nav-group { display: none; } }
+
+/* Minha conta on one page (AccountAll) */
+.account-all { gap: 28px; }
+.account-block { display: grid; gap: 12px; }
+.account-block-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.account-block-head h2 { margin: 0; font-size: 1.15rem; }
+.account-block-head svg { width: 18px; height: 18px; color: var(--sea-strong); align-self: center; }
+
+/* Settings editors (components/SettingsEditor.tsx) */
+.settings-card { display: grid; gap: 14px; }
+.settings-card .card-head { margin-bottom: 0; }
+.settings-grid { display: grid; gap: 12px 16px; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); align-items: start; }
+.settings-checks { display: flex; flex-wrap: wrap; gap: 0 20px; }
+.settings-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.settings-list > li { border: 1px solid var(--line); border-radius: var(--r-md); }
+.settings-list > li.open { background: var(--surface-2); }
+.settings-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 12px; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; text-align: left; flex-wrap: wrap; }
+.settings-row svg { width: 18px; height: 18px; color: var(--muted); flex: none; }
+.settings-row .muted { flex: 1 1 200px; }
+.settings-body { display: grid; gap: 14px; padding: 4px 12px 14px; }
+.settings-body > .btn { justify-self: start; }
+.settings-sub { margin: 6px 0 0; font-size: 1rem; }
+.settings-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; border-top: 1px solid var(--line); padding-top: 12px; }
+.settings-actions .spacer { flex: 1; }

@@ -86,7 +86,6 @@ export function MoreMenu({ version, unread }: { version?: string; unread: number
               icon={x.icon}
               label={x.label}
               hint={x.hint}
-              badge={x.id === "app" && newer ? <span className="count-badge">1</span> : undefined}
             />
           ))}
         </div>
@@ -97,7 +96,14 @@ export function MoreMenu({ version, unread }: { version?: string; unread: number
         <div className="menu-list">
           <Row to={href("system", { s: "overview" })} icon="gauge" label="Visão geral" hint="Avisos e saúde do servidor" badge={count(unread)} />
           <Row to={href("system", { s: "recording" })} icon="recordings" label="Gravação" hint="Espaço e gravadores" />
-          <Row to={href("system", { s: "detection" })} icon="scan" label="Detecção" hint="Pessoas, veículos e áreas" />
+          <Row to={href("system", { s: "detection" })} icon="scan" label="Detecção" hint="Modo da casa, pessoas, veículos e áreas" />
+          <Row
+            to={href("system", { s: "app" })}
+            icon="app"
+            label="Aplicativo"
+            hint="Conectar e atualizar o app"
+            badge={newer ? <span className="count-badge">1</span> : undefined}
+          />
           <Row to={href("system", { s: "server" })} icon="server" label="Servidor e discos" hint="Memória, discos e backups" />
         </div>
       </section>

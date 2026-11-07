@@ -1,0 +1,9 @@
+[Unit]
+Description=Watch for settings changed in the dashboard (ADR-0024)
+
+[Path]
+PathChanged=/data/config/request
+Unit=sentinela-config.service
+
+[Install]
+WantedBy=multi-user.target

@@ -78,7 +78,7 @@ fi
 REMOTE
 "${SSH[@]}" 'sudo install -d -o 1000 -g 1000 -m 0750 /data/detector /data/apps-agent'
 # Host units behind System -> Atualizações (they do nothing until turned on).
-"${SSH[@]}" 'sudo /opt/sentinela/scripts/setup-auto-update.sh install'
+"${SSH[@]}" 'sudo /opt/sentinela/scripts/setup-auto-update.sh install && sudo /opt/sentinela/scripts/setup-config-apply.sh'
 # The self-hosted services agent (ADR-0021) runs only while
 # scripts/setup-apps.sh has left its marker; it joins the docker group.
 # shellcheck disable=SC2016 # expanded on the server

@@ -11,7 +11,7 @@ import (
 )
 
 // Android app pairing. One APK serves every house: the person opens
-// Minha conta → Aplicativo on a computer and points the phone's camera at a QR code
+// Sistema → Aplicativo on a computer and points the phone's camera at a QR code
 // holding sentinela://pair?url=<origin>&pin=<sha256>. The app asks before
 // it switches servers, then trusts exactly that certificate (or, without a
 // pin, only publicly trusted ones). Nothing here is secret: the address and

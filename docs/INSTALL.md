@@ -288,7 +288,7 @@ Tailscale or the public address).
 ### Connect a phone
 
 1. Install the APK (from a release, or built as below) and open it.
-2. On a computer, open Sentinela → **Minha conta → Aplicativo**. It shows a
+2. On a computer, open Sentinela → **Sistema → Aplicativo**. It shows a
    QR code for each way the house can be reached (Tailscale,
    `remote.tailnet_url`; public address, `remote.public`).
 3. Point the phone's camera at the QR code and open the link. The app shows
@@ -322,7 +322,7 @@ pairing. Put it in `~/.sentinela-android/connection.json` (outside Git):
 }
 ```
 
-Later versions appear in **Minha conta → Aplicativo**. Only changes in
+Later versions appear in **Sistema → Aplicativo**. Only changes in
 `mobile/` need a new APK; UI changes reach the app with a server deploy.
 Android notifications use Firebase only when the APK was built with your
 own Firebase project (ADR-0020); otherwise the app keeps a direct
@@ -380,6 +380,13 @@ cd /opt/sentinela && sudo git pull && sudo SENTINELA_BUILD=1 ./scripts/install-s
 ---
 
 ## 12. More cameras
+
+The easiest way: **System → Câmeras → Configurar câmeras** in the browser
+(admin, at home or over Tailscale). The server validates the change, keeps a
+backup, applies it and rolls back if anything fails (ADR-0024). The same
+page edits recording, the time zone and the disks shown in System.
+
+From a shell instead:
 
 Any number of cameras, of any brand that serves RTSP. `vendor` picks the
 stream layout:

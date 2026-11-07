@@ -8,7 +8,11 @@ import { VolumeMeter } from "./NuvemPage";
 import { AddCameraCard } from "../components/AddCamera";
 import { ReopenSetupGuide } from "../components/SetupGuide";
 import { ChangelogCard, UpdatesCard } from "../components/Changelog";
-import { ACCOUNT_SECTIONS, AccountBody, ProfileCard, type AccountSection } from "./AccountPage";
+import { AccountAll } from "./AccountPage";
+import { HouseModeCard } from "../components/Notifications";
+import { AppCard } from "../components/AppUpdate";
+import { AppPairingCard } from "../components/AppPairing";
+import { CamerasEditor, RecordingEditor, ServerEditor } from "../components/SettingsEditor";
 import { DetectionCard, OverlayCard } from "../components/Detection";
 import { useCompact } from "../lib/viewport";
 import { MoreMenu } from "../components/MoreMenu";
@@ -44,20 +48,19 @@ export function recordingDays(s: SystemInfo): number | null {
   return daily > 0 && s.disk.total > 0 ? Math.max(0, Math.floor(budget / daily)) : null;
 }
 
-type HouseSection = "overview" | "recording" | "cameras" | "detection" | "server" | "updates" | "users" | "audit";
-// The signed-in user's own categories ("Minha conta") live in the same menu
-// on computers, as "me-<category>".
-type Section = HouseSection | `me-${AccountSection}`;
-const ME_SECTIONS: { id: Section; label: string; icon: string; admin?: boolean }[] = ACCOUNT_SECTIONS.map((x) => ({
-  id: `me-${x.id}` as Section,
-  label: x.label,
-  icon: x.icon,
-}));
+type HouseSection = "overview" | "recording" | "cameras" | "detection" | "app" | "server" | "updates" | "users" | "audit";
+// The signed-in user's own settings ("Minha conta") are one entry of the
+// same menu on computers, all on one page.
+type Section = HouseSection | "me";
+const ME_SECTIONS: { id: Section; label: string; icon: string; admin?: boolean }[] = [
+  { id: "me", label: "Minha conta", icon: "user" },
+];
 const SECTIONS: { id: Section; label: string; icon: string; admin?: boolean }[] = [
   { id: "overview", label: "Visão geral", icon: "gauge" },
   { id: "recording", label: "Gravação", icon: "recordings" },
   { id: "cameras", label: "Câmeras", icon: "video" },
   { id: "detection", label: "Detecção", icon: "scan" },
+  { id: "app", label: "Aplicativo", icon: "app" },
   { id: "server", label: "Servidor e discos", icon: "server" },
   { id: "updates", label: "Atualizações", icon: "refresh" },
   { id: "users", label: "Usuários", icon: "users", admin: true },
@@ -76,8 +79,8 @@ export function SystemPage({ params }: { params: URLSearchParams }) {
   const all = compact ? sections : [...ME_SECTIONS, ...sections];
   const asked = params.get("s") as Section | null;
   const section: Section = all.some((x) => x.id === asked) ? asked! : "overview";
-  const mine = section.startsWith("me-");
-  const pick = (id: Section) => navigate("system", { s: id });
+  const mine = section === "me";
+  const pick = (id: Section) => navigate("system", { s: id }, { push: compact });
 
   // Phone: "Mais" is a menu of everything that is not on the tab bar; each
   // row opens its page with a way back.
@@ -95,7 +98,6 @@ export function SystemPage({ params }: { params: URLSearchParams }) {
       <div className="sys-layout">
         {!compact && (
           <nav className="sys-nav" role="tablist" aria-label="Categorias">
-            <span className="sys-nav-group">Minha conta</span>
             {ME_SECTIONS.map((x) => (
               <button key={x.id} role="tab" aria-selected={section === x.id} onClick={() => pick(x.id)}>
                 <Icon name={x.icon} />
@@ -114,10 +116,7 @@ export function SystemPage({ params }: { params: URLSearchParams }) {
         )}
         <div className="sys-body" key={section} role="tabpanel">
           {mine ? (
-            <div className="stack">
-              <ProfileCard />
-              <AccountBody section={section.slice(3) as AccountSection} />
-            </div>
+            <AccountAll />
           ) : (
             <>
               {sys.isError && <p className="notice error">Não foi possível ler o estado do servidor.</p>}
@@ -148,6 +147,13 @@ function SectionBody({ section, s, admin }: { section: HouseSection; s: SystemIn
           </div>
         </div>
       );
+    case "app":
+      return (
+        <div className="set-grid single">
+          <AppPairingCard />
+          <AppCard />
+        </div>
+      );
     case "updates":
       return (
         <div className="stack">
@@ -157,9 +163,12 @@ function SectionBody({ section, s, admin }: { section: HouseSection; s: SystemIn
       );
     case "recording":
       return (
-        <div className="grid-2">
-          <Storage s={s} />
-          <Recorders s={s} />
+        <div className="stack">
+          {admin && <RecordingEditor />}
+          <div className="grid-2">
+            <Storage s={s} />
+            <Recorders s={s} />
+          </div>
         </div>
       );
     case "cameras":
@@ -169,21 +178,26 @@ function SectionBody({ section, s, admin }: { section: HouseSection; s: SystemIn
             <CamerasCard />
             <LiveService s={s} />
           </div>
+          {admin && <CamerasEditor />}
           {admin && <AddCameraCard />}
         </div>
       );
     case "detection":
       return (
         <div className="stack">
+          <HouseModeCard />
           <DetectionCard s={s} />
           <OverlayCard />
         </div>
       );
     case "server":
       return (
-        <div className="grid-2">
-          <Server s={s} />
-          <Disks s={s} />
+        <div className="stack">
+          {admin && <ServerEditor />}
+          <div className="grid-2">
+            <Server s={s} />
+            <Disks s={s} />
+          </div>
         </div>
       );
     case "users":

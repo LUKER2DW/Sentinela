@@ -1,0 +1,8 @@
+[Unit]
+Description=Apply settings changed in the dashboard (ADR-0024)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/sentinela/scripts/apply-config.sh

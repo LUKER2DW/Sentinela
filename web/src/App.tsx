@@ -125,6 +125,7 @@ function upFrom(page: string, params: URLSearchParams): (() => void) | null {
   if (page === "nuvem" && p) return () => navigate("nuvem", p.includes("/") ? { p: p.split("/").slice(0, -1).join("/") } : undefined, { push: true });
   if (page === "system" && params.get("s")) return () => navigate("system", undefined, { push: true });
   if (page === "servicos" && params.get("s")) return () => navigate("servicos", undefined, { push: true });
+  if (page === "conta" && params.get("s")) return () => navigate("conta", undefined, { push: true });
   if (page === "conta" || page === "relogio" || page === "servicos") return () => navigate("system", undefined, { push: true });
   return null;
 }
@@ -300,7 +301,7 @@ function Shell() {
             compact ? (
               <AccountPage params={route.params} />
             ) : (
-              <SystemPage params={new URLSearchParams({ s: `me-${route.params.get("s") ?? "security"}` })} />
+              <SystemPage params={new URLSearchParams({ s: "me" })} />
             )
           ) : route.page === "servicos" && hostingOn && !mobile ? (
             <ServicesPage params={route.params} />

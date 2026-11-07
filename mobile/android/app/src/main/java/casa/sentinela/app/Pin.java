@@ -23,7 +23,7 @@ import javax.net.ssl.X509TrustManager;
  * (the ISP blocks the ports Let's Encrypt needs, ADR-0019 P1). Besides the
  * normal system trust, the app accepts exactly that one certificate: its
  * SHA-256 comes with the server address in the pairing link or code the
- * house shows (Minha conta -> Aplicativo), and is saved with it (Connection). A build
+ * house shows (Sistema -> Aplicativo), and is saved with it (Connection). A build
  * may also carry a default pair (SENTINELA_DOMAIN_URL / _PUBLIC_CERT_SHA256).
  * Any other untrusted certificate still fails, so a man in the middle gets
  * the same error as without a pin.

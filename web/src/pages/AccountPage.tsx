@@ -7,9 +7,7 @@ import { PasswordField } from "../components/PasswordField";
 import { policyError } from "../lib/password";
 import { SecurityCard } from "../components/Security";
 import { DevicesCard } from "../components/Devices";
-import { DeviceNotifyCard, HouseModeCard, NotifyTypesCard, usePushState } from "../components/Notifications";
-import { AppCard } from "../components/AppUpdate";
-import { AppPairingCard } from "../components/AppPairing";
+import { DeviceNotifyCard, NotifyTypesCard, usePushState } from "../components/Notifications";
 import { AppearanceCard } from "../components/Appearance";
 import { CardHead } from "../components/CardHead";
 import { CoastBanner } from "../components/Coast";
@@ -26,14 +24,13 @@ const roleText = {
   viewer: "Você assiste ao vivo e às gravações e vê os eventos.",
 } as const;
 
-export type AccountSection = "security" | "devices" | "notify" | "look" | "app";
+export type AccountSection = "security" | "devices" | "notify" | "look";
 type Section = AccountSection;
 export const ACCOUNT_SECTIONS: { id: Section; label: string; icon: string; hint: string }[] = [
   { id: "security", label: "Senha e acesso", icon: "key", hint: "Senha e verificação em 2 etapas" },
   { id: "devices", label: "Aparelhos", icon: "monitor", hint: "Onde a conta está aberta" },
   { id: "notify", label: "Notificações", icon: "bell", hint: "O que avisa e o modo da casa" },
   { id: "look", label: "Aparência", icon: "sun", hint: "Tema claro, escuro ou automático" },
-  { id: "app", label: "Aplicativo", icon: "app", hint: "Conectar e atualizar o app" },
 ];
 
 /** Minha conta: the signed-in user's own settings, by category. */
@@ -42,7 +39,9 @@ export function AccountPage({ params }: { params: URLSearchParams }) {
   const compact = useCompact();
   const asked = params.get("s") as Section | null;
   const section: Section = ACCOUNT_SECTIONS.some((x) => x.id === asked) ? asked! : "security";
-  const pick = (id: Section) => navigate("conta", { s: id });
+  // On phones each category is its own screen: keep it in the history, so
+  // "back" returns to Minha conta instead of the start page.
+  const pick = (id: Section) => navigate("conta", { s: id }, { push: compact });
   // Phone, opened from a "Mais" row: just that page, like a settings app.
   const sub = compact && !!asked;
 
@@ -223,22 +222,13 @@ export function AccountBody({ section }: { section: AccountSection }) {
         {section === "devices" && <DevicesCard />}
         {section === "notify" && (
           <div className="grid-2 set-grid">
-            <div className="stack">
-              <DeviceNotifyCard />
-              <HouseModeCard />
-            </div>
+            <DeviceNotifyCard />
             <NotifyTypesCard />
           </div>
         )}
         {section === "look" && (
           <div className="set-grid single">
             <AppearanceCard />
-          </div>
-        )}
-        {section === "app" && (
-          <div className="set-grid single">
-            <AppPairingCard />
-            <AppCard />
           </div>
         )}
     </>
@@ -262,5 +252,25 @@ export function ProfileCard() {
         <Icon name="logout" /> <span className="sair-label">Sair</span>
       </button>
     </section>
+  );
+}
+
+/** Everything of "Minha conta" on one page (System on computers): the
+ *  profile, then each category under its own heading. */
+export function AccountAll() {
+  return (
+    <div className="stack account-all">
+      <ProfileCard />
+      {ACCOUNT_SECTIONS.map((x) => (
+        <section key={x.id} className="account-block" aria-labelledby={`acc-${x.id}`}>
+          <div className="account-block-head">
+            <Icon name={x.icon} />
+            <h2 id={`acc-${x.id}`}>{x.label}</h2>
+            <span className="muted small">{x.hint}</span>
+          </div>
+          <AccountBody section={x.id} />
+        </section>
+      ))}
+    </div>
   );
 }

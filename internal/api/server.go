@@ -32,6 +32,9 @@ type Server struct {
 	Web     fs.FS // built SPA (may be empty in dev)
 	Started time.Time
 	FFmpeg  string
+	// ConfigPath is the config.yaml this server was started with (read by
+	// the settings editor); "" disables editing.
+	ConfigPath string
 
 	tickets     *auth.Tickets
 	loginRL     *auth.Limiter
@@ -176,6 +179,8 @@ func (s *Server) handler(zone string) http.Handler {
 	mux.Handle("DELETE /api/users/{id}", admin(privateOnly(s.deleteUser)))
 	mux.Handle("GET /api/audit", admin(s.listAudit))
 	mux.Handle("GET /api/onboarding", admin(s.getOnboarding))
+	mux.Handle("GET /api/settings", admin(s.getSettings))
+	mux.Handle("PUT /api/settings", admin(privateOnly(s.putSettings)))
 	mux.Handle("GET /api/updates", admin(s.getUpdates))
 	mux.Handle("PUT /api/updates", admin(privateOnly(s.putUpdates)))
 	mux.Handle("POST /api/updates/check", admin(privateOnly(s.checkUpdates)))

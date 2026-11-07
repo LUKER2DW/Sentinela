@@ -134,6 +134,9 @@ func serve(ctx context.Context, log *slog.Logger, cfgPath string) error {
 	}
 
 	srv, err := api.New(cfg, st, webFS, log)
+	if srv != nil {
+		srv.ConfigPath = cfgPath
+	}
 	if err != nil {
 		return err
 	}

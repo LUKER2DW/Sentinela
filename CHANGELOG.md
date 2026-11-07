@@ -28,6 +28,9 @@ The first public release. Highlights of what is in it:
 
 ### Accounts, access and the app
 - First-run setup guide in the browser.
+- Settings edited from System: cameras (including credentials), recording,
+  time zone, network names and disks, validated, backed up and rolled back
+  on failure. Minha conta now lives inside System on computers.
 - Roles, per-camera visibility, invites, optional TOTP two-step login,
   revocable sessions, audit log, closed-door public listener.
 - One Android APK for every house, paired by a QR code that carries the

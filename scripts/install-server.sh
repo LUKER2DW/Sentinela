@@ -124,6 +124,7 @@ else
   docker compose up -d --build --remove-orphans
 fi
 "${REPO_DIR}/scripts/setup-auto-update.sh" install   # off until turned on in System -> Atualizações
+"${REPO_DIR}/scripts/setup-config-apply.sh"          # settings edited in System
 if [[ "$("${REPO_DIR}/scripts/gen-go2rtc-cameras.sh")" == changed ]]; then
   docker compose restart go2rtc >/dev/null
 fi

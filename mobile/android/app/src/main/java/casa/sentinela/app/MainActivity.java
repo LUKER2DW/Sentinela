@@ -133,7 +133,7 @@ public class MainActivity extends BridgeActivity {
     }
 
     /**
-     * Pairing link from the house (Minha conta -> Aplicativo, usually a QR code read by
+     * Pairing link from the house (Sistema -> Aplicativo, usually a QR code read by
      * the phone's camera): {@code sentinela://pair?url=https://host:port&pin=<sha256>}.
      * Any page could open such a link, so the app only switches servers
      * after the person confirms the address shown. Returns true when the
@@ -153,7 +153,7 @@ public class MainActivity extends BridgeActivity {
         String host = android.net.Uri.parse(url).getHost();
         String msg = "O app vai se conectar a " + url.replaceAll("/+$", "")
                 + (pin == null || pin.isEmpty() ? "." : ", com o certificado desta casa.")
-                + "\n\nSó confirme se este código veio de Minha conta → Aplicativo, no Sentinela da sua casa.";
+                + "\n\nSó confirme se este código veio de Sistema → Aplicativo, no Sentinela da sua casa.";
         new android.app.AlertDialog.Builder(this)
                 .setTitle("Conectar a " + host + "?")
                 .setMessage(msg)

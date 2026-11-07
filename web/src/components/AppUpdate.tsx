@@ -46,7 +46,7 @@ export function AppUpdateBanner() {
   );
 }
 
-/** Minha conta → Aplicativo: installed version, update, or the APK for a new phone. */
+/** Sistema → Aplicativo: installed version, update, or the APK for a new phone. */
 export function AppCard() {
   const { info, release, newer } = useAppUpdate();
   const { start, pct, needsPermission } = useInstall();
