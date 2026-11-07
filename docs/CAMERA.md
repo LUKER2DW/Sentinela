@@ -247,9 +247,20 @@ not establish long-term artifact-free operation or current 4G latency.
   recorded for three days. The client now keeps only the path of a
   device-reported service address and uses the configured host/port. Read-only;
   no camera setting was changed.
-- The camera answers `Renew` with `ResourceUnknownFault` (seen 2026-11-06).
-  The watcher keeps pulling until 15 s before the 120 s subscription expires,
-  then subscribes again at once, so events have no backoff gaps.
+- **PullPoint slots leak (2026-11-07).** The camera answers `Renew` with
+  `ResourceUnknownFault` and ignores `Unsubscribe` and expiry: it has 32
+  slots (`/event_service/0..31`) and every one ever created stays alive.
+  Each `PullMessages` pushes that slot's `TerminationTime` to now + 120 s.
+  After the 32nd `CreatePullPointSubscription` it answers
+  `HTTP 400 ResourceUnknownFault`; slots were still alive 1.5 h later with
+  nobody pulling, so only a camera reboot would free them. A 105 s rotation
+  (deployed 2026-11-06 22:26 UTC) used all 32 by 23:22 and motion events
+  stopped. The watcher now keeps one subscription for as long as pulls
+  work, remembers its address (`settings` key `onvif.pullpoint.<camera>`)
+  and reuses it after a restart. When creation is refused and nothing is
+  remembered, it adopts a live numbered slot, discarding that slot's first
+  batch as stale. `PullMessages` on a slot needs no authentication
+  (read-only, LAN-only).
 - While the camera moves under PTZ (and 3 s after; 15 s after a preset
   goto) its own motion opens no event, snapshot, detection or notification.
 - PTZ direction correction uses separate pan/tilt config overrides. No

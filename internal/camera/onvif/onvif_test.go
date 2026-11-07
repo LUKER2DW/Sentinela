@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -114,6 +115,60 @@ func TestWatcherPacesEmptyPulls(t *testing.T) {
 	w.Run(ctx)
 	if n := pulls.Load(); n < 2 || n > 6 {
 		t.Fatalf("pulls in 450 ms at a 100 ms pace = %d, want 2..6", n)
+	}
+}
+
+// The camera never frees a subscription and refuses new ones once its 32
+// slots are used: the watcher must reuse the remembered pull point, and
+// adopt a kept one when nothing is remembered.
+func TestWatcherReusesPullPoints(t *testing.T) {
+	const env = `<?xml version="1.0"?><s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope" xmlns:tev="http://www.onvif.org/ver10/events/wsdl" xmlns:wsa="http://www.w3.org/2005/08/addressing"><s:Body>%s</s:Body></s:Envelope>`
+	var creates atomic.Int32
+	var mu sync.Mutex
+	pulled := map[string]int{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		switch {
+		case strings.Contains(string(body), "CreatePullPointSubscription"):
+			creates.Add(1)
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprintf(w, env, `<s:Fault><s:Reason><s:Text>ResourceUnknownFault</s:Text></s:Reason></s:Fault>`)
+		case strings.Contains(string(body), "PullMessages") && (r.URL.Path == "/event_service/7" || r.URL.Path == "/event_service/3"):
+			mu.Lock()
+			pulled[r.URL.Path]++
+			mu.Unlock()
+			fmt.Fprintf(w, env, `<tev:PullMessagesResponse/>`)
+		default:
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprintf(w, env, `<s:Fault><s:Reason><s:Text>ResourceUnknownFault</s:Text></s:Reason></s:Fault>`)
+		}
+	}))
+	defer srv.Close()
+	st, err := store.Open(context.Background(), filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	run := func() {
+		w := &Watcher{CameraID: "cam1", Store: st, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+			Client: &Client{Base: srv.URL, HTTP: srv.Client()}, MinPull: 50 * time.Millisecond}
+		ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+		defer cancel()
+		w.Run(ctx)
+	}
+	run() // nothing remembered: Create refused, the highest live slot is adopted
+	mu.Lock()
+	n7 := pulled["/event_service/7"]
+	mu.Unlock()
+	if n7 < 2 || creates.Load() != 1 {
+		t.Fatalf("first run: pulls %v, creates %d", pulled, creates.Load())
+	}
+	if got := st.Setting(context.Background(), "onvif.pullpoint.cam1", ""); got != srv.URL+"/event_service/7" {
+		t.Fatalf("remembered %q", got)
+	}
+	run() // remembered: reused without asking for a new subscription
+	if creates.Load() != 1 {
+		t.Fatalf("second run created a subscription (creates %d)", creates.Load())
 	}
 }
 

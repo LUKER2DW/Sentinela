@@ -2,8 +2,8 @@ package onvif
 
 import (
 	"context"
-	"errors"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 
@@ -66,41 +66,66 @@ func (w *Watcher) Run(ctx context.Context) {
 			break
 		}
 		wait := backoff
-		switch {
-		case errors.Is(err, errRotate):
-			// Planned: the camera refused Renew, the subscription was used
-			// until just before it expired. Subscribe again right away.
-			w.Log.Debug("onvif events: subscription rotated", "camera", w.CameraID)
-			backoff, wait = minBackoff, 0
-		case delivered:
+		reason := redact.Secrets(errString(err), w.Client.Password)
+		w.Log.Warn("onvif events: session ended", "camera", w.CameraID, "err", reason)
+		if delivered {
 			// The session worked: reconnect promptly instead of waiting a
 			// backoff left by earlier failures.
 			backoff, wait = minBackoff, time.Second
-			fallthrough
-		default:
-			reason := redact.Secrets(errString(err), w.Client.Password)
-			w.Log.Warn("onvif events: session ended", "camera", w.CameraID, "err", reason)
-			if !delivered {
-				w.health(false, reason)
-				backoff = min(backoff*2, 2*time.Minute)
-			}
+		} else {
+			w.health(false, reason)
+			backoff = min(backoff*2, 2*time.Minute)
 		}
-		if wait > 0 {
-			select {
-			case <-ctx.Done():
-			case <-time.After(wait):
-			}
+		select {
+		case <-ctx.Done():
+		case <-time.After(wait):
 		}
 	}
 	w.closeAll(time.Now())
 }
 
-// errRotate ends a session whose subscription could not be renewed, just
-// before the camera drops it.
-var errRotate = errors.New("onvif: subscription rotated")
+// pullPointScan is how many numbered pull points pullPoint tries when the
+// camera refuses a new subscription and none is remembered. This camera has
+// 32 slots (/event_service/0..31) and never frees one (docs/CAMERA.md).
+const pullPointScan = 32
 
-// subscriptionTTL is the InitialTerminationTime asked in Subscribe.
-const subscriptionTTL = 120 * time.Second
+func (w *Watcher) settingKey() string { return "onvif.pullpoint." + w.CameraID }
+
+// pullPoint returns a working subscription. It reuses the remembered one
+// first: this camera never frees a subscription (Unsubscribe and expiry are
+// ignored), every PullMessages keeps it alive, and it refuses new ones once
+// its 32 slots are used. adopted reports a reused subscription, whose first
+// batch may hold stale messages.
+func (w *Watcher) pullPoint(ctx context.Context) (sub *Subscription, adopted bool, err error) {
+	try := func(u string) bool {
+		s := &Subscription{c: w.Client, URL: u}
+		if _, err := s.Pull(ctx, time.Second); err != nil {
+			return false
+		}
+		sub = s
+		return true
+	}
+	if u := w.Store.Setting(ctx, w.settingKey(), ""); u != "" && try(u) {
+		return sub, true, nil
+	}
+	sub, err = w.Client.Subscribe(ctx)
+	if err == nil {
+		_ = w.Store.SetSetting(ctx, w.settingKey(), sub.URL)
+		return sub, false, nil
+	}
+	if !strings.Contains(err.Error(), "ResourceUnknownFault") {
+		return nil, false, err
+	}
+	// Every slot is taken (by an earlier run): adopt one of them.
+	for n := pullPointScan - 1; n >= 0 && ctx.Err() == nil; n-- {
+		if try(w.Client.Base + "/event_service/" + strconv.Itoa(n)) {
+			_ = w.Store.SetSetting(ctx, w.settingKey(), sub.URL)
+			w.Log.Info("onvif events: reusing a pull point the camera kept", "camera", w.CameraID, "slot", n)
+			return sub, true, nil
+		}
+	}
+	return nil, false, err
+}
 
 func (w *Watcher) health(ok bool, reason string) {
 	if w.Health == nil || (w.healthy != nil && *w.healthy == ok) {
@@ -119,21 +144,14 @@ func errString(err error) string {
 
 // session runs one subscription; delivered reports at least one good pull.
 func (w *Watcher) session(ctx context.Context) (delivered bool, err error) {
-	sub, err := w.Client.Subscribe(ctx)
+	// No Unsubscribe and no Renew: this camera ignores both (it answers
+	// ResourceUnknownFault) and a pull keeps the subscription alive, so the
+	// same one is kept for as long as pulls work, across restarts too.
+	sub, adopted, err := w.pullPoint(ctx)
 	if err != nil {
 		return false, err
 	}
-	defer func() {
-		c, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		defer cancel()
-		_ = sub.Unsubscribe(c)
-	}()
-	w.Log.Info("onvif events: subscribed", "camera", w.CameraID)
-	subscribed := time.Now()
-	lastRenew := subscribed
-	// expires: when the camera drops the subscription if Renew keeps
-	// failing (this camera answers ResourceUnknownFault to Renew).
-	expires := subscribed.Add(subscriptionTTL)
+	w.Log.Info("onvif events: subscribed", "camera", w.CameraID, "reused", adopted)
 	for ctx.Err() == nil {
 		started := time.Now()
 		msgs, err := sub.Pull(ctx, 10*time.Second)
@@ -143,21 +161,14 @@ func (w *Watcher) session(ctx context.Context) (delivered bool, err error) {
 		delivered = true
 		w.health(true, "")
 		now := time.Now()
+		if adopted {
+			// Drop what queued while nobody was pulling.
+			msgs, adopted = nil, false
+		}
 		for _, m := range msgs {
 			w.Handle(ctx, m, now)
 		}
 		w.expire(ctx, now)
-		if now.Sub(lastRenew) > 50*time.Second {
-			if err := sub.Renew(ctx); err == nil {
-				expires = now.Add(subscriptionTTL)
-			} else if ctx.Err() == nil {
-				w.Log.Debug("onvif events: renew refused", "camera", w.CameraID, "err", redact.Secrets(err.Error(), w.Client.Password))
-			}
-			lastRenew = now
-		}
-		if time.Until(expires) < 15*time.Second {
-			return true, errRotate
-		}
 		// A full batch may have more waiting; anything else keeps the pace.
 		if wait := w.MinPull - time.Since(started); wait > 0 && len(msgs) < pullLimit {
 			select {
