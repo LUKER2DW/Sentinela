@@ -42,6 +42,7 @@ type Server struct {
 	ctrl        map[string]*dvrip.Controller
 	ptzQuiet    quietWindows // cameras moving under PTZ: their own motion is not an event
 	tours       ptzTours     // preset tours, one per camera
+	pubPin      pinState     // public listener's self-signed certificate (app pairing)
 	tourGoto    tourGoto     // tests replace the camera move
 	evWatch     eventWatch   // ONVIF event subscription health per camera
 	hub         *Hub
@@ -238,6 +239,7 @@ func (s *Server) handler(zone string) http.Handler {
 	mux.Handle("GET /api/system", viewer(s.system))
 	// Android app self-update (the APK is sideloaded, no Play Store).
 	mux.Handle("GET /api/app/latest", viewer(s.appLatest))
+	mux.Handle("GET /api/app/pairing", viewer(s.appPairing))
 	mux.Handle("GET /api/app/sentinela.apk", viewer(s.appAPK))
 
 	// Nuvem file API (ADR-0012): operators use their own folder and the

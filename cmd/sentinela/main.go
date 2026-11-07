@@ -165,6 +165,7 @@ func serve(ctx context.Context, log *slog.Logger, cfgPath string) error {
 				return fmt.Errorf("public self-signed certificate: %w", err)
 			}
 			log.Info("public listener uses a self-signed certificate", "ip", ip.String(), "sha256", fp)
+			srv.SetPublicCertPin(fp)
 			tc = c
 		} else if ip != nil {
 			// No domain: a short-lived Let's Encrypt certificate for the fixed IP.

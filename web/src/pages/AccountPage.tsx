@@ -9,6 +9,7 @@ import { SecurityCard } from "../components/Security";
 import { DevicesCard } from "../components/Devices";
 import { DeviceNotifyCard, HouseModeCard, NotifyTypesCard, usePushState } from "../components/Notifications";
 import { AppCard } from "../components/AppUpdate";
+import { AppPairingCard } from "../components/AppPairing";
 import { AppearanceCard } from "../components/Appearance";
 import { CardHead } from "../components/CardHead";
 import { CoastBanner } from "../components/Coast";
@@ -31,7 +32,7 @@ export const ACCOUNT_SECTIONS: { id: Section; label: string; icon: string; hint:
   { id: "devices", label: "Aparelhos", icon: "monitor", hint: "Onde a conta está aberta" },
   { id: "notify", label: "Notificações", icon: "bell", hint: "O que avisa e o modo da casa" },
   { id: "look", label: "Aparência", icon: "sun", hint: "Tema claro, escuro ou automático" },
-  { id: "app", label: "Aplicativo", icon: "app", hint: "Versão e atualização do app" },
+  { id: "app", label: "Aplicativo", icon: "app", hint: "Conectar e atualizar o app" },
 ];
 
 /** Minha conta: the signed-in user's own settings, by category. */
@@ -115,6 +116,7 @@ export function AccountPage({ params }: { params: URLSearchParams }) {
             )}
             {section === "app" && (
               <div className="set-grid single">
+                <AppPairingCard />
                 <AppCard />
               </div>
             )}

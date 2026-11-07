@@ -36,6 +36,7 @@ remote:
     # listen: ":7443"
     # email: you@example.com
     # url: https://203.0.113.7:18443   # address used from outside (invite links)
+  # tailnet_url: https://sentinela.example.ts.net   # `tailscale serve` address, offered to the app pairing QR
 
 # Self-hosted services (ADR-0021): projects from GitHub or a folder of the
 # Nuvem, run in capped containers by the "apps" agent. Off unless enabled

@@ -2746,3 +2746,14 @@ textarea.input { height: auto; padding: 9px 12px; resize: vertical; line-height:
 .setup-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; position: sticky; bottom: 0; padding: 12px 0; background: var(--bg); }
 .setup-foot .spacer { flex: 1; }
 .setup-step code { overflow-wrap: anywhere; }
+
+/* App pairing (components/AppPairing.tsx) and remote access choices */
+.pairing-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); margin-top: 12px; }
+.pairing { margin: 0; display: grid; gap: 10px; justify-items: start; }
+.pairing img { width: 200px; height: 200px; border-radius: var(--r-md); background: #fff; padding: 8px; }
+.pairing figcaption { display: grid; gap: 6px; width: 100%; }
+.pairing-url { overflow-wrap: anywhere; }
+.remote-choices { display: grid; gap: 10px; margin: 12px 0; }
+.remote-choice { display: grid; gap: 4px; padding: 12px; border-radius: var(--r-md); border: 1px solid var(--line); }
+.remote-choice.on { border-color: var(--sea); background: var(--sea-soft); }
+.remote-choice code { overflow-wrap: anywhere; }

@@ -115,6 +115,10 @@ type Remote struct {
 	// FunnelListen is where `tailscale funnel` proxies to (P3), loopback only.
 	FunnelListen string    `yaml:"funnel_listen"`
 	Public       PublicTLS `yaml:"public"`
+	// TailnetURL is this server on the tailnet through `tailscale serve`
+	// (e.g. https://sentinela.tail0.ts.net), offered to the Android app's
+	// pairing QR. Optional.
+	TailnetURL string `yaml:"tailnet_url"`
 }
 
 // PublicTLS is the port-forwarded HTTPS listener (P1). Empty Domain = off.
@@ -379,6 +383,11 @@ func (c *Config) validate() error {
 		// Funnel traffic arrives from tailscaled on this host only.
 		if h, _, err := net.SplitHostPort(l); err != nil || net.ParseIP(h) == nil || !net.ParseIP(h).IsLoopback() {
 			errs = append(errs, errors.New("remote.funnel_listen must be a loopback host:port, e.g. 127.0.0.1:8081"))
+		}
+	}
+	if u := c.Remote.TailnetURL; u != "" {
+		if p, err := url.Parse(u); err != nil || p.Scheme != "https" || p.Host == "" || (p.Path != "" && p.Path != "/") {
+			errs = append(errs, errors.New("remote.tailnet_url must be https://host"))
 		}
 	}
 	if u := c.Remote.Public.URL; u != "" {

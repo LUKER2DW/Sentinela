@@ -48,6 +48,9 @@ func (s *Server) getOnboarding(w http.ResponseWriter, r *http.Request) {
 		"hosting":          s.hosting.proxy != nil,
 		"totp":             u.TOTP,
 		"zone":             zoneFrom(r),
+		"tailnet_url":      s.Cfg.Remote.TailnetURL,
+		"public_url":       publicOrigin(s.Cfg.Remote.Public),
+		"public_pinned":    s.Cfg.Remote.Public.SelfSigned,
 	})
 }
 

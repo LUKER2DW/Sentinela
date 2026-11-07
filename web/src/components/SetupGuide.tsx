@@ -5,6 +5,7 @@ import { useToast } from "../lib/session";
 import { AddCameraCard } from "./AddCamera";
 import { DeviceNotifyCard } from "./Notifications";
 import { SecurityCard } from "./Security";
+import { AppPairingCard } from "./AppPairing";
 import { Icon } from "./Icon";
 import { LighthouseMark } from "./Lighthouse";
 
@@ -22,6 +23,9 @@ export interface Onboarding {
   hosting: boolean;
   totp: boolean;
   zone: string;
+  tailnet_url: string;
+  public_url: string;
+  public_pinned: boolean;
 }
 
 const STEPS = [
@@ -29,6 +33,8 @@ const STEPS = [
   { id: "cameras", label: "Câmeras" },
   { id: "recording", label: "Gravação" },
   { id: "nuvem", label: "Nuvem" },
+  { id: "remote", label: "Acesso remoto" },
+  { id: "app", label: "App" },
   { id: "notify", label: "Notificações" },
   { id: "security", label: "Segurança" },
   { id: "done", label: "Pronto" },
@@ -94,6 +100,8 @@ export function SetupGuide({ onClose }: { onClose: () => void }) {
           {id === "cameras" && <Cameras o={o} />}
           {id === "recording" && <Recording o={o} />}
           {id === "nuvem" && <Nuvem o={o} />}
+          {id === "remote" && <Remote o={o} />}
+          {id === "app" && <AppStep />}
           {id === "notify" && <Notify o={o} />}
           {id === "security" && <Security o={o} />}
           {id === "done" && <Done o={o} />}
@@ -153,6 +161,7 @@ function Welcome({ o }: { o: Onboarding }) {
         <li>as câmeras e como adicionar outras;</li>
         <li>onde e por quanto tempo as gravações ficam;</li>
         <li>a Nuvem, o armazenamento de arquivos da casa;</li>
+        <li>como acessar de fora de casa (opcional) e conectar o app;</li>
         <li>as notificações deste aparelho;</li>
         <li>a verificação em duas etapas (opcional).</li>
       </ul>
@@ -245,6 +254,63 @@ function Nuvem({ o }: { o: Onboarding }) {
         </>
       )}
     </Step>
+  );
+}
+
+function Remote({ o }: { o: Onboarding }) {
+  const none = !o.tailnet_url && !o.public_url;
+  return (
+    <Step title="Acesso de fora de casa">
+      <p className="muted small">
+        Por padrão o Sentinela só responde na rede da casa. Para usar o app ou o navegador fora de casa, escolha um
+        caminho. Nenhum é obrigatório; dá para fazer depois.
+      </p>
+      <div className="remote-choices">
+        <div className={`remote-choice${none ? " on" : ""}`}>
+          <strong>Só em casa</strong>
+          <span className="muted small">Nada exposto. O app funciona só se o celular estiver numa VPN para casa.</span>
+        </div>
+        <div className={`remote-choice${o.tailnet_url ? " on" : ""}`}>
+          <strong>Tailscale (recomendado)</strong>
+          <span className="muted small">
+            VPN privada, sem abrir portas. No servidor: <code>sudo /opt/sentinela/scripts/setup-tailscale.sh</code>, depois
+            coloque o endereço em <code>remote.tailnet_url</code>.
+          </span>
+          {o.tailnet_url && <code>{o.tailnet_url}</code>}
+        </div>
+        <div className={`remote-choice${o.public_url ? " on" : ""}`}>
+          <strong>Porta no roteador</strong>
+          <span className="muted small">
+            Endereço público com HTTPS, de qualquer celular. No servidor:{" "}
+            <code>sudo /opt/sentinela/scripts/setup-public.sh</code> e encaminhe a porta no roteador. Só a tela de login
+            fica visível de fora; ative a verificação em duas etapas.
+          </span>
+          {o.public_url && (
+            <code>
+              {o.public_url}
+              {o.public_pinned ? " (certificado próprio)" : ""}
+            </code>
+          )}
+        </div>
+      </div>
+      <p className="muted small">
+        Nunca encaminhe as portas das câmeras, do RTSP ou da pasta de rede: só o Sentinela.
+      </p>
+    </Step>
+  );
+}
+
+function AppStep() {
+  return (
+    <div className="stack">
+      <Step title="App Android">
+        <p className="muted small">
+          O mesmo app serve para qualquer casa: ele se conecta ao endereço que você escolher aqui. Também fica em Minha
+          conta → Aplicativo, para cada pessoa da casa.
+        </p>
+      </Step>
+      <AppPairingCard />
+    </div>
   );
 }
 
