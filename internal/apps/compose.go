@@ -39,6 +39,9 @@ type composePlan struct {
 	doc      map[string]any
 	services []string
 	ports    []portRef
+	// hostPaths are the bind and secret/config sources, all inside an
+	// allowed folder; checkHostPaths refuses symlinks among them.
+	hostPaths []string
 }
 
 // portRef is one published port entry and the platform port it maps to.
@@ -148,6 +151,8 @@ func planCompose(raw []byte, allowed []string) (*composePlan, error) {
 			case "bind":
 				if strings.Contains(src, "docker.sock") || !inside(src) {
 					bad(name, "a pasta %q fica fora do projeto; use um volume nomeado", src)
+				} else {
+					p.hostPaths = append(p.hostPaths, src)
 				}
 			default:
 				bad(name, "volume do tipo %q não é permitido", typ)
@@ -217,6 +222,8 @@ func planCompose(raw []byte, allowed []string) (*composePlan, error) {
 			m, _ := v.(map[string]any)
 			if f, _ := m["file"].(string); f != "" && !inside(f) {
 				bad(top, "%q aponta para fora do projeto", name)
+			} else if f != "" {
+				p.hostPaths = append(p.hostPaths, f)
 			}
 			if ext, _ := m["external"].(bool); ext {
 				bad(top, "%q externo não é permitido", name)
@@ -227,6 +234,38 @@ func planCompose(raw []byte, allowed []string) (*composePlan, error) {
 		return nil, fmt.Errorf("o arquivo Compose usa recursos não permitidos:\n%w", errors.Join(errs...))
 	}
 	return p, nil
+}
+
+// checkHostPaths refuses a bind or secret source that is, or passes
+// through, a symbolic link below root. The Docker daemon resolves links in
+// a bind source on the host, so a repository shipping "data -> /" would
+// otherwise mount the host's root filesystem into the container.
+func checkHostPaths(root string, paths []string) error {
+	root = filepath.Clean(root)
+	for _, src := range paths {
+		rel, err := filepath.Rel(root, filepath.Clean(filepath.FromSlash(src)))
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return fmt.Errorf("a pasta %q fica fora do projeto", src)
+		}
+		cur := root
+		for _, part := range strings.Split(rel, string(filepath.Separator)) {
+			if part == "." || part == "" {
+				continue
+			}
+			cur = filepath.Join(cur, part)
+			info, err := os.Lstat(cur)
+			if errors.Is(err, os.ErrNotExist) {
+				break // Docker creates missing folders; nothing below can be a link
+			}
+			if err != nil {
+				return fmt.Errorf("compose: %w", err)
+			}
+			if info.Mode()&os.ModeSymlink != 0 {
+				return fmt.Errorf("a pasta %q passa por um link simbólico; links não podem ser montados", src)
+			}
+		}
+	}
+	return nil
 }
 
 // composeLimits are the caps every service of the project gets.
@@ -541,6 +580,9 @@ func (a *Agent) composeUp(ctx context.Context, app *App, work string, build bool
 	}
 	plan, err := planCompose([]byte(raw), []string{a.appDir(app.ID)})
 	if err != nil {
+		return nil, nil, err
+	}
+	if err := checkHostPaths(a.appDir(app.ID), plan.hostPaths); err != nil {
 		return nil, nil, err
 	}
 	a.mu.Lock()

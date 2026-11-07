@@ -586,3 +586,26 @@ func TestStopAnswersStopped(t *testing.T) {
 		t.Fatalf("right after stop: %s", got.Status.State)
 	}
 }
+
+func TestCheckHostPathsRefusesSymlinks(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "releases", "r1", "conf"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(string(filepath.Separator), filepath.Join(root, "releases", "r1", "hostroot")); err != nil {
+		t.Skip("symlinks unavailable:", err)
+	}
+	ok := []string{filepath.Join(root, "releases", "r1", "conf"), filepath.Join(root, "releases", "r1", "new", "dir")}
+	if err := checkHostPaths(root, ok); err != nil {
+		t.Fatalf("plain folders refused: %v", err)
+	}
+	for _, bad := range []string{
+		filepath.Join(root, "releases", "r1", "hostroot"),
+		filepath.Join(root, "releases", "r1", "hostroot", "etc"),
+		filepath.Join(root, "..", "elsewhere"),
+	} {
+		if err := checkHostPaths(root, []string{bad}); err == nil {
+			t.Errorf("%s: accepted", bad)
+		}
+	}
+}
