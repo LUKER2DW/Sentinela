@@ -85,6 +85,9 @@ func New(cfg *config.Config, st *store.Store, web fs.FS, log *slog.Logger) (*Ser
 		tlSem: make(chan struct{}, 1), exportSem: make(chan struct{}, 2)}
 	for i := range cfg.Cameras {
 		cam := &cfg.Cameras[i]
+		if !cam.HasDVRIP() {
+			continue // view and record only
+		}
 		addr := hostPort(cam.Host, cam.DVRIPPort)
 		pan, tilt := cam.Inversion()
 		s.ctrl[cam.ID] = dvrip.NewController(addr, cam.User, cam.Password, dvrip.Invert{Pan: pan, Tilt: tilt}, log.With("camera", cam.ID))

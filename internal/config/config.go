@@ -175,11 +175,25 @@ func (r Recording) VolumeMarkerPath(dataDir string) string {
 	return filepath.Join(dataDir, filepath.FromSlash(r.VolumeMarker))
 }
 
-// Camera is one XMEye camera. Password is never read from YAML.
+// Camera is one camera. Password is never read from YAML.
 type Camera struct {
-	ID            string `yaml:"id"`
-	Name          string `yaml:"name"`
-	Host          string `yaml:"host"`
+	ID   string `yaml:"id"`
+	Name string `yaml:"name"`
+	Host string `yaml:"host"`
+	// Vendor picks the RTSP URL layout and the control driver: xmeye
+	// (default; DVRIP control, PTZ, light), hikvision, dahua or generic
+	// (rtsp_main required). Only xmeye cameras get DVRIP control.
+	Vendor string `yaml:"vendor"`
+	// Channel of a multi-channel device (NVR/DVR), default 1.
+	Channel int `yaml:"channel"`
+	// RTSPMain / RTSPSub override the vendor's stream path, e.g.
+	// "/stream1". {channel} is replaced; credentials are added by Sentinela.
+	RTSPMain string `yaml:"rtsp_main"`
+	RTSPSub  string `yaml:"rtsp_sub"`
+	// Preload keeps go2rtc connected to the main stream so the live view
+	// opens at once (default true); it holds one of the camera's RTSP
+	// sessions all the time.
+	Preload       *bool  `yaml:"preload"`
 	UserEnv       string `yaml:"user_env"`
 	PasswordEnv   string `yaml:"password_env"`
 	RTSPPort      int    `yaml:"rtsp_port"`
@@ -315,9 +329,15 @@ func (c *Config) applyDefaults() {
 	for i := range c.Cameras {
 		cam := &c.Cameras[i]
 		def(&cam.Name, cam.ID)
+		def(&cam.Vendor, VendorXMEye)
+		defInt(&cam.Channel, 1)
 		defInt(&cam.RTSPPort, 554)
 		defInt(&cam.DVRIPPort, 34567)
-		defInt(&cam.ONVIFPort, 8899)
+		if cam.Vendor == VendorXMEye {
+			defInt(&cam.ONVIFPort, 8899)
+		} else {
+			defInt(&cam.ONVIFPort, 80)
+		}
 		defInt(&cam.RetentionDays, c.Recording.DefaultRetentionDays)
 	}
 }
@@ -394,9 +414,7 @@ func (c *Config) validate() error {
 		if cam.User == "" || cam.Password == "" {
 			errs = append(errs, fmt.Errorf("camera %s: credentials missing (set %s and %s)", cam.ID, cam.UserEnv, cam.PasswordEnv))
 		}
-		if strings.ContainsAny(cam.User+cam.Password, "&?/ ") {
-			errs = append(errs, fmt.Errorf("camera %s: credentials must not contain '&', '?', '/' or spaces (XMEye RTSP path)", cam.ID))
-		}
+		errs = append(errs, cam.validateStream()...)
 	}
 	return errors.Join(errs...)
 }
@@ -468,14 +486,10 @@ func (cam *Camera) Recording() bool { return cam.Record == nil || *cam.Record }
 // AudioRecording reports whether audio is recorded (default true, see ADR-0006).
 func (cam *Camera) AudioRecording() bool { return cam.RecordAudio == nil || *cam.RecordAudio }
 
-// RTSPURL builds the XMEye RTSP URL for stream 0 (main) or 1 (sub).
+// RTSPURL builds the camera's RTSP URL for stream 0 (main) or 1 (sub).
 // It contains credentials: never log or return it; use redact.URL.
 func (cam *Camera) RTSPURL(stream int) string {
-	// The firmware parses this path literally: values are not percent-encoded
-	// (verified with a password containing '@'). '&' in credentials is rejected
-	// by validate for that reason.
-	host := net.JoinHostPort(cam.Host, fmt.Sprint(cam.RTSPPort))
-	return fmt.Sprintf("rtsp://%s/user=%s&password=%s&channel=1&stream=%d.sdp?real_stream", host, cam.User, cam.Password, stream)
+	return cam.rtspURL(stream, cam.User, cam.Password)
 }
 
 // Segment returns the segment length as a duration.

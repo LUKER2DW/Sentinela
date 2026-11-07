@@ -6,6 +6,7 @@
 //	sentinela user ...     add | passwd | del | list  (password read from stdin)
 //	sentinela healthcheck  exit 0 if the local API answers /healthz
 //	sentinela check-config validate the config + secrets, list the cameras
+//	sentinela go2rtc-config print go2rtc's camera streams (no secrets needed)
 //	sentinela version
 package main
 
@@ -75,10 +76,15 @@ func main() {
 		err = healthcheck(*cfgPath)
 	case "check-config":
 		err = checkConfig(*cfgPath)
+	case "go2rtc-config":
+		var cfg *config.Config
+		if cfg, err = config.LoadLayout(*cfgPath); err == nil {
+			err = cfg.WriteGo2RTC(os.Stdout)
+		}
 	case "version":
 		fmt.Println(version)
 	default:
-		err = fmt.Errorf("unknown command %q (serve|record|apps|user|healthcheck|check-config|version)", cmd)
+		err = fmt.Errorf("unknown command %q (serve|record|apps|user|healthcheck|check-config|go2rtc-config|version)", cmd)
 	}
 	if err != nil {
 		log.Error("fatal", "cmd", cmd, "err", err)

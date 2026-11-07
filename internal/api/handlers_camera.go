@@ -20,6 +20,9 @@ type cameraDTO struct {
 	Recording   bool   `json:"recording"`
 	RecordAudio bool   `json:"record_audio"`
 	Retention   int    `json:"retention_days"`
+	// Control: PTZ, presets, light and day/night (DVRIP cameras only).
+	Control bool   `json:"control"`
+	Vendor  string `json:"vendor"`
 }
 
 func (s *Server) listCameras(w http.ResponseWriter, r *http.Request) {
@@ -28,9 +31,25 @@ func (s *Server) listCameras(w http.ResponseWriter, r *http.Request) {
 		if !s.canSee(r, c.ID) {
 			continue
 		}
-		out = append(out, cameraDTO{ID: c.ID, Name: c.Name, Recording: c.Recording(), RecordAudio: c.AudioRecording(), Retention: c.RetentionDays})
+		out = append(out, cameraDTO{ID: c.ID, Name: c.Name, Recording: c.Recording(), RecordAudio: c.AudioRecording(), Retention: c.RetentionDays,
+			Control: c.HasDVRIP(), Vendor: c.Vendor})
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// cameraCtrl is s.camera for DVRIP control routes: cameras of other
+// vendors answer 501 (view and record only).
+func (s *Server) cameraCtrl(w http.ResponseWriter, r *http.Request) (*config.Camera, *dvrip.Controller) {
+	cam := s.camera(w, r)
+	if cam == nil {
+		return nil, nil
+	}
+	ctrl := s.ctrl[cam.ID]
+	if ctrl == nil {
+		writeErr(w, http.StatusNotImplemented, "this camera has no remote control (vendor "+cam.Vendor+")")
+		return nil, nil
+	}
+	return cam, ctrl
 }
 
 // camErr converts a driver error into a safe message and HTTP status.
@@ -52,7 +71,7 @@ func (s *Server) camErr(w http.ResponseWriter, cam *config.Camera, err error) {
 }
 
 func (s *Server) cameraControl(w http.ResponseWriter, r *http.Request) {
-	cam := s.camera(w, r)
+	cam, ctrl := s.cameraCtrl(w, r)
 	if cam == nil {
 		return
 	}
@@ -65,7 +84,7 @@ func (s *Server) cameraControl(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
-	st, err := s.ctrl[cam.ID].State(ctx)
+	st, err := ctrl.State(ctx)
 	if err != nil {
 		s.camErr(w, cam, err)
 		return
@@ -83,7 +102,7 @@ func (s *Server) invalidateState(id string) {
 }
 
 func (s *Server) ptz(w http.ResponseWriter, r *http.Request) {
-	cam := s.camera(w, r)
+	cam, ctrl := s.cameraCtrl(w, r)
 	if cam == nil {
 		return
 	}
@@ -100,7 +119,6 @@ func (s *Server) ptz(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), dvrip.DefaultTimeout+time.Second)
 	defer cancel()
-	ctrl := s.ctrl[cam.ID]
 	var err error
 	if body.Action != "stop" {
 		s.takeControl(r, cam.ID)
@@ -127,7 +145,7 @@ func (s *Server) ptz(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) preset(w http.ResponseWriter, r *http.Request) {
-	cam := s.camera(w, r)
+	cam, ctrl := s.cameraCtrl(w, r)
 	if cam == nil {
 		return
 	}
@@ -149,7 +167,7 @@ func (s *Server) preset(w http.ResponseWriter, r *http.Request) {
 	if body.Action == "goto" {
 		s.ptzQuiet.hold(cam.ID, presetSettle)
 	}
-	err = s.ctrl[cam.ID].Preset(ctx, body.Action, id)
+	err = ctrl.Preset(ctx, body.Action, id)
 	if body.Action != "goto" {
 		s.audit(r, "camera.preset."+body.Action, fmt.Sprintf("%s#%d", cam.ID, id), err == nil, "")
 		s.invalidateState(cam.ID)
@@ -162,7 +180,7 @@ func (s *Server) preset(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) setLight(w http.ResponseWriter, r *http.Request) {
-	cam := s.camera(w, r)
+	cam, ctrl := s.cameraCtrl(w, r)
 	if cam == nil {
 		return
 	}
@@ -175,7 +193,7 @@ func (s *Server) setLight(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 4*dvrip.DefaultTimeout)
 	defer cancel()
-	err := s.ctrl[cam.ID].SetWhiteLight(ctx, body.On)
+	err := ctrl.SetWhiteLight(ctx, body.On)
 	s.audit(r, "camera.white_light", cam.ID, err == nil, strconv.FormatBool(body.On))
 	s.invalidateState(cam.ID)
 	if err != nil {
@@ -186,7 +204,7 @@ func (s *Server) setLight(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) setDayNight(w http.ResponseWriter, r *http.Request) {
-	cam := s.camera(w, r)
+	cam, ctrl := s.cameraCtrl(w, r)
 	if cam == nil {
 		return
 	}
@@ -199,7 +217,7 @@ func (s *Server) setDayNight(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 4*dvrip.DefaultTimeout)
 	defer cancel()
-	err := s.ctrl[cam.ID].SetDayNight(ctx, body.Mode)
+	err := ctrl.SetDayNight(ctx, body.Mode)
 	s.audit(r, "camera.day_night", cam.ID, err == nil, body.Mode)
 	s.invalidateState(cam.ID)
 	if err != nil {

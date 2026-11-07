@@ -28,6 +28,9 @@ export interface Camera {
   recording: boolean;
   record_audio: boolean;
   retention_days: number;
+  /** PTZ, presets, light and day/night (XMEye/DVRIP cameras only). */
+  control?: boolean;
+  vendor?: string;
 }
 
 export interface Preset {

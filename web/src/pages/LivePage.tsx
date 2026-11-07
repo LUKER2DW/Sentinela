@@ -149,7 +149,7 @@ function Single({ cam, now, autoFullscreen }: { cam: Camera; now: number; autoFu
             defaultStream={stream}
             autoFullscreen={autoFullscreen}
           />
-          {narrow && <PtzPanel cameraId={cam.id} canControl={can("operator")} />}
+          {narrow && cam.control !== false && <PtzPanel cameraId={cam.id} canControl={can("operator")} />}
           <section className="card" aria-label="Hoje">
             <div className="card-head">
               <h2>Hoje</h2>
@@ -169,8 +169,8 @@ function Single({ cam, now, autoFullscreen }: { cam: Camera; now: number; autoFu
           <TodayStats timeline={timeline.data} motion={motionToday} />
         </div>
         <aside className="stack live-right">
-          {!narrow && <PtzPanel cameraId={cam.id} canControl={can("operator")} />}
-          <CameraSettings cameraId={cam.id} canControl={can("operator")} isAdmin={can("admin")} />
+          {!narrow && cam.control !== false && <PtzPanel cameraId={cam.id} canControl={can("operator")} />}
+          {cam.control !== false && <CameraSettings cameraId={cam.id} canControl={can("operator")} isAdmin={can("admin")} />}
         </aside>
       </div>
     </>

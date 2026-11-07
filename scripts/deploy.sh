@@ -62,17 +62,8 @@ if (( ! SERVICES_ONLY )); then
 fi
 
 echo "==> restart stack"
-# go2rtc.yaml reads the camera address from CAM1_HOST, so no LAN address
-# lives in the repository. Servers installed before that get it once from
-# the first camera host in config.yaml.
-"${SSH[@]}" 'sudo bash -s' <<'REMOTE'
-f=/etc/sentinela/secrets.env
-grep -q '^CAM1_HOST=' "$f" && exit 0
-h="$(awk '/^ *host:/{print $2; exit}' /etc/sentinela/config.yaml)"
-[[ -n "$h" ]] || { echo "!! no camera host in config.yaml; add CAM1_HOST to $f" >&2; exit 1; }
-printf 'CAM1_HOST=%s\n' "$h" >>"$f"
-echo "added CAM1_HOST=$h to $f"
-REMOTE
+# Camera streams for go2rtc come from config.yaml (any number, any vendor).
+GO2RTC_CHANGED="$("${SSH[@]}" 'sudo /opt/sentinela/scripts/gen-go2rtc-cameras.sh')"
 # The recorder writes only while /data holds its marker (volume_marker).
 "${SSH[@]}" 'sudo bash -s' <<'REMOTE'
 m=/data/.sentinela-volume
@@ -84,8 +75,6 @@ else
 fi
 REMOTE
 "${SSH[@]}" 'sudo install -d -o 1000 -g 1000 -m 0750 /data/detector /data/apps-agent'
-# go2rtc mounts the extra-cameras file: it must exist (else docker makes a directory).
-"${SSH[@]}" 'sudo test -f /etc/sentinela/go2rtc-cameras.yaml || echo "# cameras added by scripts/add-camera.sh" | sudo install -m 0644 /dev/stdin /etc/sentinela/go2rtc-cameras.yaml'
 # The self-hosted services agent (ADR-0021) runs only while
 # scripts/setup-apps.sh has left its marker; it joins the docker group.
 # shellcheck disable=SC2016 # expanded on the server
@@ -94,6 +83,10 @@ if (( SERVICES_ONLY )); then
   "${SSH[@]}" "cd /opt/sentinela/deploy && sudo SENTINELA_VERSION=${VERSION} ${APPS_ENV} docker compose up -d --no-build --no-deps sentinela apps"
 else
   "${SSH[@]}" "cd /opt/sentinela/deploy && sudo docker compose pull -q go2rtc && sudo SENTINELA_VERSION=${VERSION} ${APPS_ENV} docker compose up -d --no-build --remove-orphans && docker image prune -f >/dev/null"
+fi
+if [[ "$GO2RTC_CHANGED" == changed ]]; then
+  echo "==> camera list changed: restart go2rtc (live view only; recording continues)"
+  "${SSH[@]}" 'cd /opt/sentinela/deploy && sudo docker compose restart go2rtc >/dev/null'
 fi
 
 echo "==> health"

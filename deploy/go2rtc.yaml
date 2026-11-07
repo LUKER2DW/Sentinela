@@ -1,6 +1,4 @@
-# go2rtc config. Camera address and credentials come from env
-# (/etc/sentinela/secrets.env; ${VAR} is expanded by go2rtc).
-# The camera firmware reads user/password literally from the RTSP path.
+# go2rtc base config (ports and WebRTC). Cameras: see the end of this file.
 api:
   listen: "127.0.0.1:1984"      # loopback only; sentinela proxies with tickets
   origin: ""                   # no CORS
@@ -21,19 +19,7 @@ webrtc:
 log:
   level: info
 
-# Keep the main stream connected so the live view opens without waiting for
-# the camera's RTSP handshake (only the ≤2 s keyframe wait is left). Costs one
-# of the camera's 3 RTSP sessions all the time: recorder + this + the SD
-# stream while someone watches it. Nothing else may pull RTSP (docs/CAMERA.md).
-preload:
-  cam1: "video&audio"
-
-streams:
-  # Main: H.265 2560x1440 + PCMA. The dvrip source only connects when a
-  # viewer talks (backchannel=1): two-way audio through the camera speaker.
-  cam1:
-    - rtsp://${CAM1_HOST}:554/user=${CAM1_USER}&password=${CAM1_PASS}&channel=1&stream=0.sdp?real_stream
-    - dvrip://${CAM1_USER}:${CAM1_PASS}@${CAM1_HOST}:34567?channel=0&subtype=0&backchannel=1
-  # Sub: H.265 800x448 for grids and phones on mobile data.
-  cam1_sub:
-    - rtsp://${CAM1_HOST}:554/user=${CAM1_USER}&password=${CAM1_PASS}&channel=1&stream=1.sdp?real_stream
+# Cameras are not listed here: `sentinela go2rtc-config` generates their
+# streams from /etc/sentinela/config.yaml into /etc/sentinela/go2rtc-cameras.yaml
+# (deploy.sh, install-server.sh and add-camera.sh run it), and go2rtc merges
+# both files. Credentials stay ${VAR} placeholders expanded from secrets.env.
