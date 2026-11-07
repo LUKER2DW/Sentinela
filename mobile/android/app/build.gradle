@@ -1,17 +1,26 @@
 apply plugin: 'com.android.application'
 
-// Public address and TLS pin are durable local build settings, alongside the
-// signing key. Environment variables override them for a different server.
+// One APK serves any house: the person picks the server on the start
+// screen or with the house's pairing QR (Minha conta -> Aplicativo), which also carries
+// the certificate pin. A build may still carry a default server and pin
+// (~/.sentinela-android/connection.json or SENTINELA_DOMAIN_URL /
+// SENTINELA_PUBLIC_CERT_SHA256), e.g. for the household's own phones.
+// SENTINELA_GENERIC_APK=1 ignores both, for an APK anyone can download.
+def generic = System.getenv("SENTINELA_GENERIC_APK") == "1"
 def privateDir = new File(System.getenv("SENTINELA_KEYSTORE_DIR") ?: new File(System.getProperty("user.home"), ".sentinela-android").path)
 def connectionFile = new File(System.getenv("SENTINELA_CONNECTION_JSON") ?: new File(privateDir, "connection.json").path)
-def connection = connectionFile.exists() ? new groovy.json.JsonSlurper().parse(connectionFile) : [:]
-def addressEnv = System.getenv("SENTINELA_DOMAIN_URL")
-def pinEnv = System.getenv("SENTINELA_PUBLIC_CERT_SHA256")
+def connection = !generic && connectionFile.exists() ? new groovy.json.JsonSlurper().parse(connectionFile) : [:]
+def addressEnv = generic ? null : System.getenv("SENTINELA_DOMAIN_URL")
+def pinEnv = generic ? null : System.getenv("SENTINELA_PUBLIC_CERT_SHA256")
 def serverAddress = (addressEnv != null ? addressEnv : connection.domain_url ?: "").toString()
 def certificatePin = (pinEnv != null ? pinEnv : connection.public_cert_sha256 ?: "").toString().toLowerCase(Locale.ROOT)
 
 tasks.register('validateReleaseConnection') {
     doLast {
+        if (serverAddress.isEmpty()) {
+            if (!certificatePin.isEmpty()) throw new GradleException("A certificate pin needs its server address (SENTINELA_DOMAIN_URL / domain_url)")
+            return // generic APK: the server is chosen on the phone
+        }
         URI address
         try {
             address = new URI(serverAddress)
@@ -19,10 +28,10 @@ tasks.register('validateReleaseConnection') {
             throw new GradleException("Invalid SENTINELA_DOMAIN_URL / connection.json domain_url")
         }
         if (address.scheme != "https" || !address.host || address.rawUserInfo != null || address.rawQuery != null || address.rawFragment != null || !(address.path in ["", "/"])) {
-            throw new GradleException("Release APK needs an HTTPS server origin in ~/.sentinela-android/connection.json or SENTINELA_DOMAIN_URL")
+            throw new GradleException("The default server must be an HTTPS origin (https://host[:port])")
         }
-        if (!(certificatePin ==~ /[0-9a-f]{64}/)) {
-            throw new GradleException("Release APK needs the server certificate SHA-256: set public_cert_sha256 in ~/.sentinela-android/connection.json or SENTINELA_PUBLIC_CERT_SHA256 (64 hex characters)")
+        if (!certificatePin.isEmpty() && !(certificatePin ==~ /[0-9a-f]{64}/)) {
+            throw new GradleException("The certificate pin must be the SHA-256 in 64 hex characters")
         }
     }
 }
@@ -37,15 +46,14 @@ android {
         applicationId "casa.sentinela.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 17
-        versionName "1.16"
+        versionCode 18
+        versionName "1.17"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
-        // The house's public address shown on the start screen (ADR-0019);
-        // from connection.json or the environment, never stored in git.
+        // Optional default server for the start screen (ADR-0019); from
+        // connection.json or the environment, never stored in git.
         buildConfigField "String", "DOMAIN_URL", groovy.json.JsonOutput.toJson(serverAddress)
-        // SHA-256 of the public address's self-signed certificate (hex), the
-        // only untrusted certificate the app accepts (Pin.java). Printed by
-        // `sudo /opt/sentinela/scripts/setup-public.sh status` on the server.
+        // Optional pin of that default server's self-signed certificate
+        // (SHA-256 hex, Pin.java). Pairing codes carry their own pin.
         buildConfigField "String", "PUBLIC_CERT_SHA256", groovy.json.JsonOutput.toJson(certificatePin)
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -119,4 +127,9 @@ dependencies {
 }
 
 apply from: 'capacitor.build.gradle'
-apply plugin: 'com.google.gms.google-services'
+// Firebase (ADR-0020) only when the build has a google-services.json
+// (scripts/stage-firebase.mjs copies it from outside Git); otherwise the app
+// keeps its direct notification connection.
+if (file('google-services.json').exists()) {
+    apply plugin: 'com.google.gms.google-services'
+}

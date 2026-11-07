@@ -101,12 +101,14 @@ scripts/              operator scripts (audit, backup)
 4. Update docs **only when behaviour changes**. Do not create reports,
    status logs, or per-task markdown files. The plan is updated in place.
 5. Commit messages: Conventional Commits (`feat(dvrip): …`).
-6. Android release configuration lives outside Git in
-   `~/.sentinela-android/connection.json` (HTTPS origin and exact certificate
-   SHA-256), with explicit environment overrides. Release builds must reject
-   missing pins. Verify the packaged pin against the served certificate,
-   sign with the existing keystore, then publish the APK. An APK-only change
-   does not require restarting the NVR stack. Never bypass TLS validation.
+6. One APK serves every house: the server and its certificate pin come
+   from the house's pairing code (`sentinela://pair?url=…&pin=…`, Minha
+   conta → Aplicativo), confirmed by the person before the app switches.
+   A household build may carry a default server in
+   `~/.sentinela-android/connection.json` (outside Git); a pin always comes
+   with its address. `SENTINELA_GENERIC_APK=1` builds the APK for anyone.
+   Sign with the existing keystore, then publish. An APK-only change does
+   not require restarting the NVR stack. Never bypass TLS validation.
 
 ## 6. Coding conventions
 

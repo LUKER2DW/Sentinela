@@ -81,6 +81,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(UpdatePlugin.class);
         registerPlugin(CredentialsPlugin.class);
         Connection.migrate(this);
+        Pin.init(this);
         // This launch's server (or the bundled start screen), before the bridge loads.
         config = Connection.capConfig(this);
         super.onCreate(savedInstanceState);
@@ -105,7 +106,7 @@ public class MainActivity extends BridgeActivity {
         // Also after the process was killed in the background (the time is
         // kept on disk): a cold start past the limit asks too.
         lockPending = savedInstanceState == null ? lockDue() : savedInstanceState.getBoolean("locked", false) || lockDue();
-        openFromNotification(getIntent());
+        if (!pairFromLink(getIntent())) openFromNotification(getIntent());
     }
 
     @Override
@@ -126,7 +127,46 @@ public class MainActivity extends BridgeActivity {
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
+        if (pairFromLink(intent)) return;
         openFromNotification(intent);
+    }
+
+    /**
+     * Pairing link from the house (Minha conta -> Aplicativo, usually a QR code read by
+     * the phone's camera): {@code sentinela://pair?url=https://host:port&pin=<sha256>}.
+     * Any page could open such a link, so the app only switches servers
+     * after the person confirms the address shown. Returns true when the
+     * intent was a pairing link.
+     */
+    private boolean pairFromLink(Intent intent) {
+        if (intent == null || !Intent.ACTION_VIEW.equals(intent.getAction()) || intent.getData() == null) return false;
+        android.net.Uri data = intent.getData();
+        if (!"sentinela".equals(data.getScheme()) || !"pair".equals(data.getHost())) return false;
+        intent.setData(null);
+        final String url = data.getQueryParameter("url");
+        final String pin = data.getQueryParameter("pin");
+        if (url == null || !Connection.URL.matcher(url).matches()) {
+            android.widget.Toast.makeText(this, "Link de pareamento inválido.", android.widget.Toast.LENGTH_LONG).show();
+            return true;
+        }
+        String host = android.net.Uri.parse(url).getHost();
+        String msg = "O app vai se conectar a " + url.replaceAll("/+$", "")
+                + (pin == null || pin.isEmpty() ? "." : ", com o certificado desta casa.")
+                + "\n\nSó confirme se este código veio de Minha conta → Aplicativo, no Sentinela da sua casa.";
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("Conectar a " + host + "?")
+                .setMessage(msg)
+                .setNegativeButton("Cancelar", null)
+                .setPositiveButton("Conectar", (d, w) -> {
+                    String err = Connection.save(this, url, pin);
+                    if (err != null) {
+                        android.widget.Toast.makeText(this, err, android.widget.Toast.LENGTH_LONG).show();
+                    } else {
+                        recreate();
+                    }
+                })
+                .show();
+        return true;
     }
 
     /**

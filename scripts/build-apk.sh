@@ -2,12 +2,16 @@
 # Build the signed Sentinela Android APK (ADR-0011) on the dev PC.
 #
 #   ./scripts/build-apk.sh                       # -> mobile/build/sentinela.apk
-#   SENTINELA_DOMAIN_URL=https://<public-ip>:<port>   # start screen default (not in git)
-#   SENTINELA_PUBLIC_CERT_SHA256=<hex>   # self-signed public certificate the app pins (setup-public.sh status)
-#   Or save domain_url and public_cert_sha256 once in
-#   ~/.sentinela-android/connection.json (also used by Android Studio).
-#   ~/.sentinela-android/google-services.json must match casa.sentinela.app
-#   (or set SENTINELA_GOOGLE_SERVICES_JSON to the file's absolute path).
+#   SENTINELA_GENERIC_APK=1 ./scripts/build-apk.sh   # no default server: for anyone
+#
+# The app is paired with a house by its QR/pairing code (Minha conta ->
+# Aplicativo). Optional household default (start screen address and the
+# self-signed certificate it pins): SENTINELA_DOMAIN_URL and
+# SENTINELA_PUBLIC_CERT_SHA256, or domain_url / public_cert_sha256 in
+# ~/.sentinela-android/connection.json (also used by Android Studio).
+#   Optional: ~/.sentinela-android/google-services.json (your Firebase project,
+#   client casa.sentinela.app) or SENTINELA_GOOGLE_SERVICES_JSON; without it
+#   the APK has no Firebase and notifications use the direct connection.
 #
 # Needs JDK 21 and the Android SDK (defaults: the per-user installs under
 # %LOCALAPPDATA% on Windows; set JAVA_HOME / ANDROID_HOME elsewhere).
@@ -47,7 +51,11 @@ if [[ ! -f "$KS" ]]; then
   echo "==> new signing key in $KS_DIR: back it up (needed for every future update)"
 fi
 
-echo "==> web wrapper (start screen, address ${SENTINELA_DOMAIN_URL:-from connection.json})"
+if [[ "${SENTINELA_GENERIC_APK:-}" == 1 ]]; then
+  echo "==> web wrapper (generic: no default server)"
+else
+  echo "==> web wrapper (start screen default: ${SENTINELA_DOMAIN_URL:-from connection.json, if any})"
+fi
 npm ci --no-audit --no-fund --silent
 npm run sync --silent >/dev/null
 

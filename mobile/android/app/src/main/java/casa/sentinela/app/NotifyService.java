@@ -122,6 +122,7 @@ public class NotifyService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
+        Pin.init(this);
         Notifier.createChannels(this);
     }
 

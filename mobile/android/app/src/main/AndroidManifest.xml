@@ -34,6 +34,14 @@
                 <data android:scheme="sentinela" android:host="open" />
             </intent-filter>
 
+            <!-- Pairing link (QR code on the house's Sistema -> App page). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="sentinela" android:host="pair" />
+            </intent-filter>
+
         </activity>
 
         <!-- Fallback when Firebase or Google Play services is unavailable. -->

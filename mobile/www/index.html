@@ -64,7 +64,7 @@
       <header class="rise">
         <div class="scene hero"></div>
         <h1 id="title">Onde fica a casa?</h1>
-        <p class="lede" id="lede">Digite o endereço público do Sentinela. Dá para trocar depois na tela de login ou em Minha conta.</p>
+        <p class="lede" id="lede">No computador, abra o Sentinela da casa em Minha conta → Aplicativo e aponte a câmera do celular para o QR code. Ou cole aqui o código de pareamento ou o endereço.</p>
       </header>
 
       <!-- The chosen server did not answer (MainActivity sends the app here). -->
@@ -76,12 +76,12 @@
       </section>
 
       <form class="card rise" id="choose" autocomplete="off">
-        <label style="text-align:left">Endereço da casa
-          <input id="u-domain" inputmode="url" autocapitalize="none" spellcheck="false" placeholder="https://IP-da-casa:porta" />
+        <label style="text-align:left">Código de pareamento ou endereço
+          <input id="u-domain" inputmode="url" autocapitalize="none" spellcheck="false" placeholder="sentinela://pair?… ou https://casa:porta" />
         </label>
         <button id="go" type="submit">Conectar</button>
         <p class="err" id="err" role="alert"></p>
-        <p class="note">Funciona no Wi-Fi e no 4G. Quem ativou a verificação em 2 etapas digita o código ao entrar.</p>
+        <p class="note">O código de pareamento traz o endereço e o certificado da casa, então a conexão é verificada mesmo com certificado próprio. Um endereço digitado só funciona com certificado público (domínio ou Tailscale). Dá para trocar depois em Minha conta.</p>
       </form>
 
       <footer class="rise" id="ver"></footer>
@@ -94,6 +94,20 @@
         cap && cap.nativePromise ? cap.nativePromise("SentinelaConnection", method, opts || {}) : Promise.reject(new Error("abra pelo app Android"));
       const $ = (id) => document.getElementById(id);
       const msg = (e) => String((e && (e.message || e.errorMessage)) || e || "falhou").replace(/^Error:\s*/, "");
+
+      // A pairing code is the QR's link: sentinela://pair?url=https://…&pin=<sha256>.
+      function parseCode(text) {
+        if (text.toLowerCase().startsWith("sentinela://pair")) {
+          let q;
+          try {
+            q = new URL(text).searchParams;
+          } catch (e) {
+            throw new Error("Código de pareamento inválido.");
+          }
+          return { url: q.get("url") || "", pin: q.get("pin") || "" };
+        }
+        return { url: text, pin: "" };
+      }
 
       async function load() {
         let s;
@@ -136,7 +150,7 @@
         $("err").textContent = "";
         b.disabled = true;
         try {
-          await call("choose", { url: $("u-domain").value.trim() });
+          await call("choose", parseCode($("u-domain").value.trim()));
         } catch (e) {
           $("err").textContent = msg(e);
         } finally {

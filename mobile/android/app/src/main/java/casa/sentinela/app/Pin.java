@@ -19,17 +19,33 @@ import javax.net.ssl.TrustManagerFactory;
 import javax.net.ssl.X509TrustManager;
 
 /**
- * The home's public address uses a self-signed certificate (the ISP blocks
- * the ports Let's Encrypt needs, ADR-0019 P1). Besides the normal system
- * trust, the app accepts exactly that one certificate — its SHA-256 is
- * built in (SENTINELA_PUBLIC_CERT_SHA256). Any other untrusted certificate
- * still fails, so a man in the middle gets the same error as before.
+ * A house reached by a public address may use a self-signed certificate
+ * (the ISP blocks the ports Let's Encrypt needs, ADR-0019 P1). Besides the
+ * normal system trust, the app accepts exactly that one certificate: its
+ * SHA-256 comes with the server address in the pairing link or code the
+ * house shows (Minha conta -> Aplicativo), and is saved with it (Connection). A build
+ * may also carry a default pair (SENTINELA_DOMAIN_URL / _PUBLIC_CERT_SHA256).
+ * Any other untrusted certificate still fails, so a man in the middle gets
+ * the same error as without a pin.
  */
 final class Pin {
     private Pin() {}
 
+    private static volatile android.content.Context app;
+
+    /** Remembers the app context so every entry point reads the saved pin. */
+    static void init(android.content.Context c) {
+        if (app == null && c != null) app = c.getApplicationContext();
+    }
+
+    /** The pin of the chosen server, "" when it uses a publicly trusted certificate. */
+    static String expected() {
+        android.content.Context c = app;
+        return c == null ? "" : Connection.pin(c);
+    }
+
     static boolean active() {
-        return !BuildConfig.PUBLIC_CERT_SHA256.isEmpty();
+        return !expected().isEmpty();
     }
 
     static String sha256(byte[] der) {
@@ -44,7 +60,8 @@ final class Pin {
     }
 
     static boolean matches(byte[] der) {
-        return active() && der != null && sha256(der).equals(BuildConfig.PUBLIC_CERT_SHA256.toLowerCase(Locale.ROOT));
+        String want = expected();
+        return !want.isEmpty() && der != null && sha256(der).equals(want.toLowerCase(Locale.ROOT));
     }
 
     /** The WebView's view of a certificate (SslError.getCertificate()). */
@@ -66,6 +83,7 @@ final class Pin {
     private static SSLSocketFactory factory;
 
     private static synchronized SSLSocketFactory factory() throws Exception {
+        // matches() reads the current pin on every handshake: one factory serves all.
         if (factory != null) return factory;
         TrustManagerFactory tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
         tmf.init((KeyStore) null);

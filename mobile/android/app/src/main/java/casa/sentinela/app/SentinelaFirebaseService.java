@@ -7,6 +7,7 @@ import com.google.firebase.messaging.RemoteMessage;
 public final class SentinelaFirebaseService extends FirebaseMessagingService {
     @Override
     public void onMessageReceived(RemoteMessage message) {
+        Pin.init(this);
         String id = message.getData().get("id");
         if (id != null) PushMode.deliver(this, id);
     }

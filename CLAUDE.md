@@ -17,8 +17,8 @@
 - Never ask the user to paste the camera password into chat. Scripts read it
   with `read -s` or from `SENTINELA_CAMERA_PASSWORD` in a local `.env`.
 - Prefer editing the plan in place over creating new markdown files.
-- Android build defaults belong in `~/.sentinela-android/connection.json`.
-  Do not depend on a temporary shell session to supply the certificate pin;
-  follow the release validation and publication rules in AGENTS.md/README.md.
+- The APK is generic (pairing codes carry address and pin). A household
+  default server, if wanted, belongs in `~/.sentinela-android/connection.json`;
+  follow the release rules in AGENTS.md.
 - The user writes in Portuguese; code, comments, commits and docs are in
   English.

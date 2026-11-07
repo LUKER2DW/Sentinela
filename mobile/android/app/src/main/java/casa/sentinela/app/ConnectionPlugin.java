@@ -22,6 +22,7 @@ public class ConnectionPlugin extends Plugin {
         JSObject r = new JSObject();
         r.put("mode", Connection.prefs(c).getString("mode", ""));
         r.put("url", Connection.url(c));
+        r.put("pinned", !Connection.pin(c).isEmpty());
         r.put("version", BuildConfig.VERSION_NAME);
         r.put("offline", Connection.offline != null);
         r.put("offlineWhy", Connection.offline == null ? "" : Connection.offline);
@@ -36,19 +37,18 @@ public class ConnectionPlugin extends Plugin {
         restart();
     }
 
-    /** Saves {url} and reloads the app on it. */
+    /**
+     * Saves {url, pin} and reloads the app on it. The pin (certificate
+     * SHA-256) comes from the house's pairing code; without one the server
+     * must have a publicly trusted certificate (a domain, Tailscale HTTPS).
+     */
     @PluginMethod
     public void choose(PluginCall call) {
-        String url = call.getString("url", "");
-        if (url == null || !url.matches("https://[A-Za-z0-9.-]+(:\\d{1,5})?/?")) {
-            call.reject("Use um endereço https:// (só o IP ou o nome e a porta, sem caminho).");
+        String err = Connection.save(getContext(), call.getString("url", ""), call.getString("pin", ""));
+        if (err != null) {
+            call.reject(err);
             return;
         }
-        Connection.offline = null;
-        Connection.prefs(getContext()).edit()
-                .putString("mode", Connection.MODE)
-                .putString("url." + Connection.MODE, url.replaceAll("/+$", ""))
-                .apply();
         call.resolve();
         restart();
     }

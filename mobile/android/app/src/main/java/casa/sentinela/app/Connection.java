@@ -45,6 +45,48 @@ final class Connection {
         return saved.isEmpty() ? BuildConfig.DOMAIN_URL : saved;
     }
 
+    /**
+     * The certificate pin (SHA-256, hex) saved with the address, or the
+     * build's default pin while the address is the build's default; ""
+     * means the server's certificate must be publicly trusted.
+     */
+    static String pin(Context c) {
+        SharedPreferences p = prefs(c);
+        String saved = p.getString("url." + MODE, "").replaceAll("/+$", "");
+        String savedPin = p.getString("pin." + MODE, "");
+        if (!savedPin.isEmpty()) return savedPin;
+        // Installs from before pairing codes saved the address without a
+        // pin: the build's pin still applies to the build's own address.
+        if (saved.isEmpty() || saved.equals(BuildConfig.DOMAIN_URL.replaceAll("/+$", ""))) {
+            return BuildConfig.PUBLIC_CERT_SHA256;
+        }
+        return "";
+    }
+
+    static final java.util.regex.Pattern URL = java.util.regex.Pattern.compile("https://[A-Za-z0-9.-]+(:\\d{1,5})?/?");
+    static final java.util.regex.Pattern PIN = java.util.regex.Pattern.compile("[0-9a-fA-F]{64}");
+
+    /**
+     * Saves a server and its pin ("" = publicly trusted certificate).
+     * Returns an error message, or null when saved.
+     */
+    static String save(Context c, String url, String pin) {
+        if (url == null || !URL.matcher(url).matches()) {
+            return "Use um endereço https:// (só o IP ou o nome e a porta, sem caminho).";
+        }
+        pin = pin == null ? "" : pin.replace(":", "").trim();
+        if (!pin.isEmpty() && !PIN.matcher(pin).matches()) {
+            return "Código do certificado inválido: use o código de pareamento da casa.";
+        }
+        offline = null;
+        prefs(c).edit()
+                .putString("mode", MODE)
+                .putString("url." + MODE, url.replaceAll("/+$", ""))
+                .putString("pin." + MODE, pin.toLowerCase(java.util.Locale.ROOT))
+                .apply();
+        return null;
+    }
+
     /** The server to talk to in the background (notifications), or null. */
     static String savedUrl(Context c) {
         if (!MODE.equals(prefs(c).getString("mode", ""))) return null;

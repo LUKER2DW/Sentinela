@@ -280,37 +280,53 @@ forwards too).
 
 ## 10. Android app
 
-The app is a Capacitor wrapper that loads the server's own UI over pinned
-HTTPS (ADR-0011). On the development PC:
+The app is a Capacitor wrapper that loads the server's own UI over HTTPS
+(ADR-0011). **One APK serves every house**: it does not carry an address.
+The phone needs a way to reach the server from outside (section 8:
+Tailscale or the public address).
 
-1. Create `~/.sentinela-android/connection.json` with the public origin and
-   the certificate fingerprint from section 8.2:
+### Connect a phone
 
-   ```json
-   {
-     "domain_url": "https://203.0.113.7:18443",
-     "public_cert_sha256": "<64 hexadecimal characters>"
-   }
-   ```
+1. Install the APK (from a release, or built as below) and open it.
+2. On a computer, open Sentinela → **Minha conta → Aplicativo**. It shows a
+   QR code for each way the house can be reached (Tailscale,
+   `remote.tailnet_url`; public address, `remote.public`).
+3. Point the phone's camera at the QR code and open the link. The app shows
+   the address and asks before it connects. You can also copy the pairing
+   code and paste it on the app's start screen.
 
-2. Build and sign (the signing key is created on the first run in
-   `~/.sentinela-android/`; **back that folder up**: without it no update
-   can be installed over the existing app):
+The pairing code carries the server's address and, for a self-signed public
+certificate, its SHA-256 fingerprint: the app then trusts exactly that
+certificate and nothing else. An address typed by hand only works with a
+publicly trusted certificate (a domain, or Tailscale HTTPS). Never work
+around a TLS error by disabling certificate checks.
 
-   ```bash
-   ./scripts/build-apk.sh
-   ```
+### Build the APK
 
-3. Publish it for in-app updates and install `mobile/build/sentinela.apk`
-   on the phones once (allow installing from this source when Android asks):
+Needs JDK 21, the Android SDK and Node.js. The signing key is created on the
+first run in `~/.sentinela-android/`; **back that folder up**: without it
+no update can be installed over the existing app.
 
-   ```bash
-   ./scripts/publish-apk.sh "What changed"
-   ```
+```bash
+SENTINELA_GENERIC_APK=1 ./scripts/build-apk.sh   # the APK anyone can use
+./scripts/publish-apk.sh "What changed"          # offer it for in-app updates
+```
 
-Later versions appear in **My account → App** (*Aplicativo*). Only
-changes in `mobile/` need a new APK; UI changes reach the app with a server
-deploy. Never work around a TLS error by disabling certificate checks.
+Optional: a household build can carry a default server, so its phones skip
+pairing. Put it in `~/.sentinela-android/connection.json` (outside Git):
+
+```json
+{
+  "domain_url": "https://203.0.113.7:18443",
+  "public_cert_sha256": "<64 hexadecimal characters, from setup-public.sh status>"
+}
+```
+
+Later versions appear in **Minha conta → Aplicativo**. Only changes in
+`mobile/` need a new APK; UI changes reach the app with a server deploy.
+Android notifications use Firebase only when the APK was built with your
+own Firebase project (ADR-0020); otherwise the app keeps a direct
+connection for notifications.
 
 ---
 
