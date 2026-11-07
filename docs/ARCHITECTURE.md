@@ -102,8 +102,8 @@ request before the direct service is stopped.
 
 ADR-0019 selected the public HTTPS listener as the app/browser path.
 The household's router forwards a public TLS port to `:7443` and permits
-WebRTC on 8555. Public sessions require two-factor login and the closed-door
-policy. Tailscale HTTPS remains the private administrative path; Funnel is
+WebRTC on 8555. Public sessions face the closed-door policy and login
+limits; two-step login is optional per account (ADR-0019 amendment). Tailscale HTTPS remains the private administrative path; Funnel is
 off and the embedded app tailnet was removed.
 
 The household uses `remote.public.self_signed: true`. Its certificate is
@@ -221,23 +221,23 @@ WAL, `busy_timeout=10000`, `synchronous=NORMAL` and foreign keys are enabled.
 Cameras remain in `config.yaml`. The recorder can continue writing files
 when indexing fails; later scans recover the index.
 
-## 6. Disk layout (recorded 2026-09-28)
+## 6. Disk layout
 
-Three disks with separate filesystem roles. Mount points are
-`chattr +i` so a missing data disk cannot silently redirect writes to `/`.
-The recorder also checks for `/data/.sentinela-volume`, a marker that exists
-only on the mounted disk (`recording.volume_marker`); without it recording
-pauses and the System page shows the error instead of filling `/`.
+Each role gets its own filesystem, so recordings can never fill the system
+or the file share. Mount points are `chattr +i` so a missing data disk
+cannot silently redirect writes to `/`. The recorder also checks for
+`/data/.sentinela-volume`, a marker that exists only on the mounted disk
+(`recording.volume_marker`); without it recording pauses and the System
+page shows the error instead of filling `/`.
 
-| Device | Mount | Use | Recorded notes |
-|---|---|---|---|
-| `sda2`, system disk | `/` | OS and Docker | - |
-| `sda3` | `/srv/backup` | Local DB/config backups | -; removed from Nuvem by ADR-0014 |
-| `sdb1`, NAS disk | `/srv/nas` | Nuvem |  |
-| `sdc1`, data disk | `/data` | Rolling video and application state |  |
+| Mount | Use | Required |
+|---|---|---|
+| `/` | OS and Docker | Yes |
+| `/data` | Rolling video and application state (database, keys) | Yes: its own disk |
+| `/srv/nas` | Nuvem (LAN share and web file browser) | Optional, its own disk |
+| `/srv/backup` | Local DB/config backups (ADR-0014) | Optional, recommended; not on the `/data` disk |
 
-The SMART timer snapshots disk state hourly for the System page. This table
-does not claim that the physical risks or backup recovery checks are resolved.
+The SMART timer snapshots disk state hourly for the System page.
 
 ## 7. Deployment and recovery
 

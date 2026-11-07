@@ -7,11 +7,11 @@ version-history API has been deployed. The ext4 Nuvem continues to use its
 recycle bin; do not treat it as an implemented snapshot/restore system.
 
 ## Context
-The Nuvem (`/srv/nas`, disk `sdb`, ext4) has a 30-day recycle bin for
+The Nuvem (`/srv/nas`, its own disk, ext4) has a 30-day recycle bin for
 deletions, but no protection against overwrites or ransomware on a
 Windows PC that maps the share. Btrfs snapshots are cheap, read-only and
 show up in Windows Explorer as "Versões anteriores" through Samba's
-`vfs_shadow_copy2`. Converting means reformatting `sdb`.
+`vfs_shadow_copy2`. Converting means reformatting the Nuvem disk.
 
 ## Plan
 1. Preconditions: restic to the USB disk working **and** a restore drill
@@ -19,7 +19,7 @@ show up in Windows Explorer as "Versões anteriores" through Samba's
    USB disk verified by checksum. Nothing starts without both.
 2. Owner-scheduled window; Samba and the Nuvem API stopped (recording is on
    a different disk and keeps running).
-3. `mkfs.btrfs` on `sdb`, subvolume `@nuvem` mounted at `/srv/nas`
+3. `mkfs.btrfs` on the Nuvem disk, subvolume `@nuvem` mounted at `/srv/nas`
    (`noatime,compress=zstd:1`), copy back, compare checksums, start Samba.
 4. snapper: hourly × 24, daily × 14, weekly × 8; snapshots are read-only.
 5. Samba: `vfs objects = shadow_copy2 recycle`, `shadow:snapdir = .snapshots`,

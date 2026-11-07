@@ -10,7 +10,9 @@ Sentinela v2 is a home NVR for XMEye/Xiongmai cameras. A single Go binary
 recording supervision, retention and the SQLite index. **go2rtc** handles all
 live media (RTSP ingest, WebRTC/MSE out, two-way audio). **ffmpeg** copies
 recorded video; optional audio conversion is ADR-0006. A React + Vite SPA is served by the Go binary.
-Target host: old CPU, 4 GB RAM, a dedicated recordings disk, Ubuntu 22.04.
+Minimum host: x86-64 with 2 cores and no HEVC hardware decode, 4 GB RAM, a
+dedicated recordings disk, Ubuntu 22.04+ or Debian 12+. Every budget below
+holds on that host.
 
 ## 2. Hard constraints (never violate)
 

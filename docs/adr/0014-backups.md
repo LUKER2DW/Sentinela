@@ -4,12 +4,12 @@ Status: Accepted · 2026-09-29
 
 ## Context
 Nothing was backed up: the SQLite index and users live on the worn
-recordings disk (`sdc`), and the Nuvem (`sdb`) has one copy. Recordings are
+recordings disk, and the Nuvem disk has one copy. Recordings are
 rolling and disposable; user files, config and the DB are not.
 
 ## Decision
-- **Local target:** `sda3`, the free tail of the system disk, leaves the
-  Nuvem and is mounted at `/srv/backup` (owner decision D7; it was empty).
+- **Local target:** the free tail of the system disk leaves the
+  Nuvem and is mounted at `/srv/backup`.
   It is a different disk from both the DB and the Nuvem.
 - **DB + config:** a host timer (`sentinela-backup.timer`, nightly) runs
   `sqlite3 <db> "VACUUM INTO …"` (consistent under WAL, the app keeps
@@ -34,7 +34,8 @@ External restic media and a completed restore drill remain operator tasks.
 The available local backup does not imply those acceptance checks passed.
 
 ## Consequences
-+ Losing `sdc` loses at most a day of DB changes; losing `sdb` loses nothing
++ Losing the recordings disk loses at most a day of DB changes; losing the
+  Nuvem disk loses nothing
   that reached the USB disk the night before.
 − restic is a host package and one more timer.
 

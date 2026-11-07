@@ -16,7 +16,7 @@ are superseded where noted by ADR-0019 and ADR-0020.
 | Nuvem loss/ransomware | Recycle bin, audit, local DB/config backup; external restic/restore acceptance still pending |
 | Build pipeline competes with recording | NVR images are built on the PC. Self-hosted services build on the server (ADR-0021): one at a time, ≤ 1 core / 1 GB, refused under 400 MB free RAM, on the system disk |
 | A self-hosted service is compromised | No capabilities, capped resources, no private-range egress (camera, LAN, tailnet) and no host services (ufw); only the `apps` agent holds the Docker socket, behind loopback + token; Compose files are checked before they run |
-| Dashboard admin session abused to run code | Creating or changing services needs admin on LAN/tailnet; public 2FA sessions can only start/stop/redeploy configured ones; every change audited |
+| Dashboard admin session abused to run code | Creating or changing services needs admin on LAN/tailnet; from the internet an admin session (2FA when the account turned it on) can only start/stop/redeploy configured ones; every change audited |
 | Notification third party | Browser payload encryption; Android sends only an opaque id through Firebase and fetches details from home |
 
 ## Rules

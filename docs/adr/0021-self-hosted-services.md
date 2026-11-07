@@ -23,7 +23,7 @@ router's public IP; with deploy, restart, stop, logs, update, resource
 usage and start after reboot. PLAN Phase 8 had parked the idea behind an
 ADR: isolation, caps next to the recorder, and (then) no WAN exposure.
 
-The host is an old CPU with 4 GB RAM that must keep recording
+The host can be the minimum one (4 GB RAM) and must keep recording
 (AGENTS.md §2.2–2.3). The camera is an XMEye device on the same LAN.
 
 ## Decision

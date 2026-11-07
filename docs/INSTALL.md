@@ -20,9 +20,10 @@ the camera firmware is untrusted and the server holds its credentials.
 
 ## 1. What you need
 
-**Server.** Any x86-64 PC that can run Ubuntu Server 22.04 (Debian 12/13
-also works). The reference machine is an an old x86-64 PC with 4–8 GB RAM.
-The server never decodes the main stream, so an old CPU is enough.
+**Server.** Any x86-64 PC that runs Ubuntu Server 22.04+ or Debian 12+.
+Minimum: 2 CPU cores, 4 GB RAM (8 GB if you enable object detection or
+self-hosted services). The server never decodes the main stream, so an
+old CPU without HEVC hardware decode is enough.
 
 **Disks.** Use separate mounts:
 
@@ -32,8 +33,9 @@ The server never decodes the main stream, so an old CPU is enough.
 | `/srv/nas` | Nuvem files (LAN share and web file browser) | Optional |
 | `/srv/backup` | Nightly database/config backups | Optional, recommended |
 
-One camera at ~2 Mbit/s writes about 18–24 GB per day; the default 15-day
-retention needs ~360 GB on `/data`.
+Size `/data` for your cameras: one stream at ~2 Mbit/s writes about
+20 GB per day. By default recordings fill the disk and the oldest are
+overwritten (`max_disk_percent`); `retention_days` caps the age instead.
 
 **Network.** Wired Gigabit for the server and the camera. A DHCP
 reservation (or static address) for both.
@@ -84,7 +86,7 @@ server and, for the app, JDK 21 and the Android SDK.
    each new partition (this **erases** it):
 
    ```bash
-   sudo mkfs.ext4 -L sentinela-data /dev/sdb1
+   sudo mkfs.ext4 -L sentinela-data /dev/sdX1   # your recordings disk
    sudo mkdir -p /data
    echo 'LABEL=sentinela-data /data ext4 defaults,noatime 0 2' | sudo tee -a /etc/fstab
    sudo mount -a && findmnt /data
@@ -343,15 +345,32 @@ cd /opt/sentinela && sudo git pull && sudo SENTINELA_BUILD=1 ./scripts/install-s
 
 ## 12. More cameras
 
-Test the camera first in **System → Add camera** (*Adicionar câmera*,
-admin, desktop), then on the server:
+Any number of cameras, of any brand that serves RTSP. `vendor` picks the
+stream layout:
+
+| `vendor` | Streams | Remote control |
+|---|---|---|
+| `xmeye` (default) | XMEye/Xiongmai URL with credentials in the path | PTZ, presets, tours, light, day/night, two-way audio (DVRIP) |
+| `hikvision` | `/Streaming/Channels/{channel}01` and `…02` | View and record |
+| `dahua` | `/cam/realmonitor?channel={channel}&subtype=0` and `1` | View and record |
+| `generic` | your `rtsp_main` (and optional `rtsp_sub`) path | View and record |
+
+For an XMEye camera, test it first in **System → Add camera** (*Adicionar
+câmera*, admin, desktop). Then, on the server:
 
 ```bash
 sudo /opt/sentinela/scripts/add-camera.sh cam2 192.168.1.21 "Back yard"
+sudo VENDOR=hikvision /opt/sentinela/scripts/add-camera.sh garage 192.168.1.30 "Garage"
+sudo VENDOR=generic RTSP_MAIN=/stream1 RTSP_SUB=/stream2 \
+  /opt/sentinela/scripts/add-camera.sh yard 192.168.1.31 "Yard"
 ```
 
-The password is asked silently. The new config is validated before it
-replaces the old one; recording pauses for a few seconds.
+The password is asked silently and stored only in `secrets.env`. The new
+config is validated before it replaces the old one, go2rtc's stream list is
+regenerated from `config.yaml` (`scripts/gen-go2rtc-cameras.sh`) and
+recording pauses for a few seconds. You can also edit
+`/etc/sentinela/config.yaml` by hand (see `deploy/config.example.yaml`) and
+run `./scripts/deploy.sh`, which regenerates the stream list.
 
 ---
 

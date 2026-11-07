@@ -11,7 +11,7 @@ Camera motion events fire on trees, shadows, rain, headlights and cars on
 the street. The owner wants an alert only when motion is something that
 matters — a person walking in, a vehicle entering, an animal — inside areas
 drawn in Sentinela (the camera's own region editor is poor). The server is
-an old CPU: no AVX, no HEVC hardware decode (AGENTS.md §2.1), so any decode
+may be an old CPU without AVX or HEVC hardware decode (AGENTS.md §2.1), so any decode
 needs a measured budget. The owner's earlier project (Local-Cloud) ran
 YOLO26n at 320 px behind a motion stage with polygon zones and worked well.
 

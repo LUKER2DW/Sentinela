@@ -22,7 +22,7 @@ PCMA → FLAC in-process, because MSE cannot carry PCMA either.
 
 ## Budget
 8 kHz mono AAC is a few hundred kilobits per second of work: well below 1 %
-of one core even on an old CPU. The recorder budget (≤ 3 % CPU per camera)
+of one core even on the minimum host. The recorder budget (≤ 3 % CPU per camera)
 covers it. Re-measure on the server in the Phase 2 72 h run.
 
 ## Alternatives
