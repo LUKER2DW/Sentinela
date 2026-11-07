@@ -83,5 +83,5 @@ stream retained as a fallback.
 + Native notifications need no fixed foreground notice while FCM works.
 - Remote operation needs the chosen server origin to be reachable.
 - Toolchain, signing key and trusted TLS configuration belong to the owner.
-- Real-device acceptance remains in PLAN.md; a successful build is not an
+- Real-device acceptance is tracked separately; a successful build is not an
   end-to-end delivery test.

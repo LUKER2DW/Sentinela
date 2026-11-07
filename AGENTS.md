@@ -92,7 +92,9 @@ scripts/              operator scripts (audit, backup)
 
 ## 5. Workflow
 
-1. Check `docs/PLAN.md` for the current phase. Work only on in-scope items.
+1. Check `docs/PLAN.md` for the current phase when it exists (maintainers
+   keep it in their private notes; public clones do not have it). Work only
+   on in-scope items.
 2. Small, reviewable changes. One concern per commit.
 3. Before finishing: `make check` (= `go vet`, `go test ./...`,
    `staticcheck`, `npm run lint && npm test` in `web/`).

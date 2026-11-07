@@ -4,7 +4,7 @@
 
 ## Claude-specific notes
 
-- Read `AGENTS.md` (imported above) and the current phase in `docs/PLAN.md`
+- Read `AGENTS.md` (imported above) and, when present, the current phase in `docs/PLAN.md`
   before starting any task.
 - Camera facts live in `docs/CAMERA.md`. If a task needs a camera behaviour
   that is not documented there, **stop and ask** — do not guess DVRIP

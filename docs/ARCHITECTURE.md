@@ -256,6 +256,6 @@ copy `/data/fcm`, `/data/acme` or `/data/push`: retain those separately in
 protected recovery storage. Losing the TLS certificate requires a new APK
 pin; losing the Android signing key prevents an in-place app update.
 
-Restore drills use a scratch restore, SQLite integrity check and a restored
-Nuvem-file checksum. External backup and recovery acceptance remain pending
-in PLAN.md.
+`scripts/restore-drill.sh` restores into a scratch folder: SQLite
+integrity and schema checks of the newest local and restic database copies,
+and the config backup validated with the current image (ADR-0014).

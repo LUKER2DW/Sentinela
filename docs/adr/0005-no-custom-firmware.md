@@ -35,4 +35,4 @@ the Sentinela runtime, and the driver's camera-write allow-list is unchanged.
   no camera contact) is done; results in `docs/CAMERA.md` §7. Any further
   analysis stays static until the spare unit is backed up.
 
-See `docs/RESEARCH.md` §4 for the sources.
+Sources: the maintainers' research notes (not part of the public repository).

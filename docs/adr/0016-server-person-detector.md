@@ -3,7 +3,7 @@
 Status: Accepted · 2026-09-29 (owner approved; model choice revised the same day)
 
 Implementation status (2026-09-30): deployed and real person events observed
-in the round-3/5 work recorded in PLAN.md. Measurements below retain their
+in the round-3/5 work recorded in the maintainers' plan. Measurements below retain their
 original dates; they are not a new continuous hardware benchmark.
 
 ## Context
