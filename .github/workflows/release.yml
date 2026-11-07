@@ -36,11 +36,10 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: mobile/package-lock.json
-      - name: Signing key and optional Firebase config (from the environment's secrets)
+      - name: Signing key (from the environment's secrets)
         env:
           KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
           KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          GOOGLE_SERVICES_JSON: ${{ secrets.ANDROID_GOOGLE_SERVICES_JSON }}
         run: |
           [ -n "$KEYSTORE_B64" ] && [ -n "$KEYSTORE_PASSWORD" ] ||
             { echo "::error::Set ANDROID_KEYSTORE_B64 and ANDROID_KEYSTORE_PASSWORD in the release environment (docs/RELEASING.md)"; exit 1; }
@@ -49,10 +48,6 @@ jobs:
           printf '%s' "$KEYSTORE_B64" | base64 -d > "$ks/release.jks"
           printf '%s' "$KEYSTORE_PASSWORD" > "$ks/keystore.pass"
           chmod 600 "$ks/release.jks" "$ks/keystore.pass"
-          if [ -n "$GOOGLE_SERVICES_JSON" ]; then
-            printf '%s' "$GOOGLE_SERVICES_JSON" > "$ks/google-services.json"
-            echo "SENTINELA_GOOGLE_SERVICES_JSON=$ks/google-services.json" >> "$GITHUB_ENV"
-          fi
           echo "SENTINELA_KEYSTORE_DIR=$ks" >> "$GITHUB_ENV"
       - name: Version from the tag
         env:

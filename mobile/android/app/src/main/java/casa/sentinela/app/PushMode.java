@@ -6,6 +6,8 @@ import android.os.Handler;
 import android.os.Looper;
 
 import com.google.android.gms.tasks.Tasks;
+import com.google.firebase.FirebaseApp;
+import com.google.firebase.FirebaseOptions;
 import com.google.firebase.messaging.FirebaseMessaging;
 
 import org.json.JSONObject;
@@ -25,6 +27,50 @@ final class PushMode {
     private static final long RECHECK_AFTER_MS = 6 * 60 * 60_000L;
 
     private PushMode() {}
+
+    /**
+     * Firebase for the paired house's own project. The APK carries no
+     * project: the server hands its public client values (GET
+     * /api/notify/fcm), so every house uses its own Firebase.
+     */
+    private static FirebaseOptions options(JSONObject client) {
+        if (client == null) return null;
+        String project = client.optString("project_id"), app = client.optString("app_id");
+        String key = client.optString("api_key"), sender = client.optString("sender_id");
+        if (project.isEmpty() || app.isEmpty() || key.isEmpty() || sender.isEmpty()) return null;
+        FirebaseOptions.Builder b = new FirebaseOptions.Builder()
+                .setProjectId(project).setApplicationId(app).setApiKey(key).setGcmSenderId(sender);
+        String bucket = client.optString("storage_bucket");
+        if (!bucket.isEmpty()) b.setStorageBucket(bucket);
+        return b.build();
+    }
+
+    /** Starts (or switches) the default Firebase app to these options; false when unusable. */
+    private static synchronized boolean startFirebase(Context c, FirebaseOptions want) {
+        if (want == null) return false;
+        try {
+            for (FirebaseApp a : FirebaseApp.getApps(c)) {
+                if (!FirebaseApp.DEFAULT_APP_NAME.equals(a.getName())) continue;
+                if (a.getOptions().equals(want)) return true;
+                a.delete(); // paired with another house since: its project goes
+            }
+            FirebaseApp.initializeApp(c.getApplicationContext(), want);
+            return true;
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
+
+    /** Process start: Firebase with the house config saved at the last registration. */
+    static void startSavedFirebase(Context c) {
+        String saved = NotifyService.prefs(c).getString("fcm.client", "");
+        if (saved.isEmpty()) return;
+        try {
+            startFirebase(c, options(new JSONObject(saved)));
+        } catch (Exception ignored) {
+            // corrupt preference: the next registration writes it again
+        }
+    }
 
     static boolean isFirebase(Context c) {
         return NotifyService.prefs(c).getBoolean("fcm.enabled", false);
@@ -89,6 +135,9 @@ final class PushMode {
         try {
             JSONObject status = request(server, "/api/notify/fcm", "GET", cookie, null, null);
             if (!status.optBoolean("available", false)) return false;
+            JSONObject client = status.optJSONObject("client");
+            if (!startFirebase(c, options(client))) return false;
+            p.edit().putString("fcm.client", client.toString()).apply();
             FirebaseMessaging firebase = FirebaseMessaging.getInstance();
             firebase.setAutoInitEnabled(true);
             String token = freshToken != null ? freshToken : Tasks.await(firebase.getToken(), 8, TimeUnit.SECONDS);

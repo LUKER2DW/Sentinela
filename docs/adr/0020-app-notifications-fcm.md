@@ -29,10 +29,14 @@ through Google Play services.
   FCM's explicit UNREGISTERED response also removes a token.
 - The runtime service account key lives on the server
   (`<data_dir>/fcm/service-account.json`, 0600, never in git, logs or the
-  API). The app's Firebase client values (`google-services.json`) stay
-  outside the repo (`~/.sentinela-android/`) and are compiled in by
-  `build-apk.sh`. The separately installed `.dev` app uses the direct
-  fallback; the build creates a local debug JSON so Gradle can compile it.
+  API). **Amendment (2026-11-07):** the APK carries no Firebase project.
+  Each house puts its own `google-services.json` (Android client
+  `casa.sentinela.app`, same project as the service account) next to the key
+  (`<data_dir>/fcm/google-services.json`); `GET /api/notify/fcm` hands its
+  public client values to the signed-in app, which starts Firebase with them
+  at run time and saves them for cold starts. One generic APK therefore
+  serves every house with that house's own project. The `.dev` app uses the
+  direct fallback.
 - **Fallback:** without a usable key or Cloud Messaging API on the server,
   or on a phone without Google Play services, the app keeps the round-4
   foreground service. It retries when opened, and switches after successful

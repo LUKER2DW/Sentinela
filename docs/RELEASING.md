@@ -29,8 +29,6 @@ app, so the release job needs the existing key. On the maintainer's machine
 gh api -X PUT repos/LUKER2DW/Sentinela/environments/release
 base64 -w0 ~/.sentinela-android/release.jks | gh secret set ANDROID_KEYSTORE_B64 --env release -R LUKER2DW/Sentinela
 gh secret set ANDROID_KEYSTORE_PASSWORD --env release -R LUKER2DW/Sentinela < ~/.sentinela-android/keystore.pass
-# optional, keeps Firebase notifications for servers with this Firebase project:
-gh secret set ANDROID_GOOGLE_SERVICES_JSON --env release -R LUKER2DW/Sentinela < ~/.sentinela-android/google-services.json
 ```
 
 When the repository is public, protect the environment: Settings →

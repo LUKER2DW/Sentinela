@@ -114,6 +114,15 @@ func New(cfg *config.Config, st *store.Store, web fs.FS, log *slog.Logger) (*Ser
 	} else {
 		s.push.fcm = sender
 	}
+	// The house's own Firebase app (same project as the service account):
+	// the generic APK starts Firebase with it, so no project is built in.
+	if client, err := push.LoadFCMClient(filepath.Join(cfg.DataDir, "fcm", "google-services.json"), "casa.sentinela.app"); err != nil {
+		log.Warn("Firebase notifications unavailable: app config", "err", err)
+	} else if client != nil && s.push.fcm != nil && client.ProjectID != s.push.fcm.ProjectID {
+		log.Warn("Firebase notifications unavailable: google-services.json and the service account are different projects")
+	} else {
+		s.push.fcmClient = client
+	}
 	return s, nil
 }
 

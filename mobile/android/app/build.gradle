@@ -130,9 +130,6 @@ dependencies {
 }
 
 apply from: 'capacitor.build.gradle'
-// Firebase (ADR-0020) only when the build has a google-services.json
-// (scripts/stage-firebase.mjs copies it from outside Git); otherwise the app
-// keeps its direct notification connection.
-if (file('google-services.json').exists()) {
-    apply plugin: 'com.google.gms.google-services'
-}
+// No google-services.json: the APK carries no Firebase project. The app
+// starts Firebase at run time with the paired house's own project, served by
+// that house's server (ADR-0020), so one generic APK serves every house.

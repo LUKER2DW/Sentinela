@@ -126,8 +126,10 @@ func (p NotifyPrefs) Enabled(typ string) bool {
 type notifier struct {
 	sender *push.Sender
 	fcm    *push.FCM
-	mu     sync.Mutex
-	last   map[string]time.Time
+	// fcmClient: the house's Firebase app config handed to the Android app.
+	fcmClient *push.FCMClient
+	mu        sync.Mutex
+	last      map[string]time.Time
 	// streams are the Android app's open notification streams, by user.
 	streams map[chan []byte]int64
 	// An FCM wake-up contains only a random id. The event details remain here

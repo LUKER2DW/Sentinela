@@ -8,9 +8,16 @@ import (
 )
 
 // The app checks availability before choosing Firebase over its existing
-// direct connection. The endpoint reveals no project credentials.
+// direct connection. With it comes the house's Firebase app config (public
+// client values, as in any Firebase app), so one generic APK uses each
+// house's own project. The service account never leaves the server.
 func (s *Server) fcmStatus(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]bool{"available": s.fcmReady(r.Context())})
+	ready := s.fcmReady(r.Context()) && s.push.fcmClient != nil
+	out := map[string]any{"available": ready}
+	if ready {
+		out["client"] = s.push.fcmClient
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) fcmReady(ctx context.Context) bool {
@@ -32,7 +39,7 @@ func validFCMToken(token string) bool {
 }
 
 func (s *Server) registerFCM(w http.ResponseWriter, r *http.Request) {
-	if !s.fcmReady(r.Context()) {
+	if !s.fcmReady(r.Context()) || s.push.fcmClient == nil {
 		writeErr(w, http.StatusServiceUnavailable, "Firebase notifications unavailable")
 		return
 	}

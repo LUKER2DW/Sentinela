@@ -4,8 +4,8 @@
   "version": "1.0.0",
   "description": "Android wrapper of the Sentinela web app (ADR-0011).",
   "scripts": {
-    "sync": "node scripts/stage-firebase.mjs && cap sync android",
-    "studio": "node scripts/stage-firebase.mjs && cap sync android && cap open android"
+    "sync": "cap sync android",
+    "studio": "cap sync android && cap open android"
   },
   "dependencies": {
     "@capacitor/android": "^8.6.0",

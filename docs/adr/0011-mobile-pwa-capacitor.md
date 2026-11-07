@@ -41,7 +41,6 @@ unsupported device by transcoding on the server.
 Keep these outside Git under `~/.sentinela-android/`:
 
 - `release.jks` and `keystore.pass`: Android signing identity.
-- `google-services.json`: Firebase client matching `casa.sentinela.app`.
 - `connection.json`: `domain_url` (HTTPS origin) and
   `public_cert_sha256` (64 hex characters, exact server certificate).
 

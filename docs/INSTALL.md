@@ -259,15 +259,20 @@ forwards too).
 - **Android app** uses Firebase Cloud Messaging as an opaque wake-up
   (ADR-0020). Create a Firebase project, add the Android app
   `casa.sentinela.app`, then:
-  - download `google-services.json` to `~/.sentinela-android/` on the
-    development PC (it goes into the APK, section 10);
-  - create a service-account key and install it on the server (never in
-    Git or the APK):
+  install both files of **your own** project on the server (the released
+  APK has no Firebase project built in; it uses the one your server hands it):
+
+  - `google-services.json` (Project settings → Your apps → Android app);
+  - a service-account key (Project settings → Service accounts; never in Git
+    or the APK).
 
     ```bash
     sudo install -D -m 0600 -o 1000 -g 1000 service-account.json /data/fcm/service-account.json
+    sudo install -D -m 0644 -o 1000 -g 1000 google-services.json /data/fcm/google-services.json
     cd /opt/sentinela/deploy && sudo docker compose restart sentinela
     ```
+
+  The app picks it up the next time it opens.
 
   Without Firebase the app falls back to a direct foreground connection.
 

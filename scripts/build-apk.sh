@@ -4,14 +4,13 @@
 #   ./scripts/build-apk.sh                       # -> mobile/build/sentinela.apk
 #   SENTINELA_GENERIC_APK=1 ./scripts/build-apk.sh   # no default server: for anyone
 #
-# The app is paired with a house by its QR/pairing code (Minha conta ->
-# Aplicativo). Optional household default (start screen address and the
+# The app is paired with a house by its QR/pairing code (System ->
+# App). Optional household default (start screen address and the
 # self-signed certificate it pins): SENTINELA_DOMAIN_URL and
 # SENTINELA_PUBLIC_CERT_SHA256, or domain_url / public_cert_sha256 in
 # ~/.sentinela-android/connection.json (also used by Android Studio).
-#   Optional: ~/.sentinela-android/google-services.json (your Firebase project,
-#   client casa.sentinela.app) or SENTINELA_GOOGLE_SERVICES_JSON; without it
-#   the APK has no Firebase and notifications use the direct connection.
+# Firebase is not built in: each house's server hands the app its own
+# project (data_dir/fcm/google-services.json, ADR-0020).
 #
 # Needs JDK 21 and the Android SDK (defaults: the per-user installs under
 # %LOCALAPPDATA% on Windows; set JAVA_HOME / ANDROID_HOME elsewhere).

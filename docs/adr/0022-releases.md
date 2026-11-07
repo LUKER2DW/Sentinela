@@ -23,7 +23,7 @@ deploys, uses a self-hosted runner or holds secrets for a server.
   attached with an `app.json` (version, size, SHA-256). Android accepts an
   update only when it is signed with the same key, so the key is fixed: it
   lives as secrets of the `release` environment (`ANDROID_KEYSTORE_B64`,
-  `ANDROID_KEYSTORE_PASSWORD`, optional `ANDROID_GOOGLE_SERVICES_JSON`),
+  `ANDROID_KEYSTORE_PASSWORD`; no Firebase project is built in, ADR-0020),
   which only this job can read; pull requests and forks never see them.
   Once public, the environment requires the maintainer's approval and only
   runs for `v*` tags.
