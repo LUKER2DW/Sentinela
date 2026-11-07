@@ -5,7 +5,7 @@ creep" non-goal in PLAN §1.2)
 
 Current amendments: ADR-0014 moves `sda3` from Nuvem Extra to `/srv/backup`;
 ADR-0012 adds the web/mobile file API. Samba still uses its own LAN account
-(`ana` in the supplied configuration); web user/role restrictions do not
+(the installing user); web user/role restrictions do not
 automatically apply to that SMB login. The original decision below is the
 historical setup, with those later changes taking precedence.
 
@@ -26,7 +26,7 @@ added a lot of code and failure modes.
   iOS, Android). One name everywhere: hostname `sentinela`, NetBIOS
   `SENTINELA`. No web file manager.
 - Shares: `Nuvem` (read-write, `/srv/nas`) and `Gravacoes` (read-only,
-  `/data/recordings`). Only the `ana` account, LAN interface only,
+  `/data/recordings`). Only the installing user's account, LAN interface only,
   firewall limited to 192.168.1.0/24.
 - For speed on the old CPU, SMB signing/encryption are negotiated, not forced
   (LAN only; Tailscale adds its own encryption for remote use later).

@@ -11,9 +11,9 @@
 # offered. The app also checks the SHA-256 before installing.
 set -euo pipefail
 
-HOST="${SENTINELA_HOST:-ana@192.168.1.10}"
-KEY="${SENTINELA_SSH_KEY:-$HOME/.ssh/id_ed25519_sentinela}"
-SSH=(ssh -i "$KEY" -o BatchMode=yes -o ConnectTimeout=10 "$HOST")
+# shellcheck source=scripts/lib/lan.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/lan.sh"
+deploy_target || exit 1
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 APK=mobile/build/sentinela.apk

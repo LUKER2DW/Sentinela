@@ -10,7 +10,7 @@ deployment; replace the example addresses with your own.
 | `192.168.1.20` | Camera |
 | `192.168.1.0/24` | Home LAN |
 | `203.0.113.7` | Fixed public IP of the house (documentation range) |
-| `ana` | Server login and Samba user |
+| `you` | Your server login and Samba user (example) |
 
 The rules behind every step are in [AGENTS.md](../AGENTS.md),
 [SECURITY.md](SECURITY.md) and the ADRs. Do not skip the security steps:
@@ -77,7 +77,7 @@ server and, for the app, JDK 21 and the Android SDK.
 
    ```bash
    ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519_sentinela
-   ssh-copy-id -i ~/.ssh/id_ed25519_sentinela.pub ana@192.168.1.10
+   ssh-copy-id -i ~/.ssh/id_ed25519_sentinela.pub you@192.168.1.10
    ```
 
 4. Format and mount the data disks. Find them with `lsblk -f`, then, for
@@ -93,9 +93,10 @@ server and, for the app, JDK 21 and the Android SDK.
    Repeat for `/srv/nas` and `/srv/backup` if you have those disks.
    `noatime` avoids a metadata write for every read of a recording.
 
-5. If your LAN is not `192.168.1.0/24`, edit that range in
-   `scripts/firewall.sh`, `scripts/setup-nas.sh`, `deploy/nas/smb.conf` and
-   the chrony line of `scripts/install-server.sh` before installing.
+5. The scripts take the LAN range and interface from the server's default
+   route. If that is not your home LAN (several interfaces), export
+   `SENTINELA_LAN=192.168.1.0/24` and `SENTINELA_LAN_IFACE=eno1` before
+   installing. The Samba account is the user who runs `sudo`.
 
 ---
 
@@ -174,7 +175,7 @@ When `/srv/nas` is mounted, the installer configures Samba with two shares:
 (recordings, read-only). Set the share password once:
 
 ```bash
-sudo smbpasswd -a ana
+sudo smbpasswd -a "$USER"
 ```
 
 Samba accounts are separate from web accounts. The same files are
@@ -313,16 +314,23 @@ deploy. Never work around a TLS error by disabling certificate checks.
 
 ## 11. Updating
 
-From the development PC, with the change committed:
+From the development PC, with the change committed. Tell the scripts
+where the server is once, in a file outside the repository:
 
 ```bash
+mkdir -p ~/.sentinela
+cat > ~/.sentinela/deploy.env <<'EOF'
+SENTINELA_HOST=you@192.168.1.10
+SENTINELA_SSH_KEY=~/.ssh/id_ed25519_sentinela
+EOF
 ./scripts/deploy.sh
 ```
 
 It builds the images locally, sends them over SSH, ships `deploy/` and
 `scripts/` to `/opt/sentinela`, restarts the stack and waits for the health
 check. Recording pauses for a few seconds while the recorder container is
-recreated. Set `SENTINELA_HOST=user@host` for another server. Docker
+recreated. `SENTINELA_HOST=user@host` in the environment overrides the
+file. Docker
 Desktop must be running on the PC.
 
 Without a development PC you can update on the server itself (slower):

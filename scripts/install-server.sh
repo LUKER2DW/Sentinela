@@ -10,6 +10,8 @@
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=scripts/lib/lan.sh
+source "${REPO_DIR}/scripts/lib/lan.sh"
 ETC=/etc/sentinela
 DATA="${SENTINELA_DATA:-/data}"
 
@@ -48,6 +50,10 @@ else
   echo "keeping existing ${ETC}/config.yaml"
 fi
 if [[ ! -f "${ETC}/secrets.env" ]]; then
+  CAM_HOST="$(awk '/^ *host:/{print $2; exit}' "${ETC}/config.yaml")"
+  read -r -p "Camera IP address [${CAM_HOST}]: " ans; CAM_HOST="${ans:-${CAM_HOST}}"
+  [[ "${CAM_HOST}" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || { warn "not an IPv4 address: ${CAM_HOST}"; exit 1; }
+  sed -i "0,/^\( *\)host: .*/s//\1host: ${CAM_HOST}/" "${ETC}/config.yaml"
   read -r -p "Camera username [admin]: " CAM_USER; CAM_USER="${CAM_USER:-admin}"
   while :; do
     read -r -s -p "Camera password (not shown): " CAM_PASS; echo
@@ -56,7 +62,7 @@ if [[ ! -f "${ETC}/secrets.env" ]]; then
     break
   done
   umask 077
-  printf 'CAM1_USER=%s\nCAM1_PASS=%s\n' "${CAM_USER}" "${CAM_PASS}" > "${ETC}/secrets.env"
+  printf 'CAM1_HOST=%s\nCAM1_USER=%s\nCAM1_PASS=%s\n' "${CAM_HOST}" "${CAM_USER}" "${CAM_PASS}" > "${ETC}/secrets.env"
   unset CAM_PASS
   chmod 0600 "${ETC}/secrets.env"; chown root:root "${ETC}/secrets.env"
   echo "created ${ETC}/secrets.env (0600)"
@@ -84,7 +90,7 @@ sysctl -q --system || true
 # (docs/CAMERA.md §4); point its NTP at this server.
 apt-get -o DPkg::Lock::Timeout=600 install -y -qq chrony >/dev/null
 printf '%s
-' '# Serve time to the LAN (camera NTP -> this server).' 'allow 192.168.1.0/24' > /etc/chrony/conf.d/lan.conf
+' '# Serve time to the LAN (camera NTP -> this server).' "allow $(lan_cidr)" > /etc/chrony/conf.d/lan.conf
 systemctl restart chrony
 # Hourly SMART snapshot shown on the System page.
 install -d -m 0755 /var/lib/sentinela
@@ -121,7 +127,7 @@ IP="$(hostname -I | awk '{print $1}')"
 echo
 echo "Sentinela is running."
 echo "  Open        http://${IP}:8080  (first visit creates the admin account)"
-printf '  Nuvem       \\\\%s\\Nuvem  (set its password once: sudo smbpasswd -a ana)\n' "${IP}"
+printf '  Nuvem       \\\\%s\\Nuvem  (set its password once: sudo smbpasswd -a %s)\n' "${IP}" "${SUDO_USER:-<user>}"
 echo "  Logs        cd ${REPO_DIR}/deploy && sudo docker compose logs -f --tail=50"
 echo "  Update      from the dev PC: ./scripts/deploy.sh"
 echo "  Reset pw    cd ${REPO_DIR}/deploy && sudo docker compose exec -T sentinela sentinela user passwd <user>"

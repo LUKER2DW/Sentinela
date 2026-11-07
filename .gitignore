@@ -24,3 +24,5 @@ google-services.json
 detector/.export/
 /.idea/
 dev-config.yaml
+# Local agent/editor state (dev-server paths of this machine)
+.claude/

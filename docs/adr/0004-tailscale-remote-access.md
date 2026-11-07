@@ -27,7 +27,7 @@ goes via DERP relays (higher latency) — measure in Phase 1.
   renews the certificate. The app trusts forwarded headers only from loopback.
 - WebRTC: go2rtc ICE on `100.x.y.z:8555` (TCP+UDP).
 - ACL and host firewall: docs/SECURITY.md rules 8–9.
-- Tailnet `tail0.ts.net` (random name, fine for CT logs); server
+- Tailnet `tail0.ts.net` (random name); server
   tagged `tag:nvr`. Measured from 4G: direct path, live ~0.8 s (CAMERA §5).
 - tailscaled accepts all `tailscale0` traffic ahead of ufw: the ACL is the
   effective filter.

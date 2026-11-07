@@ -2,7 +2,7 @@
 # Deploy from a dev machine to the server over SSH. The only deploy path
 # (ADR-0010): the server never builds or pulls code by itself.
 #
-#   ./scripts/deploy.sh                 # uses ana@192.168.1.10
+#   ./scripts/deploy.sh                 # server from ~/.sentinela/deploy.env
 #   ./scripts/deploy.sh --services      # API/dashboard + apps; recorders keep running
 #   SENTINELA_HOST=user@host ./scripts/deploy.sh
 #
@@ -21,9 +21,9 @@ case "${1:-}" in
 esac
 if (( $# > 1 )); then echo "Usage: $0 [--services]" >&2; exit 2; fi
 
-HOST="${SENTINELA_HOST:-ana@192.168.1.10}"
-KEY="${SENTINELA_SSH_KEY:-$HOME/.ssh/id_ed25519_sentinela}"
-SSH=(ssh -i "$KEY" -o BatchMode=yes -o ConnectTimeout=10 "$HOST")
+# shellcheck source=scripts/lib/lan.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/lan.sh"
+deploy_target || exit 1
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 if (( SERVICES_ONLY )); then
@@ -62,6 +62,17 @@ if (( ! SERVICES_ONLY )); then
 fi
 
 echo "==> restart stack"
+# go2rtc.yaml reads the camera address from CAM1_HOST, so no LAN address
+# lives in the repository. Servers installed before that get it once from
+# the first camera host in config.yaml.
+"${SSH[@]}" 'sudo bash -s' <<'REMOTE'
+f=/etc/sentinela/secrets.env
+grep -q '^CAM1_HOST=' "$f" && exit 0
+h="$(awk '/^ *host:/{print $2; exit}' /etc/sentinela/config.yaml)"
+[[ -n "$h" ]] || { echo "!! no camera host in config.yaml; add CAM1_HOST to $f" >&2; exit 1; }
+printf 'CAM1_HOST=%s\n' "$h" >>"$f"
+echo "added CAM1_HOST=$h to $f"
+REMOTE
 "${SSH[@]}" 'sudo install -d -o 1000 -g 1000 -m 0750 /data/detector /data/apps-agent'
 # go2rtc mounts the extra-cameras file: it must exist (else docker makes a directory).
 "${SSH[@]}" 'sudo test -f /etc/sentinela/go2rtc-cameras.yaml || echo "# cameras added by scripts/add-camera.sh" | sudo install -m 0644 /dev/stdin /etc/sentinela/go2rtc-cameras.yaml'
@@ -79,7 +90,7 @@ echo "==> health"
 for _ in $(seq 1 30); do
   if "${SSH[@]}" 'cd /opt/sentinela/deploy && sudo docker compose exec -T sentinela /usr/local/bin/sentinela healthcheck' >/dev/null 2>&1; then
     "${SSH[@]}" 'cd /opt/sentinela/deploy && sudo docker compose ps --format "table {{.Service}}\t{{.Status}}"'
-    echo "Deployed ${VERSION}: http://${HOST#*@}:8080"
+    echo "Deployed ${VERSION}: http://${SENTINELA_HOST#*@}:8080"
     exit 0
   fi
   sleep 2

@@ -2,10 +2,13 @@
 # Host firewall for the Sentinela server (docs/ARCHITECTURE.md §4). Idempotent.
 # Default deny inbound; LAN and tailnet allowances. Nothing is exposed to the
 # WAN, except the ADR-0019 P1 trial ports while /etc/sentinela/public-access exists.
-#   sudo ./scripts/firewall.sh [LAN_CIDR]
+#   sudo ./scripts/firewall.sh [LAN_CIDR]   (default: the default route's network)
 set -euo pipefail
 [[ $EUID -eq 0 ]] || { echo "run with sudo" >&2; exit 1; }
-LAN="${1:-192.168.1.0/24}"
+# shellcheck source=scripts/lib/lan.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/lan.sh"
+LAN="${1:-$(lan_cidr)}"
+[[ -n "$LAN" ]] || { echo "could not find the LAN range; pass it: $0 192.168.1.0/24" >&2; exit 1; }
 command -v ufw >/dev/null || DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 install -y -qq ufw
 
 ufw --force reset >/dev/null
