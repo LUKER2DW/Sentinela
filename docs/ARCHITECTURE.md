@@ -225,6 +225,9 @@ when indexing fails; later scans recover the index.
 
 Three disks with separate filesystem roles. Mount points are
 `chattr +i` so a missing data disk cannot silently redirect writes to `/`.
+The recorder also checks for `/data/.sentinela-volume`, a marker that exists
+only on the mounted disk (`recording.volume_marker`); without it recording
+pauses and the System page shows the error instead of filling `/`.
 
 | Device | Mount | Use | Recorded notes |
 |---|---|---|---|

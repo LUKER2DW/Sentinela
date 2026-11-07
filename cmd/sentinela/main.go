@@ -280,7 +280,11 @@ func record(ctx context.Context, log *slog.Logger, cfgPath string) error {
 		return err
 	}
 	root := filepath.Join(cfg.DataDir, "recordings")
-	if err := os.MkdirAll(root, 0o750); err != nil {
+	marker := cfg.Recording.VolumeMarkerPath(cfg.DataDir)
+	if _, err := os.Stat(marker); marker != "" && err != nil {
+		// Recorders wait for the disk; nothing is created on the system disk.
+		log.Error("recording disk not mounted: volume marker missing", "marker", marker)
+	} else if err := os.MkdirAll(root, 0o750); err != nil {
 		return err
 	}
 	// Recording must not depend on the database (ADR-0007): if it cannot be
@@ -299,6 +303,7 @@ func record(ctx context.Context, log *slog.Logger, cfgPath string) error {
 			continue
 		}
 		r := recording.NewRecorder(cam, cfg.Recording, root, st, log)
+		r.Marker = marker
 		recorders = append(recorders, r)
 		wg.Add(1)
 		go func() { defer wg.Done(); r.Run(ctx) }()

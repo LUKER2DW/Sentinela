@@ -58,12 +58,15 @@ func Args(cam *config.Camera, rec config.Recording, camDir string) []string {
 
 // Recorder supervises the ffmpeg process of one camera.
 type Recorder struct {
-	Cam     *config.Camera
-	Rec     config.Recording
-	Dir     string // recordings/<camera>
-	Store   *store.Store
-	Log     *slog.Logger
-	FFmpeg  string
+	Cam    *config.Camera
+	Rec    config.Recording
+	Dir    string // recordings/<camera>
+	Store  *store.Store
+	Log    *slog.Logger
+	FFmpeg string
+	// Marker, when set, must exist before anything is written: it lives
+	// only on the recording disk (config.Recording.VolumeMarker).
+	Marker  string
 	now     func() time.Time
 	mu      sync.Mutex
 	status  store.RecorderStatus
@@ -129,11 +132,28 @@ func (r *Recorder) ensureDirs() error {
 	return nil
 }
 
+// ErrNoVolume: the recording disk's marker file is missing.
+var ErrNoVolume = errors.New("recording disk not mounted (volume marker missing); not writing to the system disk")
+
+// volumeReady checks the marker of the recording disk (fail closed).
+func (r *Recorder) volumeReady() error {
+	if r.Marker == "" {
+		return nil
+	}
+	if _, err := os.Stat(r.Marker); err != nil {
+		return fmt.Errorf("%w: %s", ErrNoVolume, r.Marker)
+	}
+	return nil
+}
+
 // Run keeps ffmpeg running until ctx is cancelled.
 func (r *Recorder) Run(ctx context.Context) {
 	backoff := time.Second
 	for ctx.Err() == nil {
-		if err := r.ensureDirs(); err != nil {
+		if err := r.volumeReady(); err != nil {
+			r.fail(err)
+			backoff = 30 * time.Second
+		} else if err := r.ensureDirs(); err != nil {
 			r.fail(fmt.Errorf("create dirs: %w", err))
 		} else {
 			started := r.now()

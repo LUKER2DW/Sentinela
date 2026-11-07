@@ -2,6 +2,7 @@ package recording
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"os"
@@ -345,5 +346,22 @@ func TestDiskPressureHysteresis(t *testing.T) {
 	pcts = []float64{89}
 	if n, err := ret.Enforce(ctx); err != nil || n != 0 {
 		t.Fatalf("a pass under the limit deleted %d err=%v", n, err)
+	}
+}
+
+func TestVolumeReadyNeedsMarker(t *testing.T) {
+	dir := t.TempDir()
+	r := &Recorder{Marker: filepath.Join(dir, ".sentinela-volume")}
+	if err := r.volumeReady(); !errors.Is(err, ErrNoVolume) {
+		t.Fatalf("missing marker: %v", err)
+	}
+	if err := os.WriteFile(r.Marker, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.volumeReady(); err != nil {
+		t.Fatalf("marker present: %v", err)
+	}
+	if err := (&Recorder{}).volumeReady(); err != nil {
+		t.Fatalf("check off: %v", err)
 	}
 }

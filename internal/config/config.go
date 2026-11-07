@@ -9,6 +9,7 @@ import (
 	"net/netip"
 	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -156,6 +157,22 @@ type Recording struct {
 	// (tiered retention, PLAN Phase 9 Wave 2).
 	AlertRetentionDays int `yaml:"alert_retention_days"`
 	StallSeconds       int `yaml:"stall_seconds"`
+	// VolumeMarker is a file, relative to data_dir, that exists only on the
+	// dedicated recording disk (scripts/install-server.sh creates it). While
+	// it is missing (the disk did not mount) nothing is recorded, so the
+	// system disk never fills up. "none" turns the check off (dev machines).
+	VolumeMarker string `yaml:"volume_marker"`
+}
+
+// DefaultVolumeMarker is the marker file name on the recording disk.
+const DefaultVolumeMarker = ".sentinela-volume"
+
+// VolumeMarkerPath is the marker to check under dataDir, "" when off.
+func (r Recording) VolumeMarkerPath(dataDir string) string {
+	if r.VolumeMarker == "" || r.VolumeMarker == "none" {
+		return ""
+	}
+	return filepath.Join(dataDir, filepath.FromSlash(r.VolumeMarker))
 }
 
 // Camera is one XMEye camera. Password is never read from YAML.
@@ -294,6 +311,7 @@ func (c *Config) applyDefaults() {
 	// MaxDiskPercent, then overwrite the oldest (owner decision, 2026-11-06).
 	defInt(&c.Recording.MaxDiskPercent, 95)
 	defInt(&c.Recording.StallSeconds, 20)
+	def(&c.Recording.VolumeMarker, DefaultVolumeMarker)
 	for i := range c.Cameras {
 		cam := &c.Cameras[i]
 		def(&cam.Name, cam.ID)
@@ -314,6 +332,9 @@ func (c *Config) validate() error {
 	}
 	if c.Recording.MaxDiskPercent < 50 || c.Recording.MaxDiskPercent > 98 {
 		errs = append(errs, errors.New("recording.max_disk_percent must be 50..98"))
+	}
+	if m := c.Recording.VolumeMarker; m != "none" && (filepath.IsAbs(m) || !filepath.IsLocal(filepath.FromSlash(m))) {
+		errs = append(errs, errors.New(`recording.volume_marker must be a file inside data_dir, or "none"`))
 	}
 	if c.Recording.DefaultRetentionDays < 0 || c.Recording.AlertRetentionDays < 0 {
 		errs = append(errs, errors.New("recording retention days must be 0 (until the disk is full) or more"))

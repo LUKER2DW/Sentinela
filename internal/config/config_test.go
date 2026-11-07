@@ -1,6 +1,7 @@
 package config
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -42,5 +43,20 @@ func TestValidate(t *testing.T) {
 	_, err := Parse([]byte(`cameras: [{id: c, host: 10.0.0.2, user_env: U, password_env: P}]`), env(map[string]string{"U": "admin", "P": "a&b"}))
 	if err == nil || !strings.Contains(err.Error(), "must not contain") {
 		t.Errorf("'&' in password: err=%v", err)
+	}
+}
+
+func TestVolumeMarker(t *testing.T) {
+	if p := (Recording{VolumeMarker: DefaultVolumeMarker}).VolumeMarkerPath("/data"); p != filepath.Join("/data", DefaultVolumeMarker) {
+		t.Fatalf("default marker = %q", p)
+	}
+	if p := (Recording{VolumeMarker: "none"}).VolumeMarkerPath("/data"); p != "" {
+		t.Fatalf("none = %q", p)
+	}
+	for _, m := range []string{"/etc/passwd", "../x"} {
+		c := Config{Recording: Recording{SegmentSeconds: 300, MaxDiskPercent: 95, VolumeMarker: m}, Timezone: "UTC"}
+		if err := c.validate(); err == nil || !strings.Contains(err.Error(), "volume_marker") {
+			t.Errorf("%s: %v", m, err)
+		}
 	}
 }

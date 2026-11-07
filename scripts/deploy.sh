@@ -73,6 +73,16 @@ h="$(awk '/^ *host:/{print $2; exit}' /etc/sentinela/config.yaml)"
 printf 'CAM1_HOST=%s\n' "$h" >>"$f"
 echo "added CAM1_HOST=$h to $f"
 REMOTE
+# The recorder writes only while /data holds its marker (volume_marker).
+"${SSH[@]}" 'sudo bash -s' <<'REMOTE'
+m=/data/.sentinela-volume
+[[ -e "$m" ]] && exit 0
+if mountpoint -q /data; then
+  touch "$m" && echo "created $m"
+else
+  echo "!! /data is not a mount point: recording stays paused until the disk is mounted" >&2
+fi
+REMOTE
 "${SSH[@]}" 'sudo install -d -o 1000 -g 1000 -m 0750 /data/detector /data/apps-agent'
 # go2rtc mounts the extra-cameras file: it must exist (else docker makes a directory).
 "${SSH[@]}" 'sudo test -f /etc/sentinela/go2rtc-cameras.yaml || echo "# cameras added by scripts/add-camera.sh" | sudo install -m 0644 /dev/stdin /etc/sentinela/go2rtc-cameras.yaml'

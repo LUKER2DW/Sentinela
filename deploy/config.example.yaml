@@ -13,6 +13,7 @@ recording:
   default_retention_days: 0         # 0 = no age limit: fill the disk, then overwrite the oldest (owner, 2026-11-06)
   alert_retention_days: 0           # > 0: segments overlapping an Alert (line, area, person, tamper) are kept this long
   stall_seconds: 20                 # restart ffmpeg if no data for this long
+  volume_marker: .sentinela-volume  # record only while this file (on the recording disk) exists; "none" = off
 
 # Shown on the System and Nuvem pages. Paths are as seen inside the container.
 nas_host: SENTINELA

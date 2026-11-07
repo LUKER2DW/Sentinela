@@ -78,6 +78,10 @@ if ! mountpoint -q "${DATA}"; then
   warn "Mount the recordings disk at ${DATA} first (docs/ARCHITECTURE.md §6), or set SENTINELA_ALLOW_ROOT_DATA=1."
   [[ "${SENTINELA_ALLOW_ROOT_DATA:-0}" == 1 ]] || exit 1
 fi
+# The recorder writes only while this marker exists: if the disk ever fails
+# to mount, the empty mount point has no marker and recording pauses
+# instead of filling the system disk (recording.volume_marker).
+touch "${DATA}/.sentinela-volume"
 install -d -m 0750 -o 1000 -g 1000 "${DATA}/recordings" "${DATA}/db" "${DATA}/backup" "${DATA}/detector"
 chown 1000:1000 "${DATA}"   # top level only: never walk every recording
 df -h "${DATA}" | tail -1
