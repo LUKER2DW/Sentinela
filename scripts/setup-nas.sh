@@ -11,6 +11,11 @@ source "${REPO_DIR}/scripts/lib/lan.sh"
 NAS_USER="${SENTINELA_NAS_USER:-${SUDO_USER:-}}"
 [[ -n "$NAS_USER" && "$NAS_USER" != root ]] || { echo "run with sudo from your account, or set SENTINELA_NAS_USER" >&2; exit 1; }
 id "$NAS_USER" >/dev/null 2>&1 || { echo "no such user: $NAS_USER" >&2; exit 1; }
+# One name everywhere: hostname, NetBIOS, WS-Discovery and mDNS
+# (SENTINELA_HOSTNAME, default "sentinela"; NetBIOS takes up to 15 characters).
+NAME="${SENTINELA_HOSTNAME:-sentinela}"
+[[ "$NAME" =~ ^[a-z0-9][a-z0-9-]{0,14}$ ]] || { echo "SENTINELA_HOSTNAME: 1-15 lowercase letters, digits or -" >&2; exit 1; }
+NETBIOS="${NAME^^}"
 IFACE="$(lan_iface)"
 LAN="$(lan_cidr)"
 [[ -n "$IFACE" && -n "$LAN" ]] || { echo "could not find the LAN; set SENTINELA_LAN_IFACE and SENTINELA_LAN" >&2; exit 1; }
@@ -21,22 +26,22 @@ done
 
 DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 install -y -qq samba wsdd avahi-daemon >/dev/null
 
-sed -e "s|@NAS_USER@|${NAS_USER}|g" -e "s|@LAN_IFACE@|${IFACE}|g" -e "s|@LAN@|${LAN}|g"   "${REPO_DIR}/deploy/nas/smb.conf" > /etc/samba/smb.conf
+sed -e "s|@NAS_USER@|${NAS_USER}|g" -e "s|@NETBIOS@|${NETBIOS}|g" -e "s|@LAN_IFACE@|${IFACE}|g" -e "s|@LAN@|${LAN}|g" \
+  "${REPO_DIR}/deploy/nas/smb.conf" > /etc/samba/smb.conf
 chmod 0644 /etc/samba/smb.conf
 rm -rf /etc/samba/smb.conf.d
 testparm -s /etc/samba/smb.conf >/dev/null
 
-# wsdd: makes \SENTINELA appear under "Network" on Windows 10/11.
+# wsdd: makes \NAME appear under "Network" on Windows 10/11.
 if [[ -f /etc/default/wsdd ]]; then
-  sed -i "s/^WSDD_PARAMS=.*/WSDD_PARAMS=\"-i ${IFACE} -n SENTINELA\"/" /etc/default/wsdd
+  sed -i "s/^WSDD_PARAMS=.*/WSDD_PARAMS=\"-i ${IFACE} -n ${NETBIOS}\"/" /etc/default/wsdd
 fi
 
-# One name everywhere: hostname, NetBIOS (smb.conf), WS-Discovery and mDNS.
-if [[ "$(hostname)" != "sentinela" ]]; then
+if [[ "$(hostname)" != "$NAME" ]]; then
   old="$(hostname)"
-  hostnamectl set-hostname sentinela
-  sed -i "s/${old}/sentinela/g" /etc/hosts
-  grep -q "sentinela" /etc/hosts || echo "127.0.1.1 sentinela" >> /etc/hosts
+  hostnamectl set-hostname "$NAME"
+  sed -i "s/\b${old}\b/${NAME}/g" /etc/hosts
+  grep -qw "$NAME" /etc/hosts || echo "127.0.1.1 ${NAME}" >> /etc/hosts
 fi
 install -m 0644 "${REPO_DIR}/deploy/nas/avahi-smb.service" /etc/avahi/services/smb.service
 rm -f /etc/avahi/services/sentinela*.service
