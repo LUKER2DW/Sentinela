@@ -1,0 +1,2 @@
+# False positives (gitleaks fingerprints: path:rule:line). x509 KeyType enum, not a key.
+internal/publiccert/ipcert.go:generic-api-key:222
