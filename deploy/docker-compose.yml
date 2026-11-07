@@ -1,4 +1,4 @@
-# Sentinela v2 stack: go2rtc (live), recorder (sentinela record), API/UI
+# Sentinela stack: go2rtc (live), recorder (sentinela record), API/UI
 # (sentinela serve). Host networking: WebRTC ICE and camera access need no
 # NAT juggling; every listener is bound explicitly (docs/ARCHITECTURE.md §4).
 #

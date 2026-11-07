@@ -1,4 +1,4 @@
-# Installing Sentinela v2
+# Installing Sentinela
 
 A step-by-step guide from a blank PC to a recording NVR with live view,
 playback, the Android app and remote access. It follows the household

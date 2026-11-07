@@ -72,7 +72,7 @@ func TestValidEndpoint(t *testing.T) {
 		"https://web.push.apple.com/QGu":                       true,
 		"https://wns2-bl2p.notify.windows.com/w/?token=x":      true,
 		"http://fcm.googleapis.com/fcm/send/abc":               false,
-		"https://192.168.1.10/x":                             false,
+		"https://192.168.1.10/x":                               false,
 		"https://fcm.googleapis.com.evil.example/x":            false,
 		"https://evilpush.apple.com.example/x":                 false,
 		"https://fcm.googleapis.com:8443/x":                    false,

@@ -1,4 +1,4 @@
-Sentinela v2
+Sentinela
 Third-party code adapted into this repository is listed here with its licence.
 - web/src/lib/player.ts implements the go2rtc WebSocket signalling / MSE
   protocol, following the behaviour of go2rtc's www/video-rtc.js.
