@@ -67,6 +67,45 @@ final class Connection {
     static final java.util.regex.Pattern PIN = java.util.regex.Pattern.compile("[0-9a-fA-F]{64}");
 
     /**
+     * The house's other ways in (Tailscale, public address...), as the house
+     * itself listed them over the current, verified connection
+     * (/api/app/pairing). JSON array of {kind, url, pin}.
+     */
+    static org.json.JSONArray alternatives(Context c) {
+        try {
+            return new org.json.JSONArray(prefs(c).getString("alts", "[]"));
+        } catch (org.json.JSONException e) {
+            return new org.json.JSONArray();
+        }
+    }
+
+    /** Remembers the house's current ways in (only well-formed entries). */
+    static void saveAlternatives(Context c, org.json.JSONArray options) {
+        org.json.JSONArray keep = new org.json.JSONArray();
+        for (int i = 0; i < options.length(); i++) {
+            org.json.JSONObject o = options.optJSONObject(i);
+            if (o == null) continue;
+            String u = o.optString("url", ""), p = o.optString("pin", "");
+            if (!URL.matcher(u).matches() || (!p.isEmpty() && !PIN.matcher(p).matches())) continue;
+            try {
+                keep.put(new org.json.JSONObject().put("kind", o.optString("kind", "")).put("url", u).put("pin", p.toLowerCase(java.util.Locale.ROOT)));
+            } catch (org.json.JSONException ignored) {
+            }
+        }
+        prefs(c).edit().putString("alts", keep.toString()).apply();
+    }
+
+    /** Switches to one of the house's remembered ways in; error or null. */
+    static String useAlternative(Context c, String url) {
+        org.json.JSONArray alts = alternatives(c);
+        for (int i = 0; i < alts.length(); i++) {
+            org.json.JSONObject o = alts.optJSONObject(i);
+            if (o != null && o.optString("url").equals(url)) return save(c, url, o.optString("pin", ""));
+        }
+        return "Endereço desconhecido.";
+    }
+
+    /**
      * Saves a server and its pin ("" = publicly trusted certificate).
      * Returns an error message, or null when saved.
      */
@@ -79,6 +118,15 @@ final class Connection {
             return "Código do certificado inválido: use o código de pareamento da casa.";
         }
         offline = null;
+        boolean known = false;
+        org.json.JSONArray alts = alternatives(c);
+        for (int i = 0; i < alts.length(); i++) {
+            org.json.JSONObject o = alts.optJSONObject(i);
+            if (o != null && o.optString("url").equals(url.replaceAll("/+$", ""))) known = true;
+        }
+        SharedPreferences.Editor ed = prefs(c).edit();
+        if (!known) ed.remove("alts");
+        ed.apply();
         prefs(c).edit()
                 .putString("mode", MODE)
                 .putString("url." + MODE, url.replaceAll("/+$", ""))
@@ -106,6 +154,21 @@ final class Connection {
      */
     static void migrate(Context c) {
         SharedPreferences p = prefs(c);
+        // Pairing codes (v18): a phone that uses the build's default server
+        // keeps it, with its pin, so a later generic APK (no default) still
+        // knows the house.
+        if (!p.getBoolean("migrated.v18", false)) {
+            SharedPreferences.Editor e = p.edit().putBoolean("migrated.v18", true);
+            String url = p.getString("url." + MODE, "");
+            if (MODE.equals(p.getString("mode", "")) && url.isEmpty() && !BuildConfig.DOMAIN_URL.isEmpty()) {
+                e.putString("url." + MODE, BuildConfig.DOMAIN_URL.replaceAll("/+$", ""))
+                        .putString("pin." + MODE, BuildConfig.PUBLIC_CERT_SHA256);
+            } else if (!url.isEmpty() && p.getString("pin." + MODE, "").isEmpty()
+                    && url.equals(BuildConfig.DOMAIN_URL.replaceAll("/+$", ""))) {
+                e.putString("pin." + MODE, BuildConfig.PUBLIC_CERT_SHA256);
+            }
+            e.apply();
+        }
         if (p.getBoolean("migrated.v17", false)) return;
         String mode = p.getString("mode", "");
         SharedPreferences.Editor e = p.edit()

@@ -38,6 +38,7 @@ import androidx.core.content.ContextCompat;
 import com.getcapacitor.BridgeActivity;
 import com.getcapacitor.BridgeWebViewClient;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -240,6 +241,13 @@ public class MainActivity extends BridgeActivity {
         ws.setTextZoom(100);
         getBridge().setWebViewClient(new BridgeWebViewClient(getBridge()) {
             @Override
+            public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                String server = getBridge().getServerUrl();
+                if (server != null && url != null && url.startsWith(server)) refreshPairing(server);
+            }
+
+            @Override
             public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
                 super.onReceivedError(view, request, error);
                 if (request.isForMainFrame()) offline(String.valueOf(error.getDescription()));
@@ -422,6 +430,46 @@ public class MainActivity extends BridgeActivity {
                 pinnedDownload(url, name, mime, userAgent);
             }
         });
+    }
+
+    private boolean pairingRefreshed;
+
+    /**
+     * Once per launch, asks the house (over this verified connection and the
+     * signed-in session) for its current ways in, so the app follows a new
+     * Tailscale or public address without pairing again, and the offline
+     * screen can offer the others. Fails quietly (signed out, old server).
+     */
+    private void refreshPairing(String server) {
+        if (pairingRefreshed) return;
+        pairingRefreshed = true;
+        final String base = server.replaceAll("/+$", "");
+        final String cookie = CookieManager.getInstance().getCookie(base);
+        if (cookie == null) {
+            pairingRefreshed = false; // not signed in yet: try on a later page
+            return;
+        }
+        new Thread(() -> {
+            HttpURLConnection c = null;
+            try {
+                c = Pin.open(base + "/api/app/pairing");
+                c.setConnectTimeout(10000);
+                c.setReadTimeout(15000);
+                c.setRequestProperty("Cookie", cookie);
+                if (c.getResponseCode() != 200) return;
+                ByteArrayOutputStream out = new ByteArrayOutputStream();
+                try (InputStream in = c.getInputStream()) {
+                    byte[] buf = new byte[8192];
+                    for (int n; (n = in.read(buf)) > 0 && out.size() < (256 << 10); ) out.write(buf, 0, n);
+                }
+                org.json.JSONObject j = new org.json.JSONObject(out.toString("UTF-8"));
+                org.json.JSONArray opts = j.optJSONArray("options");
+                if (opts != null) Connection.saveAlternatives(getApplicationContext(), opts);
+            } catch (Exception ignored) {
+            } finally {
+                if (c != null) c.disconnect();
+            }
+        }).start();
     }
 
     /** Download over the pinned connection into Downloads/Sentinela. */

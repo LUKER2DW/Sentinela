@@ -71,6 +71,7 @@
       <section class="card rise" id="offline" hidden>
         <p id="off-text">O servidor da casa não respondeu. Confira a internet deste celular e tente de novo.</p>
         <button id="off-retry">Tentar de novo</button>
+        <div id="off-alts"></div>
         <button class="ghost" id="off-change">Trocar o endereço</button>
         <span class="why" id="off-why"></span>
       </section>
@@ -132,6 +133,18 @@
         $("off-text").textContent =
           "O servidor da casa não respondeu. Confira a internet deste celular. No Wi-Fi de casa, se o roteador não aceitar o próprio IP de fora, teste no 4G.";
         $("off-why").textContent = s.offlineWhy ? "Detalhe: " + s.offlineWhy : "";
+        const box = $("off-alts");
+        box.replaceChildren();
+        for (const a of s.alternatives || []) {
+          const b = document.createElement("button");
+          b.className = "ghost";
+          b.textContent = (a.kind === "tailnet" ? "Tentar pelo Tailscale: " : a.kind === "public" ? "Tentar pela internet: " : "Tentar: ") + a.url;
+          b.addEventListener("click", () => {
+            b.disabled = true;
+            call("useAlternative", { url: a.url }).catch(() => (b.disabled = false));
+          });
+          box.appendChild(b);
+        }
       }
 
       $("off-retry").addEventListener("click", () => {

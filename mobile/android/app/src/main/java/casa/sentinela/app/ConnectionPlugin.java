@@ -23,6 +23,18 @@ public class ConnectionPlugin extends Plugin {
         r.put("mode", Connection.prefs(c).getString("mode", ""));
         r.put("url", Connection.url(c));
         r.put("pinned", !Connection.pin(c).isEmpty());
+        com.getcapacitor.JSArray alts = new com.getcapacitor.JSArray();
+        org.json.JSONArray saved = Connection.alternatives(c);
+        String current = Connection.url(c);
+        for (int i = 0; i < saved.length(); i++) {
+            org.json.JSONObject o = saved.optJSONObject(i);
+            if (o == null || o.optString("url").equals(current)) continue;
+            JSObject a = new JSObject();
+            a.put("kind", o.optString("kind"));
+            a.put("url", o.optString("url"));
+            alts.put(a);
+        }
+        r.put("alternatives", alts);
         r.put("version", BuildConfig.VERSION_NAME);
         r.put("offline", Connection.offline != null);
         r.put("offlineWhy", Connection.offline == null ? "" : Connection.offline);
@@ -45,6 +57,18 @@ public class ConnectionPlugin extends Plugin {
     @PluginMethod
     public void choose(PluginCall call) {
         String err = Connection.save(getContext(), call.getString("url", ""), call.getString("pin", ""));
+        if (err != null) {
+            call.reject(err);
+            return;
+        }
+        call.resolve();
+        restart();
+    }
+
+    /** Uses another of the house's remembered addresses (offline screen). */
+    @PluginMethod
+    public void useAlternative(PluginCall call) {
+        String err = Connection.useAlternative(getContext(), call.getString("url", ""));
         if (err != null) {
             call.reject(err);
             return;
