@@ -1,0 +1,22 @@
+# Weekly dependency updates, grouped per ecosystem to keep PRs few.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule: {interval: weekly}
+    groups: {go: {patterns: ["*"]}}
+  - package-ecosystem: npm
+    directory: /web
+    schedule: {interval: weekly}
+    groups: {web: {patterns: ["*"]}}
+  - package-ecosystem: npm
+    directory: /mobile
+    schedule: {interval: weekly}
+    groups: {mobile: {patterns: ["*"]}}
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: {interval: weekly}
+    groups: {actions: {patterns: ["*"]}}
+  - package-ecosystem: docker
+    directories: [/, /detector]
+    schedule: {interval: weekly}

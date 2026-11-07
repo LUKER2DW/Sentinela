@@ -78,8 +78,8 @@ server and, for the app, JDK 21 and the Android SDK.
 3. From the development PC, install an SSH key:
 
    ```bash
-   ssh-keygen -t ed25519 -f ~/.ssh/ssh-key-sentinela
-   ssh-copy-id -i ~/.ssh/ssh-key-sentinela.pub you@192.168.1.10
+   ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519_sentinela
+   ssh-copy-id -i ~/.ssh/id_ed25519_sentinela.pub you@192.168.1.10
    ```
 
 4. Format and mount the data disks. Find them with `lsblk -f`, then, for
@@ -323,7 +323,7 @@ where the server is once, in a file outside the repository:
 mkdir -p ~/.sentinela
 cat > ~/.sentinela/deploy.env <<'EOF'
 SENTINELA_HOST=you@192.168.1.10
-SENTINELA_SSH_KEY=~/.ssh/ssh-key-sentinela
+SENTINELA_SSH_KEY=~/.ssh/id_ed25519_sentinela
 EOF
 ./scripts/deploy.sh
 ```
