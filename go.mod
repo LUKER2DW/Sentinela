@@ -2,7 +2,7 @@ module github.com/LUKER2DW/sentinela
 
 go 1.26.0
 
-toolchain go1.26.9
+toolchain go1.26.10
 
 require (
 	github.com/go-acme/lego/v4 v4.35.2
