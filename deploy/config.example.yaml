@@ -7,6 +7,8 @@ go2rtc_api: http://127.0.0.1:1984
 # session cookies. true forces them on plain HTTP too, which breaks LAN logins.
 secure_cookies: false
 
+timezone: UTC                       # IANA zone for schedules shown to people, e.g. Europe/Lisbon
+
 recording:
   segment_seconds: 300              # 5-minute MP4 files
   max_disk_percent: 95              # above this, oldest recordings are overwritten

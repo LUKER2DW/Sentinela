@@ -244,6 +244,17 @@ func LoadApps(path string) (*Config, error) {
 	return &c, nil
 }
 
+// defaultTimezone is the TZ environment variable when it names a zone,
+// otherwise UTC. Set timezone in config.yaml for schedules in local time.
+func defaultTimezone() string {
+	if tz := os.Getenv("TZ"); tz != "" {
+		if _, err := time.LoadLocation(tz); err == nil {
+			return tz
+		}
+	}
+	return "UTC"
+}
+
 // Parse is Load without file I/O; getenv is injectable for tests.
 func Parse(raw []byte, getenv func(string) string) (*Config, error) {
 	var c Config
@@ -279,7 +290,7 @@ func (c *Config) applyDefaults() {
 	def(&c.Go2RTCAPI, "http://127.0.0.1:1984")
 	def(&c.DiskHealthFile, "/host/disks.json")
 	def(&c.BackupStatusFile, "/host/backup.json")
-	def(&c.Timezone, "America/Sao_Paulo")
+	def(&c.Timezone, defaultTimezone())
 	def(&c.PushSubject, "mailto:admin@sentinela.invalid")
 	if c.Remote.Public.Domain != "" {
 		def(&c.Remote.Public.Listen, ":7443")

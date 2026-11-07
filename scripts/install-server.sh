@@ -45,6 +45,9 @@ install -d -m 0750 "${ETC}"
 if [[ ! -f "${ETC}/config.yaml" ]]; then
   install -m 0644 "${REPO_DIR}/deploy/config.example.yaml" "${ETC}/config.yaml"
   sed -i "s#^data_dir: .*#data_dir: /data#" "${ETC}/config.yaml"
+  # Schedules (night mode) follow the server's time zone unless changed here.
+  TZ_HOST="$(timedatectl show -p Timezone --value 2>/dev/null || true)"
+  [[ -z "$TZ_HOST" ]] || sed -i "s#^timezone: [^ ]*#timezone: ${TZ_HOST}#" "${ETC}/config.yaml"
   echo "created ${ETC}/config.yaml (edit camera name/host there if needed)"
 else
   echo "keeping existing ${ETC}/config.yaml"

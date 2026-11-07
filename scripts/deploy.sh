@@ -62,6 +62,8 @@ if (( ! SERVICES_ONLY )); then
 fi
 
 echo "==> restart stack"
+"${SSH[@]}" 'sudo grep -q "^timezone:" /etc/sentinela/config.yaml' ||
+  echo "!! /etc/sentinela/config.yaml has no timezone: schedules use UTC (add e.g. 'timezone: Europe/Lisbon')" >&2
 # Camera streams for go2rtc come from config.yaml (any number, any vendor).
 GO2RTC_CHANGED="$("${SSH[@]}" 'sudo /opt/sentinela/scripts/gen-go2rtc-cameras.sh')"
 # The recorder writes only while /data holds its marker (volume_marker).
