@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <title>Sentinela</title>
+    <!-- Start screen: the house's public address (ADR-0019). Runs from the
+         APK; talks to ConnectionPlugin (SentinelaConnection). -->
+    <link rel="stylesheet" href="art/panorama.css" />
+    <link rel="stylesheet" href="scene.css" />
+    <style>
+      :root { --bg: #f5f3ee; --card: #fcfbf8; --text: #22221f; --muted: #65645e; --line: #e3e1dc; --sea: #3f7a70; --on-sea: #fff; --err: #a8452f; }
+      @media (prefers-color-scheme: dark) { :root { --bg: #181918; --card: #222524; --text: #ecebe6; --muted: #a9a8a1; --line: #323634; --sea: #8cc3b6; --on-sea: #10251f; --err: #f09a82; } }
+      * { box-sizing: border-box; }
+      [hidden] { display: none !important; }
+      body { margin: 0; min-height: 100dvh; background: var(--bg); color: var(--text); font: 16px/1.45 system-ui, sans-serif;
+        padding: calc(20px + env(safe-area-inset-top)) 16px calc(24px + env(safe-area-inset-bottom)); }
+      main { max-width: 26rem; margin: 0 auto; display: grid; gap: 14px; }
+      header { display: grid; justify-items: center; gap: 8px; text-align: center; margin-bottom: 4px; }
+      header h1, header .lede { position: relative; z-index: 2; }
+      header .scene.hero { width: calc(100% + 32px); margin: calc(-20px - env(safe-area-inset-top)) -16px -40px; height: 38dvh; min-height: 220px; }
+      body { font-family: "Figtree Variable", system-ui, sans-serif; }
+      h1 { margin: 0; font: 500 1.9rem/1.15 "Fraunces Variable", Georgia, serif; font-variation-settings: "SOFT" 100, "opsz" 48; letter-spacing: -0.01em; }
+      details { backdrop-filter: blur(8px); background: color-mix(in srgb, var(--card) 92%, transparent) !important; }
+      .lede { margin: 0; color: var(--muted); font-size: .95rem; }
+      details { background: var(--card); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
+      details[open] { border-color: color-mix(in srgb, var(--sea) 55%, var(--line)); }
+      summary { list-style: none; cursor: pointer; padding: 14px 16px; display: grid; gap: 2px; }
+      summary::-webkit-details-marker { display: none; }
+      summary b { font-size: 1.02rem; }
+      summary span { color: var(--muted); font-size: .88rem; }
+      .tag { display: inline-block; margin-left: 6px; padding: 1px 8px; border-radius: 99px; font-size: .72rem; font-weight: 600;
+        background: color-mix(in srgb, var(--sea) 18%, transparent); color: var(--sea); vertical-align: 2px; }
+      .body { padding: 0 16px 16px; display: grid; gap: 10px; }
+      label { display: grid; gap: 4px; font-size: .85rem; color: var(--muted); }
+      input { width: 100%; height: 44px; padding: 0 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--bg);
+        color: var(--text); font: inherit; }
+      input:focus { outline: 2px solid color-mix(in srgb, var(--sea) 60%, transparent); outline-offset: 1px; }
+      button { height: 46px; border-radius: 14px; border: 0; font: 600 1rem system-ui, sans-serif; background: var(--sea); color: var(--on-sea); cursor: pointer; }
+      button.ghost, a.button.ghost { background: transparent; color: var(--text); border: 1px solid var(--line); }
+      button:disabled { opacity: .6; }
+      .note { margin: 0; color: var(--muted); font-size: .85rem; }
+      .err { margin: 0; color: var(--err); font-size: .9rem; }
+      .ok { color: var(--sea); font-weight: 600; }
+      .row { display: flex; gap: 8px; }
+      .row > * { flex: 1; }
+      footer { text-align: center; color: var(--muted); font-size: .8rem; }
+      .link { background: none; border: 0; color: var(--sea); height: auto; padding: 0; font-weight: 600; font-size: .9rem; justify-self: start; }
+      /* An app, not a page: no text selection outside the fields. */
+      html { -webkit-text-size-adjust: 100%; touch-action: pan-x pan-y; }
+      body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+      input { -webkit-user-select: text; user-select: text; }
+      button { transition: transform .12s; } button:active:not(:disabled) { transform: scale(.97); }
+      .card { display: grid; gap: 10px; padding: 18px 16px; border-radius: 18px; text-align: center; border: 1px solid var(--line);
+        background: color-mix(in srgb, var(--card) 92%, transparent); backdrop-filter: blur(10px);
+        box-shadow: 0 1px 2px rgb(31 42 48 / .06), 0 18px 40px -18px rgb(31 42 48 / .35); }
+      .card p { margin: 0 0 4px; color: var(--muted); }
+      .card .why { font-size: .82rem; color: var(--muted); opacity: .8; }
+      a.button { display: block; height: 46px; line-height: 44px; border-radius: 14px; text-decoration: none; font-weight: 600; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header class="rise">
+        <div class="scene hero"></div>
+        <h1 id="title">Onde fica a casa?</h1>
+        <p class="lede" id="lede">Digite o endereço público do Sentinela. Dá para trocar depois na tela de login ou em Minha conta.</p>
+      </header>
+
+      <!-- The chosen server did not answer (MainActivity sends the app here). -->
+      <section class="card rise" id="offline" hidden>
+        <p id="off-text">O servidor da casa não respondeu. Confira a internet deste celular e tente de novo.</p>
+        <button id="off-retry">Tentar de novo</button>
+        <button class="ghost" id="off-change">Trocar o endereço</button>
+        <span class="why" id="off-why"></span>
+      </section>
+
+      <form class="card rise" id="choose" autocomplete="off">
+        <label style="text-align:left">Endereço da casa
+          <input id="u-domain" inputmode="url" autocapitalize="none" spellcheck="false" placeholder="https://IP-da-casa:porta" />
+        </label>
+        <button id="go" type="submit">Conectar</button>
+        <p class="err" id="err" role="alert"></p>
+        <p class="note">Funciona no Wi-Fi e no 4G. Quem ativou a verificação em 2 etapas digita o código ao entrar.</p>
+      </form>
+
+      <footer class="rise" id="ver"></footer>
+    </main>
+    <script src="art/panorama.js"></script>
+    <script src="scene.js"></script>
+    <script>
+      const cap = window.Capacitor;
+      const call = (method, opts) =>
+        cap && cap.nativePromise ? cap.nativePromise("SentinelaConnection", method, opts || {}) : Promise.reject(new Error("abra pelo app Android"));
+      const $ = (id) => document.getElementById(id);
+      const msg = (e) => String((e && (e.message || e.errorMessage)) || e || "falhou").replace(/^Error:\s*/, "");
+
+      async function load() {
+        let s;
+        try {
+          s = await call("get");
+        } catch (e) {
+          $("ver").textContent = msg(e);
+          return;
+        }
+        $("u-domain").value = s.url || "";
+        $("ver").textContent = "Sentinela " + s.version;
+        showOffline(s);
+      }
+
+      function showOffline(s) {
+        const off = !!s.offline;
+        $("offline").hidden = !off;
+        $("choose").hidden = off;
+        $("title").textContent = off ? "Sem conexão com a casa" : "Onde fica a casa?";
+        $("lede").hidden = off;
+        if (!off) return;
+        $("off-text").textContent =
+          "O servidor da casa não respondeu. Confira a internet deste celular. No Wi-Fi de casa, se o roteador não aceitar o próprio IP de fora, teste no 4G.";
+        $("off-why").textContent = s.offlineWhy ? "Detalhe: " + s.offlineWhy : "";
+      }
+
+      $("off-retry").addEventListener("click", () => {
+        $("off-retry").disabled = true;
+        $("off-retry").textContent = "Conectando…";
+        call("retry").catch(() => {
+          $("off-retry").disabled = false;
+          $("off-retry").textContent = "Tentar de novo";
+        });
+      });
+      $("off-change").addEventListener("click", () => showOffline({ offline: false }));
+
+      $("choose").addEventListener("submit", async (ev) => {
+        ev.preventDefault();
+        const b = $("go");
+        $("err").textContent = "";
+        b.disabled = true;
+        try {
+          await call("choose", { url: $("u-domain").value.trim() });
+        } catch (e) {
+          $("err").textContent = msg(e);
+        } finally {
+          b.disabled = false;
+        }
+      });
+
+      load();
+    </script>
+  </body>
+</html>

@@ -1,0 +1,10 @@
+[Unit]
+Description=Sentinela: nightly backup at 03:30 local (06:30 UTC)
+
+[Timer]
+OnCalendar=*-*-* 06:30:00 UTC
+RandomizedDelaySec=10min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

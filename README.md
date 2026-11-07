@@ -1,0 +1,223 @@
+<div align="center">
+
+<img src="web/public/icon.svg" width="96" alt="" />
+
+# Sentinela
+
+**A self-hosted home NVR that runs on an old PC.**
+Live view, 24/7 recording, events and object detection, a file server and an
+Android app, in one small Go binary next to go2rtc and FFmpeg.
+
+[![CI](https://github.com/LUKER2DW/Sentinela/actions/workflows/ci.yml/badge.svg)](https://github.com/LUKER2DW/Sentinela/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+</div>
+
+---
+
+## Why Sentinela
+
+Most NVRs either need a strong machine to re-encode video or push your
+cameras to someone else's cloud. Sentinela does neither:
+
+- **Copy, never transcode.** H.265/H.264 video goes from the camera to disk
+  and to your browser as-is, so a decade-old CPU without hardware decoding
+  keeps up.
+- **Recording comes first.** Recorders are supervised FFmpeg processes that
+  pull straight from the cameras. If the web app, the database or go2rtc
+  crash, recording continues.
+- **Your house, your data.** Everything stays on your server and LAN.
+  Remote access is Tailscale, or one opt-in TLS listener that shows nothing
+  but a login page to strangers.
+- **Small.** One Go binary (≤ 80 MB RAM), go2rtc and FFmpeg. SQLite, no
+  Postgres, Redis or message queue.
+
+## Features
+
+**Cameras and live view**
+- Any number of cameras: XMEye/Xiongmai, Hikvision, Dahua, or any RTSP
+  camera with your own stream paths.
+- Low-latency live view over WebRTC, with MSE as fallback; main and sub
+  streams, grids, full screen, push-to-talk two-way audio (XMEye).
+- PTZ with press-and-hold controls, saved positions, **preset tours**, white
+  light and day/night mode (XMEye, over an allow-listed DVRIP driver).
+
+**Recording and review**
+- 24/7 copy-only recording in 5-minute fragmented MP4 files.
+- Timeline with hover previews, events, export of any range, timelapses.
+- Fills the disk and overwrites the oldest, or keeps a fixed number of
+  days; alerts can be kept longer; protect important clips.
+- Pauses instead of filling the system disk if the recordings disk does not
+  mount.
+
+**Events, detection and notifications**
+- ONVIF motion and camera alarms; optional object detection (people,
+  vehicles, animals) on the sub stream, inside zones you draw.
+- Review queue with snapshots, unseen markers and severities.
+- Web push and Android notifications, per user, with home/away modes and
+  an automatic night schedule.
+
+**Nuvem: the house file server**
+- SMB share for the LAN and a web/mobile file browser with uploads,
+  previews, a recycle bin and per-user folders.
+
+**Accounts and security**
+- Admin, operator and viewer roles, per-camera visibility, invite codes,
+  optional TOTP two-step login, device sessions you can revoke, audit log.
+- Hardened by default: see [SECURITY.md](SECURITY.md).
+
+**Extras**
+- Android app (Capacitor) with notifications and in-app updates.
+- Optional **self-hosted services**: run your own projects from GitHub or a
+  Nuvem folder (script, Dockerfile or Compose) as capped, isolated
+  containers next to the NVR.
+- Nightly database/config backups, optional restic copy, and a restore
+  drill.
+
+## How it works
+
+```mermaid
+flowchart LR
+  cam["Cameras (RTSP)"] -->|copy| rec["Recorder (FFmpeg)"]
+  rec --> disk[("/data recordings + SQLite")]
+  cam --> g2r["go2rtc"]
+  g2r -->|WebRTC / MSE| browser["Browser / Android app"]
+  browser -->|HTTPS + session| api["sentinela serve (Go)"]
+  api -->|signed stream tickets| g2r
+  api -->|DVRIP / ONVIF| cam
+  api --> disk
+```
+
+| Component | Role |
+|---|---|
+| `sentinela serve` | API, accounts, web app, camera control, events, file server |
+| `sentinela record` | One supervised FFmpeg per camera, segment index, retention |
+| go2rtc | Live media: RTSP in, WebRTC/MSE out, two-way audio |
+| detector (optional) | Object detection on sub-stream keyframes, gated by motion |
+| apps agent (optional) | Self-hosted services; the only part that talks to Docker |
+
+Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+## Requirements
+
+| | Minimum |
+|---|---|
+| Server | x86-64, 2 cores (no HEVC hardware decode needed), 4 GB RAM (8 GB with detection or self-hosted services) |
+| OS | Ubuntu Server 22.04+ or Debian 12+, with Docker |
+| Disks | A dedicated disk for recordings at `/data`; optional disks for the file share and backups |
+| Cameras | RTSP (H.264/H.265); XMEye cameras also get PTZ and light control |
+| Network | Wired LAN; fixed addresses (DHCP reservations) for the server and cameras |
+
+One stream at ~2 Mbit/s writes about 20 GB per day.
+
+## Quick start
+
+On the server, with the recordings disk mounted at `/data`:
+
+```bash
+sudo git clone https://github.com/LUKER2DW/Sentinela.git /opt/sentinela
+cd /opt/sentinela
+sudo ./scripts/install-server.sh
+```
+
+The installer asks for the first camera's address and credentials, writes
+`/etc/sentinela/config.yaml` and the root-only `secrets.env`, sets up the
+firewall, starts the containers and prints the address. Open
+`http://<server>:8080`: the first visit creates the admin account.
+
+The full guide, from preparing the camera to remote access, backups and
+troubleshooting, is **[docs/INSTALL.md](docs/INSTALL.md)**.
+
+## Configuration
+
+Settings live in `/etc/sentinela/config.yaml`; passwords live only in
+`/etc/sentinela/secrets.env` and are referenced by name. Every option is
+documented in [deploy/config.example.yaml](deploy/config.example.yaml).
+
+```yaml
+timezone: Europe/Lisbon
+recording:
+  max_disk_percent: 95        # overwrite the oldest above this
+  default_retention_days: 0   # 0 = until the disk is full
+cameras:
+  - id: front
+    name: Front door
+    host: 192.168.1.20
+    vendor: xmeye             # xmeye | hikvision | dahua | generic
+    user_env: FRONT_USER      # names of the variables in secrets.env
+    password_env: FRONT_PASS
+  - id: yard
+    host: 192.168.1.31
+    vendor: generic
+    rtsp_main: /stream1
+    rtsp_sub: /stream2
+    user_env: YARD_USER
+    password_env: YARD_PASS
+```
+
+Add cameras with `scripts/add-camera.sh` (it validates the config and keeps
+a backup), or edit the file and run `./scripts/deploy.sh`. go2rtc's stream
+list is generated from this file, so there is nothing else to keep in sync.
+
+| Topic | Where |
+|---|---|
+| Remote access (Tailscale, public HTTPS) | [INSTALL §8](docs/INSTALL.md#8-remote-access) |
+| Notifications and the Android app | [INSTALL §9–10](docs/INSTALL.md#9-notifications) |
+| Object detection | [ADR-0016](docs/adr/0016-server-person-detector.md) |
+| Self-hosted services | [INSTALL §13](docs/INSTALL.md#13-self-hosted-services-optional) |
+| Backups and the restore drill | [INSTALL §14](docs/INSTALL.md#14-backups) |
+
+## Updating
+
+From your computer, with Docker running:
+
+```bash
+mkdir -p ~/.sentinela
+echo 'SENTINELA_HOST=you@192.168.1.10' > ~/.sentinela/deploy.env
+./scripts/deploy.sh             # everything
+./scripts/deploy.sh --services  # web app and API only; recorders keep running
+```
+
+The script builds the images locally, sends them over SSH, restarts the
+stack and waits for the health check. The server never needs Go or Node.
+
+## Development
+
+```bash
+cp deploy/config.example.yaml dev-config.yaml   # git-ignored
+# set data_dir to a local folder, recording.volume_marker: none,
+# and export the camera variables it names (e.g. CAM1_USER, CAM1_PASS)
+cd web && npm ci && npm run build && cd ..
+go run ./cmd/sentinela serve -config ./dev-config.yaml
+cd web && npm run dev            # Vite on :5173, proxied to :8080
+make check                       # go vet, tests, staticcheck, lint, web tests
+```
+
+Requirements: Go (version in `go.mod`), Node.js 22. The Android app is in
+`mobile/` (JDK 21 and the Android SDK; see
+[INSTALL §10](docs/INSTALL.md#10-android-app)).
+
+Read [AGENTS.md](AGENTS.md) before contributing: it lists the hard rules
+(no transcoding, recording independence, resource budgets, secrets) and the
+conventions. Changes are small, one concern per commit, with
+[Conventional Commits](https://www.conventionalcommits.org/).
+
+## Documentation
+
+| Document | Contents |
+|---|---|
+| [docs/INSTALL.md](docs/INSTALL.md) | Installation, updates, operations, troubleshooting |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Components, flows, ports and storage |
+| [docs/SECURITY.md](docs/SECURITY.md) | Threat model and security rules |
+| [docs/CAMERA.md](docs/CAMERA.md) | XMEye protocol facts and the allow-listed commands |
+| [docs/adr/](docs/adr/) | Architecture decision records |
+| [AGENTS.md](AGENTS.md) | Rules for contributors and coding agents |
+
+## License
+
+[MIT](LICENSE). Third-party notices are in [NOTICE](NOTICE). The optional
+detector downloads the YOLO model weights (AGPL-3.0) at build time; they
+are not part of this repository.
+
+Sentinela is not affiliated with any camera vendor. Use it where recording
+is legal, and respect your neighbours' privacy.

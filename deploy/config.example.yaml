@@ -1,0 +1,74 @@
+# /etc/sentinela/config.yaml — non-secret settings. Camera passwords live in
+# /etc/sentinela/secrets.env and are referenced by env var name.
+listen: ":8080"
+data_dir: /data                     # recordings/, db/, backup/
+go2rtc_api: http://127.0.0.1:1984
+# HTTPS requests (TLS, or `tailscale serve` on loopback) always get Secure
+# session cookies. true forces them on plain HTTP too, which breaks LAN logins.
+secure_cookies: false
+
+timezone: UTC                       # IANA zone for schedules shown to people, e.g. Europe/Lisbon
+
+recording:
+  segment_seconds: 300              # 5-minute MP4 files
+  max_disk_percent: 95              # above this, oldest recordings are overwritten
+  default_retention_days: 0         # 0 = no age limit: fill the disk, then overwrite the oldest (owner, 2026-11-06)
+  alert_retention_days: 0           # > 0: segments overlapping an Alert (line, area, person, tamper) are kept this long
+  stall_seconds: 20                 # restart ffmpeg if no data for this long
+  volume_marker: .sentinela-volume  # record only while this file (on the recording disk) exists; "none" = off
+
+# Shown on the System and Nuvem pages. Paths are as seen inside the container.
+nas_host: SENTINELA
+volumes:
+  - {id: recordings, name: Gravações, path: /data, kind: recordings, share: Gravacoes}
+  - {id: nuvem, name: Nuvem, path: /srv/nas, kind: nas, share: Nuvem}
+  - {id: backup, name: Backups, path: /srv/backup, kind: backup}
+
+# Remote access trial (ADR-0019). Everything off unless set. Requests on these
+# listeners need two-step login (enrolled at home) and see nothing else.
+remote:
+  # P3 Tailscale Funnel: scripts/setup-funnel.sh proxies :10000 to here.
+  # funnel_listen: 127.0.0.1:8081
+  # P1 port-forward + domain: router WAN 443 -> this port, 8555 tcp+udp -> 8555
+  # (scripts/setup-public.sh). Let's Encrypt certificate kept in /data/acme.
+  public:
+    # domain: casa.example.com.br     # or the fixed public IP, e.g. 203.0.113.7
+    # listen: ":7443"
+    # email: you@example.com
+    # url: https://203.0.113.7:18443   # address used from outside (invite links)
+
+# Self-hosted services (ADR-0021): projects from GitHub or a folder of the
+# Nuvem, run in capped containers by the "apps" agent. Off unless enabled
+# with scripts/setup-apps.sh enable (which adds `enabled: true` here).
+# apps:
+#   enabled: true
+#   port_first: 20000               # host ports for services (tailnet ACL: tag:nvr:20000-20099)
+#   port_last: 20099
+#   public_host: 203.0.113.7        # enables "Internet" exposure (default: remote.public.domain)
+#   local_root: /srv/nas            # where local project folders are picked from ("none" = off)
+#   memory_mb: 256                  # per service default; max_memory_mb, total_memory_mb cap it
+#   total_memory_mb: 1024           # all running services together (the NVR keeps the rest)
+#   cpus: 0.5                       # per service default; services weigh less than the NVR
+#   runtimes: {node: "node:22-alpine@sha256:…"}   # pin base images if wanted
+
+cameras:
+  # Any number of cameras. Credentials live in secrets.env under the names
+  # given by user_env/password_env. go2rtc's streams are generated from this
+  # list (scripts/gen-go2rtc-cameras.sh); scripts/add-camera.sh appends one.
+  - id: cam1                      # also the go2rtc stream name (cam1, cam1_sub)
+    name: Front
+    host: 192.168.1.20
+    vendor: xmeye                   # xmeye | hikvision | dahua | generic
+    # channel: 1                    # channel of an NVR/DVR
+    # rtsp_main: /stream1           # own stream paths (required for generic)
+    # rtsp_sub: /stream2
+    # preload: true                 # keep the main stream open for a fast live view
+    user_env: CAM1_USER
+    password_env: CAM1_PASS
+    rtsp_port: 554
+    dvrip_port: 34567               # xmeye only: PTZ, presets, light, two-way audio
+    onvif_port: 8899                # events; default 8899 for xmeye, 80 otherwise
+    retention_days: 0               # 0 = until the disk is full
+    record_audio: true              # audio is AAC-encoded (ADR-0006); false = pure copy
+    invert_pan_tilt: false          # true for a unit mounted flipped + mirrored
+    # invert_tilt: false            # per axis: image mirrored but not flipped

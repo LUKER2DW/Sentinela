@@ -1,0 +1,25 @@
+# go2rtc base config (ports and WebRTC). Cameras: see the end of this file.
+api:
+  listen: "127.0.0.1:1984"      # loopback only; sentinela proxies with tickets
+  origin: ""                   # no CORS
+rtsp:
+  listen: "127.0.0.1:8554"      # internal restream only
+webrtc:
+  # ICE on all interfaces (LAN now, tailscale0 later). No external STUN:
+  # go2rtc advertises its host addresses, which is all a LAN/tailnet needs.
+  listen: ":8555"
+  # Extra ICE candidates for the ADR-0019 trial (host candidates stay):
+  # - stun:8555 — the home's public IP (outbound STUN at start), for browsers
+  #   outside reaching the router's 8555 forward (P1);
+  # - 127.0.0.1:8555 — the Android app's local forwarder into its embedded
+  #   tailnet node (P2). Elsewhere nothing answers there and ICE moves on.
+  candidates:
+    - stun:8555
+    - 127.0.0.1:8555
+log:
+  level: info
+
+# Cameras are not listed here: `sentinela go2rtc-config` generates their
+# streams from /etc/sentinela/config.yaml into /etc/sentinela/go2rtc-cameras.yaml
+# (deploy.sh, install-server.sh and add-camera.sh run it), and go2rtc merges
+# both files. Credentials stay ${VAR} placeholders expanded from secrets.env.

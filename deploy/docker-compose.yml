@@ -1,0 +1,154 @@
+# Sentinela stack: go2rtc (live), recorder (sentinela record), API/UI
+# (sentinela serve). Host networking: WebRTC ICE and camera access need no
+# NAT juggling; every listener is bound explicitly (docs/ARCHITECTURE.md §4).
+#
+#   sudo docker compose -f deploy/docker-compose.yml up -d --build
+#
+# Secrets: /etc/sentinela/secrets.env (0600). Config: /etc/sentinela/config.yaml.
+
+name: sentinela
+
+x-sentinela: &sentinela
+  build:
+    context: ..
+    args:
+      VERSION: ${SENTINELA_VERSION:-dev}
+  image: sentinela:local
+  network_mode: host
+  user: "1000:1000"
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  env_file: /etc/sentinela/secrets.env
+  environment:
+    TZ: UTC
+  volumes:
+    - /etc/sentinela/config.yaml:/etc/sentinela/config.yaml:ro
+    - /data:/data
+  tmpfs: [/tmp]
+  logging:
+    driver: json-file
+    options: { max-size: "10m", max-file: "3" }
+
+services:
+  go2rtc:
+    image: alexxit/go2rtc:1.9.14@sha256:675c318b23c06fd862a61d262240c9a63436b4050d177ffc68a32710d9e05bae
+    network_mode: host
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    env_file: /etc/sentinela/secrets.env
+    # Ports/WebRTC in go2rtc.yaml; every camera's streams are generated from
+    # config.yaml into /etc/sentinela/go2rtc-cameras.yaml (`sentinela
+    # go2rtc-config`). go2rtc merges both files.
+    command: ["go2rtc", "-config", "/config/go2rtc.yaml", "-config", "/config/cameras.yaml"]
+    volumes:
+      - ./go2rtc.yaml:/config/go2rtc.yaml:ro
+      - /etc/sentinela/go2rtc-cameras.yaml:/config/cameras.yaml:ro
+    tmpfs: [/tmp]
+    mem_limit: 256m
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  # Object detector (ADR-0016): wakes on the camera's motion events, reads
+  # substream keyframes from go2rtc's loopback restream, runs YOLO26n and
+  # reports to the API on loopback. Low CPU priority instead of a small
+  # quota: an analysis is a ~0.3 s burst every 2 s, and a 15 % quota only
+  # stretched it to 1.5-3.8 s for the same CPU. Recorder and go2rtc always
+  # win; one core is the ceiling. Nothing depends on it. /data/detector
+  # holds the shared token (created by serve).
+  detector:
+    build: ../detector
+    image: sentinela-detector:local
+    network_mode: host
+    user: "1000:1000"
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      TZ: UTC
+    volumes:
+      - /data/detector:/data/detector:ro
+    tmpfs: [/tmp]
+    cpus: 1.0
+    cpu_shares: 128
+    mem_limit: 192m
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  # Independent of the API and go2rtc (ADR-0007): pulls RTSP from the camera.
+  recorder:
+    <<: *sentinela
+    command: ["record"]
+    environment:
+      TZ: UTC
+      GOMEMLIMIT: 48MiB
+    restart: unless-stopped
+    stop_grace_period: 15s
+    mem_limit: 256m
+
+  # Self-hosted services agent (ADR-0021): the only container with the
+  # Docker socket, so it is root-equivalent; it gets no camera secrets, no
+  # recordings; Nuvem access lets it transfer the selected local project.
+  # Its API listens on loopback with the token sentinela serve writes to
+  # /data/apps-agent. Started only with the "apps" profile, which
+  # deploy.sh enables while /etc/sentinela/apps-enabled exists
+  # (scripts/setup-apps.sh). Bind paths match the host: Docker reads them.
+  apps:
+    image: sentinela:local
+    profiles: [apps]
+    command: ["apps"]
+    network_mode: host
+    user: "1000:1000"
+    group_add: ["${SENTINELA_DOCKER_GID:-999}"]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      TZ: UTC
+      GOMEMLIMIT: 48MiB
+    volumes:
+      - /etc/sentinela/config.yaml:/etc/sentinela/config.yaml:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /data/apps-agent:/data/apps-agent:ro
+      - /var/lib/sentinela-apps:/var/lib/sentinela-apps
+      - /srv/nas:/srv/nas
+    tmpfs: [/tmp]
+    restart: unless-stopped
+    stop_grace_period: 15s
+    cpus: 0.5
+    mem_limit: 128m
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  sentinela:
+    <<: *sentinela
+    command: ["serve"]
+    environment:
+      TZ: UTC
+      # Soft limit: after a login (argon2id, 64 MB) the heap is returned to
+      # the OS promptly, keeping steady-state RSS inside the 80 MB budget.
+      GOMEMLIMIT: 72MiB
+    volumes:
+      - /etc/sentinela/config.yaml:/etc/sentinela/config.yaml:ro
+      - /data:/data
+      # Nuvem file API (ADR-0012): read-write, confined with os.Root. UID 1000
+      # owns the share, as Samba's account does. The recorder has no access.
+      - /srv/nas:/srv/nas
+      # Read-only, only to report free space of the backup disk (ADR-0014).
+      - /srv/backup:/srv/backup:ro
+      # SMART and backup status written by host timers (disk-health.sh, backup.sh).
+      - /var/lib/sentinela:/host:ro
+    restart: unless-stopped
+    mem_limit: 384m
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/sentinela", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s

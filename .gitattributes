@@ -1,0 +1,8 @@
+# Keep LF in the repo and in checkouts: shell scripts and configs run on Linux.
+* text=auto eol=lf
+*.png binary
+*.woff binary
+*.woff2 binary
+*.jar binary
+# Windows batch files (gradlew.bat) need CRLF to run reliably in cmd.exe.
+*.bat text eol=crlf

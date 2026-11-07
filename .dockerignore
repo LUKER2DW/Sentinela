@@ -1,0 +1,10 @@
+.git
+bin
+audit-out
+data
+web/node_modules
+web/dist
+mobile/
+references/
+**/*.mp4
+*.env

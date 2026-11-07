@@ -1,0 +1,9 @@
+[Unit]
+Description=Sentinela: record SMART health of the data disks
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/sentinela/scripts/disk-health.sh /var/lib/sentinela/disks.json
+Nice=19
+IOSchedulingClass=idle
