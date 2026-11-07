@@ -61,8 +61,8 @@ export function AddCameraCard() {
   return (
     <section className="card add-cam">
       <div className="card-head">
-        <h2>Adicionar câmera</h2>
-        <span className="muted small">Nada é gravado na câmera: é só leitura.</span>
+        <h2>Procurar e testar câmeras na rede</h2>
+        <span className="muted small">Nada é gravado na câmera: é só leitura. Para adicionar, use o editor acima.</span>
       </div>
       <ol className="stepper" aria-label="Etapas">
         {STEPS.map((s, i) => (

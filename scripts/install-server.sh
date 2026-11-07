@@ -6,7 +6,7 @@
 #
 # Idempotent: re-run after `git pull` to rebuild and restart. It never
 # overwrites an existing /etc/sentinela/config.yaml or secrets.env.
-# The camera password is read silently and only written to secrets.env (0600).
+# Cameras (any brand) are added afterwards in the browser's setup guide.
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -48,25 +48,15 @@ if [[ ! -f "${ETC}/config.yaml" ]]; then
   # Schedules (night mode) follow the server's time zone unless changed here.
   TZ_HOST="$(timedatectl show -p Timezone --value 2>/dev/null || true)"
   [[ -z "$TZ_HOST" ]] || sed -i "s#^timezone: [^ ]*#timezone: ${TZ_HOST}#" "${ETC}/config.yaml"
-  echo "created ${ETC}/config.yaml (edit camera name/host there if needed)"
+  echo "created ${ETC}/config.yaml (no cameras yet: add them in the browser)"
 else
   echo "keeping existing ${ETC}/config.yaml"
 fi
+# Camera credentials are added here when cameras are added (browser or
+# scripts/add-camera.sh); never in config.yaml.
 if [[ ! -f "${ETC}/secrets.env" ]]; then
-  CAM_HOST="$(awk '/^ *host:/{print $2; exit}' "${ETC}/config.yaml")"
-  read -r -p "Camera IP address [${CAM_HOST}]: " ans; CAM_HOST="${ans:-${CAM_HOST}}"
-  [[ "${CAM_HOST}" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || { warn "not an IPv4 address: ${CAM_HOST}"; exit 1; }
-  sed -i "0,/^\( *\)host: .*/s//\1host: ${CAM_HOST}/" "${ETC}/config.yaml"
-  read -r -p "Camera username [admin]: " CAM_USER; CAM_USER="${CAM_USER:-admin}"
-  while :; do
-    read -r -s -p "Camera password (not shown): " CAM_PASS; echo
-    [[ -n "${CAM_PASS}" ]] || { warn "empty password"; continue; }
-    [[ "${CAM_PASS}" != *[\&\?/\ \#%]* ]] || { warn "the camera's RTSP URL cannot carry & ? / # % or spaces; change the camera password first"; exit 1; }
-    break
-  done
   umask 077
-  printf 'CAM1_USER=%s\nCAM1_PASS=%s\n' "${CAM_USER}" "${CAM_PASS}" > "${ETC}/secrets.env"
-  unset CAM_PASS
+  printf '# Camera credentials (written by the dashboard or scripts/add-camera.sh).\n' > "${ETC}/secrets.env"
   chmod 0600 "${ETC}/secrets.env"; chown root:root "${ETC}/secrets.env"
   echo "created ${ETC}/secrets.env (0600)"
 else
@@ -139,7 +129,7 @@ docker compose ps
 IP="$(hostname -I | awk '{print $1}')"
 echo
 echo "Sentinela is running."
-echo "  Open        http://${IP}:8080  (first visit creates the admin account)"
+echo "  Open        http://${IP}:8080  (create the admin account; the setup guide adds your cameras)"
 printf '  Nuvem       \\\\%s\\Nuvem  (set its password once: sudo smbpasswd -a %s)\n' "${IP}" "${SUDO_USER:-<user>}"
 echo "  Logs        cd ${REPO_DIR}/deploy && sudo docker compose logs -f --tail=50"
 echo "  Update      from the dev PC: ./scripts/deploy.sh"

@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, get } from "../lib/api";
 import { useToast } from "../lib/session";
 import { AddCameraCard } from "./AddCamera";
+import { CamerasEditor } from "./SettingsEditor";
 import { DeviceNotifyCard } from "./Notifications";
 import { SecurityCard } from "./Security";
 import { AppPairingCard } from "./AppPairing";
@@ -45,7 +46,7 @@ const vendorLabel: Record<string, string> = {
   xmeye: "XMEye",
   hikvision: "Hikvision",
   dahua: "Dahua",
-  generic: "RTSP genérica",
+  generic: "ONVIF / RTSP",
 };
 
 /** First-run guide for the admin of a new install. Every step can be
@@ -196,11 +197,12 @@ function Cameras({ o }: { o: Onboarding }) {
           </ul>
         )}
         <p className="muted small">
-          Câmeras XMEye podem ser encontradas e testadas aqui. Para Hikvision, Dahua ou qualquer câmera RTSP, use no
-          servidor <code>sudo VENDOR=hikvision /opt/sentinela/scripts/add-camera.sh id IP "Nome"</code> (veja o guia de
-          instalação). As senhas ficam só no servidor.
+          Adicione câmeras de qualquer marca abaixo: com ONVIF (a maioria das câmeras IP) o Sentinela descobre os
+          endereços dos vídeos sozinho; Hikvision, Dahua e XMEye também têm modelos prontos. As senhas ficam só no
+          servidor.
         </p>
       </Step>
+      <CamerasEditor />
       <AddCameraCard />
     </div>
   );

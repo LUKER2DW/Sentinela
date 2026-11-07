@@ -49,6 +49,16 @@ export interface SettingsDoc {
   cameras: SettingsCamera[];
   volumes: SettingsVolume[];
 }
+/** One stream profile reported by the camera over ONVIF (no credentials). */
+interface OnvifStream {
+  token: string;
+  name: string;
+  encoding: string;
+  width: number;
+  height: number;
+  port: number;
+  path: string;
+}
 interface SettingsInfo {
   settings: SettingsDoc;
   vendors: string[];
@@ -57,7 +67,12 @@ interface SettingsInfo {
   host: boolean;
 }
 
-const vendorLabel: Record<string, string> = { xmeye: "XMEye", hikvision: "Hikvision", dahua: "Dahua", generic: "RTSP genérica" };
+const vendorLabel: Record<string, string> = {
+  generic: "Qualquer câmera (ONVIF / RTSP)",
+  xmeye: "XMEye / Xiongmai (com PTZ e luz)",
+  hikvision: "Hikvision",
+  dahua: "Dahua / Amcrest",
+};
 
 function useSettings() {
   return useQuery({
@@ -241,13 +256,13 @@ const blankCamera = (n: number): SettingsCamera => ({
   id: `cam${n}`,
   name: `Câmera ${n}`,
   host: "",
-  vendor: "xmeye",
+  vendor: "generic",
   channel: 1,
   rtsp_main: "",
   rtsp_sub: "",
   rtsp_port: 554,
   dvrip_port: 34567,
-  onvif_port: 0,
+  onvif_port: 80,
   retention_days: 0,
   record: true,
   record_audio: true,
@@ -263,10 +278,35 @@ export function CamerasEditor() {
   const { draft, setDraft, dirty, reset } = useDraft(q.data);
   const [open, setOpen] = useState<string | null>(null);
   const [remove, setRemove] = useState<string | null>(null);
+  const toast = useToast();
+  const [found, setFound] = useState<Record<string, OnvifStream[]>>({});
+  const discover = useMutation({
+    mutationFn: (c: SettingsCamera) =>
+      api<{ streams: OnvifStream[] }>("POST", "/api/cameras/onvif-streams", {
+        host: c.host,
+        onvif_port: c.onvif_port || 80,
+        user: c.user ?? "",
+        password: c.password ?? "",
+      }),
+    onError: (e: Error) => toast(`ONVIF: ${e.message}`, true),
+  });
   if (!draft) return <EditorUnavailable q={q} />;
   const known = new Set(q.data?.settings.cameras.map((c) => c.id));
   const setCam = (i: number, patch: Partial<SettingsCamera>) =>
     setDraft({ ...draft, cameras: draft.cameras.map((c, j) => (j === i ? { ...c, ...patch } : c)) });
+  // ONVIF fills the stream paths of any camera: the largest picture is the
+  // main stream, the next one the light stream.
+  const fromOnvif = (i: number) => {
+    const c = draft.cameras[i];
+    discover.mutate(c, {
+      onSuccess: (r) => {
+        const [main, sub] = r.streams;
+        setFound((f) => ({ ...f, [c.id]: r.streams }));
+        setCam(i, { vendor: "generic", rtsp_main: main.path, rtsp_sub: sub?.path ?? "", rtsp_port: main.port, onvif_port: c.onvif_port || 80 });
+        toast(`${r.streams.length} stream(s) encontrados pelo ONVIF`);
+      },
+    });
+  };
   const add = () => {
     let n = draft.cameras.length + 1;
     while (draft.cameras.some((c) => c.id === `cam${n}`)) n++;
@@ -336,6 +376,33 @@ export function CamerasEditor() {
                       placeholder={isNew ? "" : "deixe em branco para manter"}
                       hint="Fica só no servidor (secrets.env); nunca volta para o navegador."
                     />
+                  </div>
+                  <div className="onvif-discover">
+                    <button
+                      className="btn small"
+                      disabled={discover.isPending || !c.host || !c.user || !c.password}
+                      onClick={() => fromOnvif(i)}
+                      title={!c.password ? "Digite o usuário e a senha da câmera acima" : undefined}
+                    >
+                      <Icon name="scan" /> {discover.isPending ? "Procurando…" : "Descobrir os streams pelo ONVIF"}
+                    </button>
+                    <span className="muted small">
+                      Funciona com a maioria das câmeras IP (ONVIF): preenche os caminhos RTSP sozinho. Use o endereço, a porta
+                      ONVIF (geralmente 80) e o usuário e a senha da câmera.
+                    </span>
+                    {found[c.id] && (
+                      <ul className="onvif-found">
+                        {found[c.id].map((s, k) => (
+                          <li key={s.token}>
+                            <strong>{k === 0 ? "Principal" : k === 1 ? "Leve" : s.name}</strong> {s.encoding} {s.width}×{s.height}{" "}
+                            <code>
+                              :{s.port}
+                              {s.path}
+                            </code>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                   </div>
                   <button className="btn ghost small danger" onClick={() => setRemove(c.id)}>
                     <Icon name="trash" /> Remover câmera

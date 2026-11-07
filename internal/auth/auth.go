@@ -43,7 +43,7 @@ const (
 	saltLen      = 16
 )
 
-// argonSem bounds concurrent hashes so a login burst cannot exhaust 4 GB RAM.
+// argonSem bounds concurrent hashes so a login burst cannot exhaust a small host's RAM.
 var argonSem = make(chan struct{}, 2)
 
 // HashPassword returns a PHC-formatted argon2id hash.

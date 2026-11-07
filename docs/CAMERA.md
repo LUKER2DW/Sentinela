@@ -1,7 +1,11 @@
-# Camera: IPC_NT98566 (XMEye / Xiongmai)
+# XMEye / Xiongmai cameras: protocol notes
 
-Address: `192.168.1.20` (LAN). This file holds everything we know. Only
-commands listed here may be sent by the DVRIP driver.
+Sentinela works with any RTSP/ONVIF camera ([CAMERAS.md](CAMERAS.md)). This
+file is about the one family it also *controls*: XMEye/Xiongmai cameras,
+over the DVRIP protocol (PTZ, presets, white light, day/night, two-way
+audio). Its facts were measured on a reference unit, an `IPC_NT98566`
+module; other XMEye models may differ. Only commands listed here may be
+sent by the DVRIP driver.
 
 Measurements and firmware/config observations are dated evidence. They do
 not imply a fresh hardware check or completion of the hardening checklist.
@@ -18,7 +22,7 @@ version measured at their original date.
 | Audio | G.711 A-law (PCMA) 8 kHz mono | ONVIF + ffprobe |
 | ONVIF | Profile T media source; `SetUser` unsupported (password change fails) | v1 KNOWN_ISSUES #12 |
 | Control | PTZ only via DVRIP TCP 34567 (ONVIF PTZ not used) | v1 IPC_NT98566_PTZ.md |
-| Vendor client | VideoPlayTool desktop 4.0.3.3 (`Bin\VideoPlayToolVersion.ini`), web component 5.1.7.5 (`Web\WebVersion.txt`, modified 2026-11-06); `Bin\VideoPlayTool.exe` not Authenticode-signed; never executed by this project. Hashes and bundled components in §7.10 | v1; PC inventory 2026-11-06 |
+| Vendor client | VideoPlayTool desktop 4.0.3.3 (`Bin\VideoPlayToolVersion.ini`), web component 5.1.7.5 (`Web\WebVersion.txt`, modified 2026-11-06); `Bin\VideoPlayTool.exe` not Authenticode-signed; never executed by this project | v1; PC inventory 2026-11-06 |
 
 ### 1.1 RTSP URLs (XMEye convention)
 

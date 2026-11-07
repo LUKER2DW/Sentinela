@@ -2801,3 +2801,6 @@ textarea.input { height: auto; padding: 9px 12px; resize: vertical; line-height:
 .settings-sub { margin: 6px 0 0; font-size: 1rem; }
 .settings-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; border-top: 1px solid var(--line); padding-top: 12px; }
 .settings-actions .spacer { flex: 1; }
+.onvif-discover { display: grid; gap: 6px; justify-items: start; padding: 10px 12px; border-radius: var(--r-md); border: 1px dashed var(--line); }
+.onvif-found { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 4px; font-size: 0.9rem; }
+.onvif-found code { overflow-wrap: anywhere; }

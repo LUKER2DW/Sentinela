@@ -26,13 +26,14 @@ the Sentinela runtime, and the driver's camera-write allow-list is unchanged.
   `/usr/bin/Squirrel/rs485/TransparentBase`. If that key cannot be loaded the
   check is skipped (fail-open). A modified package on the production camera
   is therefore expected to be rejected while the key file is present, but this
-  is not yet tested; test it only on the spare unit (`docs/CAMERA.md` §7.9).
+  is not yet tested; test it only on a spare unit.
   Production upgrades stay forbidden (`docs/CAMERA.md` §1.3).
 - Novatek's SDK blobs are binary-only and their redistribution rights are
   unknown; kernel/U-Boot are GPL and belong in a separate repository, not in
   this MIT one.
 - 2026-11-06: static reading of the vendor package (no execution, no network,
-  no camera contact) is done; results in `docs/CAMERA.md` §7. Any further
-  analysis stays static until the spare unit is backed up.
+  no camera contact) is done; the detailed results are kept in the
+  maintainers' notes. Any further analysis stays static until a spare unit
+  is backed up.
 
 Sources: the maintainers' research notes (not part of the public repository).

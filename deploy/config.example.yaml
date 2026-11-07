@@ -57,24 +57,33 @@ remote:
 #   cpus: 0.5                       # per service default; services weigh less than the NVR
 #   runtimes: {node: "node:22-alpine@sha256:…"}   # pin base images if wanted
 
-cameras:
-  # Any number of cameras. Credentials live in secrets.env under the names
-  # given by user_env/password_env. go2rtc's streams are generated from this
-  # list (scripts/gen-go2rtc-cameras.sh); scripts/add-camera.sh appends one.
-  - id: cam1                      # also the go2rtc stream name (cam1, cam1_sub)
-    name: Front
-    host: 192.168.1.20
-    vendor: xmeye                   # xmeye | hikvision | dahua | generic
-    # channel: 1                    # channel of an NVR/DVR
-    # rtsp_main: /stream1           # own stream paths (required for generic)
-    # rtsp_sub: /stream2
-    # preload: true                 # keep the main stream open for a fast live view
-    user_env: CAM1_USER
-    password_env: CAM1_PASS
-    rtsp_port: 554
-    dvrip_port: 34567               # xmeye only: PTZ, presets, light, two-way audio
-    onvif_port: 8899                # events; default 8899 for xmeye, 80 otherwise
-    retention_days: 0               # 0 = until the disk is full
-    record_audio: true              # audio is AAC-encoded (ADR-0006); false = pure copy
-    invert_pan_tilt: false          # true for a unit mounted flipped + mirrored
-    # invert_tilt: false            # per axis: image mirrored but not flipped
+# Cameras: any number, any brand. The easiest way to add them is the browser
+# (System -> Câmeras, or the first-run guide): it can find a camera's streams
+# over ONVIF. Credentials live in secrets.env under the names given by
+# user_env/password_env; go2rtc's streams are generated from this list.
+cameras: []
+# Example entries (replace "cameras: []" with a list like this):
+#
+#   - id: front                   # also the go2rtc stream name (front, front_sub)
+#     name: Front door
+#     host: 192.168.1.20
+#     vendor: generic             # generic (ONVIF / RTSP) | xmeye | hikvision | dahua
+#     rtsp_main: /stream1         # stream paths (generic; found over ONVIF in the browser)
+#     rtsp_sub: /stream2          # optional lighter stream for grids and phones
+#     rtsp_port: 554
+#     onvif_port: 80              # events; default 80, 8899 for xmeye
+#     user_env: FRONT_USER
+#     password_env: FRONT_PASS
+#     record_audio: true          # audio is AAC-encoded (ADR-0006); false = pure copy
+#     retention_days: 0           # 0 = until the disk is full
+#     # channel: 1                # channel of an NVR/DVR
+#     # preload: true             # keep the main stream open for a fast live view
+#
+#   - id: garage                  # an XMEye/Xiongmai camera also gets PTZ, presets,
+#     name: Garage                # white light and two-way audio over DVRIP
+#     host: 192.168.1.21
+#     vendor: xmeye
+#     dvrip_port: 34567
+#     user_env: GARAGE_USER
+#     password_env: GARAGE_PASS
+#     # invert_pan_tilt: true     # for a unit mounted upside down

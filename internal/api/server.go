@@ -187,6 +187,7 @@ func (s *Server) handler(zone string) http.Handler {
 	mux.Handle("PUT /api/onboarding", admin(s.putOnboarding))
 	mux.Handle("POST /api/cameras/discover", admin(s.discoverCameras))
 	mux.Handle("POST /api/cameras/test", admin(s.testCamera))
+	mux.Handle("POST /api/cameras/onvif-streams", admin(privateOnly(s.onvifStreams)))
 
 	// Cameras and control
 	mux.Handle("GET /api/cameras", viewer(s.listCameras))

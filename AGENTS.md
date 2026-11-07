@@ -5,20 +5,22 @@ Cursor, etc.) works in this repository. Read it fully before changing code.
 
 ## 1. Project in one paragraph
 
-Sentinela is a home NVR for RTSP cameras, with full control of
-XMEye/Xiongmai cameras. A single Go binary
+Sentinela is a home NVR for any RTSP/ONVIF camera (streams found over ONVIF
+or vendor presets), with full control of XMEye/Xiongmai cameras over DVRIP.
+A single Go binary
 (`cmd/sentinela`) owns the API, auth, camera control (DVRIP + ONVIF),
 recording supervision, retention and the SQLite index. **go2rtc** handles all
 live media (RTSP ingest, WebRTC/MSE out, two-way audio). **ffmpeg** copies
 recorded video; optional audio conversion is ADR-0006. A React + Vite SPA is served by the Go binary.
-Minimum host: x86-64 with 2 cores and no HEVC hardware decode, 4 GB RAM, a
+Minimum host: x86-64 with 2 cores and no HEVC hardware decode, 1 GB RAM, a
 dedicated recordings disk, Ubuntu 22.04+ or Debian 12+. Every budget below
 holds on that host.
 
 ## 2. Hard constraints (never violate)
 
-1. **No transcoding on the server.** Video is H.265 and the CPU has no HEVC
-   hardware decode. Every media path is copy/remux only. Any change that
+1. **No transcoding on the server.** Cameras send H.264 or H.265 and the
+   minimum host has no hardware video decode. Every media path is
+   copy/remux only. Any change that
    decodes video must come with a measured CPU budget and an ADR. Existing
    substream exceptions are event snapshots (ADR-0015) and the motion-gated
    detector (ADR-0016); timeline previews remain copy-only.
@@ -29,7 +31,7 @@ holds on that host.
    - Go binary: ≤ 80 MB RSS, ≤ 3 % CPU.
    - go2rtc: ≤ 100 MB RSS.
    - Per-camera recorder: ≤ 3 % CPU.
-   - Total stack: ≤ 600 MB RSS so it fits 4 GB with OS cache.
+   - Total stack: ≤ 600 MB RSS so it fits a 1 GB host next to the OS.
 4. **Secrets never leave the server.** Camera credentials, RTSP URLs with
    userinfo, session tokens: never in logs, API responses, frontend bundles,
    git, or error messages. Use `internal/auth/redact` helpers.

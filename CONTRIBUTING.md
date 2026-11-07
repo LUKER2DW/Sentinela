@@ -19,11 +19,14 @@ These come from [AGENTS.md](AGENTS.md), which is the full contributor guide:
    decodes video needs a measured CPU budget and an ADR in `docs/adr/`.
 2. **Recording never depends on anything else.** If the web app, the
    database or go2rtc stop, recording continues.
-3. **Stay inside the budget:** the Go binary ≤ 80 MB RAM and ≤ 3 % CPU, the
-   whole stack ≤ 600 MB, on an old 4 GB machine.
+3. **Stay inside the budget** of the minimum host (2 CPU cores without
+   hardware video decode, 1 GB RAM): the Go binary ≤ 80 MB RAM and ≤ 3 % CPU
+   per camera, the whole stack ≤ 600 MB.
 4. **Secrets stay on the server.** Never log, return or commit camera
    passwords, RTSP URLs with credentials or tokens.
-5. **Camera writes are allow-listed** in [docs/CAMERA.md](docs/CAMERA.md).
+5. **Work with any camera.** Prefer ONVIF and RTSP standards over vendor
+   protocols; vendor-specific camera writes are allow-listed (XMEye:
+   [docs/CAMERA.md](docs/CAMERA.md)).
 6. **Keep it small.** No new service, database or queue without an ADR.
 7. **Nothing site-specific.** No real addresses or names; everything is
    configurable with a generic default.

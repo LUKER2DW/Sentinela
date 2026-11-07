@@ -1,8 +1,8 @@
 # Installing Sentinela
 
 A step-by-step guide from a blank PC to a recording NVR with live view,
-playback, the Android app and remote access. It follows the household
-deployment; replace the example addresses with your own.
+playback, the Android app and remote access. Replace the example addresses
+with your own.
 
 | Example value | Meaning |
 |---|---|
@@ -14,16 +14,18 @@ deployment; replace the example addresses with your own.
 
 The rules behind every step are in [AGENTS.md](../AGENTS.md),
 [SECURITY.md](SECURITY.md) and the ADRs. Do not skip the security steps:
-the camera firmware is untrusted and the server holds its credentials.
+camera firmware is untrusted and the server holds the cameras' credentials.
 
 ---
 
 ## 1. What you need
 
 **Server.** Any x86-64 PC that runs Ubuntu Server 22.04+ or Debian 12+.
-Minimum: 2 CPU cores, 4 GB RAM (8 GB if you enable object detection or
-self-hosted services). The server never decodes the main stream, so an
-old CPU without HEVC hardware decode is enough.
+Minimum: 2 CPU cores and 1 GB RAM for up to about 3 cameras with object
+detection; 2 GB for more cameras or self-hosted services. Measured with one
+camera and detection on, the whole server uses about 520 MB, and each extra
+camera adds roughly 60–100 MB. The server never decodes the main stream, so
+an old CPU without HEVC hardware decode is enough.
 
 **Disks.** Use separate mounts:
 
@@ -37,11 +39,14 @@ Size `/data` for your cameras: one stream at ~2 Mbit/s writes about
 20 GB per day. By default recordings fill the disk and the oldest are
 overwritten (`max_disk_percent`); `retention_days` caps the age instead.
 
-**Network.** Wired Gigabit for the server and the camera. A DHCP
-reservation (or static address) for both.
+**Network.** Wired Ethernet for the server; cameras wired or on good
+Wi-Fi. A DHCP reservation (or static address) for the server and each
+camera.
 
-**Camera.** An XMEye/Xiongmai IP camera with RTSP on 554, DVRIP on 34567 and
-ONVIF (8899 on the reference unit). H.265 main stream is expected.
+**Cameras.** Any IP camera, NVR or DVR that serves RTSP (H.264 or H.265).
+ONVIF lets Sentinela find the streams and receive motion events by itself;
+XMEye/Xiongmai cameras also get PTZ, light and two-way audio. See
+[CAMERAS.md](CAMERAS.md).
 
 **Development PC** (for updates and the Android app): Git, Docker Desktop
 (or Docker Engine), Go 1.26, Node.js 22 with npm, an SSH key for the
@@ -49,25 +54,22 @@ server and, for the app, JDK 21 and the Android SDK.
 
 ---
 
-## 2. Prepare the camera
+## 2. Prepare the cameras
 
-1. In the camera's own web page or the XMEye app, set a new admin password.
-   It must not contain `& ? / # %` or spaces: the camera reads the RTSP URL
-   literally and those characters break it.
-2. Turn off Cloud/P2P and UPnP.
-3. Give the camera a fixed address (DHCP reservation on the router).
-4. Optional but recommended: run the read-only audit from any LAN PC and
-   keep the output private (it is git-ignored):
+1. In each camera's own web page or app, set a strong password. Avoid
+   `: @ / ? # %` and spaces (XMEye: `& ? / # %` and spaces): they end up in
+   the RTSP URL.
+2. Turn ONVIF on if the camera has it (some brands need a separate ONVIF
+   user). It lets Sentinela find the streams and receive motion events.
+3. Turn off Cloud/P2P and UPnP.
+4. Give each camera a fixed address (DHCP reservation on the router).
+5. After the server is installed (step 4), point the cameras' NTP at the
+   server's IP and block all WAN traffic from the cameras on the router.
 
-   ```bash
-   ./scripts/camera-audit.sh 192.168.1.20 admin
-   ```
-
-   The password is asked silently. Compare the result with
-   [CAMERA.md](CAMERA.md) §3.
-5. After the server is installed (step 4), point the camera's NTP at the
-   server's IP and block all WAN traffic from the camera on the router.
-   The full checklist is [CAMERA.md](CAMERA.md) §4.
+You add the cameras in the browser after installing (section 5). Details,
+presets and common stream paths: [CAMERAS.md](CAMERAS.md). XMEye cameras
+also have a read-only audit script and a hardening checklist in
+[CAMERA.md](CAMERA.md).
 
 ---
 
@@ -117,9 +119,9 @@ The installer is idempotent. It:
 
 1. installs Docker Engine and the Compose plugin;
 2. creates `/etc/sentinela/config.yaml` from
-   [deploy/config.example.yaml](../deploy/config.example.yaml) and asks for
-   the camera user and password (typed silently, stored only in
-   `/etc/sentinela/secrets.env`, mode 0600);
+   [deploy/config.example.yaml](../deploy/config.example.yaml), with no
+   cameras yet, and an empty `/etc/sentinela/secrets.env` (mode 0600) for
+   the cameras' credentials;
 3. prepares `/data` (owned by UID 1000, the containers' user);
 4. sets kernel write-back limits, serves NTP to the LAN (chrony), installs
    the SMART timer, applies the firewall, and sets up Samba and backups
@@ -128,33 +130,26 @@ The installer is idempotent. It:
    `go2rtc` and `detector` (plus `apps` once section 13 is enabled);
 6. waits for the health check.
 
-Then review `/etc/sentinela/config.yaml`:
+Everything else is configured in the browser (next section): cameras,
+recording and retention, time zone and disks. Every option is also
+documented in [deploy/config.example.yaml](../deploy/config.example.yaml)
+for those who prefer editing `/etc/sentinela/config.yaml` by hand (then run
+`./scripts/deploy.sh`, or `cd /opt/sentinela/deploy && sudo docker compose
+up -d` on the server).
 
-- `cameras[0].host`: the camera address; `name`: shown in the UI.
-- `invert_pan_tilt` / `invert_pan` / `invert_tilt`: set if PTZ arrows move
-  the wrong way (a camera mounted upside down).
-- `record_audio`: `true` stores AAC audio (ADR-0006); `false` is a pure copy.
-- `recording.default_retention_days`, `alert_retention_days`,
-  `max_disk_percent`: retention.
-
-After editing, apply it:
-
-```bash
-cd /opt/sentinela/deploy && sudo docker compose up -d
-```
-
-The first build on an old CPU takes several minutes. Later updates are
-built on the development PC instead (section 11).
+The first build on an old CPU takes several minutes. Later updates come
+from releases or are built on a development PC (section 11).
 
 ---
 
 ## 5. First login
 
 1. Open `http://192.168.1.10:8080` on the LAN. The first visit creates the
-   **admin** account.
-2. In **My account** (*Minha conta*), enroll **two-step login** (TOTP) with
-   an authenticator app. It is mandatory for remote logins, and it can only
-   be enrolled from home.
+   **admin** account, then a setup guide walks you through adding the
+   cameras (any brand; ONVIF finds the streams), recording, the file share,
+   remote access, the app and two-step login. Every step can be skipped.
+2. Two-step login (TOTP) is optional and recommended if you open access from
+   the internet; enroll it from home in **System → Minha conta**.
 3. Check **Live** (*Ao vivo*): the picture should open in about a second.
 4. After 5–10 minutes, check **Recordings** (*Gravações*): the day ribbon
    fills and playback works.

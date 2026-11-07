@@ -8,6 +8,13 @@ Third-party code adapted into this repository is listed here with its licence.
 Runtime dependencies (not bundled in the binary): go2rtc (MIT, AlexxIT),
 FFmpeg (LGPL/GPL, Debian package inside the container image).
 
+The published server image (ghcr.io/luker2dw/sentinela) contains Debian
+packages, among them FFmpeg and its libraries under the GPL/LGPL. Their
+complete corresponding source is available from the Debian archive for the
+same package versions (https://sources.debian.org, or `apt-get source
+ffmpeg` on the image's Debian release); the versions are listed in the
+image's SBOM attached to each release.
+
 Object detector image (detector/, ADR-0016), built locally, not
 redistributed: ONNX Runtime (MIT, Microsoft), PyAV (BSD-3-Clause) with its
 bundled FFmpeg (LGPL), NumPy (BSD-3-Clause). The model is Ultralytics

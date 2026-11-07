@@ -130,13 +130,16 @@ Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 | | Minimum |
 |---|---|
-| Server | x86-64, 2 cores (no HEVC hardware decode needed), 4 GB RAM (8 GB with detection or self-hosted services) |
+| Server | x86-64, 2 cores (no HEVC hardware decode needed), 1 GB RAM for up to about 3 cameras with detection; 2 GB for more cameras or self-hosted services |
 | OS | Ubuntu Server 22.04+ or Debian 12+, with Docker |
 | Disks | A dedicated disk for recordings at `/data`; optional disks for the file share and backups |
 | Cameras | RTSP (H.264/H.265); XMEye cameras also get PTZ and light control |
 | Network | Wired LAN; fixed addresses (DHCP reservations) for the server and cameras |
 
-One stream at ~2 Mbit/s writes about 20 GB per day.
+Measured with one camera and detection on, the whole server (OS, Docker,
+Tailscale, file share and Sentinela) uses about 520 MB of RAM and under 5 %
+of one core; each extra camera adds roughly 60–100 MB. One stream at
+~2 Mbit/s writes about 20 GB per day.
 
 ## Quick start
 
