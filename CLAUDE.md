@@ -20,5 +20,3 @@
 - The APK is generic (pairing codes carry address and pin). A household
   default server, if wanted, belongs in `~/.sentinela-android/connection.json`;
   follow the release rules in AGENTS.md.
-- The user writes in Portuguese; code, comments, commits and docs are in
-  English.
