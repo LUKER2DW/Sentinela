@@ -1,0 +1,38 @@
+name: Bug report
+description: Something does not work as documented
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! **Security problems go to the Security tab, not here** (see SECURITY.md).
+        Remove passwords, public addresses and RTSP URLs from anything you paste.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what you saw instead.
+    validations: {required: true}
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `sentinela version`, or the commit you deployed.
+    validations: {required: true}
+  - type: input
+    id: camera
+    attributes:
+      label: Camera
+      description: Brand, model and `vendor` in config.yaml (xmeye, hikvision, dahua, generic).
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where
+      multiple: true
+      options: [Recording, Live view, Events / detection, Nuvem (files), Android app, Install / deploy, Other]
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: "`cd /opt/sentinela/deploy && sudo docker compose logs --tail=100 <service>` (secrets removed)."
+      render: text

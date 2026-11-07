@@ -1,0 +1,20 @@
+name: Feature request
+description: Suggest an idea
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do, and why is it hard today?
+    validations: {required: true}
+  - type: textarea
+    id: idea
+    attributes:
+      label: Your idea
+      description: How could Sentinela help? Remember the rules in CONTRIBUTING.md (no transcoding, small footprint).
+  - type: textarea
+    id: elsewhere
+    attributes:
+      label: Seen elsewhere?
+      description: Other NVRs or apps that do this well.

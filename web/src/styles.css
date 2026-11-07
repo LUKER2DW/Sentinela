@@ -2757,3 +2757,6 @@ textarea.input { height: auto; padding: 9px 12px; resize: vertical; line-height:
 .remote-choice { display: grid; gap: 4px; padding: 12px; border-radius: var(--r-md); border: 1px solid var(--line); }
 .remote-choice.on { border-color: var(--sea); background: var(--sea-soft); }
 .remote-choice code { overflow-wrap: anywhere; }
+.pairing { min-width: 0; }
+.pairing .copy-field { max-width: 100%; min-width: 0; }
+.pairing .copy-field code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

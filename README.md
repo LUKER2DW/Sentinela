@@ -9,7 +9,16 @@ Live view, 24/7 recording, events and object detection, a file server and an
 Android app, in one small Go binary next to go2rtc and FFmpeg.
 
 [![CI](https://github.com/LUKER2DW/Sentinela/actions/workflows/ci.yml/badge.svg)](https://github.com/LUKER2DW/Sentinela/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/LUKER2DW/Sentinela?sort=semver)](https://github.com/LUKER2DW/Sentinela/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Go](https://img.shields.io/github/go-mod/go-version/LUKER2DW/Sentinela)](go.mod)
+
+[Features](#features) · [Quick start](#quick-start) · [Android app](#android-app) · [Docs](#documentation) · [Contributing](CONTRIBUTING.md)
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/login-dark.jpg" />
+  <img src="docs/images/login-light.jpg" width="800" alt="Sentinela's sign-in page: a hand-drawn lighthouse by the sea next to the login form" />
+</picture>
 
 </div>
 
@@ -41,6 +50,8 @@ cameras to someone else's cloud. Sentinela does neither:
   streams, grids, full screen, push-to-talk two-way audio (XMEye).
 - PTZ with press-and-hold controls, saved positions, **preset tours**, white
   light and day/night mode (XMEye, over an allow-listed DVRIP driver).
+- A first-run setup guide: cameras, recording, file share, remote access,
+  the app and two-step login, each step skippable.
 
 **Recording and review**
 - 24/7 copy-only recording in 5-minute fragmented MP4 files.
@@ -67,12 +78,29 @@ cameras to someone else's cloud. Sentinela does neither:
 - Hardened by default: see [SECURITY.md](SECURITY.md).
 
 **Extras**
-- Android app (Capacitor) with notifications and in-app updates.
+- Android app (Capacitor): one APK for every house, paired by QR code, with
+  notifications, an app lock and in-app updates.
 - Optional **self-hosted services**: run your own projects from GitHub or a
   Nuvem folder (script, Dockerfile or Compose) as capped, isolated
   containers next to the NVR.
 - Nightly database/config backups, optional restic copy, and a restore
   drill.
+
+## A look around
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/images/setup-welcome.jpg" alt="First-run setup guide, welcome step" /><br /><sub><b>First-run guide.</b> After the admin account, a short tour sets up the rest; every step can be skipped.</sub></td>
+    <td width="50%"><img src="docs/images/setup-cameras.jpg" alt="Setup guide, cameras step" /><br /><sub><b>Cameras of any brand.</b> XMEye cameras are found and tested on the LAN; others are added by vendor or RTSP path.</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/images/setup-remote.jpg" alt="Setup guide, remote access step" /><br /><sub><b>Remote access, your choice.</b> Home only, Tailscale, or one HTTPS port, explained in place.</sub></td>
+    <td width="50%"><img src="docs/images/app-pairing.jpg" alt="Pairing QR codes for the Android app" /><br /><sub><b>One app for every house.</b> Point the phone at a QR code; the app checks the house's certificate.</sub></td>
+  </tr>
+</table>
+
+The interface is in Brazilian Portuguese, with light, dark and automatic
+themes and six colour palettes.
 
 ## How it works
 
@@ -127,6 +155,21 @@ firewall, starts the containers and prints the address. Open
 
 The full guide, from preparing the camera to remote access, backups and
 troubleshooting, is **[docs/INSTALL.md](docs/INSTALL.md)**.
+
+Prefer not to build anything? Each [release](https://github.com/LUKER2DW/Sentinela/releases)
+publishes the server image `ghcr.io/luker2dw/sentinela` with an SBOM and
+build provenance, a Linux binary and the Android app
+([docs/RELEASING.md](docs/RELEASING.md#using-a-published-image-on-a-server)).
+
+## Android app
+
+One APK works with every Sentinela server. Install it from a release, open
+it, and on a computer go to **Minha conta → Aplicativo**: point the phone's
+camera at the QR code and confirm. The code carries the house's address and,
+for a self-signed certificate, its fingerprint, so the app trusts exactly
+that server and nothing else. Notifications arrive through Firebase when you
+build the app with your own Firebase project, or through a direct connection
+otherwise ([INSTALL §10](docs/INSTALL.md#10-android-app)).
 
 ## Configuration
 
@@ -202,6 +245,15 @@ Read [AGENTS.md](AGENTS.md) before contributing: it lists the hard rules
 conventions. Changes are small, one concern per commit, with
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## Contributing
+
+Issues and pull requests are welcome. Please read
+[CONTRIBUTING.md](CONTRIBUTING.md) first: Sentinela has a few hard rules
+(no transcoding, recording first, a small footprint) that keep it running on
+old hardware. Security reports go to the **Security** tab, see
+[SECURITY.md](SECURITY.md). Everyone is expected to follow the
+[code of conduct](CODE_OF_CONDUCT.md).
+
 ## Documentation
 
 | Document | Contents |
@@ -211,6 +263,8 @@ conventions. Changes are small, one concern per commit, with
 | [docs/SECURITY.md](docs/SECURITY.md) | Threat model and security rules |
 | [docs/CAMERA.md](docs/CAMERA.md) | XMEye protocol facts and the allow-listed commands |
 | [docs/adr/](docs/adr/) | Architecture decision records |
+| [docs/RELEASING.md](docs/RELEASING.md) | Versions, published images and the APK |
+| [CHANGELOG.md](CHANGELOG.md) | What changed in each version |
 | [AGENTS.md](AGENTS.md) | Rules for contributors and coding agents |
 
 ## License
