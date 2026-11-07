@@ -158,7 +158,8 @@ troubleshooting, is **[docs/INSTALL.md](docs/INSTALL.md)**.
 
 Prefer not to build anything? Each [release](https://github.com/LUKER2DW/Sentinela/releases)
 publishes the server image `ghcr.io/luker2dw/sentinela` with an SBOM and
-build provenance, a Linux binary and the Android app
+build provenance, a Linux binary and the signed Android app, which your
+server then offers to the phones by itself
 ([docs/RELEASING.md](docs/RELEASING.md#using-a-published-image-on-a-server)).
 
 ## Android app

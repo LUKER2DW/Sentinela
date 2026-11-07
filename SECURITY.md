@@ -63,7 +63,10 @@ In short:
   Compose files are checked (no privileged mode, host namespaces, devices,
   extra capabilities, or binds outside the project, symlinks included).
 - **Supply chain.** Pinned images and actions, `govulncheck` and
-  `staticcheck` in CI, no secrets in CI, no self-hosted runners.
+  `staticcheck` in CI, no self-hosted runners. The only secret in CI is the
+  Android signing key, readable only by the release job of a version tag.
+  Releases carry an SBOM, build provenance and SHA-256 checksums; servers
+  offer a new APK only when it matches its release's checksum.
 
 ## For operators
 

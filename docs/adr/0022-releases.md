@@ -1,6 +1,6 @@
 # ADR-0022: Versioned releases and a published server image
 
-Status: accepted (2026-11-07). Amends ADR-0010 (CI only).
+Status: accepted (2026-11-07). Amends ADR-0010 (CI only) and ADR-0011 (APK built on the dev PC).
 
 ## Context
 
@@ -18,18 +18,32 @@ deploys, uses a self-hosted runner or holds secrets for a server.
     with an SBOM and a build-provenance attestation;
   - a Linux amd64 binary with the web app embedded, with `SHA256SUMS`;
   - the GitHub release, with notes generated from the commits.
-- The workflow uses only its own `GITHUB_TOKEN` (packages and contents
-  write). It never deploys and never sees server or signing secrets.
-- The generic Android APK is built and signed on the maintainer's machine
-  (`SENTINELA_GENERIC_APK=1 ./scripts/build-apk.sh`) and attached to the
-  release by hand: the signing key never leaves that machine.
+- The generic Android APK is built and signed in the same run, with the
+  version taken from the tag (code = major·10000 + minor·100 + patch), and
+  attached with an `app.json` (version, size, SHA-256). Android accepts an
+  update only when it is signed with the same key, so the key is fixed: it
+  lives as secrets of the `release` environment (`ANDROID_KEYSTORE_B64`,
+  `ANDROID_KEYSTORE_PASSWORD`, optional `ANDROID_GOOGLE_SERVICES_JSON`),
+  which only this job can read; pull requests and forks never see them.
+  Once public, the environment requires the maintainer's approval and only
+  runs for `v*` tags.
+- Servers mirror the app (`app_updates.github`, default the project's
+  repository): every 6 hours they read the latest release, download the APK
+  when its `app.json` is newer, check size and SHA-256, and offer it to the
+  phones through `/api/app/latest`. Phones keep updating from their own
+  house.
+- The workflow never deploys and never sees server secrets.
 - Installs keep building locally by default; a server may use a published
   image instead (docs/RELEASING.md).
 
 ## Consequences
 
 + A known, attested version for anyone, without a build toolchain.
-+ No new secrets and no deploy path from CI.
++ No server secrets and no deploy path from CI.
+− The signing key is now held by GitHub as an environment secret: a
+  compromised maintainer account could sign an update. Mitigations: the
+  environment's approval rule, two-factor login on the account, and servers
+  only offering an APK whose SHA-256 matches the release's app.json.
 − The image is linux/amd64 only (the target host class); ARM builds are a
   later decision with their own budget measurements.
 − The detector image is still built locally (large, optional).

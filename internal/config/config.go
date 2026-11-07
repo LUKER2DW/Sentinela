@@ -44,6 +44,8 @@ type Config struct {
 	PushSubject string `yaml:"push_subject"`
 	// Remote holds the access paths of the ADR-0019 trial. All off by default.
 	Remote Remote `yaml:"remote"`
+	// AppUpdates: where the Android app's new versions come from.
+	AppUpdates AppUpdates `yaml:"app_updates"`
 	// Apps are self-hosted services deployed from GitHub (ADR-0021).
 	Apps Apps `yaml:"apps"`
 }
@@ -108,6 +110,19 @@ var DefaultRuntimes = map[string]string{
 	"static":      "busybox:1.37",
 	"shell":       "alpine:3.22",
 }
+
+// AppUpdates configures the Android app update mirror (ADR-0022).
+type AppUpdates struct {
+	// GitHub is the "owner/repo" whose latest release (sentinela.apk +
+	// app.json) the server offers to the app; "none" turns it off and
+	// leaves only scripts/publish-apk.sh.
+	GitHub string `yaml:"github"`
+}
+
+// DefaultAppRepo is the project's public repository.
+const DefaultAppRepo = "LUKER2DW/Sentinela"
+
+var repoPattern = regexp.MustCompile(`^[A-Za-z0-9-]{1,39}/[A-Za-z0-9._-]{1,100}$`)
 
 // Remote configures the ADR-0019 trial paths. Requests on FunnelListen and
 // Public.Listen are in a public zone (mandatory 2FA, closed door).
@@ -341,6 +356,7 @@ func (c *Config) applyDefaults() {
 	defInt(&c.Recording.MaxDiskPercent, 95)
 	defInt(&c.Recording.StallSeconds, 20)
 	def(&c.Recording.VolumeMarker, DefaultVolumeMarker)
+	def(&c.AppUpdates.GitHub, DefaultAppRepo)
 	for i := range c.Cameras {
 		cam := &c.Cameras[i]
 		def(&cam.Name, cam.ID)
@@ -367,6 +383,9 @@ func (c *Config) validate() error {
 	}
 	if c.Recording.MaxDiskPercent < 50 || c.Recording.MaxDiskPercent > 98 {
 		errs = append(errs, errors.New("recording.max_disk_percent must be 50..98"))
+	}
+	if r := c.AppUpdates.GitHub; r != "none" && !repoPattern.MatchString(r) {
+		errs = append(errs, errors.New(`app_updates.github must be "owner/repo" or "none"`))
 	}
 	if m := c.Recording.VolumeMarker; m != "none" && (filepath.IsAbs(m) || !filepath.IsLocal(filepath.FromSlash(m))) {
 		errs = append(errs, errors.New(`recording.volume_marker must be a file inside data_dir, or "none"`))

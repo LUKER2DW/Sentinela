@@ -150,6 +150,8 @@ func serve(ctx context.Context, log *slog.Logger, cfgPath string) error {
 	wg.Add(2)
 	go func() { defer wg.Done(); maintenance(ctx, log, cfg, st, srv) }()
 	go func() { defer wg.Done(); srv.WatchDetector(ctx) }()
+	wg.Add(1)
+	go func() { defer wg.Done(); srv.MirrorAppReleases(ctx) }()
 
 	servers := []*http.Server{{Addr: cfg.Listen, Handler: srv.Handler()}}
 	// ADR-0019 trial: public listeners, mandatory 2FA and the closed door.

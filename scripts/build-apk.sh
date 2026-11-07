@@ -62,9 +62,17 @@ npm run sync --silent >/dev/null
 echo "==> gradle assembleRelease (signed by Gradle with the key above)"
 (cd android && ./gradlew assembleRelease --no-daemon -q)
 
-# Refuse to publish a build whose generated constants lost the certificate
-# pin (for example when a build environment variable was silently omitted).
-node -e 'const fs=require("node:fs"); const b=fs.readFileSync("android/app/build/generated/source/buildConfig/release/casa/sentinela/app/BuildConfig.java","utf8"); if(!/PUBLIC_CERT_SHA256 = "[0-9a-f]{64}";/.test(b)) throw new Error("Release BuildConfig has no valid certificate pin")'
+# A default server, when built in, must come with a well-formed pin or none;
+# a generic build must carry neither.
+node -e '
+const fs = require("node:fs");
+const b = fs.readFileSync("android/app/build/generated/source/buildConfig/release/casa/sentinela/app/BuildConfig.java", "utf8");
+const url = (b.match(/DOMAIN_URL = "([^"]*)";/) || [])[1];
+const pin = (b.match(/PUBLIC_CERT_SHA256 = "([^"]*)";/) || [])[1];
+if (url === undefined || pin === undefined) throw new Error("BuildConfig lacks DOMAIN_URL / PUBLIC_CERT_SHA256");
+if (pin && !/^[0-9a-f]{64}$/.test(pin)) throw new Error("Release BuildConfig has a malformed certificate pin");
+if (process.env.SENTINELA_GENERIC_APK === "1" && (url || pin)) throw new Error("Generic APK carries a default server");
+'
 
 mkdir -p build
 cp android/app/build/outputs/apk/release/app-release.apk build/sentinela.apk

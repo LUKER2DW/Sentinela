@@ -43,6 +43,7 @@ The first public release. Highlights of what is in it:
 - Nightly database and config backups, optional restic copy and a restore
   drill.
 - Releases publish a server image with SBOM and provenance, a Linux binary
-  and the APK.
+  and the signed APK; servers pick up new app versions from the latest
+  release and offer them to the phones.
 
 [Unreleased]: https://github.com/LUKER2DW/Sentinela/commits/main

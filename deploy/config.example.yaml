@@ -7,6 +7,11 @@ go2rtc_api: http://127.0.0.1:1984
 # session cookies. true forces them on plain HTTP too, which breaks LAN logins.
 secure_cookies: false
 
+# Android app updates: the server offers the newest APK of this repository's
+# releases to the phones (checked every 6 h). "none" = publish-apk.sh only.
+app_updates:
+  github: LUKER2DW/Sentinela
+
 timezone: UTC                       # IANA zone for schedules shown to people, e.g. Europe/Lisbon
 
 recording:

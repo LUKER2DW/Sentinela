@@ -106,9 +106,12 @@ scripts/              operator scripts (audit, backup)
    conta → Aplicativo), confirmed by the person before the app switches.
    A household build may carry a default server in
    `~/.sentinela-android/connection.json` (outside Git); a pin always comes
-   with its address. `SENTINELA_GENERIC_APK=1` builds the APK for anyone.
-   Sign with the existing keystore, then publish. An APK-only change does
-   not require restarting the NVR stack. Never bypass TLS validation.
+   with its address. Releases build and sign the generic APK in CI with the
+   app's fixed key from the `release` environment (ADR-0022); servers
+   mirror it from the latest release. A local build
+   (`SENTINELA_GENERIC_APK=1 ./scripts/build-apk.sh` + `publish-apk.sh`)
+   uses the same key. An APK-only change does not require restarting the
+   NVR stack. Never bypass TLS validation.
 
 ## 6. Coding conventions
 
