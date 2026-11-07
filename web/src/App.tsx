@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { t, useLang } from "./lib/i18n";
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, fetchSystem, get, onUnauthorized, setCsrf, type ReviewList, type User } from "./lib/api";
 import { href, navigate, useRoute } from "./lib/router";
@@ -59,6 +60,7 @@ async function bootstrap(): Promise<Boot> {
 }
 
 export function App() {
+  const lang = useLang();
   const [boot, setBoot] = useState<Boot>({ kind: "loading" });
 
   const load = useCallback(() => {
@@ -85,7 +87,7 @@ export function App() {
       <AuthPage mode="login" onDone={() => {}} downMessage={boot.message} onRetry={load} />
     );
   if (boot.kind !== "ready")
-    return <AuthPage mode={boot.kind} onDone={(user) => setBoot({ kind: "ready", user })} />;
+    return <AuthPage key={lang} mode={boot.kind} onDone={(user) => setBoot({ kind: "ready", user })} />;
 
   const logout = () => {
     void api("POST", "/api/logout").finally(() => {
@@ -99,7 +101,7 @@ export function App() {
       <ToastProvider>
         <SessionProvider user={boot.user} onLogout={logout}>
           <LiveEventsProvider>
-            <Shell />
+            <Shell key={lang} />
           </LiveEventsProvider>
         </SessionProvider>
       </ToastProvider>
@@ -184,7 +186,7 @@ function Shell() {
   const motionNow = Object.values(active).some((t) => t.length > 0);
   useEffect(() => {
     const label = pageTitle[route.page] ?? NAV.find((n) => n.page === route.page)?.label;
-    document.title = label ? `${label} – Sentinela` : "Sentinela";
+    document.title = label ? `${t(label)} – Sentinela` : "Sentinela";
   }, [route.page]);
 
   if (setupGuide && can("admin"))
@@ -208,7 +210,7 @@ function Shell() {
             <LighthouseMark />
             <span className="brand-text">
               <span className="brand-name">Sentinela</span>
-              <span className="brand-sub">Câmeras e nuvem</span>
+              <span className="brand-sub">{t("Câmeras e nuvem")}</span>
             </span>
           </a>
           <button className="btn ghost icon small collapse-btn" onClick={toggleSidebar} aria-label={collapsed ? "Expandir menu" : "Recolher menu"} title={collapsed ? "Expandir menu" : "Recolher menu"} aria-expanded={!collapsed}>
@@ -221,7 +223,7 @@ function Shell() {
               key={n.page}
               className="nav-item"
               href={href(n.page)}
-              title={collapsed ? n.label : undefined}
+              title={collapsed ? t(n.label) : undefined}
               aria-current={current(n.page) ? "page" : undefined}
               onClick={() => void qc.invalidateQueries()}
             >
@@ -232,11 +234,11 @@ function Shell() {
               <span className="nav-label">
                 {"short" in n ? (
                   <>
-                    <span className="hide-sm">{n.label}</span>
-                    <span className="show-sm">{n.short}</span>
+                    <span className="hide-sm">{t(n.label)}</span>
+                    <span className="show-sm">{t(n.short ?? n.label)}</span>
                   </>
                 ) : (
-                  n.label
+                  t(n.label)
                 )}
               </span>
             </a>
@@ -250,7 +252,7 @@ function Shell() {
               <Avatar name={user.username} />
               <div className="who-text">
                 <div className="who-name">{user.username}</div>
-                <div className="who-role">{roleLabel[user.role]}</div>
+                <div className="who-role">{t(roleLabel[user.role])}</div>
               </div>
             </a>
             <button className="btn ghost icon small" onClick={logout} title="Sair" aria-label="Sair">
@@ -263,7 +265,7 @@ function Shell() {
         <BgDoodles />
         {updated && (
           <button className="update-toast" onClick={() => location.reload()}>
-            <Icon name="refresh" /> Nova versão do Sentinela. Atualizar a página
+            <Icon name="refresh" /> {t("Nova versão do Sentinela. Atualizar a página")}
           </button>
         )}
         <div className="topbar">

@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from "react";
+import { t } from "../lib/i18n";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, get } from "../lib/api";
 import { useToast } from "../lib/session";
@@ -74,8 +75,8 @@ export function SetupGuide({ onClose }: { onClose: () => void }) {
       <header className="setup-head">
         <LighthouseMark />
         <div>
-          <h1>Configurar o Sentinela</h1>
-          <p className="muted">Alguns minutos para deixar a casa pronta. Pule o que quiser e volte depois em Sistema.</p>
+          <h1>{t("Configurar o Sentinela")}</h1>
+          <p className="muted">{t("Alguns minutos para deixar a casa pronta. Pule o que quiser e volte depois em Sistema.")}</p>
         </div>
         <button className="btn ghost small" disabled={finish.isPending} onClick={() => finish.mutate()}>
           Pular configuração
@@ -87,7 +88,7 @@ export function SetupGuide({ onClose }: { onClose: () => void }) {
           <li key={s.id} className={i === step ? "on" : i < step ? "done" : ""}>
             <button type="button" onClick={() => setStep(i)}>
               <span className="step-n">{i < step ? <Icon name="check" /> : i + 1}</span>
-              {s.label}
+              {t(s.label)}
             </button>
           </li>
         ))}
@@ -111,7 +112,7 @@ export function SetupGuide({ onClose }: { onClose: () => void }) {
       <footer className="setup-foot">
         {step > 0 && (
           <button className="btn ghost" onClick={back}>
-            Voltar
+            {t("Voltar")}
           </button>
         )}
         <span className="spacer" />
@@ -123,12 +124,12 @@ export function SetupGuide({ onClose }: { onClose: () => void }) {
               </button>
             )}
             <button className="btn primary" onClick={next}>
-              {step === 0 ? "Começar" : "Continuar"}
+              {t(step === 0 ? "Começar" : "Continuar")}
             </button>
           </>
         ) : (
           <button className="btn primary" disabled={finish.isPending} onClick={() => finish.mutate()}>
-            Ir para Ao vivo
+            {t("Ir para Ao vivo")}
           </button>
         )}
       </footer>

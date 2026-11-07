@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { t } from "../lib/i18n";
 import { href } from "../lib/router";
 import { useSession } from "../lib/session";
 import { useAppUpdate } from "../lib/appUpdate";
@@ -33,8 +34,8 @@ function Row({
         <Icon name={icon} />
       </span>
       <span className="menu-text">
-        <span>{label}</span>
-        {hint && <span className="muted small">{hint}</span>}
+        <span>{t(label)}</span>
+        {hint && <span className="muted small">{t(hint)}</span>}
       </span>
       {badge}
       {trailing ?? (to && <Icon name="chevronRight" />)}
@@ -77,7 +78,7 @@ export function MoreMenu({ version, unread }: { version?: string; unread: number
       </a>
 
       <section className="menu-group" aria-label="Minha conta">
-        <h2 className="menu-title">Minha conta</h2>
+        <h2 className="menu-title">{t("Minha conta")}</h2>
         <div className="menu-list">
           {ACCOUNT_SECTIONS.map((x) => (
             <Row
@@ -92,7 +93,7 @@ export function MoreMenu({ version, unread }: { version?: string; unread: number
       </section>
 
       <section className="menu-group" aria-label="Sistema">
-        <h2 className="menu-title">Sistema</h2>
+        <h2 className="menu-title">{t("Sistema")}</h2>
         <div className="menu-list">
           <Row to={href("system", { s: "overview" })} icon="gauge" label="Visão geral" hint="Avisos e saúde do servidor" badge={count(unread)} />
           <Row to={href("system", { s: "recording" })} icon="recordings" label="Gravação" hint="Espaço e gravadores" />
@@ -109,7 +110,7 @@ export function MoreMenu({ version, unread }: { version?: string; unread: number
       </section>
 
       <section className="menu-group" aria-label="Ferramentas">
-        <h2 className="menu-title">Ferramentas</h2>
+        <h2 className="menu-title">{t("Ferramentas")}</h2>
         <div className="menu-list">
           <Row to={href("relogio")} icon="timer" label="Medir atraso" hint="Compara o relógio da câmera com o do servidor" />
         </div>

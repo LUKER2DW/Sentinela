@@ -1,4 +1,5 @@
 import { type ReactNode } from "react";
+import { t } from "../lib/i18n";
 import { useQuery } from "@tanstack/react-query";
 import { get, type AuditEntry, type SystemInfo, fetchSystem } from "../lib/api";
 import { useSession } from "../lib/session";
@@ -90,10 +91,10 @@ export function SystemPage({ params }: { params: URLSearchParams }) {
     <>
       <header className="page-head">
         <div className="title">
-          <h1>{compact ? SECTIONS.find((x) => x.id === section)?.label : "Sistema"}</h1>
-          {!compact && <span className="sub">Sua conta, a casa e o servidor, num só lugar.</span>}
+          <h1>{compact ? t(SECTIONS.find((x) => x.id === section)?.label ?? "") : t("Sistema")}</h1>
+          {!compact && <span className="sub">{t("Sua conta, a casa e o servidor, num só lugar.")}</span>}
         </div>
-        {s && !compact && <span className="pill">Versão {s.version}</span>}
+        {s && !compact && <span className="pill">{t("Versão {v}", { v: s.version })}</span>}
       </header>
       <div className="sys-layout">
         {!compact && (
@@ -101,14 +102,14 @@ export function SystemPage({ params }: { params: URLSearchParams }) {
             {ME_SECTIONS.map((x) => (
               <button key={x.id} role="tab" aria-selected={section === x.id} onClick={() => pick(x.id)}>
                 <Icon name={x.icon} />
-                <span>{x.label}</span>
+                <span>{t(x.label)}</span>
               </button>
             ))}
-            <span className="sys-nav-group">Casa</span>
+            <span className="sys-nav-group">{t("Casa")}</span>
             {sections.map((x) => (
               <button key={x.id} role="tab" aria-selected={section === x.id} onClick={() => pick(x.id)}>
                 <Icon name={x.icon} />
-                <span>{x.label}</span>
+                <span>{t(x.label)}</span>
                 {x.id === "overview" && unread.length > 0 && <span className="count-badge">{unread.length}</span>}
               </button>
             ))}

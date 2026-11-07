@@ -1,4 +1,5 @@
 import { PALETTES, setPalette, setThemeMode, usePalette, useThemeMode, type Palette, type ThemeMode } from "../lib/theme";
+import { LANGS, getLangChoice, setLang, t, type Lang } from "../lib/i18n";
 import { CardHead } from "./CardHead";
 import { Icon } from "./Icon";
 
@@ -50,32 +51,43 @@ export function AppearanceCard() {
   const mode = useThemeMode();
   const palette = usePalette();
   return (
-    <section className="card set-card" aria-label="Aparência">
-      <CardHead icon="sun" title="Tema" sub="Vale só para este aparelho. Cada pessoa escolhe o seu." />
+    <section className="card set-card" aria-label={t("Aparência")}>
+      <CardHead icon="sun" title={t("Tema")} sub={t("Vale só para este aparelho. Cada pessoa escolhe o seu.")} />
       <div className="theme-grid" role="radiogroup" aria-label="Tema">
         {PALETTES.map((p) => (
           <button key={p} role="radio" aria-checked={palette === p} className={`theme-card${palette === p ? " on" : ""}`} onClick={() => setPalette(p)}>
             <ThemeMock palette={p} />
             <span className="theme-card-text">
               <strong>
-                {THEMES[p].label}
+                {t(THEMES[p].label)}
                 {palette === p && <Icon name="check" />}
               </strong>
-              <span className="muted small">{THEMES[p].hint}</span>
+              <span className="muted small">{t(THEMES[p].hint)}</span>
             </span>
           </button>
         ))}
       </div>
       <div className="set-group">
-        <h3 className="set-group-title">Brilho</h3>
+        <h3 className="set-group-title">{t("Brilho")}</h3>
         <div className="segmented mode-seg" role="radiogroup" aria-label="Brilho">
           {MODES.map((m) => (
             <button key={m.value} role="radio" aria-checked={mode === m.value} aria-pressed={mode === m.value} onClick={() => setThemeMode(m.value)}>
-              <Icon name={m.icon} /> {m.label}
+              <Icon name={m.icon} /> {t(m.label)}
             </button>
           ))}
         </div>
-        <p className="muted small">{mode === "black" ? "Preto total: economiza bateria em telas OLED." : mode === "system" ? "Segue o claro ou escuro do aparelho." : "Todos os temas têm versão clara e escura."}</p>
+        <p className="muted small">{t(mode === "black" ? "Preto total: economiza bateria em telas OLED." : mode === "system" ? "Segue o claro ou escuro do aparelho." : "Todos os temas têm versão clara e escura.")}</p>
+      </div>
+      <div className="set-group">
+        <h3 className="set-group-title">{t("Idioma")}</h3>
+        <select className="input" aria-label={t("Idioma")} defaultValue={getLangChoice()} onChange={(e) => setLang(e.target.value as Lang | "auto")}>
+          {LANGS.map((l) => (
+            <option key={l.id} value={l.id}>
+              {l.id === "auto" ? t(l.label) : l.label}
+            </option>
+          ))}
+        </select>
+        <p className="muted small">{t("O automático usa português em aparelhos em português e inglês nos outros.")}</p>
       </div>
     </section>
   );

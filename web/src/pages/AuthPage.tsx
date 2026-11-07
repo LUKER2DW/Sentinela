@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { t } from "../lib/i18n";
 import { ApiError, api, type User } from "../lib/api";
 import { canChangeConnection, changeConnection, zoneLabel } from "../lib/access";
 import { policyError } from "../lib/password";
@@ -100,13 +101,15 @@ export function AuthPage({ mode, onDone, downMessage, onRetry }: Props) {
               <h1>Sentinela</h1>
             </div>
             <p className="auth-lede">
-              {downMessage
-                ? "O servidor não respondeu. Confira a internet deste aparelho e tente de novo."
-                : setup
-                  ? "Primeiro acesso. Crie a conta de administrador: ela protege as câmeras, as gravações e os arquivos."
-                  : invite
-                    ? "Primeiro acesso: crie a sua senha para entrar no Sentinela."
-                    : "O farol da casa: câmeras ao vivo, gravações e a sua nuvem, num só lugar."}
+              {t(
+                downMessage
+                  ? "O servidor não respondeu. Confira a internet deste aparelho e tente de novo."
+                  : setup
+                    ? "Primeiro acesso. Crie a conta de administrador: ela protege as câmeras, as gravações e os arquivos."
+                    : invite
+                      ? "Primeiro acesso: crie a sua senha para entrar no Sentinela."
+                      : "O farol da casa: câmeras ao vivo, gravações e a sua nuvem, num só lugar.",
+              )}
             </p>
           </div>
           {downMessage ? (
@@ -272,7 +275,7 @@ function LoginForm({ onDone }: { onDone: (u: User) => void }) {
   return (
     <form onSubmit={submit} className="auth-form">
       <div className="field">
-        <label htmlFor="u">Usuário ou e-mail</label>
+        <label htmlFor="u">{t("Usuário ou e-mail")}</label>
         <input
           id="u"
           name="username"
@@ -289,11 +292,11 @@ function LoginForm({ onDone }: { onDone: (u: User) => void }) {
           autoFocus={!initial}
         />
       </div>
-      <PasswordField label="Senha" value={password} onChange={setPassword} autoComplete="current-password" autoFocus={!!initial && !askCode} />
+      <PasswordField label={t("Senha")} value={password} onChange={setPassword} autoComplete="current-password" autoFocus={!!initial && !askCode} />
       {askCode && <OtpField value={code} onChange={setCode} hint="Esta conta usa verificação em 2 etapas: abra o app autenticador e digite o código do Sentinela." />}
       {!inApp && <RememberBox value={remember} onChange={setRemember} />}
       <ErrorNote text={error} />
-      <Submit busy={busy}>Entrar</Submit>
+      <Submit busy={busy}>{t("Entrar")}</Submit>
     </form>
   );
 }
@@ -369,13 +372,13 @@ function SetupForm({ onDone }: { onDone: (u: User) => void }) {
   return (
     <form onSubmit={submit} className="auth-form">
       <div className="field">
-        <label htmlFor="su">Usuário</label>
+        <label htmlFor="su">{t("Usuário")}</label>
         <input id="su" className="input" autoComplete="username" autoCapitalize="none" spellCheck={false} value={username} onChange={(e) => setUsername(e.target.value)} required />
       </div>
-      <PasswordField label="Senha" value={password} onChange={setPassword} autoComplete="new-password" meter autoFocus />
-      <PasswordField label="Repita a senha" value={confirm} onChange={setConfirm} autoComplete="new-password" matches={password} />
+      <PasswordField label={t("Senha")} value={password} onChange={setPassword} autoComplete="new-password" meter autoFocus />
+      <PasswordField label={t("Repita a senha")} value={confirm} onChange={setConfirm} autoComplete="new-password" matches={password} />
       <ErrorNote text={error} />
-      <Submit busy={busy}>Criar administrador</Submit>
+      <Submit busy={busy}>{t("Criar administrador")}</Submit>
     </form>
   );
 }

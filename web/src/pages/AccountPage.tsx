@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { t } from "../lib/i18n";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { api, get, type User } from "../lib/api";
 import { useSession, useToast } from "../lib/session";
@@ -265,8 +266,8 @@ export function AccountAll() {
         <section key={x.id} className="account-block" aria-labelledby={`acc-${x.id}`}>
           <div className="account-block-head">
             <Icon name={x.icon} />
-            <h2 id={`acc-${x.id}`}>{x.label}</h2>
-            <span className="muted small">{x.hint}</span>
+            <h2 id={`acc-${x.id}`}>{t(x.label)}</h2>
+            <span className="muted small">{t(x.hint)}</span>
           </div>
           <AccountBody section={x.id} />
         </section>
