@@ -5,7 +5,8 @@ Cursor, etc.) works in this repository. Read it fully before changing code.
 
 ## 1. Project in one paragraph
 
-Sentinela v2 is a home NVR for XMEye/Xiongmai cameras. A single Go binary
+Sentinela is a home NVR for RTSP cameras, with full control of
+XMEye/Xiongmai cameras. A single Go binary
 (`cmd/sentinela`) owns the API, auth, camera control (DVRIP + ONVIF),
 recording supervision, retention and the SQLite index. **go2rtc** handles all
 live media (RTSP ingest, WebRTC/MSE out, two-way audio). **ffmpeg** copies
@@ -133,3 +134,10 @@ scripts/              operator scripts (audit, backup)
 - Detection is implemented under Phase 5/ADR-0016. Keep it on substream
   keyframes and within the accepted budget; no main-stream detection.
 - Do not commit binaries, recordings, snapshots, `.env` or audit output.
+- The repository is public: no site-specific data in code, configs, docs or
+  commit messages: no real IP addresses, host or user names, network
+  ranges, hardware specs, serials, public addresses or tailnet names. Use
+  documentation examples (`192.168.1.x`, `203.0.113.x`, `you@…`).
+- Nothing site-specific is hard-coded: it comes from `config.yaml`,
+  `secrets.env`, environment variables or detection at install time, with
+  a generic default.

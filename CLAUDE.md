@@ -9,7 +9,8 @@
 - Camera facts live in `docs/CAMERA.md`. If a task needs a camera behaviour
   that is not documented there, **stop and ask** — do not guess DVRIP
   commands or config field names.
-- The camera (`192.168.1.20`) is on the home LAN. Run read-only probes
+- Cameras are on the operator's LAN (addresses in the server's
+  `/etc/sentinela/config.yaml`, never in the repository). Run read-only probes
   only from an authorized LAN PC or server; never
   move PTZ, change settings or play audio without explicit confirmation in
   the same conversation.
