@@ -46,12 +46,12 @@ final class Notifier {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
         NotificationManager nm = ctx.getSystemService(NotificationManager.class);
         if (nm == null) return;
-        NotificationChannel ch = new NotificationChannel(CHANNEL, "Eventos das câmeras", NotificationManager.IMPORTANCE_HIGH);
-        ch.setDescription("Pessoa, veículo, movimento e câmera mexida, como escolhido em Minha conta");
+        NotificationChannel ch = new NotificationChannel(CHANNEL, ctx.getString(R.string.channel_events), NotificationManager.IMPORTANCE_HIGH);
+        ch.setDescription(ctx.getString(R.string.channel_events_desc));
         ch.enableVibration(true);
         nm.createNotificationChannel(ch);
-        NotificationChannel svc = new NotificationChannel(CHANNEL_SERVICE, "Conexão com a casa", NotificationManager.IMPORTANCE_MIN);
-        svc.setDescription("Aviso exigido pelo Android enquanto o app espera os eventos. Desligue para ocultar; os avisos de eventos continuam.");
+        NotificationChannel svc = new NotificationChannel(CHANNEL_SERVICE, ctx.getString(R.string.channel_service), NotificationManager.IMPORTANCE_MIN);
+        svc.setDescription(ctx.getString(R.string.channel_service_desc));
         svc.setShowBadge(false);
         svc.setSound(null, null);
         svc.enableVibration(false);
@@ -59,7 +59,7 @@ final class Notifier {
         nm.createNotificationChannel(svc);
     }
 
-    /** Android's settings for the fixed "Conexão com a casa" notice (one switch hides it). */
+    /** Android's settings for the fixed "Connection to the home" notice (one switch hides it). */
     static void openServiceChannelSettings(Context ctx) {
         Intent i = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
                 ? new Intent(android.provider.Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)

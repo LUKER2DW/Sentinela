@@ -266,7 +266,7 @@ function whalePaths() {
   };
 }
 
-/** A small whale, for the Nuvem page. */
+/** A small whale, for the Cloud page. */
 export function Whale({ className = "" }: { className?: string }) {
   whale ??= whalePaths();
   return (

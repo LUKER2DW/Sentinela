@@ -146,7 +146,7 @@ the QR code is drawn by `rsc.io/qr` (BSD-3, no dependencies). Passkeys
 The APK gets a start screen (bundled) to pick the path: domain URL (P1),
 embedded tailnet (P2, with enrollment) or Funnel URL (P3), switchable later
 from the same screen, so one build tests all three. The UI shows the zone
-("Conectado por: …") to compare.
+("Connected by: …") to compare.
 
 ## Consequences
 + The owner measures real latency and usability of all three on the same

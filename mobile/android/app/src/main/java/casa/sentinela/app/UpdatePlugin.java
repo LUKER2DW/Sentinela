@@ -72,11 +72,11 @@ public class UpdatePlugin extends Plugin {
         final long size = call.getData().optLong("size", 0L);
         String server = getBridge().getServerUrl();
         if (!sha.matches("[0-9a-f]{64}") || size <= 0 || server == null || !server.startsWith("https://")) {
-            call.reject("Atualização indisponível.");
+            call.reject(getContext().getString(R.string.update_unavailable));
             return;
         }
         if (busy) {
-            call.reject("Já estou baixando a atualização.");
+            call.reject(getContext().getString(R.string.update_busy));
             return;
         }
         busy = true;
@@ -104,9 +104,9 @@ public class UpdatePlugin extends Plugin {
                 }
                 call.resolve(r);
             } catch (Exception e) {
-                call.reject("checksum".equals(e.getMessage())
-                        ? "O arquivo baixado não confere. Tente de novo."
-                        : "Não foi possível baixar a atualização. Confira a conexão e tente de novo.");
+                call.reject(getContext().getString("checksum".equals(e.getMessage())
+                        ? R.string.update_mismatch
+                        : R.string.update_failed));
             } finally {
                 busy = false;
             }

@@ -1,4 +1,5 @@
 import { setTheme, useTheme } from "../lib/theme";
+import { t } from "../lib/i18n";
 import { Sketch } from "../lib/sketch";
 
 // One round button: a hand-drawn sun in light mode, a moon in dark mode. The
@@ -27,7 +28,7 @@ const STARS = sk.line([19, 5], [19, 8.4], 1) + sk.line([17.3, 6.7], [20.7, 6.7],
 export function ThemeToggle({ className = "" }: { className?: string }) {
   const theme = useTheme();
   const dark = theme === "dark";
-  const label = dark ? "Usar tema claro" : "Usar tema escuro";
+  const label = dark ? t("Use light theme") : t("Use dark theme");
   return (
     <button className={`theme-btn ${className}`} onClick={() => setTheme(dark ? "light" : "dark")} aria-label={label} title={label}>
       <svg viewBox="0 0 24 24" aria-hidden="true" data-theme-icon={theme}>

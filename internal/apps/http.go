@@ -21,8 +21,8 @@ import (
 )
 
 var (
-	errNoApp    = errors.New("serviço não encontrado")
-	errNotReady = errors.New("faça o primeiro deploy antes")
+	errNoApp    = errors.New("service not found")
+	errNotReady = errors.New("run the first deploy first")
 )
 
 // View is a service as the dashboard sees it: settings (secrets blanked),
@@ -245,7 +245,7 @@ func (a *Agent) assignPorts(app *App, prev []Port) error {
 			p.Host = old[p.key()]
 		}
 		if p.Host != 0 && used[p.Host] {
-			return fmt.Errorf("a porta %d do servidor já é de outro serviço", p.Host)
+			return fmt.Errorf("server port %d already belongs to another service", p.Host)
 		}
 		if p.Host != 0 {
 			used[p.Host] = true
@@ -264,7 +264,7 @@ func (a *Agent) assignPorts(app *App, prev []Port) error {
 			}
 		}
 		if p.Host == 0 {
-			return errors.New("não há portas livres na faixa dos serviços")
+			return errors.New("there are no free ports in the services range")
 		}
 	}
 	return nil
@@ -294,16 +294,16 @@ func (a *Agent) Create(in App) (View, error) {
 	}
 	for _, e := range in.Env {
 		if e.Secret && e.Value == "" {
-			return View{}, fmt.Errorf("a variável %s não tem valor", e.Key)
+			return View{}, fmt.Errorf("variable %s has no value", e.Key)
 		}
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.find(in.ID) != nil {
-		return View{}, fmt.Errorf("já existe um serviço com o id %q", in.ID)
+		return View{}, fmt.Errorf("a service with id %q already exists", in.ID)
 	}
 	if len(a.apps) >= a.Cfg.MaxApps {
-		return View{}, fmt.Errorf("limite de %d serviços atingido", a.Cfg.MaxApps)
+		return View{}, fmt.Errorf("limit of %d services reached", a.Cfg.MaxApps)
 	}
 	if err := a.assignPorts(&in, nil); err != nil {
 		return View{}, err
@@ -352,7 +352,7 @@ func (a *Agent) Update(id string, in App) (View, error) {
 	in.Managed = cur.Managed
 	if cur.Managed && (in.Source != cur.Source || in.Path != cur.Path) {
 		a.mu.Unlock()
-		return View{}, errors.New("edite o projeto protegido na aba Arquivos; para outra fonte, crie outro serviço")
+		return View{}, errors.New("edit the protected project in the Files tab; for another source, create another service")
 	}
 	in.Desired, in.Deployed, in.CreatedAt = cur.Desired, cur.Deployed, cur.CreatedAt
 	if in.Mode == ModeCompose && cur.Mode == ModeCompose {
@@ -588,7 +588,7 @@ func (a *Agent) Inspect(ctx context.Context, in App) (Detection, error) {
 		d.EnvKeys = append(d.EnvKeys, e.Key)
 	}
 	if len(env.Files) > 0 {
-		d.Notes = append(d.Notes, fmt.Sprintf("%d variáveis detectadas: serão guardadas no gerenciador de secrets; os arquivos .env serão removidos do projeto", len(env.Vars)))
+		d.Notes = append(d.Notes, fmt.Sprintf("%d variables detected: they will be stored in the secrets manager; the .env files will be removed from the project", len(env.Vars)))
 	}
 	return d, nil
 }
@@ -604,7 +604,7 @@ func randHex() string {
 func (a *Agent) SetGitHubToken(tok string) error {
 	tok = strings.TrimSpace(tok)
 	if len(tok) > 255 || strings.ContainsAny(tok, " \r\n\t") {
-		return errors.New("token inválido")
+		return errors.New("invalid token")
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -746,7 +746,7 @@ func (a *Agent) hInfo(w http.ResponseWriter, r *http.Request) {
 	ver, err := a.Eng.Version(ctx)
 	derr := ""
 	if err != nil {
-		derr = "o Docker não respondeu"
+		derr = "Docker did not respond"
 	}
 	local := ""
 	if a.Sources[SourceLocal] != nil {
@@ -812,7 +812,7 @@ func (a *Agent) hInspect(w http.ResponseWriter, r *http.Request) {
 func (a *Agent) hLocal(w http.ResponseWriter, r *http.Request) {
 	src, ok := a.Sources[SourceLocal].(LocalSource)
 	if !ok {
-		reply(w, nil, errors.New("pastas locais não estão ativadas (apps.local_root)"))
+		reply(w, nil, errors.New("local folders are not enabled (apps.local_root)"))
 		return
 	}
 	p := r.URL.Query().Get("path")
@@ -839,7 +839,7 @@ func (a *Agent) hAction(w http.ResponseWriter, r *http.Request) {
 		reply(w, res, err)
 		return
 	default:
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "ação desconhecida"})
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "unknown action"})
 		return
 	}
 	if err != nil {
@@ -901,7 +901,7 @@ func readBodySize(w http.ResponseWriter, r *http.Request, v any, limit int64) bo
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, limit))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(v); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "corpo JSON inválido ou maior que o limite"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body or larger than the limit"})
 		return false
 	}
 	return true

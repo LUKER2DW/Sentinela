@@ -61,7 +61,7 @@ func newProxy(dial dialFunc, server, token string, tlsConf *tls.Config) http.Han
 			return nil
 		},
 		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, err error) {
-			http.Error(w, "Sentinela: sem conexão com a casa pela rede privada ("+errKind(err)+")", http.StatusBadGateway)
+			http.Error(w, "Sentinela: no connection to the home over the private network ("+errKind(err)+")", http.StatusBadGateway)
 		},
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -110,6 +110,6 @@ func errKind(err error) string {
 	case strings.Contains(err.Error(), "timeout"), strings.Contains(err.Error(), "deadline"):
 		return "tempo esgotado"
 	default:
-		return "falha na conexão"
+		return "connection failed"
 	}
 }

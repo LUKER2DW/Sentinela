@@ -52,11 +52,12 @@ import { Icon } from "./Icon";
 import { Avatar } from "./Avatar";
 import { FileIcon, fileType } from "./FileIcon";
 
+import { getLang, plural, t } from "../lib/i18n";
 type View = "list" | "grid";
-const VIEW_KEY = "sentinela.nuvem.view";
-const PANE_KEY = "sentinela.nuvem.details";
-// Items dragged inside the Nuvem carry their paths under this type.
-const DRAG_TYPE = "application/x-sentinela-nuvem";
+const VIEW_KEY = "sentinela.cloud.view";
+const PANE_KEY = "sentinela.cloud.details";
+// Items dragged inside the Cloud carry their paths under this type.
+const DRAG_TYPE = "application/x-sentinela-cloud";
 // Small images (GIF/WebP, no server thumbnail) are shown as they are.
 const INLINE_THUMB_MAX = 3 << 20;
 
@@ -92,14 +93,14 @@ interface Upload {
 
 const errText = (e: unknown) => {
   if (e instanceof ApiError) {
-    if (e.status === 409) return "Já existe um item com esse nome aqui.";
-    if (e.status === 403) return "Você não tem permissão para isso.";
-    if (e.status === 413) return "Arquivo grande demais.";
-    if (e.status === 507) return "Não há espaço livre na Nuvem.";
-    if (e.status === 503) return "A Nuvem não está disponível neste servidor.";
-    if (e.status === 404) return "O item não existe mais.";
+    if (e.status === 409) return t("An item with this name already exists here.");
+    if (e.status === 403) return t("You do not have permission for that.");
+    if (e.status === 413) return t("File too large.");
+    if (e.status === 507) return t("There is no free space in Cloud.");
+    if (e.status === 503) return t("Cloud is not available on this server.");
+    if (e.status === 404) return t("The item no longer exists.");
   }
-  return (e as Error).message || "Algo deu errado.";
+  return (e as Error).message || t("Something went wrong.");
 };
 
 
@@ -163,20 +164,20 @@ interface Cmd {
 type Menu = { x: number; y: number; items: Cmd[]; title?: string };
 
 const TYPE_FILTERS: { v: TypeFilter; label: string }[] = [
-  { v: "", label: "Todos os tipos" },
-  { v: "folder", label: "Pastas" },
-  { v: "image", label: "Imagens" },
-  { v: "video", label: "Vídeos" },
-  { v: "audio", label: "Áudio" },
-  { v: "doc", label: "Documentos" },
-  { v: "other", label: "Outros" },
+  { v: "", label: t("All types") },
+  { v: "folder", label: t("Folders") },
+  { v: "image", label: t("Images") },
+  { v: "video", label: t("Videos") },
+  { v: "audio", label: t("Audio") },
+  { v: "doc", label: t("Documents") },
+  { v: "other", label: t("Other") },
 ];
 const DATE_FILTERS: { v: DateFilter; label: string }[] = [
-  { v: "", label: "Qualquer data" },
-  { v: "today", label: "Hoje" },
-  { v: "7d", label: "Últimos 7 dias" },
-  { v: "30d", label: "Últimos 30 dias" },
-  { v: "year", label: "Este ano" },
+  { v: "", label: t("Any date") },
+  { v: "today", label: t("Today") },
+  { v: "7d", label: t("Last 7 days") },
+  { v: "30d", label: t("Last 30 days") },
+  { v: "year", label: t("This year") },
 ];
 
 export function FileBrowser({
@@ -320,7 +321,7 @@ export function FileBrowser({
         await mkdir(joinPath(dir, f));
       } catch (e) {
         if (!(e instanceof ApiError && e.status === 409)) {
-          toast(`Não foi possível criar a pasta ${f}: ${errText(e)}`, true);
+          toast(t("Could not create the folder {f}: {v1}", { f, v1: errText(e) }), true);
           return;
         }
       }
@@ -371,18 +372,18 @@ export function FileBrowser({
       }
     }
     refresh(path, dest, ...todo.map(parentPath));
-    if (done) toast(done === 1 ? `Movido para ${folderName(dest, user)}.` : `${done} itens movidos para ${folderName(dest, user)}.`);
+    if (done) toast(done === 1 ? t("Moved to {v0}.", { v0: folderName(dest, user) }) : t("{done} items moved to {v1}.", { done, v1: folderName(dest, user) }));
     setSelected([]);
     return done > 0;
   };
 
   const trash = async (paths: string[]) => {
     if (!paths.length) return;
-    const what = paths.length === 1 ? `“${paths[0].includes("/") ? baseName(paths[0]) : label(paths[0], user)}”` : `${paths.length} itens`;
+    const what = paths.length === 1 ? `“${paths[0].includes("/") ? baseName(paths[0]) : label(paths[0], user)}”` : t("{length} items", { length: paths.length });
     // Top-level folders (admins): the user's own and Compartilhado come back empty.
     const top = paths.some((p) => !p.includes("/"));
-    const note = top ? " Pastas principais (a sua e a Compartilhado) voltam vazias." : "";
-    if (!window.confirm(`Mover ${what} para a lixeira, com tudo o que tem dentro? Ela guarda tudo por 30 dias.${note}`)) return;
+    const note = top ? t(" The main folders (yours and Shared) come back empty.") : "";
+    if (!window.confirm(t("Move {what} to the trash, with everything inside? It keeps everything for 30 days.{note}", { what, note }))) return;
     let done = 0;
     for (const p of paths) {
       try {
@@ -394,24 +395,24 @@ export function FileBrowser({
       }
     }
     refresh(path, TRASH, ...paths.map(parentPath));
-    if (done) toast(done === 1 ? "Movido para a lixeira." : `${done} itens movidos para a lixeira.`);
+    if (done) toast(done === 1 ? t("Moved to trash.") : t("{done} items moved to trash.", { done }));
     setSelected([]);
     setPreview(null);
   };
 
   const myBin = `${TRASH}/${user}`;
   const purgeForGood = async (paths: string[]) => {
-    const what = paths.length === 1 ? `“${baseName(paths[0])}”` : `${paths.length} itens`;
-    if (!window.confirm(`Apagar ${what} para sempre? Não dá para desfazer.`)) return;
+    const what = paths.length === 1 ? `“${baseName(paths[0])}”` : t("{length} items", { length: paths.length });
+    if (!window.confirm(t("Delete {what} forever? This cannot be undone.", { what }))) return;
     for (const p of paths) {
       if (!(await run(() => purge(p), "", [path, TRASH, myBin]))) return;
     }
-    toast(paths.length === 1 ? "Apagado para sempre." : `${paths.length} itens apagados para sempre.`);
+    toast(paths.length === 1 ? t("Permanently deleted.") : t("{length} items deleted forever.", { length: paths.length }));
     setSelected([]);
   };
   const emptyBin = async () => {
-    if (!window.confirm("Esvaziar a lixeira? Tudo o que está nela é apagado para sempre. Não dá para desfazer.")) return;
-    if (await run(() => purge(myBin), "Lixeira esvaziada.", [path, TRASH, myBin])) {
+    if (!window.confirm(t("Empty the trash? Everything in it is deleted forever. This cannot be undone."))) return;
+    if (await run(() => purge(myBin), t("Trash emptied."), [path, TRASH, myBin])) {
       setSelected([]);
       if (path.startsWith(`${myBin}/`)) onNavigate(TRASH);
     }
@@ -420,7 +421,7 @@ export function FileBrowser({
   const restore = async (paths: string[]) => {
     for (const p of paths) {
       const to = restorePath(p, user);
-      if (to && !(await run(() => move(p, to), `Restaurado em ${folderName(parentPath(to), user)}.`, [path, parentPath(to)]))) break;
+      if (to && !(await run(() => move(p, to), t("Restored to {folder}.", { folder: folderName(parentPath(to), user) }), [path, parentPath(to)]))) break;
     }
     setSelected([]);
   };
@@ -488,24 +489,24 @@ export function FileBrowser({
     // Top-level folders (each person's, Compartilhado, Lixeira) are never renamed, moved or deleted.
     const unprotected = paths.every((p) => p.includes("/"));
     return [
-      { id: "open", label: single?.dir ? "Abrir" : "Visualizar", icon: single?.dir ? "folder" : "eye", run: () => open(paths[0]), when: !!single },
-      { id: "edit", label: "Editar texto", icon: "edit", run: () => openFile(paths[0], true), when: !!single && kindOf(single) === "text" && writable && !inTrash },
-      { id: "download", label: "Baixar", icon: "download", run: () => download(paths.filter((p) => !byPath.get(p)?.dir)), when: paths.some((p) => !byPath.get(p)?.dir) },
-      { id: "restore", label: "Restaurar", icon: "restore", run: () => void restore(paths), when: writable && binned },
-      { id: "rename", label: "Renomear", icon: "edit", run: () => setAsk({ kind: "rename", path: paths[0] }), when: !!single && canEdit(paths) && unprotected },
-      { id: "move", label: "Mover para…", icon: "move", run: () => setMoving(paths), when: paths.length > 0 && canEdit(paths) && inShare && unprotected },
-      { id: "details", label: "Detalhes", icon: "info", run: () => setDetails(paths[0]), when: !!single },
-      { id: "delete", label: "Apagar", icon: "trash", run: () => void trash(paths), danger: true, when: paths.length > 0 && canEdit(paths) && unprotected },
-      { id: "purge", label: "Apagar para sempre", icon: "trash", run: () => void purgeForGood(paths), danger: true, when: writable && paths.length > 0 && paths.every((p) => p.startsWith(`${myBin}/`)) },
-      { id: "empty", label: "Esvaziar lixeira", icon: "trash", run: () => void emptyBin(), danger: true, when: writable && paths.length === 1 && paths[0] === TRASH },
+      { id: "open", label: single?.dir ? t("Open") : t("Preview"), icon: single?.dir ? "folder" : "eye", run: () => open(paths[0]), when: !!single },
+      { id: "edit", label: t("Edit text"), icon: "edit", run: () => openFile(paths[0], true), when: !!single && kindOf(single) === "text" && writable && !inTrash },
+      { id: "download", label: t("Download"), icon: "download", run: () => download(paths.filter((p) => !byPath.get(p)?.dir)), when: paths.some((p) => !byPath.get(p)?.dir) },
+      { id: "restore", label: t("Restore"), icon: "restore", run: () => void restore(paths), when: writable && binned },
+      { id: "rename", label: t("Rename"), icon: "edit", run: () => setAsk({ kind: "rename", path: paths[0] }), when: !!single && canEdit(paths) && unprotected },
+      { id: "move", label: t("Move to…"), icon: "move", run: () => setMoving(paths), when: paths.length > 0 && canEdit(paths) && inShare && unprotected },
+      { id: "details", label: t("Details"), icon: "info", run: () => setDetails(paths[0]), when: !!single },
+      { id: "delete", label: t("Delete"), icon: "trash", run: () => void trash(paths), danger: true, when: paths.length > 0 && canEdit(paths) && unprotected },
+      { id: "purge", label: t("Delete forever"), icon: "trash", run: () => void purgeForGood(paths), danger: true, when: writable && paths.length > 0 && paths.every((p) => p.startsWith(`${myBin}/`)) },
+      { id: "empty", label: t("Empty trash"), icon: "trash", run: () => void emptyBin(), danger: true, when: writable && paths.length === 1 && paths[0] === TRASH },
     ];
   };
   const folderCommands = (at: string): Cmd[] => [
-    { id: "mkfile", label: "Novo arquivo de texto", icon: "text", run: () => setAsk({ kind: "mkfile", at }), when: writable && canReceive(at) },
-    { id: "mkdir", label: "Nova pasta", icon: "folderPlus", run: () => setAsk({ kind: "mkdir", at }), when: writable && canReceive(at) },
-    { id: "upload", label: "Enviar arquivos", icon: "upload", run: () => pickFiles(at), when: writable && canReceive(at) },
-    { id: "uploadDir", label: "Enviar pasta", icon: "folderUp", run: () => pickFolder(at), when: folderUploads && writable && canReceive(at) },
-    { id: "refresh", label: "Atualizar", icon: "refresh", run: () => refresh(at), when: true },
+    { id: "mkfile", label: t("New text file"), icon: "text", run: () => setAsk({ kind: "mkfile", at }), when: writable && canReceive(at) },
+    { id: "mkdir", label: t("New folder"), icon: "folderPlus", run: () => setAsk({ kind: "mkdir", at }), when: writable && canReceive(at) },
+    { id: "upload", label: t("Upload files"), icon: "upload", run: () => pickFiles(at), when: writable && canReceive(at) },
+    { id: "uploadDir", label: t("Upload folder"), icon: "folderUp", run: () => pickFolder(at), when: folderUploads && writable && canReceive(at) },
+    { id: "refresh", label: t("Update"), icon: "refresh", run: () => refresh(at), when: true },
   ];
   /** Commands for a node of the tree (any folder, or a file inside one). */
   const treeCommands = (p: string, dir: boolean): Cmd[] => {
@@ -513,21 +514,21 @@ export function FileBrowser({
     const editable = writable && !p.startsWith(TRASH) && (!top || admin);
     if (dir)
       return [
-        { id: "open", label: "Abrir", icon: "folder", run: () => onNavigate(p), when: true },
+        { id: "open", label: t("Open"), icon: "folder", run: () => onNavigate(p), when: true },
         ...folderCommands(p),
-        { id: "rename", label: "Renomear", icon: "edit", run: () => setAsk({ kind: "rename", path: p }), when: editable && !top },
-        { id: "move", label: "Mover para…", icon: "move", run: () => setMoving([p]), when: editable && !top },
-        { id: "delete", label: "Apagar", icon: "trash", run: () => void trash([p]), danger: true, when: editable && !top },
-        { id: "empty", label: "Esvaziar lixeira", icon: "trash", run: () => void emptyBin(), danger: true, when: writable && (p === TRASH || p === myBin) },
+        { id: "rename", label: t("Rename"), icon: "edit", run: () => setAsk({ kind: "rename", path: p }), when: editable && !top },
+        { id: "move", label: t("Move to…"), icon: "move", run: () => setMoving([p]), when: editable && !top },
+        { id: "delete", label: t("Delete"), icon: "trash", run: () => void trash([p]), danger: true, when: editable && !top },
+        { id: "empty", label: t("Empty trash"), icon: "trash", run: () => void emptyBin(), danger: true, when: writable && (p === TRASH || p === myBin) },
       ];
     const k = kindOf({ name: p, dir: false });
     return [
-      { id: "open", label: "Visualizar", icon: "eye", run: () => openFile(p), when: true },
-      { id: "edit", label: "Editar texto", icon: "edit", run: () => openFile(p, true), when: k === "text" && editable },
-      { id: "download", label: "Baixar", icon: "download", run: () => download([p]), when: true },
-      { id: "rename", label: "Renomear", icon: "edit", run: () => setAsk({ kind: "rename", path: p }), when: editable },
-      { id: "move", label: "Mover para…", icon: "move", run: () => setMoving([p]), when: editable },
-      { id: "delete", label: "Apagar", icon: "trash", run: () => void trash([p]), danger: true, when: editable },
+      { id: "open", label: t("Preview"), icon: "eye", run: () => openFile(p), when: true },
+      { id: "edit", label: t("Edit text"), icon: "edit", run: () => openFile(p, true), when: k === "text" && editable },
+      { id: "download", label: t("Download"), icon: "download", run: () => download([p]), when: true },
+      { id: "rename", label: t("Rename"), icon: "edit", run: () => setAsk({ kind: "rename", path: p }), when: editable },
+      { id: "move", label: t("Move to…"), icon: "move", run: () => setMoving([p]), when: editable },
+      { id: "delete", label: t("Delete"), icon: "trash", run: () => void trash([p]), danger: true, when: editable },
     ];
   };
 
@@ -540,7 +541,7 @@ export function FileBrowser({
     ev.stopPropagation();
     const paths = selected.includes(p) ? selected : [p];
     if (!selected.includes(p)) setSelected([p]);
-    showMenu(ev, commands(paths), paths.length === 1 ? baseName(p) : `${paths.length} itens`);
+    showMenu(ev, commands(paths), paths.length === 1 ? baseName(p) : t("{length} items", { length: paths.length }));
   };
   const bgMenu = (ev: MouseEvent) => {
     if ((ev.target as HTMLElement).closest(".file")) return;
@@ -548,7 +549,7 @@ export function FileBrowser({
     setSelected([]);
     showMenu(ev, [
       ...folderCommands(path),
-      { id: "all", label: "Selecionar tudo", icon: "check", run: () => setSelected(entries.map((e) => joinPath(path, e.name))), when: entries.length > 0 && !compact },
+      { id: "all", label: t("Select all"), icon: "check", run: () => setSelected(entries.map((e) => joinPath(path, e.name))), when: entries.length > 0 && !compact },
     ]);
   };
 
@@ -617,24 +618,24 @@ export function FileBrowser({
   const paneOn = pane && !compact;
 
   return (
-    <div className="nuvem">
-      <section className="card nuvem-top">
-        <div className="nuvem-space">{summary}</div>
+    <div className="cloud">
+      <section className="card cloud-top">
+        <div className="cloud-space">{summary}</div>
         {!compact && (
-          <div className="nuvem-actions">
-            <button className="btn" disabled={!canAddHere} onClick={() => setAsk({ kind: "mkdir", at: path })} title={canAddHere ? undefined : "Abra uma pasta sua ou a Compartilhado"}>
-              <Icon name="folderPlus" /> Nova pasta
+          <div className="cloud-actions">
+            <button className="btn" disabled={!canAddHere} onClick={() => setAsk({ kind: "mkdir", at: path })} title={canAddHere ? undefined : t("Open one of your folders or Shared")}>
+              <Icon name="folderPlus" />{" "}{t("New folder")}
             </button>
-            <button className="btn" disabled={!canAddHere} onClick={() => setAsk({ kind: "mkfile", at: path })} title={canAddHere ? "Novo arquivo de texto" : "Abra uma pasta sua ou a Compartilhado"}>
-              <Icon name="text" /> Novo arquivo
+            <button className="btn" disabled={!canAddHere} onClick={() => setAsk({ kind: "mkfile", at: path })} title={canAddHere ? t("New text file") : t("Open one of your folders or Shared")}>
+              <Icon name="text" />{" "}{t("New file")}
             </button>
-            <div className="split-btn" role="group" aria-label="Enviar">
-              <button className="btn primary" disabled={!canAddHere} onClick={() => pickFiles()} title={canAddHere ? undefined : "Abra uma pasta sua ou a Compartilhado"}>
-                <Icon name="upload" /> Enviar arquivos
+            <div className="split-btn" role="group" aria-label={t("Upload")}>
+              <button className="btn primary" disabled={!canAddHere} onClick={() => pickFiles()} title={canAddHere ? undefined : t("Open one of your folders or Shared")}>
+                <Icon name="upload" />{" "}{t("Upload files")}
               </button>
               {folderUploads && (
-                <button className="btn primary" disabled={!canAddHere} onClick={() => pickFolder()} title={canAddHere ? "Enviar uma pasta inteira, com as subpastas" : "Abra uma pasta sua ou a Compartilhado"}>
-                  <Icon name="folderUp" /> Pasta
+                <button className="btn primary" disabled={!canAddHere} onClick={() => pickFolder()} title={canAddHere ? t("Upload a whole folder, with its subfolders") : t("Open one of your folders or Shared")}>
+                  <Icon name="folderUp" />{" "}{t("Folder")}
                 </button>
               )}
             </div>
@@ -665,40 +666,40 @@ export function FileBrowser({
       </section>
 
       {compact && canAddHere && (
-        <button className="fab" aria-label="Adicionar: pasta, arquivo ou envio" onClick={() => setAdding(true)}>
+        <button className="fab" aria-label={t("Add: folder, file or upload")} onClick={() => setAdding(true)}>
           <Icon name="plus" />
         </button>
       )}
       {adding && (
-        <div className="dialog-backdrop bottom" role="dialog" aria-modal="true" aria-label="Adicionar" onMouseDown={(e) => e.target === e.currentTarget && setAdding(false)}>
+        <div className="dialog-backdrop bottom" role="dialog" aria-modal="true" aria-label={t("Add")} onMouseDown={(e) => e.target === e.currentTarget && setAdding(false)}>
           <div className="action-sheet">
             <button className="btn primary" onClick={() => (setAdding(false), pickFiles())}>
-              <Icon name="upload" /> Enviar arquivos
+              <Icon name="upload" />{" "}{t("Upload files")}
             </button>
             <button className="btn" onClick={() => (setAdding(false), setAsk({ kind: "mkdir", at: path }))}>
-              <Icon name="folderPlus" /> Nova pasta
+              <Icon name="folderPlus" />{" "}{t("New folder")}
             </button>
             <button className="btn" onClick={() => (setAdding(false), setAsk({ kind: "mkfile", at: path }))}>
-              <Icon name="text" /> Novo arquivo de texto
+              <Icon name="text" />{" "}{t("New text file")}
             </button>
             <button className="btn ghost" onClick={() => setAdding(false)}>
-              Cancelar
+              {t("Cancel")}
             </button>
           </div>
         </div>
       )}
 
       {filterSheet && (
-        <div className="dialog-backdrop bottom" role="dialog" aria-modal="true" aria-label="Ordenar e filtrar" onMouseDown={(e) => e.target === e.currentTarget && setFilterSheet(false)}>
+        <div className="dialog-backdrop bottom" role="dialog" aria-modal="true" aria-label={t("Sort and filter")} onMouseDown={(e) => e.target === e.currentTarget && setFilterSheet(false)}>
           <div className="action-sheet filter-sheet">
             <div className="sheet-head">
-              <strong>Ordenar e filtrar</strong>
-              <button className="btn ghost icon small" aria-label="Fechar" onClick={() => setFilterSheet(false)}>
+              <strong>{t("Sort and filter")}</strong>
+              <button className="btn ghost icon small" aria-label={t("Close")} onClick={() => setFilterSheet(false)}>
                 <Icon name="x" />
               </button>
             </div>
             <OptionGroup
-              label="Ordenar por"
+              label={t("Sort by")}
               value={`${sort.key}:${sort.asc ? 1 : 0}`}
               options={SORTS}
               onChange={(v) => {
@@ -706,8 +707,8 @@ export function FileBrowser({
                 setSort({ key: k as SortKey, asc: a === "1" });
               }}
             />
-            <OptionGroup label="Tipo" value={type} options={TYPE_FILTERS.map((o) => ({ v: o.v, label: o.v ? o.label : "Todos" }))} onChange={(v) => setType(v as TypeFilter)} />
-            <OptionGroup label="Modificado" value={date} options={DATE_FILTERS.map((o) => ({ v: o.v, label: o.v ? o.label : "Qualquer data" }))} onChange={(v) => setDate(v as DateFilter)} />
+            <OptionGroup label={t("Type")} value={type} options={TYPE_FILTERS.map((o) => ({ v: o.v, label: o.v ? o.label : t("All") }))} onChange={(v) => setType(v as TypeFilter)} />
+            <OptionGroup label={t("Modified")} value={date} options={DATE_FILTERS.map((o) => ({ v: o.v, label: o.v ? o.label : t("Any date") }))} onChange={(v) => setDate(v as DateFilter)} />
             <div className="row-gap">
               <button
                 className="btn ghost"
@@ -717,10 +718,10 @@ export function FileBrowser({
                   setDate("");
                 }}
               >
-                Limpar filtros
+                {t("Clear filters")}
               </button>
               <button className="btn primary grow" onClick={() => setFilterSheet(false)}>
-                Ver {entries.length} {entries.length === 1 ? "item" : "itens"}
+                {t("View")}{" "}{entries.length} {plural(entries.length, "{n} item", "{n} items")}
               </button>
             </div>
           </div>
@@ -729,27 +730,27 @@ export function FileBrowser({
 
       <section className={`card explorer${paneOn ? " with-pane" : ""}`}>
         {!compact && (
-          <aside className="tree" aria-label="Pastas e arquivos">
+          <aside className="tree" aria-label={t("Folders and files")}>
             <div className="tree-bar">
-              <span className="tree-title">Explorador</span>
-              <button className="tree-tool" title="Novo arquivo de texto" aria-label="Novo arquivo de texto" disabled={!canAddHere} onClick={() => setAsk({ kind: "mkfile", at: path })}>
+              <span className="tree-title">{t("Explorer")}</span>
+              <button className="tree-tool" title={t("New text file")} aria-label={t("New text file")} disabled={!canAddHere} onClick={() => setAsk({ kind: "mkfile", at: path })}>
                 <Icon name="text" />
               </button>
-              <button className="tree-tool" title="Nova pasta" aria-label="Nova pasta" disabled={!canAddHere} onClick={() => setAsk({ kind: "mkdir", at: path })}>
+              <button className="tree-tool" title={t("New folder")} aria-label={t("New folder")} disabled={!canAddHere} onClick={() => setAsk({ kind: "mkdir", at: path })}>
                 <Icon name="folderPlus" />
               </button>
-              <button className="tree-tool" title="Enviar arquivos" aria-label="Enviar arquivos" disabled={!canAddHere} onClick={() => pickFiles()}>
+              <button className="tree-tool" title={t("Upload files")} aria-label={t("Upload files")} disabled={!canAddHere} onClick={() => pickFiles()}>
                 <Icon name="upload" />
               </button>
               {folderUploads && (
-                <button className="tree-tool" title="Enviar pasta" aria-label="Enviar pasta" disabled={!canAddHere} onClick={() => pickFolder()}>
+                <button className="tree-tool" title={t("Upload folder")} aria-label={t("Upload folder")} disabled={!canAddHere} onClick={() => pickFolder()}>
                   <Icon name="folderUp" />
                 </button>
               )}
-              <button className="tree-tool" title="Atualizar" aria-label="Atualizar" onClick={() => void qc.invalidateQueries({ queryKey: ["nas"] })}>
+              <button className="tree-tool" title={t("Update")} aria-label={t("Update")} onClick={() => void qc.invalidateQueries({ queryKey: ["nas"] })}>
                 <Icon name="refresh" />
               </button>
-              <button className="tree-tool" title="Recolher tudo" aria-label="Recolher tudo" onClick={() => setTreeKey((k) => k + 1)}>
+              <button className="tree-tool" title={t("Collapse all")} aria-label={t("Collapse all")} onClick={() => setTreeKey((k) => k + 1)}>
                 <Icon name="collapse" />
               </button>
             </div>
@@ -774,7 +775,7 @@ export function FileBrowser({
         )}
         <div className="explorer-main" onContextMenu={bgMenu} {...(canAddHere ? dropProps(path) : {})} data-drop={dropOn === path ? "true" : undefined}>
           <div className="files-bar">
-            <nav className="crumbs" aria-label="Pasta atual">
+            <nav className="crumbs" aria-label={t("Current folder")}>
               {crumbs(path, user).map((c, i, all) =>
                 i === all.length - 1 ? (
                   <span key={c.path} aria-current="page">
@@ -790,13 +791,13 @@ export function FileBrowser({
             <div className="files-tools">
               <label className="search">
                 <Icon name="search" />
-                <input className="input" placeholder="Filtrar nesta pasta" aria-label="Filtrar nesta pasta" value={filter} onChange={(e) => setFilter(e.target.value)} />
+                <input className="input" placeholder={t("Filter in this folder")} aria-label={t("Filter in this folder")} value={filter} onChange={(e) => setFilter(e.target.value)} />
               </label>
-              <div className="segmented" role="group" aria-label="Exibição">
-                <button aria-pressed={view === "list"} title="Lista" aria-label="Lista" onClick={() => (setView("list"), savePref(viewKey, "list"))}>
+              <div className="segmented" role="group" aria-label={t("Display")}>
+                <button aria-pressed={view === "list"} title={t("List")} aria-label={t("List")} onClick={() => (setView("list"), savePref(viewKey, "list"))}>
                   <Icon name="list" />
                 </button>
-                <button aria-pressed={view === "grid"} title="Grade com miniaturas" aria-label="Grade" onClick={() => (setView("grid"), savePref(viewKey, "grid"))}>
+                <button aria-pressed={view === "grid"} title={t("Grid with thumbnails")} aria-label={t("Grid")} onClick={() => (setView("grid"), savePref(viewKey, "grid"))}>
                   <Icon name="grid" />
                 </button>
               </div>
@@ -804,8 +805,8 @@ export function FileBrowser({
                 <button
                   className={`btn icon small${pane ? " on" : ""}`}
                   aria-pressed={pane}
-                  title="Painel de detalhes"
-                  aria-label="Painel de detalhes"
+                  title={t("Details panel")}
+                  aria-label={t("Details panel")}
                   onClick={() => (setPane((v) => !v), savePref(PANE_KEY, pane ? "0" : "1"))}
                 >
                   <Icon name="panel" />
@@ -814,7 +815,7 @@ export function FileBrowser({
             </div>
           </div>
 
-          <div className="filter-row" role="group" aria-label="Filtros">
+          <div className="filter-row" role="group" aria-label={t("Filters")}>
             {compact ? (
               // Phone: one button and a sheet, instead of a row of dropdowns
               // that does not fit (owner, round 6).
@@ -824,8 +825,8 @@ export function FileBrowser({
               </button>
             ) : (
               <>
-                <FilterChip label="Tipo" value={type} options={TYPE_FILTERS} onChange={setType} />
-                <FilterChip label="Modificado" value={date} options={DATE_FILTERS} onChange={setDate} />
+                <FilterChip label={t("Type")} value={type} options={TYPE_FILTERS} onChange={setType} />
+                <FilterChip label={t("Modified")} value={date} options={DATE_FILTERS} onChange={setDate} />
                 <SortChip sort={sort} onChange={setSort} />
               </>
             )}
@@ -838,24 +839,24 @@ export function FileBrowser({
                   setFilter("");
                 }}
               >
-                <Icon name="x" /> Limpar filtros
+                <Icon name="x" />{" "}{t("Clear filters")}
               </button>
             )}
             <span className="grow" />
             {inTrash && writable && (
               <button className="btn small ghost danger" onClick={() => void emptyBin()}>
-                <Icon name="trash" /> Esvaziar lixeira
+                <Icon name="trash" />{" "}{t("Empty trash")}
               </button>
             )}
-            <span className="muted small num">{filtered ? `${entries.length} de ${all.length}` : `${all.length} ${all.length === 1 ? "item" : "itens"}`}</span>
+            <span className="muted small num">{filtered ? `${t("{a} of {b}", { a: entries.length, b: all.length })}` : `${plural(all.length, "{n} item", "{n} items")}`}</span>
           </div>
 
           {selected.length > 0 && !compact && (
-            <div className="selbar" role="toolbar" aria-label="Seleção">
-              <button className="btn ghost icon small" aria-label="Limpar seleção" onClick={() => setSelected([])}>
+            <div className="selbar" role="toolbar" aria-label={t("Selection")}>
+              <button className="btn ghost icon small" aria-label={t("Clear selection")} onClick={() => setSelected([])}>
                 <Icon name="x" />
               </button>
-              <span className="selbar-count">{selected.length === 1 ? "1 selecionado" : `${selected.length} selecionados`}</span>
+              <span className="selbar-count">{selected.length === 1 ? t("1 selected") : t("{n} selected", { n: selected.length })}</span>
               {barCommands.map((c) => (
                 <button key={c.id} className={`btn ghost small${c.danger ? " danger" : ""}`} onClick={c.run}>
                   <Icon name={c.icon} /> {c.label}
@@ -869,25 +870,25 @@ export function FileBrowser({
           {q.isError ? (
             <p className="notice error">{errText(q.error)}</p>
           ) : q.isLoading ? (
-            <p className="muted files-empty">Carregando…</p>
+            <p className="muted files-empty">{t("Loading…")}</p>
           ) : entries.length === 0 ? (
             <div className="files-empty">
               <Icon name={inTrash ? "trash" : filtered ? "search" : "folder"} />
-              <strong>{filtered ? "Nada com esses filtros" : inTrash ? "A lixeira está vazia" : "Pasta vazia"}</strong>
+              <strong>{filtered ? t("Nothing with these filters") : inTrash ? t("The trash is empty") : t("Empty folder")}</strong>
               <span className="muted">
                 {filtered
-                  ? "Mude ou limpe os filtros."
+                  ? t("Change or clear the filters.")
                   : inTrash
-                    ? "Arquivos apagados ficam aqui por 30 dias."
+                    ? t("Deleted files stay here for 30 days.")
                     : canAddHere
                       ? compact
-                        ? "Toque em + para enviar arquivos ou criar uma pasta."
-                        : "Arraste arquivos ou pastas para cá, use Enviar ou o botão direito."
-                      : "Nada por aqui ainda."}
+                        ? t("Tap + to upload files or create a folder.")
+                        : t("Drag files or folders here, or use Upload or the right-click menu.")
+                      : t("Nothing here yet.")}
               </span>
               {compact && path !== "" && !filtered && (
                 <button className="btn" onClick={() => onNavigate(parentPath(path))}>
-                  <Icon name="chevronLeft" /> Voltar
+                  <Icon name="chevronLeft" />{" "}{t("Back")}
                 </button>
               )}
             </div>
@@ -895,7 +896,7 @@ export function FileBrowser({
             <>
               {view === "list" && (
                 <div className="file-head" role="row">
-                  <span className="col-owner">Proprietário</span>
+                  <span className="col-owner">{t("Owner")}</span>
                   {(["name", "modified", "size"] as SortKey[]).map((k) => (
                     <button
                       key={k}
@@ -903,13 +904,13 @@ export function FileBrowser({
                       onClick={() => setSort((s) => ({ key: k, asc: s.key === k ? !s.asc : k === "name" }))}
                       aria-sort={sort.key === k ? (sort.asc ? "ascending" : "descending") : "none"}
                     >
-                      {k === "name" ? "Nome" : k === "modified" ? "Modificado" : "Tamanho"}
+                      {k === "name" ? t("Name") : k === "modified" ? t("Modified") : t("Size")}
                       {sort.key === k && <Icon name={sort.asc ? "up" : "down"} />}
                     </button>
                   ))}
                 </div>
               )}
-              <ul className={`file-list ${view}`} role="listbox" aria-multiselectable="true" aria-label="Arquivos">
+              <ul className={`file-list ${view}`} role="listbox" aria-multiselectable="true" aria-label={t("Files")}>
                 {entries.map((e) => {
                   const p = joinPath(path, e.name);
                   const isSel = selected.includes(p);
@@ -932,7 +933,7 @@ export function FileBrowser({
                             className="file-check"
                             role="checkbox"
                             aria-checked={isSel}
-                            aria-label={`Selecionar ${e.name}`}
+                            aria-label={t("Select {name}", { name: e.name })}
                             onClick={(ev) => {
                               ev.stopPropagation();
                               toggleCheck(p);
@@ -946,7 +947,7 @@ export function FileBrowser({
                         {compact ? (
                           <span className="file-sub muted small">
                             {e.dir ? kindLabel.folder : fmtBytes(e.size)}, {fmtDate(e.modified)}
-                            {owners[e.name] && owners[e.name] !== user && path.startsWith(SHARED) ? `, de ${owners[e.name]}` : ""}
+                            {owners[e.name] && owners[e.name] !== user && path.startsWith(SHARED) ? t(", of {v0}", { v0: owners[e.name] }) : ""}
                           </span>
                         ) : (
                           <>
@@ -954,10 +955,10 @@ export function FileBrowser({
                               {owners[e.name] ? (
                                 <>
                                   <Avatar name={owners[e.name]} className="tiny" />
-                                  <span>{owners[e.name] === user ? "eu" : owners[e.name]}</span>
+                                  <span>{owners[e.name] === user ? t("me") : owners[e.name]}</span>
                                 </>
                               ) : path === "" && e.name === SHARED ? (
-                                <span className="muted">Todos</span>
+                                <span className="muted">{t("All")}</span>
                               ) : (
                                 <span className="muted">—</span>
                               )}
@@ -969,7 +970,7 @@ export function FileBrowser({
                         {(inShare || admin) && (
                           <button
                             className="btn ghost icon small file-more"
-                            aria-label={`Ações para ${e.name}`}
+                            aria-label={t("Actions for {name}", { name: e.name })}
                             onClick={(ev) => {
                               ev.stopPropagation();
                               const r = (ev.currentTarget as HTMLElement).getBoundingClientRect();
@@ -987,7 +988,7 @@ export function FileBrowser({
               </ul>
             </>
           )}
-          {inTrash && entries.length > 0 && <p className="muted small files-foot">Itens da lixeira somem sozinhos 30 dias depois de apagados.</p>}
+          {inTrash && entries.length > 0 && <p className="muted small files-foot">{t("Trash items disappear by themselves 30 days after being deleted.")}</p>}
         </div>
         {paneOn && (
           <DetailsPane path={path} user={user} entries={all} selected={selected} byPath={byPath} actions={commands(selected).filter((c) => c.when && c.id !== "details")} />
@@ -1002,17 +1003,17 @@ export function FileBrowser({
           onCancel={() => setAsk(null)}
           onSubmit={async (value) => {
             if (ask.kind === "mkdir") {
-              if (await run(() => mkdir(joinPath(ask.at, value)), "Pasta criada.", [ask.at])) setAsk(null);
+              if (await run(() => mkdir(joinPath(ask.at, value)), t("Folder created."), [ask.at])) setAsk(null);
             } else if (ask.kind === "mkfile") {
               const name = /\.[a-z0-9]{1,5}$/i.test(value) ? value : `${value}.txt`;
               const p = joinPath(ask.at, name);
-              if (await run(() => createEmpty(p), "Arquivo criado.", [ask.at])) {
+              if (await run(() => createEmpty(p), t("File created."), [ask.at])) {
                 setAsk(null);
                 openFile(p, kindOf({ name, dir: false }) === "text");
               }
             } else {
               const to = joinPath(parentPath(ask.path), value);
-              if (await run(() => move(ask.path, to), "Nome alterado.", [parentPath(ask.path)])) {
+              if (await run(() => move(ask.path, to), t("Name changed."), [parentPath(ask.path)])) {
                 setAsk(null);
                 if (parentPath(ask.path) === path) setSelected([to]);
                 if (preview?.path === ask.path) setPreview({ path: to });
@@ -1060,7 +1061,7 @@ export function FileBrowser({
 }
 
 function folderName(p: string, user: string) {
-  if (!p) return "Nuvem";
+  if (!p) return t("Cloud");
   const parts = p.split("/");
   return parts.length === 1 ? label(parts[0], user) : parts[parts.length - 1];
 }
@@ -1098,12 +1099,12 @@ function OptionGroup({ label, value, options, onChange }: { label: string; value
 }
 
 const SORTS: { v: string; label: string }[] = [
-  { v: "name:1", label: "Nome (A–Z)" },
-  { v: "name:0", label: "Nome (Z–A)" },
-  { v: "modified:0", label: "Mais recentes" },
-  { v: "modified:1", label: "Mais antigos" },
-  { v: "size:0", label: "Maiores" },
-  { v: "size:1", label: "Menores" },
+  { v: "name:1", label: t("Name (A–Z)") },
+  { v: "name:0", label: t("Name (Z–A)") },
+  { v: "modified:0", label: t("Newest") },
+  { v: "modified:1", label: t("Oldest") },
+  { v: "size:0", label: t("Largest") },
+  { v: "size:1", label: t("Smallest") },
 ];
 
 function SortChip({ sort, onChange }: { sort: { key: SortKey; asc: boolean }; onChange: (s: { key: SortKey; asc: boolean }) => void }) {
@@ -1111,7 +1112,7 @@ function SortChip({ sort, onChange }: { sort: { key: SortKey; asc: boolean }; on
     <label className="filter-chip">
       <Icon name="sort" />
       <select
-        aria-label="Ordenar"
+        aria-label={t("Sort")}
         value={`${sort.key}:${sort.asc ? 1 : 0}`}
         onChange={(e) => {
           const [k, a] = e.target.value.split(":");
@@ -1210,13 +1211,13 @@ function Uploads({ uploads, setUploads }: { uploads: Upload[]; setUploads: (f: (
         <div className="uploads-title">
           <strong>
             {active
-              ? `Enviando ${groups.length === 1 ? `a pasta ${groups[0]}` : `${active} ${active === 1 ? "arquivo" : "arquivos"}`}`
+              ? t("Uploading {v0}", { v0: groups.length === 1 ? t("folder {v0}", { v0: groups[0] }) : plural(active, "{n} file", "{n} files") })
               : failed
-                ? `${failed} ${failed === 1 ? "envio falhou" : "envios falharam"}`
-                : "Envios concluídos"}
+                ? plural(failed, "{n} upload failed", "{n} uploads failed")
+                : t("Uploads completed")}
           </strong>
           <span className="muted small num">
-            {done} de {uploads.length} {uploads.length === 1 ? "arquivo" : "arquivos"} · {busy ? fmtBytesFine(shownSent) : fmtBytes(sent)} de {fmtBytes(total)}
+            {t(uploads.length === 1 ? "{done} of {count} file · {sent} of {total}" : "{done} of {count} files · {sent} of {total}", { done, count: uploads.length, sent: busy ? fmtBytesFine(shownSent) : fmtBytes(sent), total: fmtBytes(total) })}
             {busy && ` (${pct}%)`}
           </span>
           {busy && (
@@ -1227,19 +1228,19 @@ function Uploads({ uploads, setUploads }: { uploads: Upload[]; setUploads: (f: (
                   <span className="muted"> · {fmtRemaining(((total - sent) / speed) * 1000)}</span>
                 </>
               ) : (
-                <span className="muted">medindo a velocidade…</span>
+                <span className="muted">{t("measuring the speed…")}</span>
               )}
             </span>
           )}
         </div>
         {active > 1 && (
           <button className="btn ghost small" onClick={() => uploads.forEach((u) => (u.state === "sending" || u.state === "waiting") && u.ctrl.abort())}>
-            Cancelar tudo
+            {t("Cancel all")}
           </button>
         )}
         {!active && (
           <button className="btn ghost small" onClick={() => setUploads(() => [])}>
-            Limpar
+            {t("Clear")}
           </button>
         )}
       </div>
@@ -1247,7 +1248,7 @@ function Uploads({ uploads, setUploads }: { uploads: Upload[]; setUploads: (f: (
         <span style={{ width: `${total ? (100 * shownSent) / total : 100}%` }} />
       </span>
       {shown.length > 0 && (
-      <ul className="uploads" aria-label="Envios">
+      <ul className="uploads" aria-label={t("Uploads")}>
         {shown.map((u) => (
           <li key={u.id} className={`upload ${u.state}`}>
             <span className="upload-name" title={u.target}>
@@ -1257,15 +1258,15 @@ function Uploads({ uploads, setUploads }: { uploads: Upload[]; setUploads: (f: (
               {u.state === "error"
                 ? u.error
                 : u.state === "done"
-                  ? "enviado"
+                  ? t("sent")
                   : u.state === "cancelled"
-                    ? "cancelado"
+                    ? t("canceled")
                     : u.state === "waiting"
-                      ? "na fila"
-                      : `${fmtBytesFine(u.sent)} de ${fmtBytes(u.total)} · ${u.total ? Math.floor((100 * u.sent) / u.total) : 0}%`}
+                      ? t("queued")
+                      : t("{v0} of {v1} · {v2}%", { v0: fmtBytesFine(u.sent), v1: fmtBytes(u.total), v2: u.total ? Math.floor((100 * u.sent) / u.total) : 0 })}
             </span>
             {(u.state === "sending" || u.state === "waiting") && (
-              <button className="btn ghost icon small" aria-label={`Cancelar ${u.name}`} onClick={() => u.ctrl.abort()}>
+              <button className="btn ghost icon small" aria-label={t("Cancel {name}", { name: u.name })} onClick={() => u.ctrl.abort()}>
                 <Icon name="x" />
               </button>
             )}
@@ -1274,7 +1275,7 @@ function Uploads({ uploads, setUploads }: { uploads: Upload[]; setUploads: (f: (
                 className="btn ghost small"
                 onClick={() => setUploads((all) => all.map((x) => (x.id === u.id ? { ...x, state: "waiting", error: undefined, ctrl: new AbortController() } : x)))}
               >
-                Tentar de novo
+                {t("Try again")}
               </button>
             )}
             <span className="meter thin" aria-hidden="true">
@@ -1286,7 +1287,7 @@ function Uploads({ uploads, setUploads }: { uploads: Upload[]; setUploads: (f: (
       )}
       {(uploads.length > LIMIT || quiet) && (
         <button className="linkish small uploads-more" onClick={() => setAll((v) => !v)}>
-          {all ? "Mostrar menos" : uploads.length === 1 ? "Ver o arquivo" : `Ver os ${uploads.length}`}
+          {all ? t("Show less") : uploads.length === 1 ? t("View the file") : t("View the {length}", { length: uploads.length })}
         </button>
       )}
     </div>
@@ -1316,23 +1317,23 @@ function DetailsPane({
     const filesOnly = list.filter((e) => !e.dir);
     const bytes = filesOnly.reduce((a, e) => a + e.size, 0);
     return (
-      <aside className="details-pane" aria-label="Detalhes">
+      <aside className="details-pane" aria-label={t("Details")}>
         <div className="pane-preview">
           <span className="file-icon big k-folder">
             <Icon name={selected.length ? "check" : path.startsWith(TRASH) ? "trash" : "folder"} />
           </span>
         </div>
-        <h3 className="pane-title">{selected.length ? `${selected.length} itens selecionados` : folderName(path, user)}</h3>
+        <h3 className="pane-title">{selected.length ? t("{length} items selected", { length: selected.length }) : folderName(path, user)}</h3>
         <dl className="kv pane-kv">
-          <dt>Pastas</dt>
+          <dt>{t("Folders")}</dt>
           <dd>{list.length - filesOnly.length}</dd>
-          <dt>Arquivos</dt>
+          <dt>{t("Files")}</dt>
           <dd>{filesOnly.length}</dd>
-          <dt>Tamanho</dt>
+          <dt>{t("Size")}</dt>
           <dd>{fmtBytes(bytes)}</dd>
         </dl>
         {selected.length > 0 && <PaneActions actions={actions} />}
-        {!selected.length && <p className="muted small">Selecione um arquivo para ver a prévia aqui.</p>}
+        {!selected.length && <p className="muted small">{t("Select a file to see the preview here.")}</p>}
       </aside>
     );
   }
@@ -1340,7 +1341,7 @@ function DetailsPane({
   const k = kindOf(one);
   const src = fileUrl(p);
   return (
-    <aside className="details-pane" aria-label="Detalhes">
+    <aside className="details-pane" aria-label={t("Details")}>
       <div className={`pane-preview k-${k}`}>
         {k === "image" ? (
           <img src={hasThumb(one.name) ? thumbUrl(p) : src} alt="" />
@@ -1360,21 +1361,21 @@ function DetailsPane({
         {one.name}
       </h3>
       <dl className="kv pane-kv">
-        <dt>Tipo</dt>
+        <dt>{t("Type")}</dt>
         <dd>{kindLabel[k]}</dd>
         {!one.dir && (
           <>
-            <dt>Tamanho</dt>
+            <dt>{t("Size")}</dt>
             <dd>{fmtBytes(one.size)}</dd>
           </>
         )}
-        <dt>Modificado</dt>
-        <dd>{new Date(one.modified).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}</dd>
-        <dt>Local</dt>
+        <dt>{t("Modified")}</dt>
+        <dd>{new Date(one.modified).toLocaleString(getLang(), { dateStyle: "short", timeStyle: "short" })}</dd>
+        <dt>{t("Local")}</dt>
         <dd>{crumbs(parentPath(p), user).map((c) => c.name).join(" / ")}</dd>
       </dl>
       <PaneActions actions={actions} />
-      {isImage(one.name) && <p className="muted small">Duplo clique abre a imagem em tela grande.</p>}
+      {isImage(one.name) && <p className="muted small">{t("Double-click opens the picture full screen.")}</p>}
     </aside>
   );
 }
@@ -1462,13 +1463,13 @@ function TreeLevel(props: TreeProps & { parent: string; depth: number; open: Set
   if (q.isLoading)
     return (
       <li className="tree-loading muted small" style={{ paddingLeft: 12 + depth * 14 }}>
-        Carregando…
+        {t("Loading…")}
       </li>
     );
   if (!dirs.length && !files.length && depth > 0)
     return (
       <li className="tree-empty muted small" style={{ paddingLeft: 30 + depth * 14 }}>
-        vazia
+        {t("empty")}
       </li>
     );
   return (
@@ -1487,7 +1488,7 @@ function TreeLevel(props: TreeProps & { parent: string; depth: number; open: Set
               onContextMenu={onMenu ? (ev) => onMenu(ev, p, true) : undefined}
               {...(dropProps && !pick ? dropProps(p) : {})}
             >
-              <button className={`tree-twist${isOpen ? " open" : ""}`} aria-label={isOpen ? `Fechar ${name}` : `Abrir ${name}`} onClick={() => toggle(p)} tabIndex={-1}>
+              <button className={`tree-twist${isOpen ? " open" : ""}`} aria-label={t(isOpen ? "Close {name}" : "Open {name}", { name })} onClick={() => toggle(p)} tabIndex={-1}>
                 <Icon name="chevronRight" />
               </button>
               <button
@@ -1601,9 +1602,9 @@ function Dialog({ title, onClose, children, className }: { title: string; onClos
 }
 
 function NameDialog({ ask, onCancel, onSubmit }: { ask: Ask; onCancel: () => void; onSubmit: (v: string) => void }) {
-  const initial = ask.kind === "rename" ? baseName(ask.path) : ask.kind === "mkfile" ? "Novo arquivo.txt" : "";
+  const initial = ask.kind === "rename" ? baseName(ask.path) : ask.kind === "mkfile" ? t("New file.txt") : "";
   const [value, setValue] = useState(initial);
-  const title = ask.kind === "mkdir" ? "Nova pasta" : ask.kind === "mkfile" ? "Novo arquivo de texto" : "Renomear";
+  const title = ask.kind === "mkdir" ? t("New folder") : ask.kind === "mkfile" ? t("New text file") : t("Rename");
   const inputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     const el = inputRef.current;
@@ -1625,15 +1626,15 @@ function NameDialog({ ask, onCancel, onSubmit }: { ask: Ask; onCancel: () => voi
         }}
       >
         <h2>{title}</h2>
-        <input ref={inputRef} className="input" value={value} onChange={(e) => setValue(e.target.value)} aria-label={title} placeholder={ask.kind === "mkdir" ? "Nome da pasta" : undefined} />
-        {invalid && <span className="hint bad">O nome não pode ter / nem \ nem começar com ponto.</span>}
-        {ask.kind === "mkfile" && <span className="hint">Sem extensão, vira .txt. O arquivo abre no editor.</span>}
+        <input ref={inputRef} className="input" value={value} onChange={(e) => setValue(e.target.value)} aria-label={title} placeholder={ask.kind === "mkdir" ? t("Folder name") : undefined} />
+        {invalid && <span className="hint bad">{t("The name cannot contain / or \\ or start with a dot.")}</span>}
+        {ask.kind === "mkfile" && <span className="hint">{t("Without an extension, it becomes .txt. The file opens in the editor.")}</span>}
         <div className="dialog-actions">
           <button type="button" className="btn ghost" onClick={onCancel}>
-            Cancelar
+            {t("Cancel")}
           </button>
           <button type="submit" className="btn primary" disabled={!value.trim() || invalid || same}>
-            {ask.kind === "rename" ? "Renomear" : "Criar"}
+            {ask.kind === "rename" ? t("Rename") : t("Create")}
           </button>
         </div>
       </form>
@@ -1646,18 +1647,18 @@ function MoveDialog({ paths, user, start, onCancel, onMove }: { paths: string[];
   const [busy, setBusy] = useState(false);
   const bad = !canReceive(dest) || paths.some((p) => inside(dest, p)) || paths.every((p) => parentPath(p) === dest);
   return (
-    <Dialog title="Mover para" onClose={onCancel} className="move-dialog">
-      <h2>Mover {paths.length === 1 ? `“${baseName(paths[0])}”` : `${paths.length} itens`}</h2>
-      <p className="muted small">Escolha a pasta de destino.</p>
+    <Dialog title={t("Move to")} onClose={onCancel} className="move-dialog">
+      <h2>{t("Move")}{" "}{paths.length === 1 ? `“${baseName(paths[0])}”` : t("{length} items", { length: paths.length })}</h2>
+      <p className="muted small">{t("Choose the destination folder.")}</p>
       <div className="move-tree">
         <FolderTree current={dest} user={user} onOpen={setDest} pick={{ exclude: paths }} />
       </div>
       <p className="small move-dest">
-        Destino: <strong>{dest ? crumbs(dest, user).slice(1).map((c) => c.name).join(" / ") : "—"}</strong>
+        {t("Destination:")}{" "}<strong>{dest ? crumbs(dest, user).slice(1).map((c) => c.name).join(" / ") : "—"}</strong>
       </p>
       <div className="dialog-actions">
         <button className="btn ghost" onClick={onCancel}>
-          Cancelar
+          {t("Cancel")}
         </button>
         <button
           className="btn primary"
@@ -1667,7 +1668,7 @@ function MoveDialog({ paths, user, start, onCancel, onMove }: { paths: string[];
             Promise.resolve(onMove(dest)).finally(() => setBusy(false));
           }}
         >
-          <Icon name="move" /> Mover aqui
+          <Icon name="move" />{" "}{t("Move here")}
         </button>
       </div>
     </Dialog>
@@ -1677,29 +1678,29 @@ function MoveDialog({ paths, user, start, onCancel, onMove }: { paths: string[];
 function DetailsDialog({ path, entry, user, onClose }: { path: string; entry: NasEntry; user: string; onClose: () => void }) {
   const from = restorePath(path, user);
   return (
-    <Dialog title="Detalhes" onClose={onClose}>
+    <Dialog title={t("Details")} onClose={onClose}>
       <div className="dialog-head">
         <h2 className="wrap-anywhere">{entry.name}</h2>
-        <button className="btn ghost icon small" aria-label="Fechar" onClick={onClose}>
+        <button className="btn ghost icon small" aria-label={t("Close")} onClick={onClose}>
           <Icon name="x" />
         </button>
       </div>
       <dl className="kv details-kv">
-        <dt>Tipo</dt>
+        <dt>{t("Type")}</dt>
         <dd>{kindLabel[kindOf(entry)]}</dd>
         {!entry.dir && (
           <>
-            <dt>Tamanho</dt>
+            <dt>{t("Size")}</dt>
             <dd>{fmtBytes(entry.size)}</dd>
           </>
         )}
-        <dt>Modificado</dt>
-        <dd>{new Date(entry.modified).toLocaleString("pt-BR")}</dd>
-        <dt>Local</dt>
+        <dt>{t("Modified")}</dt>
+        <dd>{new Date(entry.modified).toLocaleString(getLang())}</dd>
+        <dt>{t("Local")}</dt>
         <dd>{crumbs(parentPath(path), user).map((c) => c.name).join(" / ")}</dd>
         {from && (
           <>
-            <dt>Veio de</dt>
+            <dt>{t("Came from")}</dt>
             <dd>{crumbs(parentPath(from), user).map((c) => c.name).join(" / ")}</dd>
           </>
         )}
@@ -1761,7 +1762,7 @@ function PreviewDialog({
   const kind = kindOf(entry);
   const src = fileUrl(path);
   const leave = (fn: () => void) => () => {
-    if (!dirty || window.confirm("Descartar as alterações não salvas?")) {
+    if (!dirty || window.confirm(t("Discard unsaved changes?"))) {
       setDirty(false);
       fn();
     }
@@ -1796,12 +1797,12 @@ function PreviewDialog({
             </h2>
             <span className="muted small">
               {kindLabel[kind]} · {fmtBytes(entry.size)} · {fmtDate(entry.modified)}
-              {files.length > 1 && i >= 0 && ` · ${i + 1} de ${files.length}`}
+              {files.length > 1 && i >= 0 && t(" · {v0} of {length}", { v0: i + 1, length: files.length })}
             </span>
           </div>
           <div className="viewer-actions">
             <a className="btn small" href={fileUrl(path, true)} download={entry.name}>
-              <Icon name="download" /> <span className="hide-sm">Baixar</span>
+              <Icon name="download" /> <span className="hide-sm">{t("Download")}</span>
             </a>
             {entry.size <= SHARE_MAX && "share" in navigator && (
               <button
@@ -1810,40 +1811,40 @@ function PreviewDialog({
                 onClick={() => {
                   setSharing(true);
                   shareFile(path, entry.name)
-                    .then((ok) => ok || toast("Este aparelho não compartilha arquivos; use Baixar.", true))
+                    .then((ok) => ok || toast(t("This device does not share files; use Download."), true))
                     .catch((e) => (e as Error).name !== "AbortError" && toast(errText(e), true))
                     .finally(() => setSharing(false));
                 }}
               >
-                <Icon name="share" /> <span className="hide-sm">{sharing ? "Preparando…" : "Compartilhar"}</span>
+                <Icon name="share" /> <span className="hide-sm">{sharing ? t("Preparing…") : t("Share")}</span>
               </button>
             )}
             {kind === "pdf" && (
               <a className="btn small hide-sm" href={src} target="_blank" rel="noreferrer">
-                <Icon name="open" /> Nova aba
+                <Icon name="open" />{" "}{t("New tab")}
               </a>
             )}
             {writable && (
               <>
-                <button className="btn ghost icon small" title="Renomear" aria-label="Renomear" onClick={onRename}>
+                <button className="btn ghost icon small" title={t("Rename")} aria-label={t("Rename")} onClick={onRename}>
                   <Icon name="edit" />
                 </button>
-                <button className="btn ghost icon small" title="Mover para…" aria-label="Mover" onClick={onMove}>
+                <button className="btn ghost icon small" title={t("Move to…")} aria-label={t("Move")} onClick={onMove}>
                   <Icon name="move" />
                 </button>
-                <button className="btn ghost icon small danger" title="Apagar" aria-label="Apagar" onClick={onDelete}>
+                <button className="btn ghost icon small danger" title={t("Delete")} aria-label={t("Delete")} onClick={onDelete}>
                   <Icon name="trash" />
                 </button>
               </>
             )}
-            <button className="btn ghost icon small" aria-label="Fechar" title="Fechar (Esc)" onClick={leave(onClose)}>
+            <button className="btn ghost icon small" aria-label={t("Close")} title={t("Close (Esc)")} onClick={leave(onClose)}>
               <Icon name="x" />
             </button>
           </div>
         </header>
         <div className={`viewer-stage k-${kind}`}>
           {prev && (
-            <button className="viewer-nav prev" aria-label={`Anterior: ${byPath.get(prev)?.name}`} title="Anterior (←)" onClick={leave(() => onGo(prev))}>
+            <button className="viewer-nav prev" aria-label={t("Previous: {name}", { name: byPath.get(prev)?.name })} title={t("Previous (←)")} onClick={leave(() => onGo(prev))}>
               <Icon name="chevronLeft" />
             </button>
           )}
@@ -1853,7 +1854,7 @@ function PreviewDialog({
             <PreviewBody key={path} kind={kind} src={src} path={path} entry={entry} />
           )}
           {next && (
-            <button className="viewer-nav next" aria-label={`Próximo: ${byPath.get(next)?.name}`} title="Próximo (→)" onClick={leave(() => onGo(next))}>
+            <button className="viewer-nav next" aria-label={t("Next: {name}", { name: byPath.get(next)?.name })} title={t("Next (→)")} onClick={leave(() => onGo(next))}>
               <Icon name="chevronRight" />
             </button>
           )}
@@ -1879,10 +1880,10 @@ function PreviewBody({ kind, src, path, entry }: { kind: Kind; src: string; path
   return (
     <div className="viewer-none">
       <FileIcon type={fileType(entry.name, false)} name={entry.name} big />
-      <strong>Sem pré-visualização para este tipo de arquivo</strong>
-      <span className="muted">Baixe para abrir no aparelho.</span>
+      <strong>{t("No preview for this type of file")}</strong>
+      <span className="muted">{t("Download to open on the device.")}</span>
       <a className="btn primary" href={fileUrl(path, true)} download={entry.name}>
-        <Icon name="download" /> Baixar ({fmtBytes(entry.size)})
+        <Icon name="download" />{" "}{t("Download (")}{fmtBytes(entry.size)})
       </a>
     </div>
   );
@@ -1920,7 +1921,7 @@ function TextEditor({
       qc.setQueryData(["nas-text", path], text);
       setDraft(null);
       onSaved();
-      toast("Salvo.");
+      toast(t("Saved."));
     } catch (e) {
       toast(errText(e), true);
     } finally {
@@ -1928,7 +1929,7 @@ function TextEditor({
     }
   };
 
-  if (q.isLoading) return <p className="viewer-none muted">Carregando…</p>;
+  if (q.isLoading) return <p className="viewer-none muted">{t("Loading…")}</p>;
   if (q.isError) return <p className="viewer-none">{errText(q.error)}</p>;
   return (
     <div className="text-editor">
@@ -1936,28 +1937,28 @@ function TextEditor({
         <div className="editor-bar">
           {editing ? (
             <>
-              <span className="muted small">{dirty ? "Alterações não salvas" : "Editando"} · Ctrl+S salva</span>
+              <span className="muted small">{dirty ? t("Unsaved changes") : t("Editing")}{" "}{t("· Ctrl+S saves")}</span>
               <span className="grow" />
               <button
                 className="btn small ghost"
                 onClick={() => {
-                  if (!dirty || window.confirm("Descartar as alterações?")) {
+                  if (!dirty || window.confirm(t("Discard the changes?"))) {
                     setDraft(null);
                     setEditing(false);
                   }
                 }}
               >
-                Cancelar
+                {t("Cancel")}
               </button>
               <button className="btn small primary" disabled={!dirty || saving} onClick={() => void save()}>
-                <Icon name="check" /> {saving ? "Salvando…" : "Salvar"}
+                <Icon name="check" /> {saving ? t("Saving…") : t("Save")}
               </button>
             </>
           ) : (
             <>
               <span className="grow" />
               <button className="btn small" onClick={() => setEditing(true)}>
-                <Icon name="edit" /> Editar
+                <Icon name="edit" />{" "}{t("Edit")}
               </button>
             </>
           )}
@@ -1969,7 +1970,7 @@ function TextEditor({
           value={text}
           autoFocus
           spellCheck={false}
-          aria-label="Conteúdo do arquivo"
+          aria-label={t("File contents")}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
             if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
@@ -1979,7 +1980,7 @@ function TextEditor({
           }}
         />
       ) : (
-        <pre className="viewer-text selectable">{text || <span className="muted">Arquivo vazio.</span>}</pre>
+        <pre className="viewer-text selectable">{text || <span className="muted">{t("Empty file.")}</span>}</pre>
       )}
     </div>
   );

@@ -1,6 +1,7 @@
-// Client for the Nuvem file API (/api/nas/*, ADR-0012).
+// Client for the Cloud file API (/api/nas/*, ADR-0012).
 import { ApiError, api, get, getCsrf } from "./api";
 
+import { getLang, t, fmtNum } from "./i18n";
 export interface NasEntry {
   name: string;
   dir: boolean;
@@ -18,27 +19,34 @@ export interface NasListing {
 }
 
 export const TRASH = ".lixeira";
-export const SHARED = "Compartilhado";
+export const SHARED = t("Shared");
 
 export const joinPath = (dir: string, name: string) => (dir ? `${dir}/${name}` : name);
 export const parentPath = (p: string) => p.split("/").slice(0, -1).join("/");
 export const baseName = (p: string) => p.split("/").pop() ?? p;
 
-/** Friendly folder labels: the bin and the user's own folder. */
+/**
+ * Friendly labels for the top-level folders. On disk they keep their names
+ * (.lixeira, Compartilhado, each person's user name, shared with Samba); only
+ * what the screen shows follows the UI language.
+ */
 export function label(name: string, user: string): string {
-  if (name === TRASH) return "Lixeira";
-  if (name === user) return "Meus arquivos";
+  if (name === TRASH) return t("Trash");
+  if (name === SHARED) return t("Shared");
+  if (name === user) return t("My files");
   return name;
 }
 
 /** Breadcrumb trail for a path: [{name, path}], starting at the share. */
 export function crumbs(p: string, user: string): { name: string; path: string }[] {
   const parts = p ? p.split("/") : [];
-  const out = [{ name: "Nuvem", path: "" }];
+  const out = [{ name: t("Cloud"), path: "" }];
   parts.forEach((part, i) => {
     // The bin's per-user level (.lixeira/<user>) is an implementation detail.
     if (i === 1 && parts[0] === TRASH) return;
-    out.push({ name: label(part, user), path: parts.slice(0, i + 1).join("/") });
+    // Friendly names only for top-level folders (in the bin: the original top level).
+    const top = i === 0 || (i === 2 && parts[0] === TRASH);
+    out.push({ name: top ? label(part, user) : part, path: parts.slice(0, i + 1).join("/") });
   });
   return out;
 }
@@ -116,7 +124,7 @@ export const isText = (n: string) => TEXT.test(n);
 
 export type Kind = "folder" | "image" | "video" | "audio" | "pdf" | "text" | "archive" | "file";
 
-/** What a Nuvem entry is, for icons, previews and the "Tipo" column. */
+/** What a Cloud entry is, for icons, previews and the "Type" column. */
 export function kindOf(e: { name: string; dir: boolean }): Kind {
   if (e.dir) return "folder";
   if (IMAGE.test(e.name)) return "image";
@@ -129,14 +137,14 @@ export function kindOf(e: { name: string; dir: boolean }): Kind {
 }
 
 export const kindLabel: Record<Kind, string> = {
-  folder: "Pasta",
-  image: "Imagem",
-  video: "Vídeo",
-  audio: "Áudio",
+  folder: t("Folder"),
+  image: t("Image"),
+  video: t("Video"),
+  audio: t("Audio"),
   pdf: "PDF",
-  text: "Texto",
-  archive: "Compactado",
-  file: "Arquivo",
+  text: t("Text"),
+  archive: t("Archive"),
+  file: t("File"),
 };
 
 /** True when `to` is `from` itself or inside it (a folder cannot move into itself). */
@@ -154,7 +162,7 @@ export function sortEntries(entries: NasEntry[], key: SortKey, asc: boolean): Na
     let c = 0;
     if (key === "modified") c = a.modified.localeCompare(b.modified);
     else if (key === "size") c = a.size - b.size;
-    if (c === 0) c = a.name.localeCompare(b.name, "pt-BR", { numeric: true, sensitivity: "base" });
+    if (c === 0) c = a.name.localeCompare(b.name, getLang(), { numeric: true, sensitivity: "base" });
     return c * dir;
   });
 }
@@ -224,17 +232,17 @@ export function fmtBytesFine(b: number): string {
     i++;
   }
   const d = i === 0 ? 0 : v < 100 ? 2 : 1;
-  return `${v.toFixed(d).replace(".", ",")} ${units[i]}`;
+  return `${fmtNum(v, d, d)} ${units[i]}`;
 }
 
 /** "faltam ~7 min", like the big drives: rounded up, no seconds past a minute. */
 export function fmtRemaining(ms: number): string {
   if (!isFinite(ms) || ms <= 0) return "";
-  if (ms < 60_000) return "falta menos de 1 min";
+  if (ms < 60_000) return t("less than 1 min left");
   const m = Math.ceil(ms / 60_000);
-  if (m < 60) return `faltam ~${m} min`;
+  if (m < 60) return t("~{m} min left", { m });
   const h = Math.floor(m / 60);
-  return `faltam ~${h} h${m % 60 ? ` ${m % 60} min` : ""}`;
+  return m % 60 ? t("~{h} h {m} min left", { h, m: m % 60 }) : t("~{h} h left", { h });
 }
 
 /** How often a running chunk reports bytes on their way (re-renders). */

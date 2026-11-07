@@ -29,7 +29,7 @@ func sensitiveKey(key string) bool {
 // quoted multiline values. It never evaluates shell code or interpolation.
 func parseDotEnv(b []byte) ([]EnvVar, error) {
 	if len(b) > maxTextFile || bytes.ContainsRune(b, 0) {
-		return nil, errors.New(".env inválida ou maior que 1 MB")
+		return nil, errors.New(".env is invalid or larger than 1 MB")
 	}
 	sc := bufio.NewScanner(bytes.NewReader(bytes.TrimPrefix(b, []byte{0xef, 0xbb, 0xbf})))
 	sc.Buffer(make([]byte, 4096), maxTextFile)
@@ -44,7 +44,7 @@ func parseDotEnv(b []byte) ([]EnvVar, error) {
 		}
 		m := dotenvAssignment.FindStringSubmatch(text)
 		if m == nil {
-			return nil, fmt.Errorf(".env: atribuição inválida na linha %d", line)
+			return nil, fmt.Errorf(".env: invalid assignment on line %d", line)
 		}
 		value := m[2]
 		if len(value) > 0 && strings.ContainsRune("\"'`", rune(value[0])) {
@@ -67,7 +67,7 @@ func parseDotEnv(b []byte) ([]EnvVar, error) {
 					break
 				}
 				if !sc.Scan() {
-					return nil, fmt.Errorf(".env: aspas não fechadas na linha %d", line)
+					return nil, fmt.Errorf(".env: unclosed quotes on line %d", line)
 				}
 				line++
 				value += "\n" + sc.Text()
@@ -93,11 +93,11 @@ func parseDotEnv(b []byte) ([]EnvVar, error) {
 			vars = append(vars, e)
 		}
 		if len(vars) > maxEnv {
-			return nil, fmt.Errorf(".env: no máximo %d variáveis", maxEnv)
+			return nil, fmt.Errorf(".env: at most %d variables", maxEnv)
 		}
 	}
 	if err := sc.Err(); err != nil {
-		return nil, errors.New(".env: não foi possível ler o arquivo")
+		return nil, errors.New(".env: could not read the file")
 	}
 	return vars, nil
 }
@@ -113,12 +113,12 @@ func readDotEnv(work string) ([]EnvVar, error) {
 		return nil, nil
 	}
 	if err != nil {
-		return nil, errors.New("não foi possível abrir a .env dentro do projeto")
+		return nil, errors.New("could not open the .env inside the project")
 	}
 	defer f.Close()
 	b, err := io.ReadAll(io.LimitReader(f, maxTextFile+1))
 	if err != nil {
-		return nil, errors.New("não foi possível ler a .env")
+		return nil, errors.New("could not read the .env")
 	}
 	return parseDotEnv(b)
 }

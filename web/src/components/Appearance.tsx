@@ -4,19 +4,19 @@ import { CardHead } from "./CardHead";
 import { Icon } from "./Icon";
 
 const THEMES: Record<Palette, { label: string; hint: string }> = {
-  mar: { label: "Maré", hint: "Verde-mar e areia, o tema do farol" },
-  oceano: { label: "Oceano", hint: "Azul profundo e calmo" },
-  floresta: { label: "Floresta", hint: "Verde musgo, tons de mata" },
-  areia: { label: "Duna", hint: "Dourado quente de fim de tarde" },
-  lavanda: { label: "Lavanda", hint: "Lilás suave e sereno" },
-  grafite: { label: "Grafite", hint: "Sem cor, só tons de cinza" },
+  mar: { label: t("Tide"), hint: t("Sea green and sand, the lighthouse theme") },
+  oceano: { label: t("Ocean"), hint: t("Deep, calm blue") },
+  floresta: { label: t("Forest"), hint: t("Moss green, woodland tones") },
+  areia: { label: t("Dune"), hint: t("Warm late-afternoon gold") },
+  lavanda: { label: t("Lavender"), hint: t("Soft, serene lilac") },
+  grafite: { label: t("Graphite"), hint: t("No colour, only greys") },
 };
 
 const MODES: { value: ThemeMode; label: string; icon: string }[] = [
-  { value: "light", label: "Claro", icon: "sun" },
-  { value: "dark", label: "Escuro", icon: "moon" },
-  { value: "black", label: "Preto", icon: "moon" },
-  { value: "system", label: "Automático", icon: "monitor" },
+  { value: "light", label: t("Light"), icon: "sun" },
+  { value: "dark", label: t("Dark"), icon: "moon" },
+  { value: "black", label: t("Black"), icon: "moon" },
+  { value: "system", label: t("Automatic"), icon: "monitor" },
 ];
 
 /** A small picture of the app in a theme: side menu, a card, a button, the sea. */
@@ -51,9 +51,9 @@ export function AppearanceCard() {
   const mode = useThemeMode();
   const palette = usePalette();
   return (
-    <section className="card set-card" aria-label={t("Aparência")}>
-      <CardHead icon="sun" title={t("Tema")} sub={t("Vale só para este aparelho. Cada pessoa escolhe o seu.")} />
-      <div className="theme-grid" role="radiogroup" aria-label="Tema">
+    <section className="card set-card" aria-label={t("Appearance")}>
+      <CardHead icon="sun" title={t("Theme")} sub={t("Only on this device. Everyone picks their own.")} />
+      <div className="theme-grid" role="radiogroup" aria-label={t("Theme")}>
         {PALETTES.map((p) => (
           <button key={p} role="radio" aria-checked={palette === p} className={`theme-card${palette === p ? " on" : ""}`} onClick={() => setPalette(p)}>
             <ThemeMock palette={p} />
@@ -68,26 +68,30 @@ export function AppearanceCard() {
         ))}
       </div>
       <div className="set-group">
-        <h3 className="set-group-title">{t("Brilho")}</h3>
-        <div className="segmented mode-seg" role="radiogroup" aria-label="Brilho">
+        <h3 className="set-group-title">{t("Brightness")}</h3>
+        <div className="segmented mode-seg" role="radiogroup" aria-label={t("Brightness")}>
           {MODES.map((m) => (
             <button key={m.value} role="radio" aria-checked={mode === m.value} aria-pressed={mode === m.value} onClick={() => setThemeMode(m.value)}>
               <Icon name={m.icon} /> {t(m.label)}
             </button>
           ))}
         </div>
-        <p className="muted small">{t(mode === "black" ? "Preto total: economiza bateria em telas OLED." : mode === "system" ? "Segue o claro ou escuro do aparelho." : "Todos os temas têm versão clara e escura.")}</p>
+        <p className="muted small">{t(mode === "black" ? "True black: saves battery on OLED screens." : mode === "system" ? "Follows the device's light or dark setting." : t("Every theme has a light and a dark version."))}</p>
       </div>
       <div className="set-group">
-        <h3 className="set-group-title">{t("Idioma")}</h3>
-        <select className="input" aria-label={t("Idioma")} defaultValue={getLangChoice()} onChange={(e) => setLang(e.target.value as Lang | "auto")}>
+        <h3 className="set-group-title">{t("Language")}</h3>
+        <select className="input" aria-label={t("Language")} defaultValue={getLangChoice()} onChange={(e) => {
+            // Reload so text built at load time (menus, labels) follows too.
+            setLang(e.target.value as Lang | "auto");
+            window.location.reload();
+          }}>
           {LANGS.map((l) => (
             <option key={l.id} value={l.id}>
               {l.id === "auto" ? t(l.label) : l.label}
             </option>
           ))}
         </select>
-        <p className="muted small">{t("O automático usa português em aparelhos em português e inglês nos outros.")}</p>
+        <p className="muted small">{t("Automatic uses Portuguese on Portuguese devices and English on the others.")}</p>
       </div>
     </section>
   );

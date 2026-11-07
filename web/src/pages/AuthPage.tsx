@@ -24,11 +24,12 @@ interface Invite {
   code: string;
 }
 
-/** An invite link: #/convite?u=<login>&c=<code> (the fragment never reaches a server). */
+/** An invite link: #/invite?u=<login>&c=<code> (the fragment never reaches a server). */
 function inviteFromLink(): Invite | null {
   const raw = window.location.hash.replace(/^#\/?/, "");
   const [page, query = ""] = raw.split("?");
-  if (page !== "convite") return null;
+  // "convite": the page's name in invites sent before 2026-11.
+  if (page !== "invite" && page !== "convite") return null;
   const q = new URLSearchParams(query);
   const login = q.get("u")?.trim() ?? "";
   const code = q.get("c")?.trim() ?? "";
@@ -60,14 +61,14 @@ function saveLogin(name: string, remember: boolean) {
 
 /** Portuguese text for the server's sign-in errors. */
 function loginError(msg: string): string {
-  if (msg.includes("invalid username")) return "Usuário, e-mail ou senha incorretos.";
-  if (msg.includes("invalid code")) return "Código incorreto ou já usado. Espere o próximo código e tente de novo.";
-  if (msg.includes("from this address")) return "Muitas tentativas erradas deste endereço. Espere uma hora.";
-  if (msg.includes("for this account")) return "Muitas tentativas nesta conta. Espere uma hora.";
-  if (msg.includes("too many")) return "Muitas tentativas. Espere um minuto e tente de novo.";
-  if (msg.includes("invalid or expired invite")) return "Convite inválido ou vencido. Peça um novo ao administrador.";
-  if (msg.includes("disabled")) return "Esta conta está desativada.";
-  if (msg.includes("at least") || msg.includes("too weak") || msg.includes("too common")) return "Senha fraca: use 10+ caracteres misturando letras com números ou símbolos.";
+  if (msg.includes("invalid username")) return t("Wrong username, email or password.");
+  if (msg.includes("invalid code")) return t("Wrong or already used code. Wait for the next code and try again.");
+  if (msg.includes("from this address")) return t("Too many wrong attempts from this address. Wait an hour.");
+  if (msg.includes("for this account")) return t("Too many attempts on this account. Wait an hour.");
+  if (msg.includes("too many")) return t("Too many attempts. Wait a minute and try again.");
+  if (msg.includes("invalid or expired invite")) return t("Invalid or expired invite. Ask the administrator for a new one.");
+  if (msg.includes("disabled")) return t("This account is disabled.");
+  if (msg.includes("at least") || msg.includes("too weak") || msg.includes("too common")) return t("Weak password: use 10+ characters mixing letters with numbers or symbols.");
   return msg;
 }
 
@@ -98,28 +99,28 @@ export function AuthPage({ mode, onDone, downMessage, onRetry }: Props) {
           <div className="auth-head">
             <div className="auth-brand">
               <LighthouseMark />
-              <h1>Sentinela</h1>
+              <h1>{t("Sentinela")}</h1>
             </div>
             <p className="auth-lede">
               {t(
                 downMessage
-                  ? "O servidor não respondeu. Confira a internet deste aparelho e tente de novo."
+                  ? t("The server did not respond. Check this device's internet connection and try again.")
                   : setup
-                    ? "Primeiro acesso. Crie a conta de administrador: ela protege as câmeras, as gravações e os arquivos."
+                    ? t("First access. Create the administrator account: it protects the cameras, the recordings and the files.")
                     : invite
-                      ? "Primeiro acesso: crie a sua senha para entrar no Sentinela."
-                      : "O farol da casa: câmeras ao vivo, gravações e a sua nuvem, num só lugar.",
+                      ? t("First access: create your password to sign in to Sentinela.")
+                      : t("The house lighthouse: live cameras, recordings and your cloud, in one place."),
               )}
             </p>
           </div>
           {downMessage ? (
             <div className="stack-sm">
               <button className="btn block primary" onClick={onRetry}>
-                Tentar de novo
+                {t("Try again")}
               </button>
               {inApp && (
                 <button className="btn block" onClick={changeConnection}>
-                  Trocar endereço do servidor
+                  {t("Change server address")}
                 </button>
               )}
             </div>
@@ -130,7 +131,7 @@ export function AuthPage({ mode, onDone, downMessage, onRetry }: Props) {
               <>
               {isAndroidBrowser() && (
                 <a className="btn block primary auth-open-app" href={appIntentURL(currentAppPath(), window.location.href)}>
-                  Abrir no aplicativo Sentinela
+                  {t("Open in the Sentinela app")}
                 </a>
               )}
               <InviteForm
@@ -145,10 +146,10 @@ export function AuthPage({ mode, onDone, downMessage, onRetry }: Props) {
             ) : (
               <div className="stack-sm">
                 <p className="notice error" role="alert">
-                  Este link de convite está incompleto. Peça ao administrador para enviar de novo.
+                  {t("This invite link is incomplete. Ask the administrator to send it again.")}
                 </p>
                 <button className="btn block" onClick={back}>
-                  Ir para o login
+                  {t("Go to sign-in")}
                 </button>
               </div>
             )
@@ -157,12 +158,12 @@ export function AuthPage({ mode, onDone, downMessage, onRetry }: Props) {
           )}
           {!downMessage && !setup && (
             <p className="muted small auth-via">
-              Conectado por: {zoneLabel()}
+              {t("Connected by:")}{" "}{zoneLabel()}
               {inApp && (
                 <>
                   {" · "}
                   <button type="button" className="linkish" onClick={changeConnection}>
-                    trocar
+                    {t("change")}
                   </button>
                 </>
               )}
@@ -196,8 +197,8 @@ function RememberBox({ value, onChange }: { value: boolean; onChange: (v: boolea
     <label className="check-row auth-remember">
       <input type="checkbox" checked={value} onChange={(e) => onChange(e.target.checked)} />
       <span>
-        Manter conectado neste aparelho
-        <span className="muted small"> enquanto for usado</span>
+        {t("Stay signed in on this device")}
+        <span className="muted small">{" "}{t("while in use")}</span>
       </span>
     </label>
   );
@@ -206,7 +207,7 @@ function RememberBox({ value, onChange }: { value: boolean; onChange: (v: boolea
 function OtpField({ value, onChange, hint }: { value: string; onChange: (v: string) => void; hint: string }) {
   return (
     <div className="field">
-      <label htmlFor="otp">Código de verificação</label>
+      <label htmlFor="otp">{t("Verification code")}</label>
       <input
         id="otp"
         className="input otp"
@@ -262,7 +263,7 @@ function LoginForm({ onDone }: { onDone: (u: User) => void }) {
     } catch (err) {
       if (err instanceof ApiError && err.mfa) {
         // Only accounts with two-step login get here.
-        if (askCode) setError("Digite o código de 6 dígitos do app autenticador.");
+        if (askCode) setError(t("Enter the 6-digit code from the authenticator app."));
         setAskCode(true);
         return;
       }
@@ -275,7 +276,7 @@ function LoginForm({ onDone }: { onDone: (u: User) => void }) {
   return (
     <form onSubmit={submit} className="auth-form">
       <div className="field">
-        <label htmlFor="u">{t("Usuário ou e-mail")}</label>
+        <label htmlFor="u">{t("Username or e-mail")}</label>
         <input
           id="u"
           name="username"
@@ -292,11 +293,11 @@ function LoginForm({ onDone }: { onDone: (u: User) => void }) {
           autoFocus={!initial}
         />
       </div>
-      <PasswordField label={t("Senha")} value={password} onChange={setPassword} autoComplete="current-password" autoFocus={!!initial && !askCode} />
-      {askCode && <OtpField value={code} onChange={setCode} hint="Esta conta usa verificação em 2 etapas: abra o app autenticador e digite o código do Sentinela." />}
+      <PasswordField label={t("Password")} value={password} onChange={setPassword} autoComplete="current-password" autoFocus={!!initial && !askCode} />
+      {askCode && <OtpField value={code} onChange={setCode} hint={t("This account uses two-step verification: open the authenticator app and enter the Sentinela code.")} />}
       {!inApp && <RememberBox value={remember} onChange={setRemember} />}
       <ErrorNote text={error} />
-      <Submit busy={busy}>{t("Entrar")}</Submit>
+      <Submit busy={busy}>{t("Sign in")}</Submit>
     </form>
   );
 }
@@ -329,17 +330,17 @@ function InviteForm({ invite, onDone, onBack }: { invite: Invite; onDone: (u: Us
   return (
     <form onSubmit={submit} className="auth-form">
       <p className="small">
-        Conta: <strong>{login}</strong>
+        {t("Account:")}{" "}<strong>{login}</strong>
       </p>
       {/* Hidden, but lets the password manager save the new password under this name. */}
       <input className="sr-only" name="username" autoComplete="username" value={login} readOnly tabIndex={-1} aria-hidden="true" />
-      <PasswordField label="Nova senha" value={password} onChange={setPassword} autoComplete="new-password" meter autoFocus />
-      <p className="muted small">Toque no olho para conferir o que digitou.</p>
+      <PasswordField label={t("New password")} value={password} onChange={setPassword} autoComplete="new-password" meter autoFocus />
+      <p className="muted small">{t("Tap the eye to check what you typed.")}</p>
       {!canChangeConnection() && <RememberBox value={remember} onChange={setRemember} />}
       <ErrorNote text={error} />
-      <Submit busy={busy}>Salvar senha e entrar</Submit>
+      <Submit busy={busy}>{t("Save password and sign in")}</Submit>
       <button type="button" className="btn ghost block" onClick={onBack}>
-        Voltar para o login
+        {t("Back to sign-in")}
       </button>
     </form>
   );
@@ -357,7 +358,7 @@ function SetupForm({ onDone }: { onDone: (u: User) => void }) {
     setError("");
     const bad = policyError(password);
     if (bad) return setError(bad);
-    if (password !== confirm) return setError("As senhas não são iguais.");
+    if (password !== confirm) return setError(t("The passwords do not match."));
     setBusy(true);
     try {
       const r = await api<{ user: User }>("POST", "/api/setup", { username, password });
@@ -372,13 +373,13 @@ function SetupForm({ onDone }: { onDone: (u: User) => void }) {
   return (
     <form onSubmit={submit} className="auth-form">
       <div className="field">
-        <label htmlFor="su">{t("Usuário")}</label>
+        <label htmlFor="su">{t("User")}</label>
         <input id="su" className="input" autoComplete="username" autoCapitalize="none" spellCheck={false} value={username} onChange={(e) => setUsername(e.target.value)} required />
       </div>
-      <PasswordField label={t("Senha")} value={password} onChange={setPassword} autoComplete="new-password" meter autoFocus />
-      <PasswordField label={t("Repita a senha")} value={confirm} onChange={setConfirm} autoComplete="new-password" matches={password} />
+      <PasswordField label={t("Password")} value={password} onChange={setPassword} autoComplete="new-password" meter autoFocus />
+      <PasswordField label={t("Repeat the password")} value={confirm} onChange={setConfirm} autoComplete="new-password" matches={password} />
       <ErrorNote text={error} />
-      <Submit busy={busy}>{t("Criar administrador")}</Submit>
+      <Submit busy={busy}>{t("Create administrator")}</Submit>
     </form>
   );
 }

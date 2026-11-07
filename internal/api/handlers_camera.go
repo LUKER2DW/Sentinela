@@ -20,9 +20,13 @@ type cameraDTO struct {
 	Recording   bool   `json:"recording"`
 	RecordAudio bool   `json:"record_audio"`
 	Retention   int    `json:"retention_days"`
-	// Control: PTZ, presets, light and day/night (DVRIP cameras only).
+	// Control: camera settings over DVRIP (day/night, clock; XMEye only).
 	Control bool   `json:"control"`
 	Vendor  string `json:"vendor"`
+	// What the camera has (config features): the UI shows only these controls.
+	PTZ   bool `json:"ptz"`
+	Light bool `json:"light"`
+	Talk  bool `json:"talk"`
 }
 
 func (s *Server) listCameras(w http.ResponseWriter, r *http.Request) {
@@ -32,7 +36,7 @@ func (s *Server) listCameras(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		out = append(out, cameraDTO{ID: c.ID, Name: c.Name, Recording: c.Recording(), RecordAudio: c.AudioRecording(), Retention: c.RetentionDays,
-			Control: c.HasDVRIP(), Vendor: c.Vendor})
+			Control: c.HasDVRIP(), Vendor: c.Vendor, PTZ: c.HasPTZ(), Light: c.HasLight(), Talk: c.HasTalk()})
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -106,6 +110,10 @@ func (s *Server) ptz(w http.ResponseWriter, r *http.Request) {
 	if cam == nil {
 		return
 	}
+	if !cam.HasPTZ() {
+		writeErr(w, http.StatusNotImplemented, "this camera has no PTZ")
+		return
+	}
 	var body struct {
 		Action string `json:"action"` // start (also keepalive), stop, nudge
 		Op     string `json:"op"`     // move, zoom, focus, iris
@@ -149,6 +157,10 @@ func (s *Server) preset(w http.ResponseWriter, r *http.Request) {
 	if cam == nil {
 		return
 	}
+	if !cam.HasPTZ() {
+		writeErr(w, http.StatusNotImplemented, "this camera has no PTZ")
+		return
+	}
 	id, err := strconv.Atoi(r.PathValue("preset"))
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, "bad preset id")
@@ -182,6 +194,10 @@ func (s *Server) preset(w http.ResponseWriter, r *http.Request) {
 func (s *Server) setLight(w http.ResponseWriter, r *http.Request) {
 	cam, ctrl := s.cameraCtrl(w, r)
 	if cam == nil {
+		return
+	}
+	if !cam.HasLight() {
+		writeErr(w, http.StatusNotImplemented, "this camera has no white light")
 		return
 	}
 	var body struct {

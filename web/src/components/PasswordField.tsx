@@ -2,6 +2,7 @@ import { useId, useState } from "react";
 import { passwordStrength } from "../lib/password";
 import { Icon } from "./Icon";
 
+import { t } from "../lib/i18n";
 interface Props {
   label: string;
   value: string;
@@ -51,9 +52,9 @@ export function PasswordField({ label, value, onChange, autoComplete, meter, mat
           type="button"
           className="pw-eye"
           onClick={() => setShown((s) => !s)}
-          aria-label={shown ? "Ocultar senha" : "Mostrar senha"}
+          aria-label={shown ? t("Hide password") : t("Show password")}
           aria-pressed={shown}
-          title={shown ? "Ocultar senha" : "Mostrar senha"}
+          title={shown ? t("Hide password") : t("Show password")}
         >
           <Icon name={shown ? "eyeOff" : "eye"} />
         </button>
@@ -66,12 +67,12 @@ export function PasswordField({ label, value, onChange, autoComplete, meter, mat
             <i />
             <i />
           </span>
-          <span className="strength-label">{st.label || "Use 10 caracteres ou mais; frases são ótimas."}</span>
+          <span className="strength-label">{st.label || t("Use 10 characters or more; passphrases are great.")}</span>
         </div>
       )}
       {match === false && (
         <span className="hint bad" id={`${id}-hint`}>
-          As senhas ainda não são iguais.
+          {t("The passwords do not match yet.")}
         </span>
       )}
     </div>

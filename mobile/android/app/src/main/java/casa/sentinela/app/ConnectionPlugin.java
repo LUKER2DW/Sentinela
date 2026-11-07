@@ -41,7 +41,7 @@ public class ConnectionPlugin extends Plugin {
         call.resolve(r);
     }
 
-    /** "Tentar de novo" on the no-connection screen: reload on the same address. */
+    /** "Try again" on the no-connection screen: reload on the same address. */
     @PluginMethod
     public void retry(PluginCall call) {
         Connection.offline = null;

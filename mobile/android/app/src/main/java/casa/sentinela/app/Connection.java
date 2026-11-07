@@ -102,7 +102,7 @@ final class Connection {
             org.json.JSONObject o = alts.optJSONObject(i);
             if (o != null && o.optString("url").equals(url)) return save(c, url, o.optString("pin", ""));
         }
-        return "Endereço desconhecido.";
+        return c.getString(R.string.err_unknown_address);
     }
 
     /**
@@ -111,11 +111,11 @@ final class Connection {
      */
     static String save(Context c, String url, String pin) {
         if (url == null || !URL.matcher(url).matches()) {
-            return "Use um endereço https:// (só o IP ou o nome e a porta, sem caminho).";
+            return c.getString(R.string.err_https_address);
         }
         pin = pin == null ? "" : pin.replace(":", "").trim();
         if (!pin.isEmpty() && !PIN.matcher(pin).matches()) {
-            return "Código do certificado inválido: use o código de pareamento da casa.";
+            return c.getString(R.string.err_bad_pin);
         }
         offline = null;
         boolean known = false;

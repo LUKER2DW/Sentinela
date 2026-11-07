@@ -61,7 +61,7 @@ func planCompose(raw []byte, allowed []string) (*composePlan, error) {
 	}
 	services, _ := doc["services"].(map[string]any)
 	if len(services) == 0 {
-		return nil, errors.New("compose: nenhum serviço no arquivo")
+		return nil, errors.New("compose: no service in the file")
 	}
 	p := &composePlan{doc: doc}
 	var errs []error
@@ -85,57 +85,57 @@ func planCompose(raw []byte, allowed []string) (*composePlan, error) {
 	for _, name := range p.services {
 		s, ok := services[name].(map[string]any)
 		if !ok {
-			bad(name, "formato inválido")
+			bad(name, "invalid format")
 			continue
 		}
 		if v, _ := s["privileged"].(bool); v {
-			bad(name, "privileged não é permitido")
+			bad(name, "privileged is not allowed")
 		}
 		for _, k := range []string{"network_mode", "pid", "ipc", "userns_mode", "uts", "cgroup", "cgroup_parent", "runtime", "isolation"} {
 			v, _ := s[k].(string)
 			if v == "" || k == "ipc" && (v == "private" || v == "shareable") || k == "network_mode" && v == "none" {
 				continue
 			}
-			bad(name, "%s: %q não é permitido", k, v)
+			bad(name, "%s: %q is not allowed", k, v)
 		}
 		for _, k := range []string{"devices", "device_cgroup_rules", "gpus"} {
 			if v, ok := s[k]; ok && v != nil {
 				if l, isList := v.([]any); !isList || len(l) > 0 {
-					bad(name, "%s não é permitido", k)
+					bad(name, "%s is not allowed", k)
 				}
 			}
 		}
 		for _, c := range strList(s["cap_add"]) {
 			if !slices.Contains(defaultCaps, strings.TrimPrefix(strings.ToUpper(c), "CAP_")) {
-				bad(name, "cap_add %s não é permitido", c)
+				bad(name, "cap_add %s is not allowed", c)
 			}
 		}
 		for _, o := range strList(s["security_opt"]) {
 			if l := strings.ToLower(o); strings.Contains(l, "unconfined") || strings.Contains(l, "disable") {
-				bad(name, "security_opt %q não é permitido", o)
+				bad(name, "security_opt %q is not allowed", o)
 			}
 		}
 		if sys, ok := s["sysctls"].(map[string]any); ok {
 			for k := range sys {
 				if !strings.HasPrefix(k, "net.") {
-					bad(name, "sysctl %s não é permitido", k)
+					bad(name, "sysctl %s is not allowed", k)
 				}
 			}
 		}
 		for _, v := range strList(s["volumes_from"]) {
 			if strings.HasPrefix(v, "container:") {
-				bad(name, "volumes_from %q não é permitido", v)
+				bad(name, "volumes_from %q is not allowed", v)
 			}
 		}
 		if b, ok := s["build"].(map[string]any); ok {
 			if n, _ := b["network"].(string); n == "host" {
-				bad(name, "build com network host não é permitido")
+				bad(name, "build with host network is not allowed")
 			}
 			if v, _ := b["privileged"].(bool); v {
-				bad(name, "build privileged não é permitido")
+				bad(name, "build privileged is not allowed")
 			}
 			if e := strList(b["entitlements"]); len(e) > 0 {
-				bad(name, "build entitlements não são permitidos")
+				bad(name, "build entitlements are not allowed")
 			}
 		}
 		vols, _ := s["volumes"].([]any)
@@ -155,7 +155,7 @@ func planCompose(raw []byte, allowed []string) (*composePlan, error) {
 					p.hostPaths = append(p.hostPaths, src)
 				}
 			default:
-				bad(name, "volume do tipo %q não é permitido", typ)
+				bad(name, "volume of type %q is not allowed", typ)
 			}
 		}
 		ports, _ := s["ports"].([]any)
@@ -170,12 +170,12 @@ func planCompose(raw []byte, allowed []string) (*composePlan, error) {
 				continue // not published on a fixed port: stays internal
 			}
 			if strings.Contains(pub, "-") {
-				bad(name, "faixas de portas (%s) não são suportadas", pub)
+				bad(name, "port ranges (%s) are not supported", pub)
 				continue
 			}
 			target, err := strconv.Atoi(fmt.Sprint(m["target"]))
 			if err != nil || target < 1 || target > 65535 {
-				bad(name, "porta inválida %v", m["target"])
+				bad(name, "invalid port %v", m["target"])
 				continue
 			}
 			proto, _ := m["protocol"].(string)
@@ -183,7 +183,7 @@ func planCompose(raw []byte, allowed []string) (*composePlan, error) {
 				proto = "tcp"
 			}
 			if proto != "tcp" && proto != "udp" {
-				bad(name, "protocolo %q não é suportado", proto)
+				bad(name, "protocol %q is not supported", proto)
 				continue
 			}
 			kept = append(kept, m)
@@ -197,23 +197,23 @@ func planCompose(raw []byte, allowed []string) (*composePlan, error) {
 	for name, v := range nets {
 		n, _ := v.(map[string]any)
 		if ext, _ := n["external"].(bool); ext {
-			bad("networks", "a rede externa %q não é permitida", name)
+			bad("networks", "external network %q is not allowed", name)
 		}
 		if d, _ := n["driver"].(string); d != "" && d != "bridge" {
-			bad("networks", "o driver %q da rede %q não é permitido", d, name)
+			bad("networks", "network driver %q of network %q is not allowed", d, name)
 		}
 	}
 	vols, _ := doc["volumes"].(map[string]any)
 	for name, v := range vols {
 		m, _ := v.(map[string]any)
 		if ext, _ := m["external"].(bool); ext {
-			bad("volumes", "o volume externo %q não é permitido", name)
+			bad("volumes", "external volume %q is not allowed", name)
 		}
 		if d, _ := m["driver"].(string); d != "" && d != "local" {
-			bad("volumes", "o driver %q do volume %q não é permitido", d, name)
+			bad("volumes", "volume driver %q of volume %q is not allowed", d, name)
 		}
 		if o, ok := m["driver_opts"].(map[string]any); ok && len(o) > 0 {
-			bad("volumes", "driver_opts do volume %q não são permitidos", name)
+			bad("volumes", "driver_opts of volume %q are not allowed", name)
 		}
 	}
 	for _, top := range []string{"secrets", "configs"} {
@@ -226,12 +226,12 @@ func planCompose(raw []byte, allowed []string) (*composePlan, error) {
 				p.hostPaths = append(p.hostPaths, f)
 			}
 			if ext, _ := m["external"].(bool); ext {
-				bad(top, "%q externo não é permitido", name)
+				bad(top, "external %q is not allowed", name)
 			}
 		}
 	}
 	if len(errs) > 0 {
-		return nil, fmt.Errorf("o arquivo Compose usa recursos não permitidos:\n%w", errors.Join(errs...))
+		return nil, fmt.Errorf("the Compose file uses disallowed resources:\n%w", errors.Join(errs...))
 	}
 	return p, nil
 }
@@ -261,7 +261,7 @@ func checkHostPaths(root string, paths []string) error {
 				return fmt.Errorf("compose: %w", err)
 			}
 			if info.Mode()&os.ModeSymlink != 0 {
-				return fmt.Errorf("a pasta %q passa por um link simbólico; links não podem ser montados", src)
+				return fmt.Errorf("folder %q goes through a symbolic link; links cannot be mounted", src)
 			}
 		}
 	}
@@ -432,7 +432,7 @@ func (a *Agent) composeCLI(ctx context.Context, app *App, work string, args []st
 		return "", err
 	}
 	if code != 0 {
-		return "", fmt.Errorf("docker compose %s terminou com código %d", args[0], code)
+		return "", fmt.Errorf("docker compose %s exited with code %d", args[0], code)
 	}
 	return out.String(), nil
 }
@@ -441,7 +441,7 @@ func (a *Agent) composeCLI(ctx context.Context, app *App, work string, args []st
 func composeFile(work, chosen string) (string, error) {
 	if chosen != "" {
 		if _, err := os.Stat(filepath.Join(work, filepath.FromSlash(chosen))); err != nil {
-			return "", fmt.Errorf("o arquivo %q não existe", chosen)
+			return "", fmt.Errorf("file %q does not exist", chosen)
 		}
 		return chosen, nil
 	}
@@ -471,7 +471,7 @@ func (a *Agent) composeInput(app *App, work, file string) (string, error) {
 	}
 	var doc map[string]any
 	if yaml.Unmarshal(b, &doc) != nil {
-		return "", errors.New("arquivo Compose inválido")
+		return "", errors.New("invalid Compose file")
 	}
 	services, _ := doc["services"].(map[string]any)
 	a.mu.Lock()
@@ -627,7 +627,7 @@ func (a *Agent) composeUp(ctx context.Context, app *App, work string, build bool
 	} else {
 		args = append(args, "--no-build")
 	}
-	logf("Subindo %d serviço(s): %s", len(plan.services), strings.Join(plan.services, ", "))
+	logf("Starting %d service(s): %s", len(plan.services), strings.Join(plan.services, ", "))
 	if _, err := a.composeCLI(ctx, app, work, args, logf); err != nil {
 		return nil, nil, err
 	}
@@ -661,7 +661,7 @@ func (a *Agent) composeCheck(ctx context.Context, app *App, logf func(string, ..
 	}
 	a.sample(ctx, app.ID, running)
 	if len(cs) == 0 {
-		return errors.New("nenhum contêiner do projeto está rodando")
+		return errors.New("no container of the project is running")
 	}
 	for _, c := range cs {
 		if c.Running {
@@ -676,7 +676,7 @@ func (a *Agent) composeCheck(ctx context.Context, app *App, logf func(string, ..
 		a.mu.Unlock()
 		_ = a.Eng.Logs(ctx, c.Name, LogOptions{Tail: 30}, func(_ int, s string) { logf("  %s | %s", c.Service, s) })
 		if st.OOMKilled {
-			return fmt.Errorf("%s passou do limite de memória (%d MB)", c.Service, app.MemoryMB)
+			return fmt.Errorf("%s went over the memory limit (%d MB)", c.Service, app.MemoryMB)
 		}
 		return fmt.Errorf("%s: %s", c.Service, exitReason(st))
 	}

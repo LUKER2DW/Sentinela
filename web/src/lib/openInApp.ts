@@ -10,7 +10,7 @@ export function isAndroidBrowser(ua = navigator.userAgent): boolean {
   return /Android/i.test(ua) && !/SentinelaApp\//.test(ua) && !/; wv\)/.test(ua);
 }
 
-/** intent:// URL that opens path ("/#/convite?...") in the app, falling back to this page. */
+/** intent:// URL that opens path ("/#/invite?...") in the app, falling back to this page. */
 export function appIntentURL(path: string, fallback: string): string {
   return (
     "intent://open?path=" +

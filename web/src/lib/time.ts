@@ -1,21 +1,39 @@
 import { useSyncExternalStore } from "react";
+import { fmtNum, getLang, plural, t, translated } from "./i18n";
 
-// Time helpers. Storage and API are UTC; the UI shows local time (pt-BR).
+// Time helpers. Storage and API are UTC; the UI shows local time in the UI
+// language.
 
 export const DAY_MS = 24 * 60 * 60 * 1000;
 
-const timeFmt = new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-const hmFmt = new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit" });
-const dayFmt = new Intl.DateTimeFormat("pt-BR", { weekday: "long", day: "numeric", month: "long" });
-const shortDayFmt = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit" });
-const dateFmt = new Intl.DateTimeFormat("pt-BR", { day: "numeric", month: "short", year: "numeric" });
+const formats = {
+  time: { hour: "2-digit", minute: "2-digit", second: "2-digit" },
+  hm: { hour: "2-digit", minute: "2-digit" },
+  day: { weekday: "long", day: "numeric", month: "long" },
+  shortDay: { day: "2-digit", month: "2-digit" },
+  date: { day: "numeric", month: "short", year: "numeric" },
+} satisfies Record<string, Intl.DateTimeFormatOptions>;
 
-export const fmtTime = (d: Date | string | number) => timeFmt.format(new Date(d));
-export const fmtHM = (d: Date | string | number) => hmFmt.format(new Date(d));
-export const fmtDay = (d: Date | string | number) => dayFmt.format(new Date(d));
-export const fmtShortDay = (d: Date | string | number) => shortDayFmt.format(new Date(d));
-/** "29 de set. de 2026": file dates in the Nuvem. */
-export const fmtDate = (d: Date | string | number) => dateFmt.format(new Date(d));
+const cache = new Map<string, Intl.DateTimeFormat>();
+function fmt(kind: keyof typeof formats): Intl.DateTimeFormat {
+  const key = `${getLang()}:${kind}`;
+  let f = cache.get(key);
+  if (!f) {
+    f = new Intl.DateTimeFormat(getLang(), formats[kind]);
+    cache.set(key, f);
+  }
+  return f;
+}
+
+export const fmtTime = (d: Date | string | number) => fmt("time").format(new Date(d));
+export const fmtHM = (d: Date | string | number) => fmt("hm").format(new Date(d));
+export const fmtDay = (d: Date | string | number) => fmt("day").format(new Date(d));
+export const fmtShortDay = (d: Date | string | number) => fmt("shortDay").format(new Date(d));
+/** "29 de set. de 2026": file dates in the Cloud. */
+export const fmtDate = (d: Date | string | number) => fmt("date").format(new Date(d));
+/** Date and time in the UI language. */
+export const fmtDateTime = (d: Date | string | number, style: "short" | "medium" = "medium") =>
+  new Date(d).toLocaleString(getLang(), { dateStyle: style, timeStyle: style });
 
 /** Local midnight of the day containing d. */
 export function startOfDay(d: Date | number): Date {
@@ -42,7 +60,7 @@ export function fmtDuration(ms: number): string {
   if (m < 60) return `${m} min${s % 60 ? ` ${String(s % 60).padStart(2, "0")} s` : ""}`;
   const h = Math.floor(m / 60);
   if (h < 48) return `${h} h ${String(m % 60).padStart(2, "0")} min`;
-  return `${Math.floor(h / 24)} dias`;
+  return plural(Math.floor(h / 24), "{n} day", "{n} days");
 }
 
 /** Stopwatch text: 0:07, 12:45, 1:02:03. */
@@ -62,15 +80,16 @@ export function fmtBytes(b: number): string {
     v /= 1000;
     i++;
   }
-  return `${v.toFixed(v < 10 && i > 0 ? 1 : 0).replace(".", ",")} ${units[i]}`;
+  const digits = v < 10 && i > 0 ? 1 : 0;
+  return `${fmtNum(v, digits, digits)} ${units[i]}`;
 }
 
 export function relative(d: Date | string, now = serverNow()): string {
   const diff = now - new Date(d).getTime();
-  if (diff < 60_000) return "agora";
-  if (diff < 3_600_000) return `há ${Math.floor(diff / 60_000)} min`;
-  if (diff < DAY_MS) return `há ${Math.floor(diff / 3_600_000)} h`;
-  return `há ${Math.floor(diff / DAY_MS)} dias`;
+  if (diff < 60_000) return t("now");
+  if (diff < 3_600_000) return t("{n} min ago", { n: Math.floor(diff / 60_000) });
+  if (diff < DAY_MS) return t("{n} h ago", { n: Math.floor(diff / 3_600_000) });
+  return plural(Math.floor(diff / DAY_MS), "{n} day ago", "{n} days ago");
 }
 
 /** Merge touching/overlapping [start,end] ranges (ms), gap tolerance in ms. */
@@ -85,23 +104,23 @@ export function mergeRanges(ranges: [number, number][], tolerance = 15_000): [nu
   return out;
 }
 
-export const dayNightLabel: Record<string, string> = {
-  auto: "Automático",
-  color: "Colorido",
-  black_white: "Preto e branco",
-  intelligent: "Inteligente",
-};
+export const dayNightLabel: Record<string, string> = translated({
+  auto: "Automatic",
+  color: "Color",
+  black_white: "Black and white",
+  intelligent: "Smart",
+});
 
-export const eventLabel: Record<string, string> = {
-  motion: "Movimento",
-  human: "Pessoa",
-  person: "Pessoa",
-  vehicle: "Veículo",
+export const eventLabel: Record<string, string> = translated({
+  motion: "Motion",
+  human: "Person",
+  person: "Person",
+  vehicle: "Vehicle",
   animal: "Animal",
-  tamper: "Obstrução",
-  line: "Linha cruzada",
-  intrusion: "Invasão de área",
-};
+  tamper: "Tampering",
+  line: "Line crossed",
+  intrusion: "Area intrusion",
+});
 
 // ---------- shared clock ----------
 

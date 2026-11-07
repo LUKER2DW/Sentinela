@@ -13,6 +13,7 @@ import { Icon } from "../components/Icon";
 import { recordingDays } from "./SystemPage";
 import { initialStream } from "../lib/gestures";
 
+import { t, plural, fmtNum } from "../lib/i18n";
 export function useCameras() {
   return useQuery({ queryKey: ["cameras"], queryFn: () => get<Camera[]>("/api/cameras"), staleTime: 60_000 });
 }
@@ -31,12 +32,12 @@ function RecordingPill({ cameraId }: { cameraId: string }) {
   if (recording)
     return (
       <span className="pill">
-        <span className="dot rec" /> Gravando
+        <span className="dot rec" />{" "}{t("Recording now")}
       </span>
     );
   return (
-    <a className="pill" href={href("system")} title={rec?.last_error || "Gravador sem sinal"}>
-      <span className="dot warn" /> Gravação parada
+    <a className="pill" href={href("system")} title={rec?.last_error || t("Recorder has no signal")}>
+      <span className="dot warn" />{" "}{t("Recording stopped")}
     </a>
   );
 }
@@ -48,13 +49,13 @@ export function LivePage({ params, autoFullscreen = false }: { params: URLSearch
   const selected = list.find((c) => c.id === params.get("cam")) ?? (list.length === 1 ? list[0] : undefined);
 
   if (cams.isLoading) return null;
-  if (cams.isError) return <p className="notice error">Não foi possível carregar as câmeras.</p>;
+  if (cams.isError) return <p className="notice error">{t("Could not load the cameras.")}</p>;
   if (!list.length)
     return (
       <div className="empty">
         <Boat />
-        <strong>Nenhuma câmera ainda</strong>
-        <p>Adicione uma câmera em /etc/sentinela/config.yaml e reinicie o Sentinela.</p>
+        <strong>{t("No cameras yet")}</strong>
+        <p>{t("Add a camera in /etc/sentinela/config.yaml and restart Sentinela.")}</p>
       </div>
     );
 
@@ -67,12 +68,12 @@ export function LivePage({ params, autoFullscreen = false }: { params: URLSearch
 /** Uma câmera / Grade switch in the page header. */
 function ViewSwitch({ view, cam }: { view: "grid" | "single"; cam?: string }) {
   return (
-    <div className="segmented" role="group" aria-label="Visualização">
-      <button aria-pressed={view === "single"} title="Uma câmera, com controles" onClick={() => navigate("live", { view: "single", ...(cam ? { cam } : {}) })}>
-        <Icon name="video" /> <span className="hide-sm">Detalhada</span>
+    <div className="segmented" role="group" aria-label={t("View")}>
+      <button aria-pressed={view === "single"} title={t("One camera, with controls")} onClick={() => navigate("live", { view: "single", ...(cam ? { cam } : {}) })}>
+        <Icon name="video" /> <span className="hide-sm">{t("Detailed")}</span>
       </button>
-      <button aria-pressed={view === "grid"} title="Todas as câmeras em grade" onClick={() => navigate("live", { view: "grid" })}>
-        <Icon name="grid" /> <span className="hide-sm">Grade</span>
+      <button aria-pressed={view === "grid"} title={t("All cameras in a grid")} onClick={() => navigate("live", { view: "grid" })}>
+        <Icon name="grid" /> <span className="hide-sm">{t("Grid")}</span>
       </button>
     </div>
   );
@@ -84,7 +85,7 @@ function Grid({ cams, now }: { cams: Camera[]; now: number }) {
     <>
       <header className="page-head">
         <div className="title">
-          <h1>Ao vivo</h1>
+          <h1>{t("Live")}</h1>
           <span className="sub">{fmtDay(now)}</span>
         </div>
         <ViewSwitch view="grid" />
@@ -144,24 +145,24 @@ function Single({ cam, now, autoFullscreen }: { cam: Camera; now: number; autoFu
           <LiveView
             cameraId={cam.id}
             cameraName={cam.name}
-            allowTalk={can("operator")}
+            allowTalk={can("operator") && cam.talk !== false}
             motion={(active[cam.id] ?? []).length > 0}
             defaultStream={stream}
             autoFullscreen={autoFullscreen}
           />
-          {narrow && cam.control !== false && <PtzPanel cameraId={cam.id} canControl={can("operator")} />}
-          <section className="card" aria-label="Hoje">
+          {narrow && cam.ptz !== false && cam.control !== false && <PtzPanel cameraId={cam.id} canControl={can("operator")} />}
+          <section className="card" aria-label={t("Today")}>
             <div className="card-head">
-              <h2>Hoje</h2>
+              <h2>{t("Today")}</h2>
               <span className="muted">
-                {motionToday === 0 ? "Nenhum movimento" : motionToday === 1 ? "1 movimento" : `${motionToday} movimentos`}
+                {motionToday === 0 ? t("No motion") : motionToday === 1 ? t("1 motion event") : plural(motionToday, "{n} motion event", "{n} motion events")}
               </span>
             </div>
             <DayRibbon
               dayStart={dayStart}
               data={timeline.data}
               now={now}
-              label="Linha do tempo de hoje. Escolha um horário para assistir a gravação."
+              label={t("Today's timeline. Pick a time to watch the recording.")}
               onPick={(ms) => navigate("recordings", { cam: cam.id, t: new Date(ms).toISOString() })}
             />
             <RibbonLegend />
@@ -169,8 +170,8 @@ function Single({ cam, now, autoFullscreen }: { cam: Camera; now: number; autoFu
           <TodayStats timeline={timeline.data} motion={motionToday} />
         </div>
         <aside className="stack live-right">
-          {!narrow && cam.control !== false && <PtzPanel cameraId={cam.id} canControl={can("operator")} />}
-          {cam.control !== false && <CameraSettings cameraId={cam.id} canControl={can("operator")} isAdmin={can("admin")} />}
+          {!narrow && cam.ptz !== false && cam.control !== false && <PtzPanel cameraId={cam.id} canControl={can("operator")} />}
+          {cam.control !== false && <CameraSettings cameraId={cam.id} canControl={can("operator")} isAdmin={can("admin")} ptz={cam.ptz !== false} light={cam.light !== false} />}
         </aside>
       </div>
     </>
@@ -195,18 +196,18 @@ function TodayStats({ timeline, motion }: { timeline?: Timeline; motion: number 
   const hours = (timeline?.segments ?? []).reduce((a, x) => a + (new Date(x.end).getTime() - new Date(x.start).getTime()), 0) / 3_600_000;
   const days = sys.data ? recordingDays(sys.data) : null;
   return (
-    <section className="card stat-row today-stats" aria-label="Resumo de hoje">
+    <section className="card stat-row today-stats" aria-label={t("Today's summary")}>
       <div className="stat">
-        <b>{hours.toFixed(1).replace(".", ",")} h</b>
-        <span>gravadas hoje</span>
+        <b>{fmtNum(hours, 1, 1)} h</b>
+        <span>{t("recorded today")}</span>
       </div>
       <div className="stat">
         <b>{motion}</b>
-        <span>{motion === 1 ? "movimento hoje" : "movimentos hoje"}</span>
+        <span>{motion === 1 ? t("motion today") : t("motion events today")}</span>
       </div>
       <div className="stat">
         <b>{days === null ? "–" : days}</b>
-        <span>{days === 1 ? "dia cabe no disco" : "dias cabem no disco"}</span>
+        <span>{days === 1 ? t("day fits on the disk") : t("days fit on the disk")}</span>
       </div>
     </section>
   );

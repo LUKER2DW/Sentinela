@@ -913,7 +913,7 @@ func (s *Store) Audit(ctx context.Context, userID int64, username, action, targe
 	return err
 }
 
-// Authors maps each Nuvem path to the user who last uploaded or created it
+// Authors maps each Cloud path to the user who last uploaded or created it
 // (the audit log is the only record of who put a file in a shared folder).
 func (s *Store) Authors(ctx context.Context, paths []string) (map[string]string, error) {
 	out := map[string]string{}

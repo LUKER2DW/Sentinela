@@ -175,8 +175,8 @@ public class NotifyService extends Service {
     private Notification ongoing() {
         return new NotificationCompat.Builder(this, Notifier.CHANNEL_SERVICE)
                 .setSmallIcon(R.drawable.ic_stat_sentinela)
-                .setContentTitle("Conectado à casa")
-                .setContentText("Toque para ocultar este aviso; os alertas continuam")
+                .setContentTitle(getString(R.string.service_title))
+                .setContentText(getString(R.string.service_text))
                 .setPriority(NotificationCompat.PRIORITY_MIN)
                 .setSilent(true)
                 .setShowWhen(false)
@@ -294,8 +294,8 @@ public class NotifyService extends Service {
         if (!Notifier.allowed(this)) return;
         NotificationCompat.Builder b = new NotificationCompat.Builder(this, Notifier.CHANNEL)
                 .setSmallIcon(R.drawable.ic_stat_sentinela)
-                .setContentTitle("Avisos do Sentinela pausados")
-                .setContentText("A sessão deste celular terminou. Abra o app e entre de novo.")
+                .setContentTitle(getString(R.string.paused_title))
+                .setContentText(getString(R.string.paused_text))
                 .setAutoCancel(true)
                 .setContentIntent(Notifier.openApp(this, null, RELOGIN_ID));
         try {

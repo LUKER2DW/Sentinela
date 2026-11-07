@@ -48,7 +48,7 @@ func (s GitHubSource) Snapshot(ctx context.Context, app *App, v Version, dir str
 	return s.GH.Fetch(ctx, app.Repo, v.Commit, dir)
 }
 
-// LocalSource reads project folders under Root (the Nuvem by default): a
+// LocalSource reads project folders under Root (the Cloud by default): a
 // project copied there with its .git deploys like a repository, at the
 // commit its working copy is on. Everything is read through os.Root.
 type LocalSource struct {
@@ -97,7 +97,7 @@ func (s LocalSource) Resolve(_ context.Context, app *App) (Version, error) {
 		return nil
 	})
 	if newest.IsZero() {
-		return Version{}, errors.New("a pasta está vazia")
+		return Version{}, errors.New("the folder is empty")
 	}
 	format := "20060102-150405"
 	if s.Working {
@@ -268,7 +268,7 @@ type Folder struct {
 func (s LocalSource) Browse(rel string) ([]Folder, error) {
 	rel = cleanRel(rel)
 	if rel != "" && !validRel(rel) {
-		return nil, errors.New("pasta inválida")
+		return nil, errors.New("invalid folder")
 	}
 	if s.Root == "" {
 		return nil, errors.New("local folders are not enabled (apps.local_root)")
@@ -284,7 +284,7 @@ func (s LocalSource) Browse(rel string) ([]Folder, error) {
 	}
 	entries, err := fs.ReadDir(base.FS(), name)
 	if err != nil {
-		return nil, fmt.Errorf("pasta %q não encontrada", rel)
+		return nil, fmt.Errorf("folder %q not found", rel)
 	}
 	out := []Folder{}
 	for _, e := range entries {

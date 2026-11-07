@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { t, useLang } from "./lib/i18n";
+import { t, translated, useLang } from "./lib/i18n";
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, fetchSystem, get, onUnauthorized, setCsrf, type ReviewList, type User } from "./lib/api";
 import { href, navigate, useRoute } from "./lib/router";
@@ -16,10 +16,10 @@ import { LivePage } from "./pages/LivePage";
 import { RecordingsPage } from "./pages/RecordingsPage";
 import { EventsPage } from "./pages/EventsPage";
 import { SystemPage } from "./pages/SystemPage";
-import { NuvemPage } from "./pages/NuvemPage";
+import { CloudPage } from "./pages/CloudPage";
 import { AccountPage } from "./pages/AccountPage";
 import { ServicesPage } from "./pages/ServicesPage";
-import { useHostingEnabled, useSetupGuidePending } from "./lib/hosting";
+import { useCloudEnabled, useHostingEnabled, useSetupGuidePending } from "./lib/hosting";
 import { SetupGuide } from "./components/SetupGuide";
 import { NoticeBell } from "./components/Notices";
 import { ClockPage } from "./components/DelayMeter";
@@ -110,25 +110,25 @@ export function App() {
 }
 
 const NAV = [
-  { page: "live", label: "Ao vivo", icon: "live" },
-  { page: "recordings", label: "Gravações", icon: "recordings" },
-  { page: "events", label: "Eventos", icon: "events" },
-  { page: "nuvem", label: "Nuvem", icon: "cloud" },
-  { page: "servicos", label: "Serviços", icon: "app" },
-  { page: "system", label: "Sistema", short: "Mais", icon: "system" },
+  { page: "live", label: t("Live"), icon: "live" },
+  { page: "recordings", label: t("Recordings"), icon: "recordings" },
+  { page: "events", label: t("Events"), icon: "events" },
+  { page: "cloud", label: t("Cloud"), icon: "cloud" },
+  { page: "services", label: t("Services"), icon: "app" },
+  { page: "system", label: t("System"), short: t("More"), icon: "system" },
 ];
 
-const roleLabel = { admin: "Administrador", operator: "Operador", viewer: "Visualizador" } as const;
-const pageTitle: Record<string, string> = { relogio: "Relógio", conta: "Minha conta" };
+const roleLabel = translated({ admin: "Administrator", operator: "Operator", viewer: "Viewer" });
+const pageTitle: Record<string, string> = { clock: t("Clock"), account: t("My account") };
 
 /** Where the phone's back arrow goes from a page, or null on a top page. */
 function upFrom(page: string, params: URLSearchParams): (() => void) | null {
   const p = params.get("p");
-  if (page === "nuvem" && p) return () => navigate("nuvem", p.includes("/") ? { p: p.split("/").slice(0, -1).join("/") } : undefined, { push: true });
+  if (page === "cloud" && p) return () => navigate("cloud", p.includes("/") ? { p: p.split("/").slice(0, -1).join("/") } : undefined, { push: true });
   if (page === "system" && params.get("s")) return () => navigate("system", undefined, { push: true });
-  if (page === "servicos" && params.get("s")) return () => navigate("servicos", undefined, { push: true });
-  if (page === "conta" && params.get("s")) return () => navigate("conta", undefined, { push: true });
-  if (page === "conta" || page === "relogio" || page === "servicos") return () => navigate("system", undefined, { push: true });
+  if (page === "services" && params.get("s")) return () => navigate("services", undefined, { push: true });
+  if (page === "account" && params.get("s")) return () => navigate("account", undefined, { push: true });
+  if (page === "account" || page === "clock" || page === "services") return () => navigate("system", undefined, { push: true });
   return null;
 }
 
@@ -167,16 +167,17 @@ function Shell() {
   const qc = useQueryClient();
   const collapsed = useSidebarCollapsed();
   const compact = useCompact();
-  // Phone: a back arrow on every page below a tab (a "Mais" page, a Nuvem
+  // Phone: a back arrow on every page below a tab (a "More" page, a Cloud
   // folder): one level up, the same place every time.
   const up = upFrom(route.page, route.params);
   // Phone: pages opened from "Mais" keep that tab lit.
   const current = (page: string) =>
     route.page === page ||
-    (page === "system" && route.page === "conta") ||
-    (compact && page === "system" && (route.page === "relogio" || route.page === "servicos"));
+    (page === "system" && route.page === "account") ||
+    (compact && page === "system" && (route.page === "clock" || route.page === "services"));
   // Serviços stays on the computer, including when a phone rotates sideways.
   const hostingOn = useHostingEnabled();
+  const cloudOn = useCloudEnabled();
   const setupGuide = useSetupGuidePending();
   const eventsToday = useUnseenEvents();
   const updated = useNewVersion();
@@ -198,27 +199,27 @@ function Shell() {
 
   const badge = (page: string) => {
     if (page === "events" && eventsToday > 0) return <span className="nav-badge">{eventsToday > 99 ? "99+" : eventsToday}</span>;
-    if (page === "live" && motionNow) return <span className="nav-dot" title="Movimento agora" />;
+    if (page === "live" && motionNow) return <span className="nav-dot" title={t("Motion now")} />;
     return null;
   };
 
   return (
     <div className={`shell${collapsed ? " collapsed" : ""}`}>
-      <nav className="side-nav" aria-label="Principal">
+      <nav className="side-nav" aria-label={t("Main")}>
         <div className="side-top">
-          <a className="brand" href={href("live")} title="Sentinela">
+          <a className="brand" href={href("live")} title={t("Sentinela")}>
             <LighthouseMark />
             <span className="brand-text">
-              <span className="brand-name">Sentinela</span>
-              <span className="brand-sub">{t("Câmeras e nuvem")}</span>
+              <span className="brand-name">{t("Sentinela")}</span>
+              <span className="brand-sub">{t("Cameras and cloud")}</span>
             </span>
           </a>
-          <button className="btn ghost icon small collapse-btn" onClick={toggleSidebar} aria-label={collapsed ? "Expandir menu" : "Recolher menu"} title={collapsed ? "Expandir menu" : "Recolher menu"} aria-expanded={!collapsed}>
+          <button className="btn ghost icon small collapse-btn" onClick={toggleSidebar} aria-label={collapsed ? t("Expand menu") : t("Collapse menu")} title={collapsed ? t("Expand menu") : t("Collapse menu")} aria-expanded={!collapsed}>
             <Icon name="sidebar" />
           </button>
         </div>
         <div className="nav-list">
-          {NAV.filter((n) => (n.page !== "nuvem" || can("operator")) && (n.page !== "servicos" || (hostingOn && !mobile))).map((n) => (
+          {NAV.filter((n) => (n.page !== "cloud" || (can("operator") && cloudOn)) && (n.page !== "services" || (hostingOn && !mobile))).map((n) => (
             <a
               key={n.page}
               className="nav-item"
@@ -247,15 +248,15 @@ function Shell() {
         <span className="side-spacer" />
         <div className="side-sea">
           <OceanScene className="side-ocean" />
-          <div className={`who${route.page === "conta" ? " on" : ""}`}>
-            <a className="who-link" href={href("conta")} title="Minha conta: senha, 2 etapas e aparelhos" aria-current={route.page === "conta" ? "page" : undefined}>
+          <div className={`who${route.page === "account" ? " on" : ""}`}>
+            <a className="who-link" href={href("account")} title={t("My account: password, 2 steps and devices")} aria-current={route.page === "account" ? "page" : undefined}>
               <Avatar name={user.username} />
               <div className="who-text">
                 <div className="who-name">{user.username}</div>
                 <div className="who-role">{t(roleLabel[user.role])}</div>
               </div>
             </a>
-            <button className="btn ghost icon small" onClick={logout} title="Sair" aria-label="Sair">
+            <button className="btn ghost icon small" onClick={logout} title={t("Sign out")} aria-label={t("Sign out")}>
               <Icon name="logout" />
             </button>
           </div>
@@ -265,7 +266,7 @@ function Shell() {
         <BgDoodles />
         {updated && (
           <button className="update-toast" onClick={() => location.reload()}>
-            <Icon name="refresh" /> {t("Nova versão do Sentinela. Atualizar a página")}
+            <Icon name="refresh" /> {t("New Sentinela version. Reload the page")}
           </button>
         )}
         <div className="topbar">
@@ -275,13 +276,13 @@ function Shell() {
         {/* Phone: brand bar with the turning lighthouse (the sidebar is a tab bar there). */}
         <header className="mobile-bar">
           {up && (
-            <button className="mobile-back" onClick={up} aria-label="Voltar" title="Voltar">
+            <button className="mobile-back" onClick={up} aria-label={t("Back")} title={t("Back")}>
               <Icon name="chevronLeft" />
             </button>
           )}
-          <a className="mobile-brand" href={href("live")} aria-label="Sentinela, ao vivo">
+          <a className="mobile-brand" href={href("live")} aria-label={t("Sentinela, live")}>
             <LighthouseMark />
-            <span>Sentinela</span>
+            <span>{t("Sentinela")}</span>
           </a>
           <span className="mobile-bar-tools">
             <NoticeBell />
@@ -295,19 +296,19 @@ function Shell() {
             <RecordingsPage params={route.params} />
           ) : route.page === "events" ? (
             <EventsPage />
-          ) : route.page === "nuvem" && can("operator") ? (
-            <NuvemPage params={route.params} />
+          ) : route.page === "cloud" && can("operator") && cloudOn ? (
+            <CloudPage params={route.params} />
           ) : route.page === "system" ? (
             <SystemPage params={route.params} />
-          ) : route.page === "conta" ? (
+          ) : route.page === "account" ? (
             compact ? (
               <AccountPage params={route.params} />
             ) : (
               <SystemPage params={new URLSearchParams({ s: "me" })} />
             )
-          ) : route.page === "servicos" && hostingOn && !mobile ? (
+          ) : route.page === "services" && hostingOn && !mobile ? (
             <ServicesPage params={route.params} />
-          ) : route.page === "relogio" ? (
+          ) : route.page === "clock" ? (
             <ClockPage />
           ) : (
             <LivePage params={route.params} autoFullscreen={route.page === "live"} />

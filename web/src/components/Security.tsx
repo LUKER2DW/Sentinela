@@ -6,6 +6,7 @@ import { canChangeConnection, changeConnection, isPublicZone, zoneLabel } from "
 import { PasswordField } from "./PasswordField";
 import { CardHead } from "./CardHead";
 
+import { t } from "../lib/i18n";
 interface TotpSetup {
   secret: string;
   uri: string;
@@ -43,57 +44,57 @@ export function SecurityCard() {
       setSetup(r);
       setPassword("");
     },
-    onError: (e: Error) => toast(e.message.includes("password") ? "Senha incorreta." : e.message, true),
+    onError: (e: Error) => toast(e.message.includes("password") ? t("Wrong password.") : e.message, true),
   });
   const enable = useMutation({
     mutationFn: () => api("POST", "/api/me/totp/enable", { code: code.replace(/\s/g, "") }),
-    onSuccess: () => done("Verificação em 2 etapas ativada."),
-    onError: (e: Error) => toast(e.message.includes("invalid code") ? "Código incorreto. Confira o relógio do celular e tente o próximo." : e.message, true),
+    onSuccess: () => done(t("Two-step verification turned on.")),
+    onError: (e: Error) => toast(e.message.includes("invalid code") ? t("Wrong code. Check the phone's clock and try the next one.") : e.message, true),
   });
   const disable = useMutation({
     mutationFn: () => api("POST", "/api/me/totp/disable", { password }),
-    onSuccess: () => done("Verificação em 2 etapas desativada."),
-    onError: (e: Error) => toast(e.message.includes("password") ? "Senha incorreta." : e.message, true),
+    onSuccess: () => done(t("Two-step verification turned off.")),
+    onError: (e: Error) => toast(e.message.includes("password") ? t("Wrong password.") : e.message, true),
   });
 
   return (
-    <section className="card set-card" aria-label="Verificação em 2 etapas">
+    <section className="card set-card" aria-label={t("Two-step verification")}>
       <CardHead
         icon="shield"
         tone={on ? "kelp" : "amber"}
-        title="Verificação em 2 etapas"
-        sub={on ? "O login pede o código do app autenticador, em casa e fora." : "Opcional: com ela, o login também pede um código do app autenticador."}
+        title={t("Two-step verification")}
+        sub={on ? t("Sign-in asks for the authenticator app code, at home and outside.") : t("Optional: with it, sign-in also asks for an authenticator app code.")}
         aside={
           <span className={`pill${on ? " ok" : ""}`}>
-            <span className={`dot ${on ? "ok" : "warn"}`} /> {on ? "Ativa" : "Desligada"}
+            <span className={`dot ${on ? "ok" : "warn"}`} /> {on ? t("Active") : t("Off")}
           </span>
         }
       />
       <div className="set-row">
         <div>
-          <strong>Conectado por</strong>
+          <strong>{t("Connected by")}</strong>
           <p className="muted small">{zoneLabel()}</p>
         </div>
         {canChangeConnection() && (
           <button className="btn small ghost" onClick={changeConnection}>
-            Trocar
+            {t("Change")}
           </button>
         )}
       </div>
 
       {outside ? (
-        <p className="muted small card-foot">Ativar ou desligar a verificação só pode ser feito no Wi-Fi de casa (por segurança, não pelo endereço público).</p>
+        <p className="muted small card-foot">{t("Turning two-step verification on or off can only be done on the home Wi-Fi (for safety, not over the public address).")}</p>
       ) : setup ? (
         <div className="stack-sm card-foot totp-setup">
           <p className="small">
-            1. No app autenticador (Google Authenticator, Microsoft Authenticator, Aegis…), adicione uma conta lendo este QR code.
+            {t("1. In your authenticator app (Google Authenticator, Microsoft Authenticator, Aegis…), add an account by scanning this QR code.")}
           </p>
-          <img className="totp-qr" alt="QR code da verificação em 2 etapas" src={`data:image/svg+xml;utf8,${encodeURIComponent(setup.qr_svg)}`} />
+          <img className="totp-qr" alt={t("QR code for two-step verification")} src={`data:image/svg+xml;utf8,${encodeURIComponent(setup.qr_svg)}`} />
           <p className="muted small">
-            No próprio celular? <a href={setup.uri}>Abrir no app autenticador</a> ou digite a chave: <code className="totp-secret">{setup.secret.replace(/(.{4})/g, "$1 ").trim()}</code>
+            {t("On the phone itself?")}{" "}<a href={setup.uri}>{t("Open in the authenticator app")}</a>{" "}{t("or type the key:")}{" "}<code className="totp-secret">{setup.secret.replace(/(.{4})/g, "$1 ").trim()}</code>
           </p>
           <div className="field">
-            <label htmlFor="totp-code">2. Digite o código de 6 dígitos que aparece</label>
+            <label htmlFor="totp-code">{t("2. Enter the 6-digit code that appears")}</label>
             <input
               id="totp-code"
               className="input otp"
@@ -107,10 +108,10 @@ export function SecurityCard() {
           </div>
           <div className="row-gap">
             <button className="btn primary" disabled={enable.isPending || code.replace(/\s/g, "").length !== 6} onClick={() => enable.mutate()}>
-              Ativar
+              {t("Enable")}
             </button>
             <button className="btn ghost" onClick={() => setSetup(null)}>
-              Cancelar
+              {t("Cancel")}
             </button>
           </div>
         </div>
@@ -123,14 +124,14 @@ export function SecurityCard() {
             else start.mutate();
           }}
         >
-          {(!on || off) && <PasswordField label="Sua senha" value={password} onChange={setPassword} autoComplete="current-password" />}
+          {(!on || off) && <PasswordField label={t("Your password")} value={password} onChange={setPassword} autoComplete="current-password" />}
           {on && !off ? (
             <button type="button" className="btn ghost danger" onClick={() => setOff(true)}>
-              Desligar a verificação
+              {t("Turn off verification")}
             </button>
           ) : (
             <button className={`btn${on ? " ghost danger" : " primary"}`} disabled={!password || start.isPending || disable.isPending}>
-              {on ? "Desligar a verificação" : "Ativar a verificação em 2 etapas"}
+              {on ? t("Turn off verification") : t("Turn on two-step verification")}
             </button>
           )}
         </form>

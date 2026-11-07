@@ -5,7 +5,7 @@ Current APK: 1.12 (version code 13), 2026-09-30.
 
 ## Context and choice
 
-The owner wants live view, playback, PTZ, talk, events and Nuvem on the
+The owner wants live view, playback, PTZ, talk, events and Cloud on the
 phone. Reusing the React UI avoids a second product and auth scheme.
 
 | Option | UI reuse | Decision |

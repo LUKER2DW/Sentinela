@@ -8,6 +8,7 @@ import { FileBrowser } from "../components/FileBrowser";
 import { navigate } from "../lib/router";
 import { useSession } from "../lib/session";
 
+import { t } from "../lib/i18n";
 export function CopyField({ value, label }: { value: string; label: string }) {
   const [done, setDone] = useState(false);
   return (
@@ -15,8 +16,8 @@ export function CopyField({ value, label }: { value: string; label: string }) {
       <code aria-label={label}>{value}</code>
       <button
         className="btn ghost icon small"
-        title="Copiar"
-        aria-label={`Copiar ${label}`}
+        title={t("Copy")}
+        aria-label={t("Copy {label}", { label })}
         onClick={() => {
           void navigator.clipboard?.writeText(value).then(() => {
             setDone(true);
@@ -30,12 +31,10 @@ export function CopyField({ value, label }: { value: string; label: string }) {
   );
 }
 
-const healthLabel = { ok: "Saudável", warn: "Atenção", fail: "Falhando" } as const;
+const healthLabel = { ok: t("Healthy"), warn: t("Attention"), fail: t("Failing") } as const;
 
 function healthTitle(h: DiskHealth) {
-  return `${h.model} (${h.device}): ${h.reallocated} setores realocados, ${h.pending} pendentes, ${h.uncorrectable} leituras com erro${
-    h.temperature != null ? `, ${h.temperature} °C` : ""
-  }. Último teste: ${h.last_selftest || "nenhum"}.`;
+  return t("{model} ({device}): {reallocated} sectors reallocated, {pending} pending, {uncorrectable} read errors{v5}. Last test: {v6}.", { model: h.model, device: h.device, reallocated: h.reallocated, pending: h.pending, uncorrectable: h.uncorrectable, v5: h.temperature != null ? `, ${h.temperature} °C` : "", v6: h.last_selftest || "nenhum" });
 }
 
 export function VolumeMeter({ v, health }: { v: Volume; health?: DiskHealth }) {
@@ -50,16 +49,16 @@ export function VolumeMeter({ v, health }: { v: Volume; health?: DiskHealth }) {
             </span>
           )}
         </span>
-        <span className="muted num">{v.mounted ? `${fmtBytes(v.free)} livres de ${fmtBytes(v.total)}` : "não montado"}</span>
+        <span className="muted num">{v.mounted ? t("{v0} free of {v1}", { v0: fmtBytes(v.free), v1: fmtBytes(v.total) }) : t("not mounted")}</span>
       </div>
-      <div className="meter" role="meter" aria-label={`Uso de ${v.name}`} aria-valuenow={Math.round(v.pct)} aria-valuemin={0} aria-valuemax={100}>
+      <div className="meter" role="meter" aria-label={t("Usage of {name}", { name: v.name })} aria-valuenow={Math.round(v.pct)} aria-valuemin={0} aria-valuemax={100}>
         <span style={{ width: `${v.mounted ? v.pct : 0}%` }} />
       </div>
     </div>
   );
 }
 
-export function NuvemPage({ params }: { params: URLSearchParams }) {
+export function CloudPage({ params }: { params: URLSearchParams }) {
   const { can } = useSession();
   const folder = params.get("p") ?? "";
   const sys = useQuery({ queryKey: ["system"], queryFn: fetchSystem, refetchInterval: 30_000 });
@@ -71,32 +70,32 @@ export function NuvemPage({ params }: { params: URLSearchParams }) {
   const pct = total > 0 ? (100 * used) / total : 0;
 
   return (
-    <div className="nuvem-page">
+    <div className="cloud-page">
       <header className="page-head">
         <div className="title">
-          <h1>Nuvem</h1>
-          <span className="sub">Seus arquivos em casa e no celular, sem nuvem de terceiros.</span>
+          <h1>{t("Cloud")}</h1>
+          <span className="sub">{t("Your files at home and on the phone, without a third-party cloud.")}</span>
         </div>
         <span className="pill">
           <span className={`dot ${nas.every((v) => v.mounted) && nas.length ? "ok" : "warn"}`} />
-          {nas.length && nas.every((v) => v.mounted) ? "Compartilhando na rede" : "Discos não encontrados"}
+          {nas.length && nas.every((v) => v.mounted) ? t("Sharing on the network") : t("Disks not found")}
         </span>
       </header>
 
       <FileBrowser
         path={folder}
         canWrite={can("operator")}
-        onNavigate={(p) => navigate("nuvem", p ? { p } : undefined, { push: true })}
+        onNavigate={(p) => navigate("cloud", p ? { p } : undefined, { push: true })}
         summary={
           total > 0 ? (
             <>
               <div className="space-line">
                 <Whale className="space-whale" />
                 <div>
-                  <strong className="num">{fmtBytes(free)} livres</strong>
+                  <strong className="num">{t("{size} free", { size: fmtBytes(free) })}</strong>
                   <span className="muted small">
                     {" "}
-                    de {fmtBytes(total)} · {fmtBytes(used)} usados
+                    {t("of {total} · {used} used", { total: fmtBytes(total), used: fmtBytes(used) })}
                   </span>
                   {health && (
                     <span className={`health ${health.state}`} title={healthTitle(health)}>
@@ -105,12 +104,12 @@ export function NuvemPage({ params }: { params: URLSearchParams }) {
                   )}
                 </div>
               </div>
-              <div className="meter" role="meter" aria-label="Uso da Nuvem" aria-valuenow={Math.round(pct)} aria-valuemin={0} aria-valuemax={100}>
+              <div className="meter" role="meter" aria-label={t("Cloud usage")} aria-valuenow={Math.round(pct)} aria-valuemin={0} aria-valuemax={100}>
                 <span style={{ width: `${pct}%` }} />
               </div>
             </>
           ) : (
-            <p className="muted small">O espaço aparece quando o Sentinela roda no servidor.</p>
+            <p className="muted small">{t("The space shows up when Sentinela runs on the server.")}</p>
           )
         }
       />

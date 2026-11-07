@@ -5,6 +5,7 @@ import { fmtDate } from "../lib/time";
 import { Icon } from "./Icon";
 import { CardHead } from "./CardHead";
 
+import { t } from "../lib/i18n";
 interface DeviceSession {
   id: string;
   created_at: string;
@@ -23,7 +24,7 @@ interface DeviceSession {
 export function deviceName(ua: string): string {
   const model = /Android [\d.]+; ([^;)]+?)(?: Build\/[^;)]*)?[;)]/.exec(ua)?.[1]?.trim();
   const phone = model && !/^(K|wv|Linux)$/.test(model) ? ` (${model})` : "";
-  if (/SentinelaApp/.test(ua) || (/Android/.test(ua) && /; wv\)/.test(ua))) return `Aplicativo Android${phone}`;
+  if (/SentinelaApp/.test(ua) || (/Android/.test(ua) && /; wv\)/.test(ua))) return t("Android app") + phone;
   const os = /Android/.test(ua)
     ? "Android"
     : /iPhone/.test(ua)
@@ -38,7 +39,7 @@ export function deviceName(ua: string): string {
               ? "Mac"
               : /Linux/.test(ua)
                 ? "Linux"
-                : "Aparelho";
+                : t("Device");
   const browser = /Edg(A|iOS)?\//.test(ua)
     ? "Edge"
     : /OPR\/|Opera/.test(ua)
@@ -52,7 +53,7 @@ export function deviceName(ua: string): string {
             : /Safari\//.test(ua)
               ? "Safari"
               : "";
-  return browser ? `${browser} no ${os}${os === "Android" ? phone : ""}` : os;
+  return browser ? t("{browser} on {os}{phone}", { browser, os, phone: os === "Android" ? phone : "" }) : os;
 }
 
 /** Icon for a device row. */
@@ -68,17 +69,17 @@ export function DevicesCard() {
   const revoke = useMutation({
     mutationFn: (id: string) => api("DELETE", `/api/me/sessions/${id}`),
     onSuccess: () => {
-      toast("Aparelho desconectado.");
+      toast(t("Device signed out."));
       void qc.invalidateQueries({ queryKey: ["my-sessions"] });
     },
     onError: (e: Error) => toast(e.message, true),
   });
   return (
-    <section className="card set-card" aria-label="Aparelhos conectados">
+    <section className="card set-card" aria-label={t("Connected devices")}>
       <CardHead
         icon="monitor"
-        title="Aparelhos conectados"
-        sub="Onde esta conta está aberta agora. Desconecte o que você não reconhece."
+        title={t("Connected devices")}
+        sub={t("Where this account is open right now. Sign out of anything you do not recognize.")}
         aside={q.data && <span className="pill num">{q.data.length}</span>}
       />
       <div className="rows">
@@ -90,25 +91,25 @@ export function DevicesCard() {
             <div className="grow">
               <strong>
                 {deviceName(s.user_agent)}
-                {s.current && <span className="tag-inline">Este aparelho</span>}
+                {s.current && <span className="tag-inline">{t("This device")}</span>}
               </strong>
               <p className="muted small">
-                {s.mfa ? "De fora de casa. " : ""}Entrou em {fmtDate(s.created_at)}, vale até {fmtDate(s.expires_at)}
+                {s.mfa ? t("From outside the home. ") : ""}{t("Signed in on")}{" "}{fmtDate(s.created_at)}{t(", valid until")}{" "}{fmtDate(s.expires_at)}
               </p>
             </div>
             {!s.current && (
               <button
                 className="btn small ghost danger"
                 disabled={revoke.isPending}
-                onClick={() => window.confirm(`Desconectar ${deviceName(s.user_agent)}?`) && revoke.mutate(s.id)}
+                onClick={() => window.confirm(t("Sign out {v0}?", { v0: deviceName(s.user_agent) })) && revoke.mutate(s.id)}
               >
-                Desconectar
+                {t("Disconnect")}
               </button>
             )}
           </div>
         ))}
       </div>
-      <p className="muted small card-foot">Perdeu o celular? Desconecte-o aqui e, se ele tinha o app autenticador, refaça a verificação em 2 etapas.</p>
+      <p className="muted small card-foot">{t("Lost the phone? Sign it out here and, if it had the authenticator app, redo the two-step verification.")}</p>
     </section>
   );
 }

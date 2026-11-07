@@ -628,8 +628,8 @@ func TestDisableUserAndDetail(t *testing.T) {
 	}
 
 	code, m, body := admin.do("GET", "/api/users/"+id, "")
-	nuvem, _ := m["nuvem"].(map[string]any)
-	files, _ := nuvem["files"].(map[string]any)
+	cloud, _ := m["cloud"].(map[string]any)
+	files, _ := cloud["files"].(map[string]any)
 	if code != 200 || m["last_login"] == "" || files["bytes"] != float64(5) || len(m["sessions"].([]any)) != 1 {
 		t.Fatalf("detail = %d %s", code, body)
 	}

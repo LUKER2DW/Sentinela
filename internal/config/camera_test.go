@@ -78,3 +78,37 @@ func TestVendorValidation(t *testing.T) {
 		}
 	}
 }
+
+func TestCameraFeatures(t *testing.T) {
+	c, err := Parse([]byte(`
+cameras:
+  - {id: x, host: 10.0.0.2, user_env: U, password_env: P}
+  - {id: fixed, host: 10.0.0.3, user_env: U, password_env: P, features: {ptz: false, light: false, talk: false}}
+  - {id: h, host: 10.0.0.4, vendor: hikvision, user_env: U, password_env: P, features: {ptz: true, talk: true}}
+  - {id: d, host: 10.0.0.5, vendor: dahua, user_env: U, password_env: P}
+`), env(map[string]string{"U": "admin", "P": "Pa55word"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		id               string
+		ptz, light, talk bool
+	}{
+		{"x", true, true, true},        // XMEye: everything by default
+		{"fixed", false, false, false}, // XMEye bullet without motor, light or speaker
+		{"h", false, false, true},      // PTZ needs the DVRIP driver; talk uses the RTSP backchannel
+		{"d", false, false, false},     // other vendors: view and record only by default
+	}
+	for _, tc := range cases {
+		cam := c.Camera(tc.id)
+		if cam.HasPTZ() != tc.ptz || cam.HasLight() != tc.light || cam.HasTalk() != tc.talk {
+			t.Errorf("%s: ptz/light/talk = %v/%v/%v, want %v/%v/%v", tc.id, cam.HasPTZ(), cam.HasLight(), cam.HasTalk(), tc.ptz, tc.light, tc.talk)
+		}
+	}
+	if c.Camera("fixed").Go2RTCBackchannel() != "" {
+		t.Error("no speaker: go2rtc must not open the DVRIP backchannel")
+	}
+	if c.Camera("x").Go2RTCBackchannel() == "" {
+		t.Error("XMEye with talk: backchannel expected")
+	}
+}

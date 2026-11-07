@@ -6,6 +6,7 @@
 import { api } from "./api";
 import { getZone } from "./access";
 
+import { t } from "./i18n";
 export type Transport = "webrtc" | "mse";
 export type PlayerState = "connecting" | "playing" | "reconnecting" | "error" | "stopped";
 
@@ -243,7 +244,7 @@ export class LivePlayer {
       void this.onMessage(msg);
     };
     ws.onclose = () => {
-      if (this.ws === ws && !this.stopped) this.scheduleRetry("conexão encerrada");
+      if (this.ws === ws && !this.stopped) this.scheduleRetry(t("connection closed"));
     };
   }
 
@@ -259,7 +260,7 @@ export class LivePlayer {
           try {
             await pc?.setRemoteDescription({ type: "answer", sdp: msg.value });
           } catch {
-            if (pc && pc === this.pc) this.scheduleRetry("negociação de vídeo falhou");
+            if (pc && pc === this.pc) this.scheduleRetry(t("video negotiation failed"));
           }
         }
         break;
@@ -300,7 +301,7 @@ export class LivePlayer {
         pc.addTransceiver(this.mic.getAudioTracks()[0], { direction: "sendrecv" });
       } catch {
         if (pc !== this.pc) return;
-        this.emit({ state: "error", message: "Microfone bloqueado pelo navegador" });
+        this.emit({ state: "error", message: t("Microphone blocked by the browser") });
         pc.addTransceiver("audio", { direction: "recvonly" });
       }
     } else {
@@ -336,7 +337,7 @@ export class LivePlayer {
         this.emit({ state: "playing", transport: "webrtc" });
       } else if (pc.connectionState === "failed") {
         if (!this.opts.talk) this.fallbackToMSE();
-        else this.scheduleRetry("WebRTC falhou");
+        else this.scheduleRetry("WebRTC failed");
       }
     };
     try {
@@ -347,7 +348,7 @@ export class LivePlayer {
     } catch {
       if (pc === this.pc) {
         if (!this.opts.talk) this.fallbackToMSE();
-        else this.scheduleRetry("negociação de vídeo falhou");
+        else this.scheduleRetry(t("video negotiation failed"));
       }
       return;
     }
@@ -389,14 +390,14 @@ export class LivePlayer {
   private startMSE() {
     const MS = mediaSourceClass();
     if (!MS) {
-      this.emit({ state: "error", message: "Este navegador não reproduz vídeo ao vivo (sem MSE)" });
+      this.emit({ state: "error", message: t("This browser cannot play live video (no MSE)") });
       return;
     }
     const codecs = supportedMseCodecs((t) => MS.isTypeSupported(t));
     if (!codecs.includes("hvc1")) {
       this.emit({
         state: "error",
-        message: "Este navegador não decodifica H.265. Use Chrome, Edge ou Safari atualizados.",
+        message: t("This browser cannot decode H.265. Use an up-to-date Chrome, Edge or Safari."),
       });
       this.stopped = true;
       this.ws?.close();
@@ -426,7 +427,7 @@ export class LivePlayer {
             if (sb === this.sb) this.pump();
           });
           sb.addEventListener("error", () => {
-            if (sb === this.sb) this.scheduleRetry("fragmento de vídeo inválido");
+            if (sb === this.sb) this.scheduleRetry(t("invalid video fragment"));
           });
           this.sb = sb;
           this.pump();
@@ -434,7 +435,7 @@ export class LivePlayer {
           this.retry = 0;
           this.emit({ state: "playing", transport: "mse" });
         } catch {
-          this.scheduleRetry("codec não suportado");
+          this.scheduleRetry(t("codec not supported"));
         }
       },
       { once: true },

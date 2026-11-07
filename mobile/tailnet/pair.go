@@ -26,7 +26,7 @@ type PairResult struct {
 func Pair(lanURL, username, password string) (*PairResult, error) {
 	u, err := url.Parse(strings.TrimRight(lanURL, "/"))
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-		return nil, errors.New("endereço da casa inválido")
+		return nil, errors.New("invalid home address")
 	}
 	jar, _ := cookiejar.New(nil)
 	hc := &http.Client{Jar: jar, Timeout: 20 * time.Second}
@@ -92,13 +92,13 @@ func postJSON(hc *http.Client, u, csrf string, body, out any) (int, error) {
 func pairError(code int, msg string) string {
 	switch {
 	case code == http.StatusUnauthorized:
-		return "usuário ou senha incorretos"
+		return "wrong username or password"
 	case code == http.StatusTooManyRequests:
 		return "muitas tentativas, espere um minuto"
 	case code == http.StatusServiceUnavailable:
-		return "o servidor ainda não tem a chave do Tailscale configurada (TS_OAUTH_CLIENT_*)"
+		return "the server does not have the Tailscale key configured yet (TS_OAUTH_CLIENT_*)"
 	case code == http.StatusForbidden:
-		return "só dá para parear estando em casa"
+		return "pairing is only possible when at home"
 	case code == http.StatusBadGateway:
 		return "o Tailscale recusou criar a chave (confira a tag e o escopo do cliente OAuth)"
 	case msg != "":

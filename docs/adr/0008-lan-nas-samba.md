@@ -3,7 +3,7 @@
 Status: Accepted · 2026-09-28 (owner request; supersedes the "NAS is scope
 creep" non-goal in PLAN §1.2)
 
-Current amendments: ADR-0014 moves the system disk's free tail from Nuvem Extra to `/srv/backup`;
+Current amendments: ADR-0014 moves the system disk's free tail from Cloud Extra to `/srv/backup`;
 ADR-0012 adds the web/mobile file API. Samba still uses its own LAN account
 (the installing user); web user/role restrictions do not
 automatically apply to that SMB login. The original decision below is the

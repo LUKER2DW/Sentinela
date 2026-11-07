@@ -68,7 +68,7 @@ cameras to someone else's cloud. Sentinela does neither:
 - Web push and Android notifications, per user, with home/away modes and
   an automatic night schedule.
 
-**Nuvem: the house file server**
+**Cloud: the house file server**
 - SMB share for the LAN and a web/mobile file browser with uploads,
   previews, a recycle bin and per-user folders.
 
@@ -81,7 +81,7 @@ cameras to someone else's cloud. Sentinela does neither:
 - Android app (Capacitor): one APK for every house, paired by QR code, with
   notifications, an app lock and in-app updates.
 - Optional **self-hosted services**: run your own projects from GitHub or a
-  Nuvem folder (script, Dockerfile or Compose) as capped, isolated
+  Cloud folder (script, Dockerfile or Compose) as capped, isolated
   containers next to the NVR.
 - Nightly database/config backups, optional restic copy, and a restore
   drill.
@@ -168,7 +168,7 @@ server then offers to the phones by itself
 ## Android app
 
 One APK works with every Sentinela server. Install it from a release, open
-it, and on a computer go to **Sistema → Aplicativo**: point the phone's
+it, and on a computer go to **System → App**: point the phone's
 camera at the QR code and confirm. The code carries the house's address and,
 for a self-signed certificate, its fingerprint, so the app trusts exactly
 that server and nothing else. Notifications arrive through Firebase when you
@@ -231,7 +231,7 @@ stack and waits for the health check. The server never needs Go or Node.
 Or let the server follow releases on its own, once a day in a quiet hour,
 with automatic rollback:
 `sudo /opt/sentinela/scripts/setup-auto-update.sh enable 04:00`
-([INSTALL §11](docs/INSTALL.md#11-updating)). System → Atualizações shows
+([INSTALL §11](docs/INSTALL.md#11-updating)). System → Updates shows
 the schedule and what changed in each version.
 
 ## Development

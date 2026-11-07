@@ -3,11 +3,12 @@
 import { useQuery } from "@tanstack/react-query";
 import { api, apiUpload, get } from "./api";
 
+import { getLang, t } from "./i18n";
 /** Optional parts of the dashboard for this user (GET /api/me features). */
 function useFeatures() {
   return useQuery({
     queryKey: ["me", "features"],
-    queryFn: () => get<{ features?: { hosting?: boolean; setup_guide?: boolean } }>("/api/me"),
+    queryFn: () => get<{ features?: { hosting?: boolean; cloud?: boolean; setup_guide?: boolean } }>("/api/me"),
     staleTime: 5 * 60_000,
   });
 }
@@ -15,6 +16,15 @@ function useFeatures() {
 /** Whether this user may open the Serviços page (admin, platform on). */
 export function useHostingEnabled(): boolean {
   return !!useFeatures().data?.features?.hosting;
+}
+
+/**
+ * Whether the server has the Cloud (a disk at /srv/nas). Skipped in the setup
+ * guide = not set up = the tab stays hidden. True while loading, so the page
+ * does not flicker away on a reload.
+ */
+export function useCloudEnabled(): boolean {
+  return useFeatures().data?.features?.cloud !== false;
 }
 
 /** Whether the first-run setup guide should open (admin of a new install). */
@@ -187,8 +197,8 @@ export const hosting = {
   setToken: (token: string) => api<{ ok: boolean }>("PUT", `${base}/github-token`, { token }),
   dropToken: () => api<{ ok: boolean }>("DELETE", `${base}/github-token`),
   upload: (file: File, progress?: (percent: number) => void) => {
-    if (!file.name.toLowerCase().endsWith(".zip")) return Promise.reject(new Error("Escolha um arquivo .zip."));
-    if (file.size > 300 * 1024 * 1024) return Promise.reject(new Error("O ZIP deve ter no máximo 300 MB."));
+    if (!file.name.toLowerCase().endsWith(".zip")) return Promise.reject(new Error(t("Choose a .zip file.")));
+    if (file.size > 300 * 1024 * 1024) return Promise.reject(new Error(t("The ZIP must be at most 300 MB.")));
     return apiUpload<{ path: string; bytes: number }>("POST", `${base}/uploads`, file, progress);
   },
   dropUpload: (path: string) => api<{ ok: boolean }>("DELETE", `${base}/uploads/${enc(path)}`),
@@ -200,7 +210,7 @@ export const hosting = {
   mkdir: (id: string, scope: FileScope, path: string) => api<{ ok: boolean }>("POST", filesURL(id, scope, path, "/folder")),
   deleteFile: (id: string, scope: FileScope, path: string) => api<{ ok: boolean }>("DELETE", filesURL(id, scope, path)),
   uploadFile: (id: string, scope: FileScope, path: string, file: File, progress?: (percent: number) => void) => {
-    if (file.size > 50 * 1024 * 1024) return Promise.reject(new Error("Cada arquivo deve ter no máximo 50 MB."));
+    if (file.size > 50 * 1024 * 1024) return Promise.reject(new Error(t("Each file must be at most 50 MB.")));
     return apiUpload<{ ok: boolean; secrets_imported?: boolean }>("PUT", filesURL(id, scope, path, "/upload"), file, progress);
   },
 };
@@ -208,15 +218,15 @@ export const hosting = {
 // ---------- pure helpers (tested) ----------
 
 export const stateLabel: Record<State, string> = {
-  never: "Ainda não implantado",
-  deploying: "Implantando",
-  running: "Rodando",
-  partial: "Rodando em parte",
-  stopped: "Parado",
-  exited: "Parou sozinho",
-  crashloop: "Caindo repetidamente",
-  waiting: "Aguardando o servidor ligar",
-  failed: "Falha no deploy",
+  never: t("Not deployed yet"),
+  deploying: t("Deploying"),
+  running: t("Running"),
+  partial: t("Partly running"),
+  stopped: t("Stopped"),
+  exited: t("Stopped by itself"),
+  crashloop: t("Crashing repeatedly"),
+  waiting: t("Waiting for the server to start"),
+  failed: t("Deploy failed"),
 };
 
 /** The buoy colour of a state: ok, busy, bad or idle. */
@@ -237,27 +247,27 @@ export function stateTone(s: State): "ok" | "busy" | "bad" | "idle" {
 }
 
 export const phaseLabel: Record<Job["phase"], string> = {
-  queued: "Na fila",
-  fetch: "Buscando o código",
-  build: "Preparando",
-  start: "Iniciando",
-  done: "Concluído",
-  failed: "Falhou",
+  queued: t("Queued"),
+  fetch: t("Fetching the code"),
+  build: t("Preparing"),
+  start: t("Starting"),
+  done: t("Done"),
+  failed: t("Failed"),
 };
 
 export const exposureInfo: Record<Exposure, { label: string; hint: string }> = {
-  local: { label: "Só no servidor", hint: "Nenhum outro aparelho acessa. Bom para bots e tarefas." },
-  lan: { label: "Casa e Tailscale", hint: "Aparelhos da rede de casa e do seu Tailscale." },
-  tailnet: { label: "Só Tailscale", hint: "Somente aparelhos conectados ao seu Tailscale." },
-  public: { label: "Internet", hint: "Qualquer pessoa, pelo IP público, com a porta liberada no roteador." },
+  local: { label: t("Server only"), hint: t("No other device can reach it. Good for bots and jobs.") },
+  lan: { label: t("Home and Tailscale"), hint: t("Devices on the home network and on your Tailscale.") },
+  tailnet: { label: t("Tailscale only"), hint: t("Only devices connected to your Tailscale.") },
+  public: { label: "Internet", hint: t("Anyone, over the public IP, with the port open on the router.") },
 };
 
 export const linkLabel: Record<Service["links"][number]["kind"], string> = {
-  lan: "Rede de casa",
+  lan: t("Home network"),
   tailnet: "Tailscale",
   public: "Internet",
-  local: "No servidor",
-  internal: "Entre serviços",
+  local: t("On the server"),
+  internal: t("Between services"),
 };
 
 /** Accepts "owner/repo", a github.com URL or an SSH remote. */
@@ -276,14 +286,14 @@ export const validRepo = (s: string) => /^[A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z
 
 /** Where the code comes from, in a few words. */
 export function sourceText(a: Pick<AppConfig, "source" | "repo" | "ref" | "path" | "dir">): string {
-  const where = a.source === "zip" ? "Projeto enviado por ZIP" : a.source === "local" ? `pasta ${a.path}` : `${a.repo}${a.ref && a.ref !== "main" ? ` @ ${a.ref}` : ""}`;
+  const where = a.source === "zip" ? t("Project uploaded as ZIP") : a.source === "local" ? t("folder {path}", { path: a.path }) : `${a.repo}${a.ref && a.ref !== "main" ? ` @ ${a.ref}` : ""}`;
   return a.dir ? `${where} / ${a.dir}` : where;
 }
 
 /** Short version text: a commit's 7 first characters, or the snapshot name. */
 export function versionText(d?: Pick<Deployment, "commit" | "version">): string {
   if (!d) return "";
-  return d.commit ? d.commit.slice(0, 7) : d.version.replace(/^local-/, "pasta de ");
+  return d.commit ? d.commit.slice(0, 7) : d.version.replace(/^local-/, t("folder "));
 }
 
 /** A log line "2026-…Z text" split into its local time and text. */
@@ -291,7 +301,7 @@ export function splitLogLine(line: string): { time: string; text: string } {
   const m = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(\.\d+)?Z\s?(.*)$/.exec(line);
   if (!m) return { time: "", text: line };
   const d = new Date(`${m[1]}Z`);
-  const time = Number.isNaN(d.getTime()) ? "" : d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const time = Number.isNaN(d.getTime()) ? "" : d.toLocaleTimeString(getLang(), { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   return { time, text: m[3] };
 }
 
@@ -318,7 +328,7 @@ export const runtimeLabel: Record<string, string> = {
   go: "Go",
   bun: "Bun",
   deno: "Deno",
-  static: "Site estático",
+  static: t("Static site"),
   shell: "Shell (Alpine)",
 };
 
@@ -350,17 +360,17 @@ export function configOf(s: Service): AppConfig {
 /** Problems that keep a form from being saved (pt-BR, for people). */
 export function formProblems(c: AppConfig): string[] {
   const out: string[] = [];
-  if (!c.name.trim()) out.push("Dê um nome ao serviço.");
-  if (c.source === "github" && !validRepo(c.repo ?? "")) out.push("Informe o repositório como dono/nome.");
-  if (c.source === "local" && !c.path) out.push("Escolha a pasta do projeto.");
-  if (c.source === "zip" && !c.path) out.push("Envie o ZIP do projeto.");
-  if (c.mode === "script" && c.runtime !== "static" && !c.start?.trim()) out.push("Informe o comando que inicia o serviço.");
+  if (!c.name.trim()) out.push(t("Give the service a name."));
+  if (c.source === "github" && !validRepo(c.repo ?? "")) out.push(t("Enter the repository as owner/name."));
+  if (c.source === "local" && !c.path) out.push(t("Choose the project folder."));
+  if (c.source === "zip" && !c.path) out.push(t("Upload the project ZIP."));
+  if (c.mode === "script" && c.runtime !== "static" && !c.start?.trim()) out.push(t("Enter the command that starts the service."));
   const keys = new Set<string>();
   for (const e of c.env) {
-    if (!/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(e.key)) out.push(`Nome de variável inválido: ${e.key || "(vazio)"}.`);
-    else if (keys.has(e.key)) out.push(`Variável repetida: ${e.key}.`);
+    if (!/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(e.key)) out.push(t("Invalid variable name: {v0}.", { v0: e.key || t("(empty)") }));
+    else if (keys.has(e.key)) out.push(t("Repeated variable: {key}.", { key: e.key }));
     keys.add(e.key);
   }
-  for (const p of c.ports) if (!(p.container >= 1 && p.container <= 65535)) out.push("Portas do serviço vão de 1 a 65535.");
+  for (const p of c.ports) if (!(p.container >= 1 && p.container <= 65535)) out.push(t("Service ports range from 1 to 65535."));
   return out;
 }

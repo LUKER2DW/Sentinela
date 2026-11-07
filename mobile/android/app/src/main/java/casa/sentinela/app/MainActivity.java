@@ -147,18 +147,17 @@ public class MainActivity extends BridgeActivity {
         final String url = data.getQueryParameter("url");
         final String pin = data.getQueryParameter("pin");
         if (url == null || !Connection.URL.matcher(url).matches()) {
-            android.widget.Toast.makeText(this, "Link de pareamento inválido.", android.widget.Toast.LENGTH_LONG).show();
+            android.widget.Toast.makeText(this, R.string.pair_invalid_link, android.widget.Toast.LENGTH_LONG).show();
             return true;
         }
         String host = android.net.Uri.parse(url).getHost();
-        String msg = "O app vai se conectar a " + url.replaceAll("/+$", "")
-                + (pin == null || pin.isEmpty() ? "." : ", com o certificado desta casa.")
-                + "\n\nSó confirme se este código veio de Sistema → Aplicativo, no Sentinela da sua casa.";
+        String msg = getString(pin == null || pin.isEmpty() ? R.string.pair_message : R.string.pair_message_pin, url.replaceAll("/+$", ""))
+                + "\n\n" + getString(R.string.pair_warning);
         new android.app.AlertDialog.Builder(this)
-                .setTitle("Conectar a " + host + "?")
+                .setTitle(getString(R.string.pair_title, host))
                 .setMessage(msg)
-                .setNegativeButton("Cancelar", null)
-                .setPositiveButton("Conectar", (d, w) -> {
+                .setNegativeButton(R.string.cancel, null)
+                .setPositiveButton(R.string.connect, (d, w) -> {
                     String err = Connection.save(this, url, pin);
                     if (err != null) {
                         android.widget.Toast.makeText(this, err, android.widget.Toast.LENGTH_LONG).show();
@@ -173,7 +172,7 @@ public class MainActivity extends BridgeActivity {
     /**
      * A notification carries an in-app path such as "/#/events"; an invite
      * or password-reset link opened in the phone's browser hands one over as
-     * {@code sentinela://open?path=/%23/convite...}. Only "/#/" pages of the
+     * {@code sentinela://open?path=/%23/invite...}. Only "/#/" pages of the
      * chosen server are opened, never another site.
      */
     private void openFromNotification(Intent intent) {
@@ -264,7 +263,7 @@ public class MainActivity extends BridgeActivity {
                 }
                 handler.cancel();
                 if (server != null && error.getUrl() != null && error.getUrl().startsWith(server)) {
-                    offline("certificado HTTPS inválido");
+                    offline("invalid HTTPS certificate");
                 }
             }
 
@@ -280,7 +279,7 @@ public class MainActivity extends BridgeActivity {
                 if (loop) {
                     // Dying again right away: show the start screen instead
                     // of reloading forever.
-                    Connection.offline = "a página fechou por falta de memória no celular";
+                    Connection.offline = "the page closed because the phone ran out of memory";
                 }
                 runOnUiThread(MainActivity.this::recreate);
                 return true;
@@ -323,7 +322,7 @@ public class MainActivity extends BridgeActivity {
                         moveTaskToBack(true);
                     } else {
                         lastBack = now;
-                        Toast.makeText(MainActivity.this, "Toque em voltar de novo para sair", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(MainActivity.this, R.string.back_again, Toast.LENGTH_SHORT).show();
                     }
                 });
             }
@@ -354,7 +353,7 @@ public class MainActivity extends BridgeActivity {
             f.setBackgroundColor(Color.parseColor("#232322"));
             f.setClickable(true);
             TextView t = new TextView(this);
-            t.setText("Sentinela bloqueado\nToque para desbloquear");
+            t.setText(R.string.locked);
             t.setTextColor(Color.parseColor("#ECEBE6"));
             t.setTextSize(18);
             t.setGravity(Gravity.CENTER);
@@ -371,8 +370,8 @@ public class MainActivity extends BridgeActivity {
     private void prompt() {
         if (prompting || biometric == null) return;
         BiometricPrompt.PromptInfo.Builder info = new BiometricPrompt.PromptInfo.Builder()
-                .setTitle("Desbloquear o Sentinela")
-                .setSubtitle("Use a digital, o rosto ou o bloqueio de tela");
+                .setTitle(getString(R.string.unlock_title))
+                .setSubtitle(getString(R.string.unlock_subtitle));
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             info.setAllowedAuthenticators(authenticators());
         } else {
@@ -424,7 +423,7 @@ public class MainActivity extends BridgeActivity {
             try {
                 DownloadManager dm = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
                 dm.enqueue(req);
-                Toast.makeText(this, "Baixando " + name, Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.downloading, name), Toast.LENGTH_SHORT).show();
             } catch (RuntimeException e) {
                 // Download manager switched off, or no Downloads folder.
                 pinnedDownload(url, name, mime, userAgent);
@@ -474,7 +473,7 @@ public class MainActivity extends BridgeActivity {
 
     /** Download over the pinned connection into Downloads/Sentinela. */
     private void pinnedDownload(String url, String name, String mime, String userAgent) {
-        Toast.makeText(this, "Baixando " + name, Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, getString(R.string.downloading, name), Toast.LENGTH_SHORT).show();
         final String cookie = CookieManager.getInstance().getCookie(url);
         new Thread(() -> {
             String msg;
@@ -490,9 +489,9 @@ public class MainActivity extends BridgeActivity {
                     byte[] buf = new byte[64 * 1024];
                     for (int n; (n = in.read(buf)) > 0; ) out.write(buf, 0, n);
                 }
-                msg = "Salvo em Downloads/Sentinela: " + name;
+                msg = getString(R.string.download_saved, name);
             } catch (Exception e) {
-                msg = "Não foi possível baixar " + name;
+                msg = getString(R.string.download_failed, name);
             } finally {
                 if (c != null) c.disconnect();
             }

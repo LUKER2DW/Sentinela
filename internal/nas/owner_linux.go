@@ -6,7 +6,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// ownerAttr names who put a file or folder in the Nuvem.
+// ownerAttr names who put a file or folder in the Cloud.
 const ownerAttr = "user.sentinela.owner"
 
 func getOwner(f *os.File) string {

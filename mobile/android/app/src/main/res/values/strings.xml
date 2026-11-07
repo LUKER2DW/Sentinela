@@ -1,7 +1,50 @@
 <?xml version='1.0' encoding='utf-8'?>
+<!-- UI text in English. Brazilian Portuguese: values-pt-rBR/strings.xml. -->
 <resources>
-    <string name="app_name">Sentinela</string>
-    <string name="title_activity_main">Sentinela</string>
-    <string name="package_name">casa.sentinela.app</string>
-    <string name="custom_url_scheme">casa.sentinela.app</string>
+    <string name="app_name" translatable="false">Sentinela</string>
+    <string name="title_activity_main" translatable="false">Sentinela</string>
+    <string name="package_name" translatable="false">casa.sentinela.app</string>
+    <string name="custom_url_scheme" translatable="false">casa.sentinela.app</string>
+
+    <!-- Server address and pairing -->
+    <string name="err_unknown_address">Unknown address.</string>
+    <string name="err_https_address">Use an https:// address (only the IP or the name and port, no path).</string>
+    <string name="err_bad_pin">Invalid certificate code: use the home\'s pairing code.</string>
+    <string name="pair_invalid_link">Invalid pairing link.</string>
+    <string name="pair_title">Connect to %1$s?</string>
+    <string name="pair_message">The app will connect to %1$s.</string>
+    <string name="pair_message_pin">The app will connect to %1$s, with this home\'s certificate.</string>
+    <string name="pair_warning">Only confirm if this code came from System → App, in your home\'s Sentinela.</string>
+    <string name="cancel">Cancel</string>
+    <string name="connect">Connect</string>
+
+    <!-- App lock and navigation -->
+    <string name="back_again">Tap back again to exit</string>
+    <string name="locked">Sentinela is locked\nTap to unlock</string>
+    <string name="unlock_title">Unlock Sentinela</string>
+    <string name="unlock_subtitle">Use your fingerprint, face or screen lock</string>
+
+    <!-- Downloads -->
+    <string name="downloading">Downloading %1$s</string>
+    <string name="download_saved">Saved to Downloads/Sentinela: %1$s</string>
+    <string name="download_failed">Could not download %1$s</string>
+
+    <!-- Notifications -->
+    <string name="channel_events">Camera events</string>
+    <string name="channel_events_desc">Person, vehicle, motion and camera moved, as chosen in My account</string>
+    <string name="channel_service">Connection to the home</string>
+    <string name="channel_service_desc">Notice Android requires while the app waits for events. Turn it off to hide it; event alerts continue.</string>
+    <string name="sign_in_first">Sign in to Sentinela on this phone first.</string>
+    <string name="service_title">Connected to the home</string>
+    <string name="service_text">Tap to hide this notice; alerts continue</string>
+    <string name="pending_title">New event in Sentinela</string>
+    <string name="pending_text">Open the app to see what happened.</string>
+    <string name="paused_title">Sentinela alerts paused</string>
+    <string name="paused_text">This phone\'s session ended. Open the app and sign in again.</string>
+
+    <!-- App updates -->
+    <string name="update_unavailable">Update unavailable.</string>
+    <string name="update_busy">The update is already downloading.</string>
+    <string name="update_mismatch">The downloaded file does not match. Try again.</string>
+    <string name="update_failed">Could not download the update. Check the connection and try again.</string>
 </resources>

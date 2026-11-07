@@ -44,16 +44,16 @@ func projectPath(p string, allowRoot bool) (string, error) {
 	}
 	p = strings.ReplaceAll(p, "\\", "/")
 	if strings.HasPrefix(p, "/") || !validRel(p) || p == "." || strings.Contains(p, ":") {
-		return "", errors.New("caminho inválido dentro do serviço")
+		return "", errors.New("invalid path inside the service")
 	}
 	for _, part := range strings.Split(p, "/") {
 		if part == "." || part == "" || strings.HasPrefix(part, ".sentinela-") {
-			return "", errors.New("caminho reservado ou inválido")
+			return "", errors.New("reserved or invalid path")
 		}
 	}
 	for _, c := range p {
 		if c < 32 {
-			return "", errors.New("caminho inválido")
+			return "", errors.New("invalid path")
 		}
 	}
 	return p, nil
@@ -70,7 +70,7 @@ func (a *Agent) fileRoot(r *http.Request, write bool) (*App, *os.Root, string, e
 		scope = "project"
 	}
 	if scope != "project" && scope != "data" {
-		return nil, nil, "", errors.New("área de arquivos inválida")
+		return nil, nil, "", errors.New("invalid file area")
 	}
 	if scope == "project" && !app.Managed {
 		return nil, nil, "", errors.New("implante um projeto local ou ZIP para abrir seus arquivos protegidos")
@@ -148,14 +148,14 @@ func readProjectText(root *os.Root, rel string) ([]byte, error) {
 		return nil, errors.New("escolha um arquivo de texto")
 	}
 	if st.Size() > maxTextFile {
-		return nil, errors.New("o editor aceita arquivos de até 1 MB")
+		return nil, errors.New("the editor accepts files up to 1 MB")
 	}
 	b, err := io.ReadAll(io.LimitReader(f, maxTextFile+1))
 	if err != nil {
 		return nil, sanitizeFileError(err)
 	}
 	if len(b) > maxTextFile || !utf8.Valid(b) || bytes.ContainsRune(b, 0) {
-		return nil, errors.New("este arquivo não é texto UTF-8 ou tem mais de 1 MB")
+		return nil, errors.New("this file is not UTF-8 text or is over 1 MB")
 	}
 	return b, nil
 }
@@ -263,7 +263,7 @@ func (a *Agent) hReadFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if bytes.Contains(b, []byte("PRIVATE KEY-----")) {
-		reply(w, nil, errors.New("chaves privadas não podem ser exibidas no editor"))
+		reply(w, nil, errors.New("private keys cannot be shown in the editor"))
 		return
 	}
 	doc := fileDocument{Kind: "text", Revision: fileRevision(b)}
@@ -364,7 +364,7 @@ func (a *Agent) hWriteFile(w http.ResponseWriter, r *http.Request) {
 		var out strings.Builder
 		for _, e := range doc.Env {
 			if !envKey.MatchString(e.Key) || strings.ContainsRune(e.Value, 0) || len(e.Value) > maxEnvVal {
-				reply(w, nil, errors.New("variável de ambiente inválida"))
+				reply(w, nil, errors.New("invalid environment variable"))
 				return
 			}
 			out.WriteString(e.Key + "=" + strconv.Quote(e.Value) + "\n")
@@ -389,12 +389,12 @@ func (a *Agent) hWriteFile(w http.ResponseWriter, r *http.Request) {
 		}
 		content = strings.NewReplacer(pairs...).Replace(content)
 		if strings.Contains(content, "__SENTINELA_SECRET_") {
-			reply(w, nil, errors.New("marcador de segredo inválido; abra novamente o arquivo"))
+			reply(w, nil, errors.New("invalid secret marker; open the file again"))
 			return
 		}
 	}
 	if len(content) > maxTextFile || !utf8.ValidString(content) || strings.ContainsRune(content, 0) {
-		reply(w, nil, errors.New("texto inválido ou maior que 1 MB"))
+		reply(w, nil, errors.New("invalid text or larger than 1 MB"))
 		return
 	}
 	if err := atomicProjectWrite(root, rel, []byte(content)); err != nil {
@@ -419,7 +419,7 @@ func (a *Agent) hUploadFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := root.Lstat(rel); !errors.Is(err, os.ErrNotExist) {
-		reply(w, nil, errors.New("já existe um arquivo com este nome; use o editor ou exclua antes de enviar"))
+		reply(w, nil, errors.New("a file with this name already exists; use the editor or delete it before uploading"))
 		return
 	}
 	if importableEnv(rel) {

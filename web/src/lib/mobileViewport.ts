@@ -35,5 +35,5 @@ export function useMobileLandscape(): boolean {
 
 /** Services are available in the desktop UI only, including direct links. */
 export function mobilePage(page: string, mobile: boolean): string {
-  return mobile && page === "servicos" ? "system" : page;
+  return mobile && page === "services" ? "system" : page;
 }

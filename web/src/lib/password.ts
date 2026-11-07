@@ -1,4 +1,5 @@
-// Password rule and strength meter for new-password fields. policyError
+
+import { t } from "./i18n";// Password rule and strength meter for new-password fields. policyError
 // mirrors the server's rule (internal/auth CheckPasswordPolicy); the meter
 // is advisory on top of it.
 
@@ -20,10 +21,10 @@ const REFUSED = new Set([
 /** Why the server would refuse pw, in Portuguese; "" when it is accepted. */
 export function policyError(pw: string): string {
   const chars = [...pw];
-  if (chars.length < MIN_PASSWORD) return `Use pelo menos ${MIN_PASSWORD} caracteres.`;
-  if (REFUSED.has(pw.toLowerCase()) || chars.every((c) => c === chars[0])) return "Senha muito comum.";
+  if (chars.length < MIN_PASSWORD) return t("Use at least {MIN_PASSWORD} characters.", { MIN_PASSWORD });
+  if (REFUSED.has(pw.toLowerCase()) || chars.every((c) => c === chars[0])) return t("Very common password.");
   const kinds = [/\p{L}/u, /\p{N}/u, /[^\p{L}\p{N}]/u].filter((re) => re.test(pw)).length;
-  if (kinds < 2 && chars.length < PASSPHRASE) return "Misture letras com números ou símbolos, ou use uma frase de 16+ caracteres.";
+  if (kinds < 2 && chars.length < PASSPHRASE) return t("Mix letters with numbers or symbols, or use a passphrase of 16+ characters.");
   return "";
 }
 
@@ -45,8 +46,8 @@ export function passwordStrength(pw: string): Strength {
   for (const w of COMMON) if (low.includes(w)) bits -= 12;
   if (/(.)\1\1/.test(pw)) bits -= 6;
 
-  if (bits < 40) return { score: 2, label: "Aceita, mas fraca" };
-  if (bits < 55) return { score: 2, label: "Razoável" };
-  if (bits < 72) return { score: 3, label: "Boa" };
-  return { score: 4, label: "Forte" };
+  if (bits < 40) return { score: 2, label: t("Accepted, but weak") };
+  if (bits < 55) return { score: 2, label: t("Fair") };
+  if (bits < 72) return { score: 3, label: t("Good") };
+  return { score: 4, label: t("Strong") };
 }

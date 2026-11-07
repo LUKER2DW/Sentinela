@@ -1,6 +1,7 @@
 import { useState, useSyncExternalStore } from "react";
 import { api } from "../lib/api";
 
+import { t } from "../lib/i18n";
 // Profile photos: /api/avatars/{username}, a letter when there is none. A
 // shared version number busts the browser cache after this device changes
 // its own picture (other people's pictures refresh within 5 minutes).
@@ -55,7 +56,7 @@ export function Avatar({ name, className = "", title }: { name: string; classNam
  */
 export async function uploadAvatar(file: File): Promise<void> {
   const bitmap = await createImageBitmap(file).catch(() => {
-    throw new Error("Não foi possível abrir essa imagem.");
+    throw new Error(t("Could not open this picture."));
   });
   const side = Math.min(bitmap.width, bitmap.height);
   const canvas = document.createElement("canvas");
@@ -65,7 +66,7 @@ export async function uploadAvatar(file: File): Promise<void> {
   const encode = (type: string) => new Promise<Blob | null>((ok) => canvas.toBlob(ok, type, 0.86));
   let blob = await encode("image/webp");
   if (!blob || blob.type !== "image/webp") blob = await encode("image/jpeg");
-  if (!blob) throw new Error("Não foi possível preparar a imagem.");
+  if (!blob) throw new Error(t("Could not prepare the picture."));
   await api("POST", "/api/me/avatar", blob);
   bump();
 }

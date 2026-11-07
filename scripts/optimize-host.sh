@@ -117,7 +117,7 @@ vm.swappiness = 10
 vm.dirty_background_bytes = 16777216
 vm.dirty_bytes = 67108864
 EOF
-# Faster transfers to far clients (Nuvem downloads, live view, playback on
+# Faster transfers to far clients (Cloud downloads, live view, playback on
 # 4G or the public path): BBR does not read every lost packet as congestion,
 # as CUBIC does, and needs the fq pacing qdisc. Only what this server sends
 # changes; uploads follow the phone's or PC's own congestion control.
@@ -126,7 +126,7 @@ modprobe tcp_bbr 2>/dev/null || true
 cat >/etc/sysctl.d/92-sentinela-net.conf <<'EOF'
 net.core.default_qdisc = fq
 net.ipv4.tcp_congestion_control = bbr
-# Keep the congestion window between the Nuvem's chunked requests.
+# Keep the congestion window between the Cloud's chunked requests.
 net.ipv4.tcp_slow_start_after_idle = 0
 EOF
 sysctl -q --system

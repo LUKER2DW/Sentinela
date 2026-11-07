@@ -104,8 +104,8 @@ scripts/              operator scripts (audit, backup)
    status logs, or per-task markdown files. The plan is updated in place.
 5. Commit messages: Conventional Commits (`feat(dvrip): …`).
 6. One APK serves every house: the server and its certificate pin come
-   from the house's pairing code (`sentinela://pair?url=…&pin=…`, Sistema
-   → Aplicativo), confirmed by the person before the app switches.
+   from the house's pairing code (`sentinela://pair?url=…&pin=…`, System
+   → App), confirmed by the person before the app switches.
    A household build may carry a default server in
    `~/.sentinela-android/connection.json` (outside Git); a pin always comes
    with its address. Releases build and sign the generic APK in CI with the

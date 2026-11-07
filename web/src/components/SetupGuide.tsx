@@ -19,7 +19,7 @@ export interface Onboarding {
   max_disk_percent: number;
   retention_days: number;
   volume_marker: boolean;
-  nuvem: boolean;
+  cloud: boolean;
   nas_host: string;
   push: boolean;
   hosting: boolean;
@@ -31,15 +31,16 @@ export interface Onboarding {
 }
 
 const STEPS = [
-  { id: "welcome", label: "Boas-vindas" },
-  { id: "cameras", label: "Câmeras" },
-  { id: "recording", label: "Gravação" },
-  { id: "nuvem", label: "Nuvem" },
-  { id: "remote", label: "Acesso remoto" },
+  { id: "welcome", label: t("Welcome") },
+  { id: "cameras", label: t("Cameras") },
+  { id: "recording", label: t("Recording") },
+  { id: "cloud", label: t("Cloud") },
+  { id: "services", label: t("Services") },
+  { id: "remote", label: t("Remote access") },
   { id: "app", label: "App" },
-  { id: "notify", label: "Notificações" },
-  { id: "security", label: "Segurança" },
-  { id: "done", label: "Pronto" },
+  { id: "notify", label: t("Notifications") },
+  { id: "security", label: t("Security") },
+  { id: "done", label: t("Done") },
 ] as const;
 
 const vendorLabel: Record<string, string> = {
@@ -63,7 +64,7 @@ export function SetupGuide({ onClose }: { onClose: () => void }) {
       void qc.invalidateQueries({ queryKey: ["me"] });
       onClose();
     },
-    onError: (e: Error) => toast(`Não foi possível concluir: ${e.message}`, true),
+    onError: (e: Error) => toast(t("Could not finish: {message}", { message: e.message }), true),
   });
   const o = info.data;
   const last = STEPS.length - 1;
@@ -76,15 +77,15 @@ export function SetupGuide({ onClose }: { onClose: () => void }) {
       <header className="setup-head">
         <LighthouseMark />
         <div>
-          <h1>{t("Configurar o Sentinela")}</h1>
-          <p className="muted">{t("Alguns minutos para deixar a casa pronta. Pule o que quiser e volte depois em Sistema.")}</p>
+          <h1>{t("Set up Sentinela")}</h1>
+          <p className="muted">{t("A few minutes to get the home ready. Skip what you like and come back later in System.")}</p>
         </div>
         <button className="btn ghost small" disabled={finish.isPending} onClick={() => finish.mutate()}>
-          Pular configuração
+          {t("Skip setup")}
         </button>
       </header>
 
-      <ol className="stepper" aria-label="Etapas">
+      <ol className="stepper" aria-label={t("Steps")}>
         {STEPS.map((s, i) => (
           <li key={s.id} className={i === step ? "on" : i < step ? "done" : ""}>
             <button type="button" onClick={() => setStep(i)}>
@@ -95,13 +96,14 @@ export function SetupGuide({ onClose }: { onClose: () => void }) {
         ))}
       </ol>
 
-      {info.isError && <p className="notice error">Não foi possível ler o servidor. {(info.error as Error).message}</p>}
+      {info.isError && <p className="notice error">{t("Could not read the server.")}{" "}{(info.error as Error).message}</p>}
       {o && (
         <div className="setup-body">
           {id === "welcome" && <Welcome o={o} />}
           {id === "cameras" && <Cameras o={o} />}
           {id === "recording" && <Recording o={o} />}
-          {id === "nuvem" && <Nuvem o={o} />}
+          {id === "cloud" && <CloudStep o={o} />}
+          {id === "services" && <ServicesStep o={o} />}
           {id === "remote" && <Remote o={o} />}
           {id === "app" && <AppStep />}
           {id === "notify" && <Notify o={o} />}
@@ -113,7 +115,7 @@ export function SetupGuide({ onClose }: { onClose: () => void }) {
       <footer className="setup-foot">
         {step > 0 && (
           <button className="btn ghost" onClick={back}>
-            {t("Voltar")}
+            {t("Back")}
           </button>
         )}
         <span className="spacer" />
@@ -121,16 +123,16 @@ export function SetupGuide({ onClose }: { onClose: () => void }) {
           <>
             {step > 0 && (
               <button className="btn ghost" onClick={next}>
-                Pular esta etapa
+                {t("Skip this step")}
               </button>
             )}
             <button className="btn primary" onClick={next}>
-              {t(step === 0 ? "Começar" : "Continuar")}
+              {t(step === 0 ? "Get started" : "Continue")}
             </button>
           </>
         ) : (
           <button className="btn primary" disabled={finish.isPending} onClick={() => finish.mutate()}>
-            {t("Ir para Ao vivo")}
+            {t("Go to Live")}
           </button>
         )}
       </footer>
@@ -157,20 +159,20 @@ function Status({ ok, children }: { ok: boolean; children: ReactNode }) {
 
 function Welcome({ o }: { o: Onboarding }) {
   return (
-    <Step title="Bem-vindo">
-      <p>A conta de administrador está criada. Agora vamos conferir:</p>
+    <Step title={t("Welcome")}>
+      <p>{t("The administrator account is created. Now let's check:")}</p>
       <ul className="setup-list">
-        <li>as câmeras e como adicionar outras;</li>
-        <li>onde e por quanto tempo as gravações ficam;</li>
-        <li>a Nuvem, o armazenamento de arquivos da casa;</li>
-        <li>como acessar de fora de casa (opcional) e conectar o app;</li>
-        <li>as notificações deste aparelho;</li>
-        <li>a verificação em duas etapas (opcional).</li>
+        <li>{t("the cameras and how to add others;")}</li>
+        <li>{t("where and for how long recordings are kept;")}</li>
+        <li>{t("Cloud, the home's file storage;")}</li>
+        <li>{t("how to access from outside the home (optional) and connect the app;")}</li>
+        <li>{t("the notifications on this device;")}</li>
+        <li>{t("two-step verification (optional).")}</li>
       </ul>
       <p className="muted small">
         {o.cameras.length === 0
-          ? "Nenhuma câmera configurada ainda."
-          : `${o.cameras.length} câmera${o.cameras.length > 1 ? "s" : ""} configurada${o.cameras.length > 1 ? "s" : ""} pelo instalador.`}
+          ? t("No camera configured yet.")
+          : t("{length} camera{v1} configured{v2} by the installer.", { length: o.cameras.length, v1: o.cameras.length > 1 ? "s" : "", v2: o.cameras.length > 1 ? "s" : "" })}
       </p>
     </Step>
   );
@@ -179,9 +181,9 @@ function Welcome({ o }: { o: Onboarding }) {
 function Cameras({ o }: { o: Onboarding }) {
   return (
     <div className="stack">
-      <Step title="Câmeras">
+      <Step title={t("Cameras")}>
         {o.cameras.length === 0 ? (
-          <Status ok={false}>Nenhuma câmera ainda. Adicione a primeira abaixo.</Status>
+          <Status ok={false}>{t("No cameras yet. Add the first one below.")}</Status>
         ) : (
           <ul className="setup-cams">
             {o.cameras.map((c) => (
@@ -189,17 +191,15 @@ function Cameras({ o }: { o: Onboarding }) {
                 <Icon name="live" />
                 <strong>{c.name}</strong>
                 <span className="muted small">
-                  {vendorLabel[c.vendor] ?? c.vendor} · {c.recording ? "gravando" : "sem gravação"}
-                  {c.control ? " · PTZ e luz" : ""}
+                  {vendorLabel[c.vendor] ?? c.vendor} · {c.recording ? t("recording") : t("no recording")}
+                  {c.control ? t(" · PTZ and light") : ""}
                 </span>
               </li>
             ))}
           </ul>
         )}
         <p className="muted small">
-          Adicione câmeras de qualquer marca abaixo: com ONVIF (a maioria das câmeras IP) o Sentinela descobre os
-          endereços dos vídeos sozinho; Hikvision, Dahua e XMEye também têm modelos prontos. As senhas ficam só no
-          servidor.
+          {t("Add cameras of any brand below: with ONVIF (most IP cameras) Sentinela finds the video addresses by itself; Hikvision, Dahua and XMEye also have ready-made models. Passwords stay only on the server.")}
         </p>
       </Step>
       <CamerasEditor />
@@ -210,49 +210,70 @@ function Cameras({ o }: { o: Onboarding }) {
 
 function Recording({ o }: { o: Onboarding }) {
   return (
-    <Step title="Gravação">
+    <Step title={t("Recording")}>
       <Status ok={o.volume_marker}>
         {o.volume_marker
-          ? "As gravações só acontecem no disco de gravações: se ele não montar, a gravação pausa em vez de encher o disco do sistema."
-          : "A verificação do disco de gravações está desligada (volume_marker: none)."}
+          ? t("Recordings only go to the recordings disk: if it does not mount, recording pauses instead of filling the system disk.")
+          : t("The recordings disk check is off (volume_marker: none).")}
       </Status>
       <dl className="setup-facts">
-        <dt>Por quanto tempo</dt>
+        <dt>{t("For how long")}</dt>
         <dd>
           {o.retention_days > 0
-            ? `${o.retention_days} dias`
-            : `até o disco chegar a ${o.max_disk_percent}% (depois as mais antigas são substituídas)`}
+            ? t("{retention_days} days", { retention_days: o.retention_days })
+            : t("until the disk reaches {max_disk_percent}% (then the oldest are replaced)", { max_disk_percent: o.max_disk_percent })}
         </dd>
-        <dt>Fuso horário</dt>
+        <dt>{t("Time zone")}</dt>
         <dd>{o.timezone}</dd>
       </dl>
       <p className="muted small">
-        Para mudar, edite <code>/etc/sentinela/config.yaml</code> no servidor (<code>recording</code> e{" "}
-        <code>timezone</code>) e reinicie com <code>./scripts/deploy.sh</code>.
+        {t("To change it, edit")}{" "}<code>/etc/sentinela/config.yaml</code>{" "}{t("on the server (")}<code>recording</code> e{" "}
+        <code>timezone</code>{t(") and restart with")}{" "}<code>./scripts/deploy.sh</code>.
       </p>
     </Step>
   );
 }
 
-function Nuvem({ o }: { o: Onboarding }) {
+function CloudStep({ o }: { o: Onboarding }) {
   return (
-    <Step title="Nuvem">
-      {o.nuvem ? (
+    <Step title={t("Cloud")}>
+      {o.cloud ? (
         <>
-          <Status ok>A Nuvem está ativa: arquivos pelo navegador, pelo app e na rede da casa.</Status>
+          <Status ok>{t("Cloud is on: files from the browser, the app and the home network.")}</Status>
           {o.nas_host && (
             <p>
-              No computador, abra <code>\\{o.nas_host}\Nuvem</code>. A senha da pasta de rede é definida no servidor com{" "}
-              <code>sudo smbpasswd -a seu-usuario</code>.
+              {t("On the computer, open")}{" "}<code>\\{o.nas_host}\Nuvem</code>{t(". The network folder password is set on the server with")}{" "}
+              <code>sudo smbpasswd -a {t("your-user")}</code>.
             </p>
           )}
         </>
       ) : (
         <>
-          <Status ok={false}>A Nuvem está desligada: nenhum disco em /srv/nas.</Status>
+          <Status ok={false}>{t("Cloud is off: no disk at /srv/nas.")}</Status>
           <p className="muted small">
-            Ela é opcional. Para ligar, monte um disco em <code>/srv/nas</code> e rode{" "}
-            <code>sudo /opt/sentinela/scripts/setup-nas.sh</code>. Pode pular esta etapa.
+            {t("It is optional. To turn it on, mount a disk at")}{" "}<code>/srv/nas</code>{" "}{t("and run")}{" "}
+            <code>sudo /opt/sentinela/scripts/setup-nas.sh</code>{t(". If you skip it, the Cloud tab stays hidden until a disk is set up.")}
+          </p>
+        </>
+      )}
+    </Step>
+  );
+}
+
+function ServicesStep({ o }: { o: Onboarding }) {
+  return (
+    <Step title={t("Services")}>
+      <p className="muted small">
+        {t("Optional: run your own small projects (a bot, a website, an API) on this server, from GitHub, a folder or a ZIP. Each one runs capped, on the system disk, and never before the cameras after a reboot.")}
+      </p>
+      {o.hosting ? (
+        <Status ok>{t("Services are on: the Services tab is in the menu (on the computer).")}</Status>
+      ) : (
+        <>
+          <Status ok={false}>{t("Services are off.")}</Status>
+          <p className="muted small">
+            {t("To turn them on, run on the server")}{" "}<code>sudo /opt/sentinela/scripts/setup-apps.sh enable</code>
+            {t(". If you skip it, the Services tab stays hidden.")}
           </p>
         </>
       )}
@@ -263,41 +284,38 @@ function Nuvem({ o }: { o: Onboarding }) {
 function Remote({ o }: { o: Onboarding }) {
   const none = !o.tailnet_url && !o.public_url;
   return (
-    <Step title="Acesso de fora de casa">
+    <Step title={t("Access from outside the home")}>
       <p className="muted small">
-        Por padrão o Sentinela só responde na rede da casa. Para usar o app ou o navegador fora de casa, escolha um
-        caminho. Nenhum é obrigatório; dá para fazer depois.
+        {t("By default Sentinela only answers on the home network. To use the app or the browser outside the home, choose a route. None is required; you can do it later.")}
       </p>
       <div className="remote-choices">
         <div className={`remote-choice${none ? " on" : ""}`}>
-          <strong>Só em casa</strong>
-          <span className="muted small">Nada exposto. O app funciona só se o celular estiver numa VPN para casa.</span>
+          <strong>{t("Home only")}</strong>
+          <span className="muted small">{t("Nothing exposed. The app only works if the phone is on a VPN to home.")}</span>
         </div>
         <div className={`remote-choice${o.tailnet_url ? " on" : ""}`}>
-          <strong>Tailscale (recomendado)</strong>
+          <strong>{t("Tailscale (recommended)")}</strong>
           <span className="muted small">
-            VPN privada, sem abrir portas. No servidor: <code>sudo /opt/sentinela/scripts/setup-tailscale.sh</code>, depois
-            coloque o endereço em <code>remote.tailnet_url</code>.
+            {t("Private VPN, without opening ports. On the server:")}{" "}<code>sudo /opt/sentinela/scripts/setup-tailscale.sh</code>{t(", then put the address in")}{" "}<code>remote.tailnet_url</code>.
           </span>
           {o.tailnet_url && <code>{o.tailnet_url}</code>}
         </div>
         <div className={`remote-choice${o.public_url ? " on" : ""}`}>
-          <strong>Porta no roteador</strong>
+          <strong>{t("Router port")}</strong>
           <span className="muted small">
-            Endereço público com HTTPS, de qualquer celular. No servidor:{" "}
-            <code>sudo /opt/sentinela/scripts/setup-public.sh</code> e encaminhe a porta no roteador. Só a tela de login
-            fica visível de fora; ative a verificação em duas etapas.
+            {t("Public address with HTTPS, from any phone. On the server:")}{" "}
+            <code>sudo /opt/sentinela/scripts/setup-public.sh</code>{" "}{t("and forward the port on the router. Only the sign-in screen is visible from outside; turn on two-step verification.")}
           </span>
           {o.public_url && (
             <code>
               {o.public_url}
-              {o.public_pinned ? " (certificado próprio)" : ""}
+              {o.public_pinned ? t(" (own certificate)") : ""}
             </code>
           )}
         </div>
       </div>
       <p className="muted small">
-        Nunca encaminhe as portas das câmeras, do RTSP ou da pasta de rede: só o Sentinela.
+        {t("Never forward the cameras', RTSP or network folder ports: only Sentinela.")}
       </p>
     </Step>
   );
@@ -306,10 +324,9 @@ function Remote({ o }: { o: Onboarding }) {
 function AppStep() {
   return (
     <div className="stack">
-      <Step title="App Android">
+      <Step title={t("Android app")}>
         <p className="muted small">
-          O mesmo app serve para qualquer casa: ele se conecta ao endereço que você escolher aqui. Também fica em Sistema
-          → Aplicativo, para cada pessoa da casa.
+          {t("The same app works for any home: it connects to the address you choose here. It is also in System → App, for each person in the home.")}
         </p>
       </Step>
       <AppPairingCard />
@@ -320,15 +337,15 @@ function AppStep() {
 function Notify({ o }: { o: Onboarding }) {
   if (!o.push)
     return (
-      <Step title="Notificações">
-        <Status ok={false}>As notificações do navegador não estão disponíveis neste servidor.</Status>
+      <Step title={t("Notifications")}>
+        <Status ok={false}>{t("Browser notifications are not available on this server.")}</Status>
       </Step>
     );
   return (
     <div className="stack">
-      <Step title="Notificações">
+      <Step title={t("Notifications")}>
         <p className="muted small">
-          Receba avisos de movimento e de pessoas neste aparelho. Cada pessoa escolhe os seus em Minha conta.
+          {t("Receive motion and person notices on this device. Each person chooses theirs in My account.")}
         </p>
       </Step>
       <DeviceNotifyCard />
@@ -339,13 +356,12 @@ function Notify({ o }: { o: Onboarding }) {
 function Security({ o }: { o: Onboarding }) {
   return (
     <div className="stack">
-      <Step title="Segurança">
+      <Step title={t("Security")}>
         <p className="muted small">
-          A verificação em duas etapas é opcional e recomendada se você abrir o acesso pela internet. Ela usa um app
-          como Google Authenticator ou Aegis.
+          {t("Two-step verification is optional and recommended if you open access over the internet. It uses an app such as Google Authenticator or Aegis.")}
         </p>
         {o.zone !== "lan" && o.zone !== "tailnet" && (
-          <Status ok={false}>Ative em casa ou pelo Tailscale: de fora ela não pode ser configurada.</Status>
+          <Status ok={false}>{t("Enable it at home or over Tailscale: it cannot be configured from outside.")}</Status>
         )}
       </Step>
       <SecurityCard />
@@ -355,15 +371,15 @@ function Security({ o }: { o: Onboarding }) {
 
 function Done({ o }: { o: Onboarding }) {
   return (
-    <Step title="Tudo pronto">
-      <p>O Sentinela está configurado. Próximos passos, quando quiser:</p>
+    <Step title={t("All ready")}>
+      <p>{t("Sentinela is set up. Next steps, whenever you like:")}</p>
       <ul className="setup-list">
-        <li>Convide a família em Sistema → Usuários (cada um escolhe a própria senha).</li>
-        <li>Desenhe zonas de detecção em cada câmera, em Sistema → Detecção.</li>
-        <li>Instale o app Android para ver as câmeras e receber avisos.</li>
-        {o.hosting && <li>Publique seus projetos em Serviços.</li>}
+        <li>{t("Invite the family in System → Users (each one chooses their own password).")}</li>
+        <li>{t("Draw detection zones on each camera, in System → Detection.")}</li>
+        <li>{t("Install the Android app to see the cameras and receive notices.")}</li>
+        {o.hosting && <li>{t("Publish your projects in Services.")}</li>}
       </ul>
-      <p className="muted small">Este assistente pode ser aberto de novo em Sistema → Visão geral.</p>
+      <p className="muted small">{t("This assistant can be opened again in System → Overview.")}</p>
     </Step>
   );
 }
@@ -379,7 +395,7 @@ export function ReopenSetupGuide() {
   });
   return (
     <button className="btn ghost small" disabled={reopen.isPending} onClick={() => reopen.mutate()}>
-      <Icon name="system" /> Assistente de configuração
+      <Icon name="system" />{" "}{t("Setup guide")}
     </button>
   );
 }

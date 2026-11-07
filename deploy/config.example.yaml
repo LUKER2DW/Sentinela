@@ -22,11 +22,11 @@ recording:
   stall_seconds: 20                 # restart ffmpeg if no data for this long
   volume_marker: .sentinela-volume  # record only while this file (on the recording disk) exists; "none" = off
 
-# Shown on the System and Nuvem pages. Paths are as seen inside the container.
+# Shown on the System and Cloud pages. Paths are as seen inside the container.
 nas_host: SENTINELA
 volumes:
-  - {id: recordings, name: Gravações, path: /data, kind: recordings, share: Gravacoes}
-  - {id: nuvem, name: Nuvem, path: /srv/nas, kind: nas, share: Nuvem}
+  - {id: recordings, name: Recordings, path: /data, kind: recordings, share: Gravacoes}
+  - {id: nuvem, name: Cloud, path: /srv/nas, kind: nas, share: Nuvem}
   - {id: backup, name: Backups, path: /srv/backup, kind: backup}
 
 # Remote access trial (ADR-0019). Everything off unless set. Requests on these
@@ -44,7 +44,7 @@ remote:
   # tailnet_url: https://sentinela.example.ts.net   # `tailscale serve` address, offered to the app pairing QR
 
 # Self-hosted services (ADR-0021): projects from GitHub or a folder of the
-# Nuvem, run in capped containers by the "apps" agent. Off unless enabled
+# Cloud, run in capped containers by the "apps" agent. Off unless enabled
 # with scripts/setup-apps.sh enable (which adds `enabled: true` here).
 # apps:
 #   enabled: true
@@ -87,3 +87,7 @@ cameras: []
 #     user_env: GARAGE_USER
 #     password_env: GARAGE_PASS
 #     # invert_pan_tilt: true     # for a unit mounted upside down
+#     # features:                # what it has; unset = vendor default
+#     #   ptz: false              # fixed camera: no motor (XMEye default true)
+#     #   light: false            # no white light (XMEye default true)
+#     #   talk: false             # no speaker (XMEye default true, others false)

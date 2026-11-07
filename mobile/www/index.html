@@ -63,26 +63,26 @@
     <main>
       <header class="rise">
         <div class="scene hero"></div>
-        <h1 id="title">Onde fica a casa?</h1>
-        <p class="lede" id="lede">No computador, abra o Sentinela da casa em Sistema → Aplicativo e aponte a câmera do celular para o QR code. Ou cole aqui o código de pareamento ou o endereço.</p>
+        <h1 id="title">Where is the home?</h1>
+        <p class="lede" id="lede">On the computer, open Sentinela in System → App and point this phone's camera at the QR code. Or paste the pairing code or the address here.</p>
       </header>
 
       <!-- The chosen server did not answer (MainActivity sends the app here). -->
       <section class="card rise" id="offline" hidden>
-        <p id="off-text">O servidor da casa não respondeu. Confira a internet deste celular e tente de novo.</p>
-        <button id="off-retry">Tentar de novo</button>
+        <p id="off-text">The home server did not respond. Check this phone's internet connection and try again.</p>
+        <button id="off-retry">Try again</button>
         <div id="off-alts"></div>
-        <button class="ghost" id="off-change">Trocar o endereço</button>
+        <button class="ghost" id="off-change">Change the address</button>
         <span class="why" id="off-why"></span>
       </section>
 
       <form class="card rise" id="choose" autocomplete="off">
-        <label style="text-align:left">Código de pareamento ou endereço
-          <input id="u-domain" inputmode="url" autocapitalize="none" spellcheck="false" placeholder="sentinela://pair?… ou https://casa:porta" />
+        <label style="text-align:left"><span data-i18n="Pairing code or address">Pairing code or address</span>
+          <input id="u-domain" inputmode="url" autocapitalize="none" spellcheck="false" placeholder="sentinela://pair?… or https://home:port" />
         </label>
-        <button id="go" type="submit">Conectar</button>
+        <button id="go" type="submit">Connect</button>
         <p class="err" id="err" role="alert"></p>
-        <p class="note">O código de pareamento traz o endereço e o certificado da casa, então a conexão é verificada mesmo com certificado próprio. Um endereço digitado só funciona com certificado público (domínio ou Tailscale). Dá para trocar depois em Minha conta.</p>
+        <p class="note">The pairing code carries the home's address and certificate, so the connection is checked even with a private certificate. A typed address only works with a public certificate (domain or Tailscale). You can change it later in My account.</p>
       </form>
 
       <footer class="rise" id="ver"></footer>
@@ -90,11 +90,51 @@
     <script src="art/panorama.js"></script>
     <script src="scene.js"></script>
     <script>
+      // The page is written in English; Portuguese devices get the translations below.
+      const PT = {
+        "Where is the home?": "Onde fica a casa?",
+        "On the computer, open Sentinela in System → App and point this phone's camera at the QR code. Or paste the pairing code or the address here.":
+          "No computador, abra o Sentinela da casa em Sistema → Aplicativo e aponte a câmera do celular para o QR code. Ou cole aqui o código de pareamento ou o endereço.",
+        "The home server did not respond. Check this phone's internet connection and try again.":
+          "O servidor da casa não respondeu. Confira a internet deste celular e tente de novo.",
+        "Try again": "Tentar de novo",
+        "Change the address": "Trocar o endereço",
+        "Pairing code or address": "Código de pareamento ou endereço",
+        "Connect": "Conectar",
+        "The pairing code carries the home's address and certificate, so the connection is checked even with a private certificate. A typed address only works with a public certificate (domain or Tailscale). You can change it later in My account.":
+          "O código de pareamento traz o endereço e o certificado da casa, então a conexão é verificada mesmo com certificado próprio. Um endereço digitado só funciona com certificado público (domínio ou Tailscale). Dá para trocar depois em Minha conta.",
+        "No connection to the home": "Sem conexão com a casa",
+        "The home server did not respond. Check this phone's internet connection. On home Wi-Fi, if the router does not allow its own public IP from inside, try over 4G.":
+          "O servidor da casa não respondeu. Confira a internet deste celular. No Wi-Fi de casa, se o roteador não aceitar o próprio IP de fora, teste no 4G.",
+        "Detail: ": "Detalhe: ",
+        "Try over Tailscale: ": "Tentar pelo Tailscale: ",
+        "Try over the internet: ": "Tentar pela internet: ",
+        "Try: ": "Tentar: ",
+        "Open this in the Android app": "Abra pelo app Android",
+        "failed": "falhou",
+        "Invalid pairing code.": "Código de pareamento inválido.",
+      };
+      const LANG_PT = (navigator.language || "en").toLowerCase().startsWith("pt");
+      const tr = (s) => (LANG_PT && PT[s]) || s;
+      document.documentElement.lang = LANG_PT ? "pt-BR" : "en";
+      document.querySelectorAll("[data-i18n]").forEach((el) => (el.textContent = tr(el.dataset.i18n)));
+      document.querySelectorAll("input[placeholder]").forEach((el) => {
+        if (LANG_PT) el.placeholder = "sentinela://pair?… ou https://casa:porta";
+      });
+      if (LANG_PT) {
+        document.getElementById("title").textContent = tr("Where is the home?");
+        document.getElementById("lede").textContent = tr(document.getElementById("lede").textContent);
+        for (const id of ["off-text", "off-retry", "off-change", "go"]) {
+          const el = document.getElementById(id);
+          el.textContent = tr(el.textContent);
+        }
+        document.querySelector(".note").textContent = tr(document.querySelector(".note").textContent);
+      }
       const cap = window.Capacitor;
       const call = (method, opts) =>
-        cap && cap.nativePromise ? cap.nativePromise("SentinelaConnection", method, opts || {}) : Promise.reject(new Error("abra pelo app Android"));
+        cap && cap.nativePromise ? cap.nativePromise("SentinelaConnection", method, opts || {}) : Promise.reject(new Error(tr("Open this in the Android app")));
       const $ = (id) => document.getElementById(id);
-      const msg = (e) => String((e && (e.message || e.errorMessage)) || e || "falhou").replace(/^Error:\s*/, "");
+      const msg = (e) => String((e && (e.message || e.errorMessage)) || e || tr("failed")).replace(/^Error:\s*/, "");
 
       // A pairing code is the QR's link: sentinela://pair?url=https://…&pin=<sha256>.
       function parseCode(text) {
@@ -103,7 +143,7 @@
           try {
             q = new URL(text).searchParams;
           } catch (e) {
-            throw new Error("Código de pareamento inválido.");
+            throw new Error(tr("Invalid pairing code."));
           }
           return { url: q.get("url") || "", pin: q.get("pin") || "" };
         }
@@ -127,18 +167,19 @@
         const off = !!s.offline;
         $("offline").hidden = !off;
         $("choose").hidden = off;
-        $("title").textContent = off ? "Sem conexão com a casa" : "Onde fica a casa?";
+        $("title").textContent = off ? tr("No connection to the home") : tr("Where is the home?");
         $("lede").hidden = off;
         if (!off) return;
-        $("off-text").textContent =
-          "O servidor da casa não respondeu. Confira a internet deste celular. No Wi-Fi de casa, se o roteador não aceitar o próprio IP de fora, teste no 4G.";
-        $("off-why").textContent = s.offlineWhy ? "Detalhe: " + s.offlineWhy : "";
+        $("off-text").textContent = tr(
+          "The home server did not respond. Check this phone's internet connection. On home Wi-Fi, if the router does not allow its own public IP from inside, try over 4G.",
+        );
+        $("off-why").textContent = s.offlineWhy ? tr("Detail: ") + s.offlineWhy : "";
         const box = $("off-alts");
         box.replaceChildren();
         for (const a of s.alternatives || []) {
           const b = document.createElement("button");
           b.className = "ghost";
-          b.textContent = (a.kind === "tailnet" ? "Tentar pelo Tailscale: " : a.kind === "public" ? "Tentar pela internet: " : "Tentar: ") + a.url;
+          b.textContent = (a.kind === "tailnet" ? tr("Try over Tailscale: ") : a.kind === "public" ? tr("Try over the internet: ") : tr("Try: ")) + a.url;
           b.addEventListener("click", () => {
             b.disabled = true;
             call("useAlternative", { url: a.url }).catch(() => (b.disabled = false));

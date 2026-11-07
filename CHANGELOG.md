@@ -30,16 +30,16 @@ The first public release. Highlights of what is in it:
 - First-run setup guide in the browser.
 - Settings edited from System: cameras (including credentials), recording,
   time zone, network names and disks, validated, backed up and rolled back
-  on failure. Minha conta now lives inside System on computers.
+  on failure. My account now lives inside System on computers.
 - Roles, per-camera visibility, invites, optional TOTP two-step login,
   revocable sessions, audit log, closed-door public listener.
 - One Android APK for every house, paired by a QR code that carries the
   server's address and certificate pin.
 
 ### Files and services
-- Nuvem: SMB share and web file browser with uploads, previews and a
+- Cloud: SMB share and web file browser with uploads, previews and a
   recycle bin.
-- Optional self-hosted services from GitHub or a Nuvem folder, capped and
+- Optional self-hosted services from GitHub or a Cloud folder, capped and
   isolated; Compose files are checked before they run.
 
 ### Operations
@@ -49,7 +49,7 @@ The first public release. Highlights of what is in it:
   and the signed APK; servers pick up new app versions from the latest
   release and offer them to the phones.
 - Optional automatic server updates from releases, daily in a chosen hour,
-  with checksum checks and automatic rollback; System → Atualizações shows
+  with checksum checks and automatic rollback; System → Updates shows
   the schedule and these notes.
 
 [Unreleased]: https://github.com/LUKER2DW/Sentinela/commits/main

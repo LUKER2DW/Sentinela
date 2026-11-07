@@ -14,8 +14,24 @@ describe("nas paths", () => {
   });
   it("labels and parents", () => {
     expect(label(".lixeira", "ana")).toBe("Lixeira");
+    expect(label("Compartilhado", "ana")).toBe("Compartilhado");
+    expect(crumbs("Compartilhado/ana", "ana").map((c) => c.name)).toEqual(["Nuvem", "Compartilhado", "ana"]);
     expect(parentPath("a/b/c")).toBe("a/b");
     expect(parentPath("a")).toBe("");
+  });
+});
+
+describe("nas labels in English", async () => {
+  const { setLang } = await import("./i18n");
+  it("shows the on-disk folders by their English names", () => {
+    setLang("en");
+    try {
+      expect(crumbs("ana/Fotos", "ana").map((c) => c.name)).toEqual(["Cloud", "My files", "Fotos"]);
+      expect(label("Compartilhado", "ana")).toBe("Shared");
+      expect(label(".lixeira", "ana")).toBe("Trash");
+    } finally {
+      setLang("pt-BR");
+    }
   });
 });
 

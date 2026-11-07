@@ -1,4 +1,4 @@
-# ADR-0012: Nuvem file API inside Sentinela
+# ADR-0012: Cloud file API inside Sentinela
 
 Status: Accepted 2026-09-29, amended by the owner's UI/permission decisions
 on 2026-09-30.
@@ -26,8 +26,8 @@ accepts 256 MiB). Existing final files are not silently overwritten.
 ## Access and presentation
 
 - Filesystem operations use `os.Root` confinement and permission checks.
-- Viewers have no Nuvem API or page. Operators use their own directory and
-  the shared folder (*Compartilhado*). Admins can access the share.
+- Viewers have no Cloud API or page. Operators use their own directory and
+  the shared folder (*Shared*). Admins can access the share.
 - Top-level folders cannot be moved, renamed or deleted through the API.
   Admins can create additional top-level folders.
 - CSRF protects writes, which are audited. Samba uses its own LAN account;

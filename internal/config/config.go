@@ -28,7 +28,7 @@ type Config struct {
 	SecureCookies bool      `yaml:"secure_cookies"`
 	Recording     Recording `yaml:"recording"`
 	Cameras       []Camera  `yaml:"cameras"`
-	// Volumes are shown on the System and Nuvem pages (usage only).
+	// Volumes are shown on the System and Cloud pages (usage only).
 	Volumes []Volume `yaml:"volumes"`
 	// NASHost is the LAN name of the file server (ADR-0008), e.g. SENTINELA.
 	NASHost string `yaml:"nas_host"`
@@ -103,7 +103,7 @@ type Apps struct {
 	// compose services, in a throwaway container.
 	ComposeImage string `yaml:"compose_image"`
 	// LocalRoot is where local project folders are picked from (read-only;
-	// "none" turns local folders off). Default: the Nuvem.
+	// "none" turns local folders off). Default: the Cloud.
 	LocalRoot string `yaml:"local_root"`
 }
 
@@ -236,6 +236,9 @@ type Camera struct {
 	// flipped only); unset follows InvertPanTilt.
 	InvertPan  *bool `yaml:"invert_pan"`
 	InvertTilt *bool `yaml:"invert_tilt"`
+	// Features says what the camera has; the UI hides the controls of
+	// what it lacks and the API refuses them. Unset ones follow the vendor.
+	Features CameraFeatures `yaml:"features"`
 
 	User     string `yaml:"-"`
 	Password string `yaml:"-"`

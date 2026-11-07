@@ -152,8 +152,8 @@ final class PushMode {
             // briefly unreachable (and keeps FCM high-priority eligibility).
             message = new JSONObject();
             try {
-                message.put("title", "Novo evento no Sentinela");
-                message.put("body", "Abra o app para conferir o que aconteceu.");
+                message.put("title", c.getString(R.string.pending_title));
+                message.put("body", c.getString(R.string.pending_text));
                 message.put("url", "/#/events");
                 message.put("tag", "sentinela-" + id);
             } catch (Exception impossible) {

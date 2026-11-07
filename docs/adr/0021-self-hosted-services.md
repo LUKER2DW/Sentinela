@@ -32,7 +32,7 @@ The host can be the minimum one (1 GB RAM; 2 GB with services) and must keep rec
 process with `/var/run/docker.sock` — root-equivalent — so it has no
 network listener except `127.0.0.1:7091`, accepts only loopback requests
 with a token (`/data/apps-agent/token`, written by `sentinela serve`), gets
-no camera secrets, no recordings, and access to the configured Nuvem root
+no camera secrets, no recordings, and access to the configured Cloud root
 for explicitly selected local project transfers. It runs as uid 1000 in the docker group, read-only root,
 no capabilities, 0.5 CPU, 128 MB. The internet-facing API never touches
 Docker: `/api/hosting/*` forwards to the agent after the usual session,
@@ -48,11 +48,11 @@ audited (never request bodies: they carry environment values).
 **Sources.** GitHub only through `api.github.com` and its `codeload`
 redirect (no git binary, no arbitrary URLs); a fine-grained read-only
 token is optional for private repositories, stored 0600 and never
-returned. Local folders come from `apps.local_root` (default the Nuvem),
+returned. Local folders come from `apps.local_root` (default the Cloud),
 read through `os.Root`. As amended by the owner's request on 2026-10-10,
 the first deploy copies the selected folder into a private per-service
 `project` directory on the system disk, commits ownership, then removes
-the original from Nuvem. Failure before ownership is saved preserves the
+the original from Cloud. Failure before ownership is saved preserves the
 original. The services explorer edits this owned working tree and persistent
 `data`, with bounded UTF-8 editing, file/folder creation, upload and deletion;
 changes to code require Update. Git internals and agent files are inaccessible

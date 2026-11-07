@@ -1,4 +1,4 @@
-// Package nas is the minimal web file access to the Nuvem share (ADR-0012).
+// Package nas is the minimal web file access to the Cloud share (ADR-0012).
 // Every path is opened through os.Root, so nothing outside the share can be
 // reached (no "..", no symlink escapes). Deletes move files to the same
 // recycle bin Samba uses (.lixeira/<user>/); nothing is removed for good here.
@@ -35,7 +35,7 @@ var (
 	ErrTooLarge  = errors.New("file too large")
 )
 
-// Share is the Nuvem root.
+// Share is the Cloud root.
 type Share struct {
 	root *os.Root
 	now  func() time.Time
@@ -442,7 +442,7 @@ func copyLarge(dst io.Writer, src io.Reader) (int64, error) {
 // MaxText bounds a text file edited in the browser.
 const MaxText = 2 << 20
 
-// ReplaceText overwrites an existing file with data (the Nuvem's text
+// ReplaceText overwrites an existing file with data (the Cloud's text
 // editor). The new content goes to a partial file first and is renamed
 // over the old one, so a failed save never leaves half a file.
 func (s *Share) ReplaceText(a Access, p string, data []byte) error {

@@ -341,7 +341,7 @@ func TestFailedSetupKeepsOldVersion(t *testing.T) {
 	a.Enqueue(v.ID, "deploy")
 	runQueued(t, a)
 	now, _ := a.viewOf(v.ID)
-	if now.Deployed.Version != first.Deployed.Version || now.Status.Job.Phase != "failed" || !strings.Contains(now.Status.Job.Error, "código 1") {
+	if now.Deployed.Version != first.Deployed.Version || now.Status.Job.Phase != "failed" || !strings.Contains(now.Status.Job.Error, "code 1") {
 		t.Fatalf("after failed deploy: %+v / %+v", now.Deployed, now.Status.Job)
 	}
 	entries, _ := os.ReadDir(filepath.Join(a.appDir(v.ID), "releases"))

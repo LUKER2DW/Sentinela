@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -36,4 +37,5 @@ export default defineConfig({
     },
   },
   build: { outDir: "dist", emptyOutDir: true, sourcemap: false, target: "es2022" },
+  test: { setupFiles: ["./src/test-setup.ts"] },
 });

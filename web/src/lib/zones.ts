@@ -1,4 +1,5 @@
-// Detection zones (ADR-0016): polygons in normalised picture coordinates.
+
+import { t } from "./i18n";// Detection zones (ADR-0016): polygons in normalised picture coordinates.
 
 export type ObjectKind = "person" | "vehicle" | "animal";
 
@@ -20,13 +21,13 @@ export interface DetectionSettings {
   min_size: number;
 }
 
-export const KIND_LABEL: Record<ObjectKind, string> = { person: "Pessoas", vehicle: "Veículos", animal: "Animais" };
+export const KIND_LABEL: Record<ObjectKind, string> = { person: t("People"), vehicle: t("Vehicles"), animal: t("Animals") };
 
 /** Sensitivity presets shown to people; the value is the model's minimum score. */
 export const SENSITIVITY = [
-  { label: "Alta", value: 0.35 },
+  { label: t("High"), value: 0.35 },
   { label: "Normal", value: 0.45 },
-  { label: "Baixa", value: 0.6 },
+  { label: t("Low"), value: 0.6 },
 ] as const;
 
 export const ZONE_COLORS = ["#2f8f9d", "#e07a5f", "#81b29a", "#c9a227", "#7d6bb3", "#d9667b"];
@@ -48,19 +49,19 @@ export function svgPoints(points: [number, number][], w: number, h: number): str
 /** Next free default name: "Zona 1", "Zona 2"… */
 export function nextZoneName(zones: Zone[]): string {
   for (let i = 1; ; i++) {
-    const n = `Zona ${i}`;
+    const n = t("Zone {i}", { i });
     if (!zones.some((z) => z.name === n)) return n;
   }
 }
 
 /** Problems that the server would reject, in Portuguese, or null. */
 export function zoneProblem(zones: Zone[]): string | null {
-  if (zones.length > MAX_ZONES) return `No máximo ${MAX_ZONES} zonas.`;
+  if (zones.length > MAX_ZONES) return t("At most {MAX_ZONES} zones.", { MAX_ZONES });
   for (const z of zones) {
-    if (!z.name.trim()) return "Toda zona precisa de um nome.";
-    if (z.points.length < 3) return `A zona "${z.name}" precisa de pelo menos 3 pontos.`;
-    if (z.objects.length === 0) return `Escolha o que a zona "${z.name}" vigia.`;
-    if (zones.some((o) => o !== z && o.name.trim() === z.name.trim())) return `Há duas zonas chamadas "${z.name}".`;
+    if (!z.name.trim()) return t("Every zone needs a name.");
+    if (z.points.length < 3) return t("Zone \"{name}\" needs at least 3 points.", { name: z.name });
+    if (z.objects.length === 0) return t("Choose what zone \"{name}\" watches.", { name: z.name });
+    if (zones.some((o) => o !== z && o.name.trim() === z.name.trim())) return t("There are two zones named \"{name}\".", { name: z.name });
   }
   return null;
 }
@@ -156,12 +157,12 @@ export function zoneHits(o: Pick<SeenObject, "kind" | "x" | "y" | "w" | "h">, zo
   return zones.filter((z) => z.objects.includes(o.kind) && inside(base, z.points)).map((z) => z.name);
 }
 
-export const KIND_ONE: Record<ObjectKind, string> = { person: "Pessoa", vehicle: "Veículo", animal: "Animal" };
+export const KIND_ONE: Record<ObjectKind, string> = { person: t("Person"), vehicle: t("Vehicle"), animal: "Animal" };
 export const KIND_ICON: Record<ObjectKind, string> = { person: "user", vehicle: "car", animal: "paw" };
 
 /** Minimum object size presets (share of the picture height). */
 export const MIN_SIZE = [
-  { label: "Qualquer", value: 0 },
-  { label: "Sem os pequenos", value: 0.04 },
-  { label: "Só perto", value: 0.1 },
+  { label: t("Any"), value: 0 },
+  { label: t("Without the small ones"), value: 0.04 },
+  { label: t("Near only"), value: 0.1 },
 ] as const;

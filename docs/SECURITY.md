@@ -13,7 +13,7 @@ are superseded where noted by ADR-0019 and ADR-0020.
 | LAN guest or IoT attack | Firewall and camera isolation; a separate camera VLAN where available |
 | Secrets in Git/logs/bundles | Runtime secret files, redaction, ignored local release files and review before commit |
 | CSRF/XSS | Same-origin cookies, CSRF header and Origin check, CSP and file-response restrictions |
-| Nuvem loss/ransomware | Recycle bin, audit, local DB/config backup; external restic/restore acceptance still pending |
+| Cloud loss/ransomware | Recycle bin, audit, local DB/config backup; external restic/restore acceptance still pending |
 | Build pipeline competes with recording | NVR images are built on the PC. Self-hosted services build on the server (ADR-0021): one at a time, ≤ 1 core / 1 GB, refused under 400 MB free RAM, on the system disk |
 | A self-hosted service is compromised | No capabilities, capped resources, no private-range egress (camera, LAN, tailnet) and no host services (ufw); only the `apps` agent holds the Docker socket, behind loopback + token; Compose files are checked before they run |
 | Dashboard admin session abused to run code | Creating or changing services needs admin on LAN/tailnet; from the internet an admin session (2FA when the account turned it on) can only start/stop/redeploy configured ones; every change audited |
@@ -46,7 +46,7 @@ are superseded where noted by ADR-0019 and ADR-0020.
    no Docker socket, host PID or privileged mode. The API's NAS mount is
    separate from the recorder; detection cannot become a recording dependency.
    The one exception to "no Docker socket" is the `apps` agent (ADR-0021):
-   uid 1000 in the docker group, no camera secrets, Nuvem read-only,
+   uid 1000 in the docker group, no camera secrets, Cloud read-only,
    loopback API with `/data/apps-agent/token`.
 7. Images and model downloads are pinned; check dependency vulnerabilities
    through the existing tooling. No new service or decode path without an
@@ -56,7 +56,7 @@ are superseded where noted by ADR-0019 and ADR-0020.
    uses its own account; web roles do not restrict that SMB account.
    Remote SMB needs explicit approval and stronger per-user credentials.
    The earlier ntfy relay and its tailnet port 8443 were removed on
-   2026-10-01 (FCM replaced it). API Nuvem access uses `os.Root`, personal/
+   2026-10-01 (FCM replaced it). API Cloud access uses `os.Root`, personal/
    shared scope, sandboxed file responses and authenticated media/PDF
    previews. The recorder cannot see the NAS.
 9. Tailscale remains the private path under ADR-0004, amended by the
@@ -131,8 +131,8 @@ are superseded where noted by ADR-0019 and ADR-0020.
     identity. A changed self-signed certificate needs a new pinned APK.
     Release 1.11 omitted its pin; recover with a manual same-key 1.12 install,
     without removing the existing app.
-16. Nuvem viewers are blocked at the API. Operators use their own folder
-    and the shared folder (*Compartilhado*); admins can access the share.
+16. Cloud viewers are blocked at the API. Operators use their own folder
+    and the shared folder (*Shared*); admins can access the share.
     Top-level folders are protected from API rename/move/delete. Explicit recycle-bin purge is
     permanent. Profile uploads accept bounded JPEG/PNG/WebP data and are
     resized on the client; they are not a new server image-processing pipeline.

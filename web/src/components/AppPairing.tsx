@@ -1,10 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { get } from "../lib/api";
-import { CopyField } from "../pages/NuvemPage";
+import { CopyField } from "../pages/CloudPage";
 import { isApp } from "../lib/push";
 import { canChangeConnection, changeConnection } from "../lib/access";
 import { Icon } from "./Icon";
 
+import { t } from "../lib/i18n";
 /** GET /api/app/pairing: the ways the Android app can reach this house. */
 interface PairingOption {
   kind: "tailnet" | "public";
@@ -15,8 +16,8 @@ interface PairingOption {
 }
 
 const kindLabel = {
-  tailnet: { title: "Pelo Tailscale", note: "Só para aparelhos na sua rede Tailscale (com o app Tailscale ligado)." },
-  public: { title: "Pela internet", note: "Pelo endereço público da casa, de qualquer lugar." },
+  tailnet: { title: t("Over Tailscale"), note: t("Only for devices on your Tailscale network (with the Tailscale app on).") },
+  public: { title: t("Over the internet"), note: t("Over the home's public address, from anywhere.") },
 } as const;
 
 /** Pairing QR codes for the one Sentinela APK: the phone's camera opens the
@@ -31,20 +32,19 @@ export function AppPairingCard() {
 
 function AppConnectionCard() {
   return (
-    <section className="card" aria-label="Conexão do app">
+    <section className="card" aria-label={t("App connection")}>
       <div className="card-head">
-        <h2>Conexão deste celular</h2>
+        <h2>{t("This phone's connection")}</h2>
       </div>
       <p className="setup-status ok">
-        <Icon name="check" /> Conectado a <code>{location.host}</code>
+        <Icon name="check" />{" "}{t("Connected to")}{" "}<code>{location.host}</code>
       </p>
       <p className="muted small">
-        Para conectar outro celular, abra Sistema → Aplicativo no computador e aponte a câmera desse celular para o QR
-        code. Se a casa mudar de endereço, este app procura os outros endereços dela sozinho.
+        {t("To connect another phone, open System → App on the computer and point that phone's camera at the QR code. If the home changes address, this app finds its other addresses by itself.")}
       </p>
       {canChangeConnection() && (
         <button className="btn small" onClick={changeConnection}>
-          <Icon name="refresh" /> Trocar de casa ou de endereço
+          <Icon name="refresh" />{" "}{t("Switch home or address")}
         </button>
       )}
     </section>
@@ -55,33 +55,30 @@ function PairingCodes() {
   const q = useQuery({ queryKey: ["app", "pairing"], queryFn: () => get<{ options: PairingOption[] }>("/api/app/pairing") });
   const opts = q.data?.options ?? [];
   return (
-    <section className="card" aria-label="Conectar o app">
+    <section className="card" aria-label={t("Connect the app")}>
       <div className="card-head">
-        <h2>Conectar o app Android</h2>
+        <h2>{t("Connect the Android app")}</h2>
       </div>
       <p className="muted small">
-        Instale o app Sentinela no celular, abra-o e aponte a câmera do celular para o código. O app mostra o endereço e pergunta
-        antes de conectar. Ou copie o código de pareamento e cole na tela inicial do app.
+        {t("Install the Sentinela app on the phone, open it and point the phone's camera at the code. The app shows the address and asks before connecting. Or copy the pairing code and paste it on the app's start screen.")}
       </p>
-      {q.isLoading && <p className="muted">Carregando…</p>}
-      {q.isError && <p className="notice error">Não foi possível ler os endereços da casa.</p>}
+      {q.isLoading && <p className="muted">{t("Loading…")}</p>}
+      {q.isError && <p className="notice error">{t("Could not read the home addresses.")}</p>}
       {q.isSuccess && opts.length === 0 && (
         <p className="notice">
-          O app precisa de um caminho de fora de casa: Tailscale (<code>remote.tailnet_url</code>) ou o endereço
-          público (<code>remote.public</code>) em <code>/etc/sentinela/config.yaml</code>. Veja o guia de instalação,
-          seção Acesso remoto.
+          {t("The app needs a way from outside the home: Tailscale (")}<code>remote.tailnet_url</code>{t(") or the public address (")}<code>remote.public</code>{t(") in")}{" "}<code>/etc/sentinela/config.yaml</code>{t(". See the installation guide, section Remote access.")}
         </p>
       )}
       <div className="pairing-grid">
         {opts.map((o) => (
           <figure key={o.kind} className="pairing">
-            <img src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(o.qr_svg)}`} alt={`QR code: ${kindLabel[o.kind].title}`} />
+            <img src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(o.qr_svg)}`} alt={t("QR code: {title}", { title: kindLabel[o.kind].title })} />
             <figcaption>
               <strong>{kindLabel[o.kind].title}</strong>
               <span className="muted small">{kindLabel[o.kind].note}</span>
               <code className="pairing-url">{o.url}</code>
-              {o.pin && <span className="muted small">Certificado próprio da casa: o app confere a impressão digital.</span>}
-              <CopyField value={o.link} label="Código de pareamento" />
+              {o.pin && <span className="muted small">{t("The home's own certificate: the app checks its fingerprint.")}</span>}
+              <CopyField value={o.link} label={t("Pairing code")} />
             </figcaption>
           </figure>
         ))}

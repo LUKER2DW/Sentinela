@@ -130,7 +130,7 @@ IP="$(hostname -I | awk '{print $1}')"
 echo
 echo "Sentinela is running."
 echo "  Open        http://${IP}:8080  (create the admin account; the setup guide adds your cameras)"
-printf '  Nuvem       \\\\%s\\Nuvem  (set its password once: sudo smbpasswd -a %s)\n' "${IP}" "${SUDO_USER:-<user>}"
+printf '  Cloud       \\\\%s\\Nuvem  (set its password once: sudo smbpasswd -a %s)\n' "${IP}" "${SUDO_USER:-<user>}"
 echo "  Logs        cd ${REPO_DIR}/deploy && sudo docker compose logs -f --tail=50"
 echo "  Update      from the dev PC: ./scripts/deploy.sh"
 echo "  Reset pw    cd ${REPO_DIR}/deploy && sudo docker compose exec -T sentinela sentinela user passwd <user>"

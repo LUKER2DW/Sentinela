@@ -40,10 +40,10 @@ func (s *Server) nasAccess(r *http.Request) nas.Access {
 	return nas.Access{User: u.Username, Admin: u.Role == auth.RoleAdmin, Write: auth.RoleAtLeast(u.Role, auth.RoleOperator)}
 }
 
-// nasReady answers 503 when the server has no Nuvem (dev machines).
+// nasReady answers 503 when the server has no Cloud (dev machines).
 func (s *Server) nasReady(w http.ResponseWriter) bool {
 	if s.nas == nil {
-		writeErr(w, http.StatusServiceUnavailable, "Nuvem not available on this server")
+		writeErr(w, http.StatusServiceUnavailable, "Cloud not available on this server")
 		return false
 	}
 	return true
@@ -87,7 +87,7 @@ func (s *Server) nasList(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"path": p, "entries": entries, "user": a.User, "can_write": a.Write, "owners": s.owners(r, p, entries)})
 }
 
-// owners says whose each listed item is, for the Nuvem's owner column and
+// owners says whose each listed item is, for the Cloud's owner column and
 // the avatars on personal folders: a personal folder and everything in it
 // belong to that person; in the shared folder, whoever sent or created it
 // (recorded on the item itself; the audit log covers older uploads).
@@ -159,7 +159,7 @@ func (s *Server) nasFile(w http.ResponseWriter, r *http.Request) {
 	h.Set("Content-Type", ctype)
 	h.Set("Content-Disposition", mime.FormatMediaType(disp, map[string]string{"filename": name}))
 	if ctype == "application/pdf" && disp == "inline" {
-		// The Nuvem preview shows PDFs in a frame of the app. Browsers refuse
+		// The Cloud preview shows PDFs in a frame of the app. Browsers refuse
 		// to render a PDF in a sandboxed document, so this one type drops the
 		// sandbox; the viewer runs PDF scripts isolated from the app's origin
 		// (Chrome/Edge PDFium, Firefox pdf.js), and nothing else may load.
@@ -212,7 +212,7 @@ func (s *Server) nasUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if d, err := sysinfo.DiskUsage(s.nasRoot); err == nil && d.Total > 0 && uint64(total-offset) > d.Free {
-		writeErr(w, http.StatusInsufficientStorage, "not enough free space in the Nuvem")
+		writeErr(w, http.StatusInsufficientStorage, "not enough free space in the Cloud")
 		return
 	}
 	body := &idleReader{r: http.MaxBytesReader(w, r.Body, maxChunk), rc: http.NewResponseController(w), idle: uploadIdle}
@@ -260,7 +260,7 @@ func (d *idleReader) Read(p []byte) (int, error) {
 // textTypes may be edited in the browser (small, plain text).
 var textTypes = regexp.MustCompile(`(?i)\.(txt|md|log|csv|tsv|json|xml|ya?ml|ini|conf|cfg|toml|srt|vtt)$`)
 
-// nasText saves a text file edited in the Nuvem viewer: PUT ?path=, body =
+// nasText saves a text file edited in the Cloud viewer: PUT ?path=, body =
 // the new content (≤ 2 MiB, existing plain-text files only).
 func (s *Server) nasText(w http.ResponseWriter, r *http.Request) {
 	if !s.nasReady(w) {

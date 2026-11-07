@@ -31,6 +31,7 @@ import {
   type Service,
 } from "../lib/hosting";
 
+import { getLang, t } from "../lib/i18n";
 // Self-hosted services (ADR-0021): projects from GitHub or a folder on the
 // server, run next to the NVR with their own limits. Admins only.
 
@@ -56,7 +57,7 @@ export function ServicesPage({ params }: { params: URLSearchParams }) {
   const services = list.data ?? [];
   const current = services.find((s) => s.id === sel);
 
-  const open = (id: string) => navigate("servicos", { s: id }, { push: compact });
+  const open = (id: string) => navigate("services", { s: id }, { push: compact });
 
   if (compact && current) return <ServiceDetail key={current.id} svc={current} info={info.data} />;
 
@@ -64,27 +65,27 @@ export function ServicesPage({ params }: { params: URLSearchParams }) {
     <>
       <header className="page-head">
         <div className="title">
-          <h1>Serviços</h1>
-          <span className="sub">Seus projetos rodando no servidor, com limites para não atrapalhar as câmeras.</span>
+          <h1>{t("Services")}</h1>
+          <span className="sub">{t("Your projects running on the server, with limits so they do not get in the way of the cameras.")}</span>
         </div>
         <button className="btn primary" onClick={() => setCreating(true)} disabled={!info.data || !!info.data.docker_error}>
-          <Icon name="plus" /> Novo serviço
+          <Icon name="plus" />{" "}{t("New service")}
         </button>
       </header>
-      {info.isError && <p className="notice error">O agente de serviços não respondeu. Veja se o contêiner “apps” está rodando no servidor.</p>}
+      {info.isError && <p className="notice error">{t("The services agent did not respond. Check whether the \"apps\" container is running on the server.")}</p>}
       {info.data && <Capacity info={info.data} onGitHub={() => setGhOpen(true)} />}
       {list.data && services.length === 0 ? (
         <div className="empty svc-empty">
           <Buoy tone="idle" />
-          <strong>Nenhum serviço ainda</strong>
-          <p>Envie um ZIP, traga um projeto do GitHub ou selecione uma pasta do servidor. O Sentinela instala, inicia e acompanha o serviço.</p>
+          <strong>{t("No services yet")}</strong>
+          <p>{t("Upload a ZIP, bring a project from GitHub or pick a folder on the server. Sentinela installs, starts and monitors the service.")}</p>
           <button className="btn primary" onClick={() => setCreating(true)} disabled={!info.data || !!info.data.docker_error}>
-            <Icon name="plus" /> Novo serviço
+            <Icon name="plus" />{" "}{t("New service")}
           </button>
         </div>
       ) : (
         <div className="svc-layout">
-          <nav className="svc-list" aria-label="Serviços">
+          <nav className="svc-list" aria-label={t("Services")}>
             {services.map((s) => (
               <button key={s.id} className="svc-item" aria-current={s.id === sel ? "true" : undefined} onClick={() => open(s.id)}>
                 <Buoy tone={stateTone(s.status.state)} label={stateLabel[s.status.state]} />
@@ -105,7 +106,7 @@ export function ServicesPage({ params }: { params: URLSearchParams }) {
               ) : (
                 <div className="empty">
                   <Buoy tone="idle" />
-                  <p>Escolha um serviço para ver a saída, o deploy e as configurações.</p>
+                  <p>{t("Choose a service to see its output, deploy and settings.")}</p>
                 </div>
               )}
             </section>
@@ -134,17 +135,17 @@ function Capacity({ info, onGitHub }: { info: HostingInfo; onGitHub: () => void 
     <div className="svc-capacity">
       <div className="svc-cap-meter">
         <span className="small">
-          Memória reservada <strong className="num">{info.used_memory_mb}</strong> de <span className="num">{info.limits.total_memory_mb} MB</span>
+          {t("Reserved memory")}{" "}<strong className="num">{info.used_memory_mb}</strong>{" "}{t("of")}{" "}<span className="num">{info.limits.total_memory_mb}{" "}{t("MB")}</span>
         </span>
-        <div className="meter" role="img" aria-label={`${Math.round(pct)}% da memória dos serviços`}>
+        <div className="meter" role="img" aria-label={t("{v0}% of the services' memory", { v0: Math.round(pct) })}>
           <span style={{ width: `${pct}%` }} />
         </div>
       </div>
-      <span className="small muted num">{info.mem_free_mb ? `${(info.mem_free_mb / 1024).toFixed(1)} GB livres no servidor` : ""}</span>
-      {info.docker_error ? <span className="small svc-bad">{info.docker_error}</span> : <span className="small muted">Docker {info.docker}</span>}
-      {info.boot_waiting && <span className="small muted">Servidor recém-ligado: os serviços sobem depois das câmeras.</span>}
+      <span className="small muted num">{info.mem_free_mb ? t("{v0} GB free on the server", { v0: (info.mem_free_mb / 1024).toFixed(1) }) : ""}</span>
+      {info.docker_error ? <span className="small svc-bad">{info.docker_error}</span> : <span className="small muted">{t("Docker")}{" "}{info.docker}</span>}
+      {info.boot_waiting && <span className="small muted">{t("Server just started: services come up after the cameras.")}</span>}
       <button className="btn ghost small" onClick={onGitHub}>
-        <Icon name="key" /> {info.github_token ? "Acesso ao GitHub: ativo" : "Acesso ao GitHub"}
+        <Icon name="key" /> {info.github_token ? t("GitHub access: active") : t("GitHub access")}
       </button>
     </div>
   );
@@ -167,14 +168,14 @@ function ServiceDetail({ svc, info }: { svc: Service; info?: HostingInfo }) {
     onSuccess: (_, a) => {
       refresh();
       if (a === "deploy") setTab("deploy");
-      toast({ deploy: "Deploy na fila.", start: "Início solicitado. Acompanhe o diagnóstico e a saída.", stop: "Serviço parado.", restart: "Reinício solicitado. Acompanhe o diagnóstico e a saída." }[a]);
+      toast({ deploy: t("Deploy queued."), start: t("Start requested. Follow the diagnostics and the output."), stop: t("Service stopped."), restart: t("Restart requested. Follow the diagnostics and the output.") }[a]);
     },
     onError: (e: Error) => toast(e.message, true),
   });
   const check = useMutation({
     mutationFn: () => hosting.check(svc.id),
     onSuccess: (r) =>
-      toast(r.update ? `Há uma versão nova: ${r.commit ? r.commit.slice(0, 7) : r.latest}${r.message ? ` (${r.message})` : ""}.` : "Já está na versão mais recente."),
+      toast(r.update ? t("There is a new version: {v0}{v1}.", { v0: r.commit ? r.commit.slice(0, 7) : r.latest, v1: r.message ? ` (${r.message})` : "" }) : t("Already on the latest version.")),
     onError: (e: Error) => toast(e.message, true),
   });
   const busy = st.state === "deploying" || act.isPending;
@@ -187,40 +188,40 @@ function ServiceDetail({ svc, info }: { svc: Service; info?: HostingInfo }) {
           <h2>{svc.name}</h2>
           <p className={`svc-state ${stateTone(st.state)}`}>
             {st.state === "deploying" && st.job ? `${phaseLabel[st.job.phase]}…` : stateLabel[st.state]}
-            {st.total ? ` (${st.running} de ${st.total} contêineres)` : ""}
+            {st.total ? t(" ({running} of {total} containers)", { running: st.running, total: st.total }) : ""}
             {st.since && (running || st.state === "exited") && <span className="muted"> {relative(st.since)}</span>}
           </p>
         </div>
         <div className="svc-actions">
           <button className="btn primary" disabled={busy} onClick={() => act.mutate("deploy")}>
-            <Icon name="download" /> {svc.deployed ? "Atualizar" : "Implantar"}
+            <Icon name="download" /> {svc.deployed ? t("Update") : t("Deploy")}
           </button>
           {svc.deployed && running && (
             <>
               <button className="btn" disabled={busy} onClick={() => act.mutate("restart")}>
-                <Icon name="refresh" /> Reiniciar
+                <Icon name="refresh" />{" "}{t("Restart")}
               </button>
               <button className="btn" disabled={busy} onClick={() => act.mutate("stop")}>
-                <Icon name="stop" /> Parar
+                <Icon name="stop" />{" "}{t("Stop")}
               </button>
             </>
           )}
           {svc.deployed && !running && (
             <button className="btn" disabled={busy} onClick={() => act.mutate("start")}>
-              <Icon name="play" /> Iniciar
+              <Icon name="play" />{" "}{t("Start")}
             </button>
           )}
           <span className="svc-more">
-            <button className="btn icon" aria-label="Mais ações" aria-expanded={menu} onClick={() => setMenu((m) => !m)}>
+            <button className="btn icon" aria-label={t("More actions")} aria-expanded={menu} onClick={() => setMenu((m) => !m)}>
               <Icon name="dots" />
             </button>
             {menu && (
               <span className="ctx-menu svc-menu" role="menu" onMouseLeave={() => setMenu(false)}>
                 <button role="menuitem" onClick={() => (setMenu(false), check.mutate())} disabled={check.isPending}>
-                  <Icon name="search" /> Procurar versão nova
+                  <Icon name="search" />{" "}{t("Check for a new version")}
                 </button>
                 <button role="menuitem" className="danger" onClick={() => (setMenu(false), setDeleting(true))}>
-                  <Icon name="trash" /> Excluir serviço
+                  <Icon name="trash" />{" "}{t("Delete service")}
                 </button>
               </span>
             )}
@@ -228,25 +229,25 @@ function ServiceDetail({ svc, info }: { svc: Service; info?: HostingInfo }) {
         </div>
       </header>
 
-      {svc.needs_deploy && <p className="notice">O projeto ou a preparação mudou. Clique em Atualizar para aplicar.</p>}
+      {svc.needs_deploy && <p className="notice">{t("The project or the preparation changed. Click Update to apply.")}</p>}
       {st.error && st.state !== "deploying" && st.error !== st.job?.error && (running || st.error !== st.last_exit?.reason) && <p className="notice error">{st.error}</p>}
-      {st.oom_killed && <p className="notice error">O serviço passou do limite de memória ({svc.memory_mb} MB). Aumente o limite em Configurações.</p>}
-      {st.job?.phase === "failed" && <p className="notice error" role="alert">Último deploy falhou: {st.job.error} <button className="btn ghost small" onClick={() => setTab("deploy")}>Ver log do deploy</button></p>}
+      {st.oom_killed && <p className="notice error">{t("The service went over the memory limit (")}{svc.memory_mb}{" "}{t("MB). Raise the limit in Settings.")}</p>}
+      {st.job?.phase === "failed" && <p className="notice error" role="alert">{t("Last deploy failed:")}{" "}{st.job.error} <button className="btn ghost small" onClick={() => setTab("deploy")}>{t("View deploy log")}</button></p>}
       {st.last_exit && !running && st.last_exit.reason !== st.job?.error && <p className="notice error" role="alert">{st.last_exit.reason}</p>}
-      {st.retry_at && <p className="notice small">Reinícios pausados para conter as quedas. Próxima tentativa: {new Date(st.retry_at).toLocaleTimeString("pt-BR")}.</p>}
+      {st.retry_at && <p className="notice small">{t("Restarts paused to contain the failures. Next attempt:")}{" "}{new Date(st.retry_at).toLocaleTimeString(getLang())}.</p>}
       <ServiceDiagnostics svc={svc} />
 
       <Links svc={svc} info={info} />
       <Facts svc={svc} />
 
-      <div className="svc-tabs" role="tablist" aria-label="Detalhes">
+      <div className="svc-tabs" role="tablist" aria-label={t("Details")}>
         {(
           [
-            ["out", "Saída"],
+            ["out", t("Output")],
             ["deploy", "Deploy"],
-            ["files", "Arquivos"],
+            ["files", t("Files")],
             ["secrets", "Secrets"],
-            ["config", "Configurações"],
+            ["config", t("Settings")],
           ] as const
         ).map(([id, label]) => (
           <button key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id)}>
@@ -271,23 +272,23 @@ function ServiceDiagnostics({ svc }: { svc: Service }) {
   const events = st.events ?? [];
   if (!st.last_exit && events.length === 0) return null;
   return <details className="svc-diagnostics" open={st.state === "crashloop" || st.state === "exited" || st.state === "failed"}>
-    <summary>Diagnóstico <span className="muted small">{st.restarts ?? 0} tentativa(s) automática(s){st.last_exit ? ` · última saída: ${st.last_exit.code}` : ""}</span></summary>
-    {st.last_exit && <p className="small">Última parada em {new Date(st.last_exit.at).toLocaleString("pt-BR")}: {st.last_exit.reason}</p>}
-    <ol className="svc-event-list">{events.slice().reverse().map((e,i) => <li key={i}><time className="small muted">{new Date(e.at).toLocaleString("pt-BR")}</time><span>{e.message}</span></li>)}</ol>
+    <summary>{t("Diagnostics")}{" "}<span className="muted small">{st.restarts ?? 0}{" "}{t("automatic attempt(s)")}{st.last_exit ? t(" · last exit: {code}", { code: st.last_exit.code }) : ""}</span></summary>
+    {st.last_exit && <p className="small">{t("Last stop at")}{" "}{new Date(st.last_exit.at).toLocaleString(getLang())}: {st.last_exit.reason}</p>}
+    <ol className="svc-event-list">{events.slice().reverse().map((e,i) => <li key={i}><time className="small muted">{new Date(e.at).toLocaleString(getLang())}</time><span>{e.message}</span></li>)}</ol>
   </details>;
 }
 
 function copy(text: string, toast: (t: string, e?: boolean) => void) {
   void navigator.clipboard?.writeText(text).then(
-    () => toast("Endereço copiado."),
-    () => toast("Não foi possível copiar.", true),
+    () => toast(t("Address copied.")),
+    () => toast(t("Could not copy."), true),
   );
 }
 
 function Links({ svc, info }: { svc: Service; info?: HostingInfo }) {
   const toast = useToast();
   if (svc.links.length === 0) {
-    return svc.ports.length === 0 ? <p className="muted small svc-nolinks">Sem portas: o serviço não recebe conexões (bom para bots e tarefas).</p> : null;
+    return svc.ports.length === 0 ? <p className="muted small svc-nolinks">{t("No ports: the service receives no connections (good for bots and jobs).")}</p> : null;
   }
   return (
     <ul className="svc-links">
@@ -304,19 +305,19 @@ function Links({ svc, info }: { svc: Service; info?: HostingInfo }) {
               {l.url.replace(/^http:\/\//, "")}
             </a>
           )}
-          <button className="btn ghost icon small" aria-label={`Copiar ${l.url}`} onClick={() => copy(l.url, toast)}>
+          <button className="btn ghost icon small" aria-label={t("Copy {url}", { url: l.url })} onClick={() => copy(l.url, toast)}>
             <Icon name="copy" />
           </button>
         </li>
       ))}
       {svc.exposure === "public" && info?.hosts.public && (
         <li className="svc-link-note small muted">
-          No roteador, encaminhe a porta {svc.ports.map((p) => `${p.host}/${p.proto}`).join(", ")} da internet para este servidor.
+          {t("On the router, forward the port")}{" "}{svc.ports.map((p) => `${p.host}/${p.proto}`).join(", ")}{" "}{t("from the internet to this server.")}
         </li>
       )}
       {svc.exposure !== "local" && (
         <li className="svc-link-note small muted">
-          Pelo Tailscale, a regra de acesso (ACL) precisa liberar as portas {info ? `${info.port_first}-${info.port_last}` : "dos serviços"} do servidor.
+          {t("Over Tailscale, the access rule (ACL) must allow the ports")}{" "}{info ? `${info.port_first}-${info.port_last}` : t("of the services")}{" "}{t("from the server.")}
         </li>
       )}
     </ul>
@@ -330,7 +331,7 @@ function Facts({ svc }: { svc: Service }) {
   return (
     <dl className="svc-facts">
       <div>
-        <dt>Versão</dt>
+        <dt>{t("Version")}</dt>
         <dd>
           {svc.deployed ? (
             <>
@@ -339,18 +340,18 @@ function Facts({ svc }: { svc: Service }) {
               <span className="muted small"> {relative(svc.deployed.at)}</span>
             </>
           ) : (
-            <span className="muted">Nenhuma</span>
+            <span className="muted">{t("None")}</span>
           )}
         </dd>
       </div>
       <div>
-        <dt>Processador</dt>
-        <dd className="num">{running ? `${st.cpu_pct.toFixed(1)}%` : "—"} <span className="muted small">de {svc.cpus} núcleo</span></dd>
+        <dt>{t("Processor")}</dt>
+        <dd className="num">{running ? `${st.cpu_pct.toFixed(1)}%` : "—"} <span className="muted small">{t("of {n} core", { n: svc.cpus })}</span></dd>
       </div>
       <div>
-        <dt>Memória</dt>
+        <dt>{t("Memory")}</dt>
         <dd>
-          <span className="num">{running ? fmtBytes(st.mem_bytes) : "—"}</span> <span className="muted small">de {svc.memory_mb} MB</span>
+          <span className="num">{running ? fmtBytes(st.mem_bytes) : "—"}</span> <span className="muted small">{t("of {n} MB", { n: svc.memory_mb })}</span>
           {running && (
             <span className="meter svc-mem" aria-hidden="true">
               <span style={{ width: `${memPct}%` }} />
@@ -359,16 +360,16 @@ function Facts({ svc }: { svc: Service }) {
         </dd>
       </div>
       <div>
-        <dt>Rede</dt>
-        <dd className="num">{running ? `${fmtBytes(st.net_rx)} recebidos, ${fmtBytes(st.net_tx)} enviados` : "—"}</dd>
+        <dt>{t("Network")}</dt>
+        <dd className="num">{running ? t("{v0} received, {v1} sent", { v0: fmtBytes(st.net_rx), v1: fmtBytes(st.net_tx) }) : "—"}</dd>
       </div>
       <div>
-        <dt>Disco</dt>
+        <dt>{t("Disk")}</dt>
         <dd className="num">{st.disk_bytes ? fmtBytes(st.disk_bytes) : "—"}</dd>
       </div>
       <div>
-        <dt>Ao religar o servidor</dt>
-        <dd>{svc.autostart ? "Inicia sozinho" : "Fica parado"}</dd>
+        <dt>{t("When the server restarts")}</dt>
+        <dd>{svc.autostart ? t("Starts by itself") : t("Stays still")}</dd>
       </div>
     </dl>
   );
@@ -392,7 +393,7 @@ function LogPane({ children, empty }: { children: ReactNode; empty: boolean }) {
         atEnd.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
       }}
     >
-      {empty ? <span className="svc-log-empty">Nada por aqui ainda.</span> : children}
+      {empty ? <span className="svc-log-empty">{t("Nothing here yet.")}</span> : children}
     </pre>
   );
 }
@@ -403,8 +404,8 @@ function LogView({ svc }: { svc: Service }) {
   const lines = q.data?.lines ?? [];
   return (
     <div className="stack-sm">
-      {q.isError && <p className="notice error" role="alert">Não foi possível ler os logs: {q.error.message}</p>}
-      <div className="svc-log-toolbar"><span className="muted small">Saída atualizada a cada 3 segundos · {lines.length} linha(s)</span><span className="grow" /><button className="btn ghost small" aria-pressed={errorsOnly} onClick={() => setErrorsOnly((x) => !x)}>{errorsOnly ? "Mostrar tudo" : "Erros e avisos"}</button><button className="btn ghost small" disabled={!lines.length} onClick={() => downloadLog(svc.id, "saida", lines.map((l) => l.t))}><Icon name="download" /> Baixar log</button></div>
+      {q.isError && <p className="notice error" role="alert">{t("Could not read the logs:")}{" "}{q.error.message}</p>}
+      <div className="svc-log-toolbar"><span className="muted small">{t("Output updated every 3 seconds ·")}{" "}{lines.length}{" "}{t("line(s)")}</span><span className="grow" /><button className="btn ghost small" aria-pressed={errorsOnly} onClick={() => setErrorsOnly((x) => !x)}>{errorsOnly ? t("Show all") : t("Errors and warnings")}</button><button className="btn ghost small" disabled={!lines.length} onClick={() => downloadLog(svc.id, "saida", lines.map((l) => l.t))}><Icon name="download" />{" "}{t("Download log")}</button></div>
     <LogPane empty={lines.length === 0}>
       {lines.filter((l) => !errorsOnly || l.s === 2 || /\b(error|erro|falha|failed|exception|fatal)\b/i.test(l.t)).map((l, i) => {
         const { time, text } = splitLogLine(l.t);
@@ -418,7 +419,7 @@ function LogView({ svc }: { svc: Service }) {
         );
       })}
     </LogPane>
-    {errorsOnly && lines.length > 0 && !lines.some((l) => l.s === 2 || /\b(error|erro|falha|failed|exception|fatal)\b/i.test(l.t)) && <p className="hint">Nenhum erro ou aviso nestas linhas. Confira também o Diagnóstico: falhas nativas podem encerrar o processo sem escrever no log.</p>}
+    {errorsOnly && lines.length > 0 && !lines.some((l) => l.s === 2 || /\b(error|erro|falha|failed|exception|fatal)\b/i.test(l.t)) && <p className="hint">{t("No errors or warnings in these lines. Also check Diagnostics: native failures can end the process without writing to the log.")}</p>}
     </div>
   );
 }
@@ -437,16 +438,16 @@ function DeployLog({ svc }: { svc: Service }) {
   const lines = q.data?.lines ?? [];
   return (
     <div className="stack-sm">
-      {q.isError && <p className="notice error" role="alert">Não foi possível ler o log do deploy: {q.error.message}</p>}
+      {q.isError && <p className="notice error" role="alert">{t("Could not read the deploy log:")}{" "}{q.error.message}</p>}
       {job?.error && job.error !== svc.status.job?.error && <p className="notice error" role="alert">{job.error}</p>}
       {job && (
         <p className={`small svc-job ${job.phase}`}>
-          {job.kind === "recreate" ? "Aplicando configurações" : "Deploy"}: {phaseLabel[job.phase]}
+          {job.kind === "recreate" ? t("Applying settings") : t("Deploy")}: {phaseLabel[job.phase]}
           {job.version && <span className="num"> ({job.version.slice(0, 7)})</span>}
           <span className="muted"> {relative(job.started)}</span>
         </p>
       )}
-      <div className="svc-log-toolbar"><span className="small muted">Preparação, início e validação do serviço</span><span className="grow" /><button className="btn ghost small" disabled={!lines.length} onClick={() => downloadLog(svc.id, "deploy", lines)}><Icon name="download" /> Baixar log</button></div>
+      <div className="svc-log-toolbar"><span className="small muted">{t("Preparation, start and validation of the service")}</span><span className="grow" /><button className="btn ghost small" disabled={!lines.length} onClick={() => downloadLog(svc.id, "deploy", lines)}><Icon name="download" />{" "}{t("Download log")}</button></div>
       <LogPane empty={lines.length === 0}>
         {lines.map((l, i) => (
           <span key={i} className={`svc-line${l.includes("✗") ? " err" : l.includes("✓") ? " ok" : ""}`}>
@@ -469,7 +470,7 @@ function ConfigTab({ svc, info }: { svc: Service; info: HostingInfo }) {
     onSuccess: (s) => {
       void qc.invalidateQueries({ queryKey: ["hosting"] });
       setCfg(configOf(s));
-      toast(s.needs_deploy ? "Salvo. Clique em Atualizar para aplicar." : "Salvo.");
+      toast(s.needs_deploy ? t("Saved. Click Update to apply.") : t("Saved."));
     },
     onError: (e: Error) => toast(e.message, true),
   });
@@ -487,13 +488,13 @@ function ConfigTab({ svc, info }: { svc: Service; info: HostingInfo }) {
       {problems.length > 0 && <p className="hint bad">{problems[0]}</p>}
       <div className="dialog-actions">
         <button type="button" className="btn ghost" onClick={() => setCfg(configOf(svc))}>
-          Desfazer
+          {t("Undo")}
         </button>
         <button className="btn primary" disabled={problems.length > 0 || save.isPending}>
-          <Icon name="check" /> Salvar
+          <Icon name="check" />{" "}{t("Save")}
         </button>
       </div>
-      <p className="hint">Variáveis, portas, acesso e limites valem na hora (o serviço reinicia). Fonte e preparação valem no próximo deploy.</p>
+      <p className="hint">{t("Variables, ports, access and limits take effect right away (the service restarts). Source and preparation take effect on the next deploy.")}</p>
     </form>
   );
 }
@@ -506,42 +507,42 @@ type SetCfg = (c: AppConfig | ((c: AppConfig) => AppConfig)) => void;
 function SourceFields({ cfg, set }: { cfg: AppConfig; set: SetCfg }) {
   return (
     <fieldset className="svc-fieldset">
-      <legend>Fonte</legend>
+      <legend>{t("Source")}</legend>
       {cfg.source === "github" ? (
         <div className="svc-grid">
           <div className="field">
-            <label htmlFor="sf-repo">Repositório</label>
+            <label htmlFor="sf-repo">{t("Repository")}</label>
             <input id="sf-repo" className="input" value={cfg.repo ?? ""} onChange={(e) => set((c) => ({ ...c, repo: e.target.value }))} spellCheck={false} />
           </div>
           <div className="field">
-            <label htmlFor="sf-ref">Branch</label>
+            <label htmlFor="sf-ref">{t("Branch")}</label>
             <input id="sf-ref" className="input" value={cfg.ref ?? ""} onChange={(e) => set((c) => ({ ...c, ref: e.target.value }))} spellCheck={false} />
           </div>
         </div>
       ) : (
         <p className="small">
-          {cfg.source === "zip" ? "Projeto enviado por ZIP" : <>Pasta de origem <strong>{cfg.path}</strong></>}. Edite o projeto protegido na aba Arquivos.
+          {cfg.source === "zip" ? t("Project uploaded as ZIP") : <>{t("Source folder")}{" "}<strong>{cfg.path}</strong></>}{t(". Edit the protected project in the Files tab.")}
         </p>
       )}
       <div className="field">
-        <label htmlFor="sf-dir">Subpasta (opcional)</label>
-        <input id="sf-dir" className="input" value={cfg.dir ?? ""} placeholder="ex.: apps/api" onChange={(e) => set((c) => ({ ...c, dir: e.target.value }))} spellCheck={false} />
+        <label htmlFor="sf-dir">{t("Subfolder (optional)")}</label>
+        <input id="sf-dir" className="input" value={cfg.dir ?? ""} placeholder={t("e.g. apps/api")} onChange={(e) => set((c) => ({ ...c, dir: e.target.value }))} spellCheck={false} />
       </div>
     </fieldset>
   );
 }
 
 const modeInfo: Record<Mode, { label: string; icon: string; text: string }> = {
-  script: { label: "Comandos", icon: "keyboard", text: "Um ambiente pronto (Node, Python, Go…) roda os seus comandos." },
-  dockerfile: { label: "Dockerfile", icon: "archive", text: "Constrói a imagem pelo Dockerfile do projeto." },
-  compose: { label: "Compose", icon: "grid", text: "Sobe todos os serviços do compose.yaml, com os limites daqui." },
+  script: { label: t("Commands"), icon: "keyboard", text: t("A ready environment (Node, Python, Go…) runs your commands.") },
+  dockerfile: { label: "Dockerfile", icon: "archive", text: t("Builds the image from the project's Dockerfile.") },
+  compose: { label: "Compose", icon: "grid", text: t("Starts all the services in compose.yaml, with the limits from here.") },
 };
 
 function RunFields({ cfg, set, info, detection }: { cfg: AppConfig; set: SetCfg; info: HostingInfo; detection?: Detection }) {
   const runtimes = Object.keys(info.runtimes);
   return (
     <fieldset className="svc-fieldset">
-      <legend>Como rodar</legend>
+      <legend>{t("How to run")}</legend>
       <div className="role-pick svc-modes">
         {(Object.keys(modeInfo) as Mode[]).map((m) => (
           <label key={m} className={`role-card${cfg.mode === m ? " on" : ""}`}>
@@ -555,7 +556,7 @@ function RunFields({ cfg, set, info, detection }: { cfg: AppConfig; set: SetCfg;
       {cfg.mode === "script" && (
         <>
           <div className="field">
-            <label htmlFor="rf-rt">Ambiente</label>
+            <label htmlFor="rf-rt">{t("Environment")}</label>
             <select
               id="rf-rt"
               className="input"
@@ -580,48 +581,48 @@ function RunFields({ cfg, set, info, detection }: { cfg: AppConfig; set: SetCfg;
             </select>
           </div>
           <div className="field">
-            <label htmlFor="rf-setup">Preparação (roda a cada deploy)</label>
-            <textarea id="rf-setup" className="input svc-code" rows={2} value={cfg.setup ?? ""} placeholder="ex.: npm ci && npm run build" onChange={(e) => set((c) => ({ ...c, setup: e.target.value }))} spellCheck={false} />
+            <label htmlFor="rf-setup">{t("Preparation (runs on every deploy)")}</label>
+            <textarea id="rf-setup" className="input svc-code" rows={2} value={cfg.setup ?? ""} placeholder={t("e.g. npm ci && npm run build")} onChange={(e) => set((c) => ({ ...c, setup: e.target.value }))} spellCheck={false} />
           </div>
           <div className="field">
-            <label htmlFor="rf-start">Comando de início</label>
+            <label htmlFor="rf-start">{t("Start command")}</label>
             <textarea
               id="rf-start"
               className="input svc-code"
               rows={2}
               value={cfg.start ?? ""}
-              placeholder={cfg.runtime === "static" ? "vazio: serve os arquivos da pasta" : "ex.: npm start"}
+              placeholder={cfg.runtime === "static" ? t("empty: serves the folder's files") : t("e.g. npm start")}
               onChange={(e) => set((c) => ({ ...c, start: e.target.value }))}
               spellCheck={false}
             />
-            <span className="hint">O código fica em /app, os dados que devem sobreviver em /data. A porta chega na variável PORT.</span>
+            <span className="hint">{t("The code lives in /app, the data that must survive in /data. The port arrives in the PORT variable.")}</span>
           </div>
         </>
       )}
       {cfg.mode === "dockerfile" && (
         <div className="field">
-          <label htmlFor="rf-cmd">Comando (opcional)</label>
-          <input id="rf-cmd" className="input svc-code" value={cfg.start ?? ""} placeholder="vazio: o CMD do Dockerfile" onChange={(e) => set((c) => ({ ...c, start: e.target.value }))} spellCheck={false} />
+          <label htmlFor="rf-cmd">{t("Command (optional)")}</label>
+          <input id="rf-cmd" className="input svc-code" value={cfg.start ?? ""} placeholder={t("empty: the Dockerfile CMD")} onChange={(e) => set((c) => ({ ...c, start: e.target.value }))} spellCheck={false} />
         </div>
       )}
       {cfg.mode === "compose" && (
         <div className="stack-sm">
           <div className="field">
-            <label htmlFor="rf-cf">Arquivo Compose</label>
-            <input id="rf-cf" className="input svc-code" value={cfg.compose_file ?? ""} placeholder="vazio: compose.yaml ou docker-compose.yml" onChange={(e) => set((c) => ({ ...c, compose_file: e.target.value }))} spellCheck={false} />
+            <label htmlFor="rf-cf">{t("Compose file")}</label>
+            <input id="rf-cf" className="input svc-code" value={cfg.compose_file ?? ""} placeholder={t("empty: compose.yaml or docker-compose.yml")} onChange={(e) => set((c) => ({ ...c, compose_file: e.target.value }))} spellCheck={false} />
           </div>
           {detection?.services && (
             <ul className="svc-compose">
               {detection.services.map((s) => (
                 <li key={s.name}>
-                  <strong>{s.name}</strong> <span className="muted small">{s.build ? "construído do projeto" : s.image}</span>
-                  {s.ports && s.ports.length > 0 && <span className="small"> porta {s.ports.join(", ")}</span>}
+                  <strong>{s.name}</strong> <span className="muted small">{s.build ? t("built from the project") : s.image}</span>
+                  {s.ports && s.ports.length > 0 && <span className="small"> {t("port {ports}", { ports: s.ports.join(", ") })}</span>}
                 </li>
               ))}
             </ul>
           )}
           <p className="hint">
-            As portas publicadas passam para a faixa dos serviços; cada contêiner recebe os limites abaixo. Use volumes nomeados para dados: as pastas do projeto são trocadas a cada deploy.
+            {t("Published ports move to the services range; each container gets the limits below. Use named volumes for data: the project folders are replaced on every deploy.")}
           </p>
         </div>
       )}
@@ -634,7 +635,7 @@ function PortsEditor({ cfg, set }: { cfg: AppConfig; set: SetCfg }) {
   const upd: Upd = set;
   return (
     <div className="field">
-      <span className="svc-label">Portas que o serviço escuta</span>
+      <span className="svc-label">{t("Ports the service listens on")}</span>
       {cfg.ports.map((p, i) => (
         <div key={i} className="svc-row">
           <input
@@ -642,23 +643,23 @@ function PortsEditor({ cfg, set }: { cfg: AppConfig; set: SetCfg }) {
             type="number"
             min={1}
             max={65535}
-            aria-label="Porta do serviço"
+            aria-label={t("Service port")}
             value={p.container || ""}
             onChange={(e) => upd((c) => ({ ...c, ports: c.ports.map((x, j) => (j === i ? { ...x, container: Number(e.target.value) } : x)) }))}
           />
-          <select className="input" aria-label="Protocolo" value={p.proto} onChange={(e) => upd((c) => ({ ...c, ports: c.ports.map((x, j) => (j === i ? { ...x, proto: e.target.value as "tcp" | "udp" } : x)) }))}>
-            <option value="tcp">TCP</option>
-            <option value="udp">UDP</option>
+          <select className="input" aria-label={t("Protocol")} value={p.proto} onChange={(e) => upd((c) => ({ ...c, ports: c.ports.map((x, j) => (j === i ? { ...x, proto: e.target.value as "tcp" | "udp" } : x)) }))}>
+            <option value="tcp">{t("TCP")}</option>
+            <option value="udp">{t("UDP")}</option>
           </select>
-          <span className="muted small svc-host">{p.host ? `servidor :${p.host}` : "porta do servidor ao salvar"}</span>
-          <button type="button" className="btn ghost icon small" aria-label="Remover porta" onClick={() => upd((c) => ({ ...c, ports: c.ports.filter((_, j) => j !== i) }))}>
+          <span className="muted small svc-host">{p.host ? t("server :{host}", { host: p.host }) : t("server port when saving")}</span>
+          <button type="button" className="btn ghost icon small" aria-label={t("Remove port")} onClick={() => upd((c) => ({ ...c, ports: c.ports.filter((_, j) => j !== i) }))}>
             <Icon name="x" />
           </button>
         </div>
       ))}
       {cfg.ports.length < 5 && (
         <button type="button" className="btn ghost small svc-add" onClick={() => upd((c) => ({ ...c, ports: [...c.ports, { container: 8080, host: 0, proto: "tcp" }] }))}>
-          <Icon name="plus" /> Porta
+          <Icon name="plus" />{" "}{t("Port")}
         </button>
       )}
     </div>
@@ -670,22 +671,22 @@ function EnvEditor({ cfg, set }: { cfg: AppConfig; set: SetCfg }) {
   const [shown, setShown] = useState<Record<number, boolean>>({});
   return (
     <div className="field">
-      <span className="svc-label">Variáveis de ambiente</span>
+      <span className="svc-label">{t("Environment variables")}</span>
       {cfg.env.map((e, i) => (
         <div key={i} className="svc-row env">
           <input
             className="input svc-code"
-            aria-label="Nome"
-            placeholder="NOME"
+            aria-label={t("Name")}
+            placeholder={t("NAME")}
             value={e.key}
             onChange={(ev) => upd((c) => ({ ...c, env: c.env.map((x, j) => (j === i ? { ...x, key: ev.target.value.trim() } : x)) }))}
             spellCheck={false}
           />
           <input
             className="input svc-code"
-            aria-label={`Valor de ${e.key}`}
+            aria-label={t("Value of {key}", { key: e.key })}
             type={e.secret && !shown[i] ? "password" : "text"}
-            placeholder={e.secret ? "guardado (deixe vazio para manter)" : "valor"}
+            placeholder={e.secret ? t("stored (leave empty to keep)") : t("value")}
             value={e.value}
             autoComplete="off"
             onChange={(ev) => upd((c) => ({ ...c, env: c.env.map((x, j) => (j === i ? { ...x, value: ev.target.value } : x)) }))}
@@ -695,8 +696,8 @@ function EnvEditor({ cfg, set }: { cfg: AppConfig; set: SetCfg }) {
             type="button"
             className={`btn ghost icon small${e.secret ? " on" : ""}`}
             aria-pressed={!!e.secret}
-            title={e.secret ? "Secreto: o valor não volta para a tela" : "Marcar como secreto"}
-            aria-label="Secreto"
+            title={e.secret ? t("Secret: the value does not come back to the screen") : t("Mark as secret")}
+            aria-label={t("Secret")}
             onClick={() => {
               if (e.secret) setShown((s) => ({ ...s, [i]: !s[i] }));
               else upd((c) => ({ ...c, env: c.env.map((x, j) => (j === i ? { ...x, secret: true } : x)) }));
@@ -704,13 +705,13 @@ function EnvEditor({ cfg, set }: { cfg: AppConfig; set: SetCfg }) {
           >
             <Icon name={e.secret ? (shown[i] ? "eyeOff" : "lock") : "eye"} />
           </button>
-          <button type="button" className="btn ghost icon small" aria-label={`Remover ${e.key}`} onClick={() => upd((c) => ({ ...c, env: c.env.filter((_, j) => j !== i) }))}>
+          <button type="button" className="btn ghost icon small" aria-label={t("Remove {key}", { key: e.key })} onClick={() => upd((c) => ({ ...c, env: c.env.filter((_, j) => j !== i) }))}>
             <Icon name="x" />
           </button>
         </div>
       ))}
       <button type="button" className="btn ghost small svc-add" onClick={() => upd((c) => ({ ...c, env: [...c.env, { key: "", value: "" }] }))}>
-        <Icon name="plus" /> Variável
+        <Icon name="plus" />{" "}{t("Variable")}
       </button>
     </div>
   );
@@ -720,7 +721,7 @@ function AccessFields({ cfg, set, info, hosts }: { cfg: AppConfig; set: SetCfg; 
   const options: Exposure[] = ["lan", "tailnet", "local", "public"];
   return (
     <fieldset className="svc-fieldset">
-      <legend>Acesso e limites</legend>
+      <legend>{t("Access and limits")}</legend>
       <div className="role-pick svc-expose">
         {options.map((x) => {
           const off = (x === "public" && !hosts.public) || (x === "tailnet" && !hosts.tailnet);
@@ -728,20 +729,20 @@ function AccessFields({ cfg, set, info, hosts }: { cfg: AppConfig; set: SetCfg; 
             <label key={x} className={`role-card${cfg.exposure === x ? " on" : ""}${off ? " off" : ""}`}>
               <input type="radio" name="svc-expose" disabled={off} checked={cfg.exposure === x} onChange={() => set((c) => ({ ...c, exposure: x }))} />
               <strong>{exposureInfo[x].label}</strong>
-              <span className="muted small">{off ? (x === "public" ? "Defina apps.public_host no servidor." : "Tailscale desligado.") : exposureInfo[x].hint}</span>
+              <span className="muted small">{off ? (x === "public" ? t("Set apps.public_host on the server.") : t("Tailscale off.")) : exposureInfo[x].hint}</span>
             </label>
           );
         })}
       </div>
       {cfg.exposure === "public" && (
         <p className="notice small">
-          Na internet o serviço fica sem a senha do Sentinela: proteja-o no próprio projeto. Ele não alcança as câmeras nem a rede de casa.
+          {t("On the internet the service does not get the Sentinela password: protect it in the project itself. It cannot reach the cameras or the home network.")}
         </p>
       )}
       <EnvEditor cfg={cfg} set={set} />
       <div className="svc-grid">
         <div className="field">
-          <label htmlFor="af-mem">Memória (MB{cfg.mode === "compose" ? " por contêiner" : ""})</label>
+          <label htmlFor="af-mem">{t("Memory (MB")}{cfg.mode === "compose" ? t(" per container") : ""})</label>
           <input
             id="af-mem"
             className="input num"
@@ -752,10 +753,10 @@ function AccessFields({ cfg, set, info, hosts }: { cfg: AppConfig; set: SetCfg; 
             value={cfg.memory_mb}
             onChange={(e) => set((c) => ({ ...c, memory_mb: Number(e.target.value) }))}
           />
-          <span className="hint">Até {info.limits.max_memory_mb} MB.</span>
+          <span className="hint">{t("Until")}{" "}{info.limits.max_memory_mb}{" "}{t("MB.")}</span>
         </div>
         <div className="field">
-          <label htmlFor="af-cpu">Processador (núcleos)</label>
+          <label htmlFor="af-cpu">{t("Processor (cores)")}</label>
           <input
             id="af-cpu"
             className="input num"
@@ -766,19 +767,19 @@ function AccessFields({ cfg, set, info, hosts }: { cfg: AppConfig; set: SetCfg; 
             value={cfg.cpus}
             onChange={(e) => set((c) => ({ ...c, cpus: Number(e.target.value) }))}
           />
-          <span className="hint">Até {info.limits.max_cpus}. As câmeras têm prioridade.</span>
+          <span className="hint">{t("Until")}{" "}{info.limits.max_cpus}{t(". Cameras have priority.")}</span>
         </div>
       </div>
       <label className="toggle-row">
         <span>
-          <Icon name="refresh" /> Iniciar sozinho quando o servidor religar
+          <Icon name="refresh" />{" "}{t("Start by itself when the server restarts")}
         </span>
         <button type="button" role="switch" className="switch" aria-checked={cfg.autostart} onClick={() => set((c) => ({ ...c, autostart: !c.autostart }))} />
       </label>
       {cfg.mode === "script" && (
         <label className="toggle-row">
           <span>
-            <Icon name="shield" /> Rodar como root dentro do contêiner
+            <Icon name="shield" />{" "}{t("Run as root inside the container")}
           </span>
           <button type="button" role="switch" className="switch" aria-checked={cfg.root} onClick={() => set((c) => ({ ...c, root: !c.root }))} />
         </label>
@@ -789,7 +790,7 @@ function AccessFields({ cfg, set, info, hosts }: { cfg: AppConfig; set: SetCfg; 
 
 // ---------- new service ----------
 
-const STEPS = ["Fonte", "Como rodar", "Acesso e limites"];
+const STEPS = [t("Source"), t("How to run"), t("Access and limits")];
 
 function emptyConfig(info: HostingInfo): AppConfig {
   return {
@@ -863,7 +864,7 @@ function NewServiceDialog({ info, onClose, onCreated }: { info: HostingInfo; onC
     onSuccess: (s) => {
       uploaded.current = "";
       void qc.invalidateQueries({ queryKey: ["hosting"] });
-      toast("Serviço criado. O primeiro deploy começou.");
+      toast(t("Service created. The first deploy has started."));
       onCreated(s.id);
     },
     onError: (e: Error) => toast(e.message, true),
@@ -890,14 +891,14 @@ function NewServiceDialog({ info, onClose, onCreated }: { info: HostingInfo; onC
       >
         <div className="dialog-head">
           <div>
-            <h2 id="ns-title">Novo serviço</h2>
-            <p className="muted small">O código é copiado para o servidor e roda isolado, com memória e processador limitados.</p>
+            <h2 id="ns-title">{t("New service")}</h2>
+            <p className="muted small">{t("The code is copied to the server and runs isolated, with limited memory and processor.")}</p>
           </div>
-          <button type="button" className="btn ghost icon small" aria-label="Fechar" disabled={pending} onClick={onClose}>
+          <button type="button" className="btn ghost icon small" aria-label={t("Close")} disabled={pending} onClick={onClose}>
             <Icon name="x" />
           </button>
         </div>
-        <ol className="stepper" aria-label="Etapas">
+        <ol className="stepper" aria-label={t("Steps")}>
           {STEPS.map((s, i) => (
             <li key={s} className={i === step ? "on" : i < step ? "done" : ""}>
               <button type="button" disabled={i > step || pending} onClick={() => setStep(i)}>
@@ -910,52 +911,52 @@ function NewServiceDialog({ info, onClose, onCreated }: { info: HostingInfo; onC
 
         {step === 0 && (
           <div className="step-body">
-            <div className="segmented svc-source" role="group" aria-label="De onde vem o código">
+            <div className="segmented svc-source" role="group" aria-label={t("Where the code comes from")}>
               <button type="button" disabled={pending} aria-pressed={cfg.source === "github"} onClick={() => changeSource("github")}>
-                <Icon name="network" /> GitHub
+                <Icon name="network" />{" "}{t("GitHub")}
               </button>
               <button type="button" aria-pressed={cfg.source === "local"} disabled={!info.local_root || pending} onClick={() => changeSource("local")}>
-                <Icon name="folder" /> Pasta no servidor
+                <Icon name="folder" />{" "}{t("Folder on the server")}
               </button>
-              <button type="button" aria-pressed={cfg.source === "zip"} disabled={pending} onClick={() => changeSource("zip")}><Icon name="upload" /> Enviar ZIP</button>
+              <button type="button" aria-pressed={cfg.source === "zip"} disabled={pending} onClick={() => changeSource("zip")}><Icon name="upload" />{" "}{t("Upload ZIP")}</button>
             </div>
             {cfg.source === "github" ? (
               <div className="svc-grid">
                 <div className="field">
-                  <label htmlFor="ns-repo">Repositório</label>
+                  <label htmlFor="ns-repo">{t("Repository")}</label>
                   <input
                     id="ns-repo"
                     className="input"
                     autoFocus
                     value={cfg.repo}
-                    placeholder="dono/projeto ou https://github.com/dono/projeto"
+                    placeholder={t("owner/project or https://github.com/owner/project")}
                     onChange={(e) => setCfg((c) => ({ ...c, repo: e.target.value }))}
                     spellCheck={false}
                   />
-                  {!info.github_token && <span className="hint">Repositório privado? Configure o acesso ao GitHub antes.</span>}
+                  {!info.github_token && <span className="hint">{t("Private repository? Set up GitHub access first.")}</span>}
                 </div>
                 <div className="field">
-                  <label htmlFor="ns-ref">Branch</label>
+                  <label htmlFor="ns-ref">{t("Branch")}</label>
                   <input id="ns-ref" className="input" value={cfg.ref} onChange={(e) => setCfg((c) => ({ ...c, ref: e.target.value }))} spellCheck={false} />
                 </div>
               </div>
             ) : cfg.source === "zip" ? (
               <div className="field svc-zip-upload">
-                <label htmlFor="ns-zip">Projeto em .zip</label>
+                <label htmlFor="ns-zip">{t("Project as .zip")}</label>
                 <input id="ns-zip" className="input" type="file" accept=".zip,application/zip" disabled={inspect.isPending} onChange={(e) => {
                   if (uploaded.current) { void hosting.dropUpload(uploaded.current).catch(() => {}); uploaded.current = ""; }
                   setZipFile(e.target.files?.[0] ?? null); setCfg((c) => ({ ...c, path: "" })); inspect.reset();
                 }} />
-                <span className="hint">Até 300 MB compactado e 1 GB extraído. Inclua a .env se necessária; seus valores ficam protegidos no servidor. Dependências serão instaladas na preparação.</span>
+                <span className="hint">{t("Up to 300 MB compressed and 1 GB extracted. Include the .env if needed; its values stay protected on the server. Dependencies are installed during preparation.")}</span>
                 {zipFile && <p className="small">{zipFile.name} · {fmtBytes(zipFile.size)}</p>}
-                {inspect.isPending && <p className="notice small" role="status">{uploadProgress < 100 ? `Enviando ZIP… ${uploadProgress}%` : "ZIP enviado. Extraindo e analisando o projeto…"}</p>}
+                {inspect.isPending && <p className="notice small" role="status">{uploadProgress < 100 ? t("Uploading ZIP… {uploadProgress}%", { uploadProgress }) : t("ZIP uploaded. Extracting and analyzing the project…")}</p>}
               </div>
             ) : (
               <FolderPicker root={info.local_root} value={cfg.path ?? ""} onPick={(p) => setCfg((c) => ({ ...c, path: p }))} />
             )}
             <div className="field">
-              <label htmlFor="ns-dir">Subpasta (opcional)</label>
-              <input id="ns-dir" className="input" value={cfg.dir} placeholder="ex.: apps/api" onChange={(e) => setCfg((c) => ({ ...c, dir: e.target.value }))} spellCheck={false} />
+              <label htmlFor="ns-dir">{t("Subfolder (optional)")}</label>
+              <input id="ns-dir" className="input" value={cfg.dir} placeholder={t("e.g. apps/api")} onChange={(e) => setCfg((c) => ({ ...c, dir: e.target.value }))} spellCheck={false} />
             </div>
             {inspect.isError && <p className="notice error">{(inspect.error as Error).message}</p>}
           </div>
@@ -971,7 +972,7 @@ function NewServiceDialog({ info, onClose, onCreated }: { info: HostingInfo; onC
         {step === 2 && (
           <div className="step-body">
             <div className="field">
-              <label htmlFor="ns-name">Nome</label>
+              <label htmlFor="ns-name">{t("Name")}</label>
               <input id="ns-name" className="input" value={cfg.name} onChange={(e) => setCfg((c) => ({ ...c, name: e.target.value }))} />
             </div>
             <AccessFields cfg={cfg} set={setCfg} info={info} hosts={info.hosts} />
@@ -982,23 +983,23 @@ function NewServiceDialog({ info, onClose, onCreated }: { info: HostingInfo; onC
         <div className="dialog-actions">
           {step > 0 && (
             <button type="button" className="btn ghost" onClick={() => setStep(step - 1)}>
-              Voltar
+              {t("Back")}
             </button>
           )}
           <span className="grow" />
           {step === 0 && (
             <button className="btn primary" disabled={!sourceOk || inspect.isPending}>
-              <Icon name="search" /> {inspect.isPending ? "Analisando…" : "Analisar o projeto"}
+              <Icon name="search" /> {inspect.isPending ? t("Analyzing…") : t("Analyze the project")}
             </button>
           )}
           {step === 1 && (
             <button className="btn primary">
-              Continuar <Icon name="chevronRight" />
+              {t("Continue")}{" "}<Icon name="chevronRight" />
             </button>
           )}
           {step === 2 && (
             <button className="btn primary" disabled={problems.length > 0 || create.isPending}>
-              <Icon name="download" /> {cfg.source === "local" ? "Mover e implantar" : "Criar e implantar"}
+              <Icon name="download" /> {cfg.source === "local" ? t("Move and deploy") : t("Create and deploy")}
             </button>
           )}
         </div>
@@ -1011,20 +1012,20 @@ function DetectionNote({ d }: { d: Detection }) {
   const v = d.version;
   const what =
     d.mode === "compose"
-      ? `Encontrei ${d.compose_file} com ${d.services?.length ?? 0} serviço(s).`
+      ? t("Found {compose_file} with {v1} service(s).", { compose_file: d.compose_file, v1: d.services?.length ?? 0 })
       : d.mode === "dockerfile"
-        ? `Encontrei um Dockerfile${d.port ? ` que expõe a porta ${d.port}` : ""}.`
+        ? d.port ? t("Found a Dockerfile that exposes port {port}.", { port: d.port }) : t("Found a Dockerfile.")
         : d.found.length > 0
-          ? `Encontrei ${d.found.join(", ")}: ${runtimeLabel[d.runtime ?? ""] ?? d.runtime}.`
-          : "Não reconheci o tipo do projeto.";
+          ? t("Found {files}: {runtime}.", { files: d.found.join(", "), runtime: runtimeLabel[d.runtime ?? ""] ?? d.runtime })
+          : t("I did not recognize the project type.");
   return (
     <div className="svc-detect">
       <p>
-        <Icon name="scan" /> {what} Os campos abaixo já vêm preenchidos; ajuste se precisar.
+        <Icon name="scan" /> {what}{" "}{t("The fields below are already filled in; adjust if needed.")}
       </p>
       {v && (
         <p className="small muted">
-          {v.Commit ? `Commit ${v.Commit.slice(0, 7)}${v.Branch ? ` em ${v.Branch}` : ""}${v.Message ? `: ${v.Message}` : ""}` : `Pasta sem Git (${v.Label})`}
+          {v.Commit ? t("Commit {v0}{v1}{v2}", { v0: v.Commit.slice(0, 7), v1: v.Branch ? ` em ${v.Branch}` : "", v2: v.Message ? `: ${v.Message}` : "" }) : t("Folder without Git ({Label})", { Label: v.Label })}
         </p>
       )}
       {d.notes?.map((n) => (
@@ -1053,7 +1054,7 @@ function FolderPicker({ root, value, onPick }: { root: string; value: string; on
   const crumbs = useMemo(() => (at ? at.split("/") : []), [at]);
   return (
     <div className="svc-picker">
-      <nav className="svc-crumbs small" aria-label="Pasta atual">
+      <nav className="svc-crumbs small" aria-label={t("Current folder")}>
         <button type="button" className="btn ghost small" onClick={() => setAt("")}>
           {root}
         </button>
@@ -1065,26 +1066,26 @@ function FolderPicker({ root, value, onPick }: { root: string; value: string; on
       </nav>
       {q.isError && <p className="notice error">{(q.error as Error).message}</p>}
       <ul className="svc-folders">
-        {q.data?.folders.length === 0 && <li className="muted small">Nenhuma subpasta aqui.</li>}
+        {q.data?.folders.length === 0 && <li className="muted small">{t("No subfolders here.")}</li>}
         {q.data?.folders.map((f) => (
           <li key={f.path} className={value === f.path ? "on" : ""}>
             <button type="button" className="svc-folder" onClick={() => onPick(f.path)} onDoubleClick={() => setAt(f.path)} aria-pressed={value === f.path}>
               <Icon name="folder" />
               <span className="svc-folder-name">{f.name}</span>
-              {f.git && <span className="pill small-pill">Git</span>}
+              {f.git && <span className="pill small-pill">{t("Git")}</span>}
               {f.markers?.map((m) => (
                 <span key={m} className="pill small-pill">
                   {markerLabel[m] ?? m}
                 </span>
               ))}
             </button>
-            <button type="button" className="btn ghost icon small" aria-label={`Abrir ${f.name}`} onClick={() => setAt(f.path)}>
+            <button type="button" className="btn ghost icon small" aria-label={t("Open {name}", { name: f.name })} onClick={() => setAt(f.path)}>
               <Icon name="chevronRight" />
             </button>
           </li>
         ))}
       </ul>
-      <p className="notice small">Ao implantar, esta pasta será transferida da Nuvem para a área protegida de Serviços. Depois, edite seus arquivos pela aba Arquivos. As dependências são instaladas novamente a cada deploy.</p>
+      <p className="notice small">{t("On deploy, this folder is moved from Cloud to the protected Services area. Afterwards, edit your files in the Files tab. Dependencies are installed again on every deploy.")}</p>
     </div>
   );
 }
@@ -1099,7 +1100,7 @@ function GitHubDialog({ has, onClose }: { has: boolean; onClose: () => void }) {
     mutationFn: () => (tok ? hosting.setToken(tok) : hosting.dropToken()),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: infoKey });
-      toast(tok ? "Acesso ao GitHub salvo." : "Acesso ao GitHub removido.");
+      toast(tok ? t("GitHub access saved.") : t("GitHub access removed."));
       onClose();
     },
     onError: (e: Error) => toast(e.message, true),
@@ -1113,27 +1114,26 @@ function GitHubDialog({ has, onClose }: { has: boolean; onClose: () => void }) {
           save.mutate();
         }}
       >
-        <h2 id="gh-title">Acesso ao GitHub</h2>
+        <h2 id="gh-title">{t("GitHub access")}</h2>
         <p className="muted small">
-          Só para repositórios privados. No GitHub, crie um token “fine-grained” com permissão de leitura de conteúdo (Contents: Read) apenas nos repositórios
-          que vai usar. Ele fica guardado no servidor e nunca volta para a tela.
+          {t("Only for private repositories. On GitHub, create a \"fine-grained\" token with content read permission (Contents: Read) only for the repositories you will use. It is kept on the server and never comes back to the screen.")}
         </p>
         <div className="field">
-          <label htmlFor="gh-tok">Token</label>
-          <input id="gh-tok" className="input" type="password" autoComplete="off" value={tok} placeholder={has ? "guardado; cole outro para trocar" : "github_pat_…"} onChange={(e) => setTok(e.target.value.trim())} />
+          <label htmlFor="gh-tok">{t("Token")}</label>
+          <input id="gh-tok" className="input" type="password" autoComplete="off" value={tok} placeholder={has ? t("stored; paste another to replace") : "github_pat_…"} onChange={(e) => setTok(e.target.value.trim())} />
         </div>
         <div className="dialog-actions">
           {has && (
             <button type="button" className="btn danger" onClick={() => (setTok(""), save.mutate())} disabled={save.isPending}>
-              Remover
+              {t("Remove")}
             </button>
           )}
           <span className="grow" />
           <button type="button" className="btn ghost" onClick={onClose}>
-            Cancelar
+            {t("Cancel")}
           </button>
           <button className="btn primary" disabled={!tok || save.isPending}>
-            Salvar
+            {t("Save")}
           </button>
         </div>
       </form>
@@ -1149,8 +1149,8 @@ function DeleteDialog({ svc, onClose }: { svc: Service; onClose: () => void }) {
     mutationFn: () => hosting.remove(svc.id),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["hosting"] });
-      toast("Serviço excluído.");
-      navigate("servicos", undefined);
+      toast(t("Service deleted."));
+      navigate("services", undefined);
     },
     onError: (e: Error) => toast(e.message, true),
   });
@@ -1163,23 +1163,22 @@ function DeleteDialog({ svc, onClose }: { svc: Service; onClose: () => void }) {
           if (typed === svc.id) del.mutate();
         }}
       >
-        <h2 id="del-svc">Excluir {svc.name}?</h2>
+        <h2 id="del-svc">{t("Remove")}{" "}{svc.name}?</h2>
         <p className="muted small">
-          O serviço para e é apagado do servidor com os dados dele (/data{svc.mode === "compose" ? " e os volumes do Compose" : ""}). O repositório ou a pasta de
-          origem não são tocados.
+          {t("The service stops and is deleted from the server with its data (/data")}{svc.mode === "compose" ? t(" and the Compose volumes") : ""}{t("). The repository or source folder is not touched.")}
         </p>
         <div className="field">
           <label htmlFor="del-typed">
-            Digite <strong>{svc.id}</strong> para confirmar
+            {t("Enter")}{" "}<strong>{svc.id}</strong>{" "}{t("to confirm")}
           </label>
           <input id="del-typed" className="input" value={typed} onChange={(e) => setTyped(e.target.value.trim())} autoComplete="off" spellCheck={false} autoFocus />
         </div>
         <div className="dialog-actions">
           <button type="button" className="btn ghost" onClick={onClose}>
-            Cancelar
+            {t("Cancel")}
           </button>
           <button className="btn primary danger-fill" disabled={typed !== svc.id || del.isPending}>
-            <Icon name="trash" /> Excluir
+            <Icon name="trash" />{" "}{t("Remove")}
           </button>
         </div>
       </form>

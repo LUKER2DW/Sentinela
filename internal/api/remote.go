@@ -241,13 +241,13 @@ func qrSVG(text string) (string, error) {
 func (s *Server) alertOutsideLogin(u *store.User, ip, zone string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	how := "pelo domínio"
+	how := "via the domain"
 	if zone == ZoneFunnel {
 		how = "pelo Funnel"
 	}
 	msg := map[string]any{
 		"title": "Novo acesso de fora de casa",
-		"body":  fmt.Sprintf("%s entrou %s (IP %s). Não foi você? Desconecte em Minha conta → Aparelhos.", u.Username, how, ip),
+		"body":  fmt.Sprintf("%s signed in %s (IP %s). Not you? Sign it out in My account → Devices.", u.Username, how, ip),
 		"tag":   "sentinela-login",
 		"url":   "/#/system",
 	}

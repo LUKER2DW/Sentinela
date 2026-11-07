@@ -4,6 +4,7 @@ import { DAY_MS, fmtBytes, fmtHM } from "../lib/time";
 import { useCompact } from "../lib/viewport";
 import { Icon } from "./Icon";
 
+import { t, fmtNum } from "../lib/i18n";
 // A keyframe of the 2K main stream is ~220 KB; used for the size estimate.
 const KEYFRAME_KB = 220;
 const FPS = 25;
@@ -13,15 +14,15 @@ const PRELOAD_MAX = 400 << 20;
 const PRELOAD_MAX_PHONE = 160 << 20;
 
 const PERIODS = [
-  { id: "day", label: "Dia inteiro", from: 0, to: 24 },
-  { id: "light", label: "Dia claro", hint: "6h–18h", from: 6, to: 18 },
-  { id: "night", label: "Noite", hint: "18h–24h", from: 18, to: 24 },
+  { id: "day", label: t("Whole day"), from: 0, to: 24 },
+  { id: "light", label: t("Daylight"), hint: "6h–18h", from: 6, to: 18 },
+  { id: "night", label: t("Night"), hint: "18h–24h", from: 18, to: 24 },
 ] as const;
 
 const STEPS = [
-  { s: 300, label: "Rápido", hint: "1 imagem a cada 5 min" },
-  { s: 120, label: "Médio", hint: "1 imagem a cada 2 min" },
-  { s: 60, label: "Detalhado", hint: "1 imagem por minuto" },
+  { s: 300, label: t("Fast"), hint: t("1 image every 5 min") },
+  { s: 120, label: t("Medium"), hint: t("1 image every 2 min") },
+  { s: 60, label: t("Detailed"), hint: t("1 image per minute") },
 ] as const;
 
 export function timelapseRange(dayStart: Date, fromH: number, toH: number, now: number) {
@@ -65,9 +66,9 @@ export function TimelapsePanel({ camId, dayStart, now }: { camId: string; daySta
 
   return (
     <div className="tl-panel">
-      <p className="muted small">O dia acelerado, montado com as imagens-chave gravadas, sem perda de qualidade.</p>
+      <p className="muted small">{t("The sped-up day, built from the recorded key frames, without quality loss.")}</p>
       <fieldset className="choice-list">
-        <legend>Período</legend>
+        <legend>{t("Period")}</legend>
         {PERIODS.map((x) => (
           <label key={x.id} className={`choice${period === x.id ? " on" : ""}`}>
             <input type="radio" name="tl-period" checked={period === x.id} onChange={() => setPeriod(x.id)} />
@@ -77,7 +78,7 @@ export function TimelapsePanel({ camId, dayStart, now }: { camId: string; daySta
         ))}
       </fieldset>
       <fieldset className="choice-list">
-        <legend>Velocidade</legend>
+        <legend>{t("Speed")}</legend>
         {STEPS.map((x) => (
           <label key={x.s} className={`choice${step === x.s ? " on" : ""}`}>
             <input type="radio" name="tl-step" checked={step === x.s} onChange={() => setStep(x.s)} />
@@ -88,11 +89,11 @@ export function TimelapsePanel({ camId, dayStart, now }: { camId: string; daySta
       </fieldset>
       <p className="muted small tl-estimate">
         {range
-          ? `${fmtHM(range.from)}–${fmtHM(range.to)} · cerca de ${Math.max(1, Math.round(frames / FPS))} s de vídeo · ${Math.max(1, Math.round((frames * KEYFRAME_KB) / 1024))} MB`
-          : "Este período ainda não começou."}
+          ? t("{v0}–{v1} · about {v2} s of video · {v3} MB", { v0: fmtHM(range.from), v1: fmtHM(range.to), v2: Math.max(1, Math.round(frames / FPS)), v3: Math.max(1, Math.round((frames * KEYFRAME_KB) / 1024)) })
+          : t("This period has not started yet.")}
       </p>
       <button className="btn primary block" disabled={!range} onClick={open}>
-        <Icon name="play" /> Montar e assistir
+        <Icon name="play" />{" "}{t("Build and watch")}
       </button>
       {pick && <TimelapseDialog pick={pick} onClose={() => setPick(null)} />}
     </div>
@@ -118,8 +119,8 @@ function TimelapseDialog({ pick, onClose }: { pick: Pick; onClose: () => void })
         .then((j) => {
           if (!live) return;
           setJob(j);
-          if (j.state === "failed") setError("O servidor não conseguiu montar o timelapse.");
-          else if (j.state === "empty") setError("Não há gravação neste período.");
+          if (j.state === "failed") setError(t("The server could not build the timelapse."));
+          else if (j.state === "empty") setError(t("There is no recording in this period."));
           else if (j.state !== "ready") timer = window.setTimeout(poll, 700);
         })
         .catch((e: Error) => live && setError(e.message));
@@ -179,10 +180,10 @@ function TimelapseDialog({ pick, onClose }: { pick: Pick; onClose: () => void })
       <div className="dialog wide tl-dialog">
         <div className="dialog-head">
           <div>
-            <h2 id="tl-title">Timelapse</h2>
+            <h2 id="tl-title">{t("Timelapse")}</h2>
             <p className="muted small">{pick.label}</p>
           </div>
-          <button className="btn ghost icon small" aria-label="Fechar" onClick={onClose}>
+          <button className="btn ghost icon small" aria-label={t("Close")} onClick={onClose}>
             <Icon name="x" />
           </button>
         </div>
@@ -196,7 +197,7 @@ function TimelapseDialog({ pick, onClose }: { pick: Pick; onClose: () => void })
               muted
               playsInline
               onLoadedMetadata={(e) => (e.currentTarget.playbackRate = rate)}
-              onError={() => setError("O navegador não conseguiu tocar o timelapse (H.265). Use Baixar.")}
+              onError={() => setError(t("The browser could not play the timelapse (H.265). Use Download."))}
             />
           ) : (
             <div className="tl-progress">
@@ -207,10 +208,10 @@ function TimelapseDialog({ pick, onClose }: { pick: Pick; onClose: () => void })
                   <div className="spinner" />
                   <p>
                     {!job || job.state === "queued"
-                      ? "Na fila do servidor…"
+                      ? t("In the server queue…")
                       : job.state === "running"
-                        ? `Montando: ${job.done} de ${job.total} imagens`
-                        : `Carregando ${fmtBytes(loaded)} de ${fmtBytes(bytes)}`}
+                        ? t("Building: {done} of {total} images", { done: job.done, total: job.total })
+                        : t("Loading {v0} of {v1}", { v0: fmtBytes(loaded), v1: fmtBytes(bytes) })}
                   </p>
                   <span className="meter tl-meter" aria-hidden="true">
                     <span style={{ width: `${Math.round(pct * 100)}%` }} />
@@ -221,17 +222,17 @@ function TimelapseDialog({ pick, onClose }: { pick: Pick; onClose: () => void })
           )}
         </div>
         <div className="dialog-actions">
-          <div className="segmented" role="group" aria-label="Velocidade de reprodução">
+          <div className="segmented" role="group" aria-label={t("Playback speed")}>
             {[0.5, 1, 2].map((r) => (
               <button key={r} aria-pressed={rate === r} onClick={() => setRate(r)}>
-                {String(r).replace(".", ",")}×
+                {fmtNum(r, 2)}×
               </button>
             ))}
           </div>
           <span className="grow" />
           {ready && bytes > 0 && <span className="muted small">{fmtBytes(bytes)}</span>}
           <a className={`btn primary${ready ? "" : " disabled"}`} href={ready ? `${pick.url}&download=1` : undefined} download aria-disabled={!ready}>
-            <Icon name="download" /> Baixar
+            <Icon name="download" />{" "}{t("Download")}
           </a>
         </div>
       </div>

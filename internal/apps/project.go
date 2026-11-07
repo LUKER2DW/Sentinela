@@ -41,7 +41,7 @@ func (a *Agent) importProject(ctx context.Context, app *App, logf func(string, .
 	defer a.fileMu.Unlock()
 	project := filepath.Join(a.appDir(app.ID), "project")
 	if _, err := os.Stat(project); err == nil {
-		return errors.New("já existe um projeto protegido para este serviço")
+		return errors.New("a protected project already exists for this service")
 	}
 	var rootDir, rel string
 	if app.Source == SourceZip {
@@ -55,7 +55,7 @@ func (a *Agent) importProject(ctx context.Context, app *App, logf func(string, .
 	}
 	defer base.Close()
 	// Reject links even if they point inside local_root: transferring a link
-	// must never delete the project it points to or another Nuvem folder.
+	// must never delete the project it points to or another Cloud folder.
 	parts := strings.Split(rel, "/")
 	for i := range parts {
 		st, err := base.Lstat(strings.Join(parts[:i+1], "/"))
@@ -112,9 +112,9 @@ func (a *Agent) importProject(ctx context.Context, app *App, logf func(string, .
 	}
 	a.mu.Unlock()
 	if err := base.RemoveAll(rel); err != nil {
-		logf("Aviso: projeto protegido salvo, mas não foi possível remover a pasta de origem; remova-a pela Nuvem")
+		logf("Warning: protected project saved, but the source folder could not be removed; remove it from Cloud")
 	} else {
-		logf("Projeto transferido para a área protegida de Serviços")
+		logf("Project moved to the protected Services area")
 		if app.Source == SourceZip {
 			_ = os.Remove(a.uploadVaultFile(app.Path))
 		}
@@ -156,12 +156,12 @@ func copyProject(ctx context.Context, src *os.Root, dir string) error {
 			target, err := src.Readlink(p)
 			joined := path.Clean(path.Join(path.Dir(p), strings.ReplaceAll(target, "\\", "/")))
 			if err != nil || filepath.IsAbs(target) || strings.Contains(target, ":") || joined == ".." || strings.HasPrefix(joined, "../") {
-				return errors.New("o projeto contém um link para fora da sua pasta")
+				return errors.New("the project contains a link outside its folder")
 			}
 			return dst.Symlink(target, p)
 		}
 		if !d.Type().IsRegular() {
-			return errors.New("o projeto contém um arquivo especial")
+			return errors.New("the project contains a special file")
 		}
 		st, err := d.Info()
 		if err != nil {
@@ -182,11 +182,11 @@ func copyProject(ctx context.Context, src *os.Root, dir string) error {
 func zipPath(name string) (string, error) {
 	name = strings.ReplaceAll(name, "\\", "/")
 	if strings.HasPrefix(name, "/") || strings.ContainsAny(name, ":\x00") {
-		return "", errors.New("ZIP contém um caminho inválido")
+		return "", errors.New("ZIP contains an invalid path")
 	}
 	for _, part := range strings.Split(name, "/") {
 		if part == ".." {
-			return "", errors.New("ZIP contém um caminho fora do projeto")
+			return "", errors.New("ZIP contains a path outside the project")
 		}
 	}
 	return strings.TrimSuffix(path.Clean(name), "/"), nil
@@ -204,10 +204,10 @@ func skipZipPath(name string) bool {
 func extractZip(ctx context.Context, file io.ReaderAt, size int64, dir string) error {
 	z, err := zip.NewReader(file, size)
 	if err != nil {
-		return errors.New("arquivo ZIP inválido ou corrompido")
+		return errors.New("invalid or corrupt ZIP file")
 	}
 	if len(z.File) > maxEntries {
-		return errors.New("ZIP contém arquivos demais")
+		return errors.New("ZIP contains too many files")
 	}
 	// GitHub archives and desktop folder ZIPs usually have one wrapper.
 	top := ""
@@ -262,7 +262,7 @@ func extractZip(ctx context.Context, file io.ReaderAt, size int64, dir string) e
 			continue
 		}
 		if !f.Mode().IsRegular() || seen[n] || f.UncompressedSize64 > uint64(maxExtract-total) {
-			return errors.New("ZIP contém links, arquivos repetidos, especiais ou tem mais de 1 GB")
+			return errors.New("ZIP contains links, duplicate or special files, or is over 1 GB")
 		}
 		seen[n] = true
 		if err := root.MkdirAll(path.Dir(n), 0o700); err != nil {
@@ -270,7 +270,7 @@ func extractZip(ctx context.Context, file io.ReaderAt, size int64, dir string) e
 		}
 		in, err := f.Open()
 		if err != nil {
-			return errors.New("não foi possível abrir um arquivo do ZIP")
+			return errors.New("could not open a file in the ZIP")
 		}
 		out, err := root.OpenFile(n, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600|f.Mode()&0o111)
 		if err != nil {
@@ -287,7 +287,7 @@ func extractZip(ctx context.Context, file io.ReaderAt, size int64, dir string) e
 		files++
 	}
 	if files == 0 {
-		return errors.New("o ZIP não contém arquivos de projeto")
+		return errors.New("the ZIP has no project files")
 	}
 	return nil
 }
@@ -330,7 +330,7 @@ func (a *Agent) hUpload(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if count >= 5 {
-		reply(w, nil, errors.New("há 5 projetos ZIP aguardando importação; crie os serviços ou remova os uploads pendentes"))
+		reply(w, nil, errors.New("there are 5 ZIP projects waiting to be imported; create the services or remove the pending uploads"))
 		return
 	}
 	id := randHex() + randHex()
@@ -370,7 +370,7 @@ func (a *Agent) hUpload(w http.ResponseWriter, r *http.Request) {
 func (a *Agent) hDropUpload(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("upload")
 	if !uploadPattern.MatchString(id) {
-		reply(w, nil, errors.New("upload inválido"))
+		reply(w, nil, errors.New("invalid upload"))
 		return
 	}
 	a.fileMu.Lock()

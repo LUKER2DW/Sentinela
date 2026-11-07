@@ -19,17 +19,16 @@ that target. `npm run build` runs TypeScript and builds `dist/`.
 ## Structure
 
 - `src/App.tsx`: boot/auth state, navigation and responsive shell.
-- `src/pages/`: Live (*Ao vivo*), Recordings (*Gravações*), Events
-  (*Eventos*), Nuvem (files), System (*Sistema*) and My account
-  (*Minha conta*). The UI text is Portuguese; code and docs are English.
-- `src/components/`: players, timeline/ruler, camera controls, file browser,
+- `src/pages/`: Live, Recordings, Events, Cloud (files), System and My
+  account. The UI is in English and Brazilian Portuguese (`src/lib/locales/`);
+  code and docs are English.
   account cards and notification inbox.
 - `src/lib/`: API/CSRF, routing, native bridges, time, media and shared state.
 - `src/styles.css`: layout, palette tokens, responsive rules and safe areas.
 - `public/sw.js`: cache only the shell; API and stream traffic stays online.
 
 The visual direction is warm paper/graphite, ocean drawings and handwritten
-icons. Appearance (*Aparência*) offers six palettes and light/dark/black/automatic modes.
+icons. Appearance (*Appearance*) offers six palettes and light/dark/black/automatic modes.
 
 ## Mobile behavior
 
@@ -38,7 +37,7 @@ configuration, users and audit stay on desktop. Recording controls fit the
 phone width; folders and subpages expose a back button. System-bar spacing
 uses both browser safe-area values and Capacitor's injected values.
 
-Nuvem has list/grid modes, previews, filtering and resumable uploads.
+Cloud has list/grid modes, previews, filtering and resumable uploads.
 Folder selection is desktop-only; it preserves paths of files and their
 containing folders. Empty directories are not represented by the file
 picker. Video previews decode on the viewing device, not the server.
@@ -47,7 +46,7 @@ picker. Video previews decode on the viewing device, not the server.
 
 All API calls use same-origin cookies and CSRF. Live access uses short-lived
 tickets issued by Sentinela; the browser does not call go2rtc directly.
-Viewer accounts have no Nuvem access; operators use personal/shared folders.
+Viewer accounts have no Cloud access; operators use personal/shared folders.
 
 The `SentinelaNotify` bridge chooses Firebase notifications or the direct
 fallback. Firebase receives an opaque id; the app fetches details with its

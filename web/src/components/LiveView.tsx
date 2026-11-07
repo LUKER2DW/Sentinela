@@ -11,6 +11,7 @@ import { DetectionOverlay } from "./DetectionOverlay";
 import { useMobileLandscape } from "../lib/mobileViewport";
 import { usePlayerFullscreen } from "../lib/playerFullscreen";
 
+import { t, fmtNum } from "../lib/i18n";
 interface Props {
   cameraId: string;
   cameraName: string;
@@ -22,7 +23,7 @@ interface Props {
 }
 
 const transportLabel = { webrtc: "WebRTC", mse: "MSE" } as const;
-export const streamLabel = { main: "Principal", sub: "Substream" } as const;
+export const streamLabel = { main: t("Main"), sub: "Substream" } as const;
 
 // A tab hidden (or a window covered) longer than this reopens the stream
 // fresh when shown; hidden longer than STOP it closes the stream.
@@ -159,7 +160,7 @@ export function LiveView({ cameraId, cameraName, motion, allowTalk, compact, def
     try {
       const blob = await c.stop();
       await saveBlob(blob, `sentinela-${cameraId}-${stamp(new Date(c.startedAt))}.${c.extension}`);
-      toast("Gravação salva no aparelho.");
+      toast(t("Recording saved on this device."));
     } catch (e) {
       if ((e as Error).name !== "AbortError") toast((e as Error).message, true);
     }
@@ -186,7 +187,7 @@ export function LiveView({ cameraId, cameraName, motion, allowTalk, compact, def
       setClip(c);
       haptic(20);
     } catch (e) {
-      toast(`Não foi possível gravar: ${(e as Error).message}`, true);
+      toast(t("Could not record: {message}", { message: (e as Error).message }), true);
     }
   };
 
@@ -196,7 +197,7 @@ export function LiveView({ cameraId, cameraName, motion, allowTalk, compact, def
     haptic();
     grabFrame(v)
       .then((b) => saveBlob(b, `sentinela-${cameraId}-${stamp()}.jpg`))
-      .then(() => toast("Imagem salva no aparelho."))
+      .then(() => toast(t("Image saved on this device.")))
       .catch((e: Error) => e.name !== "AbortError" && toast(e.message, true));
   };
 
@@ -332,7 +333,7 @@ export function LiveView({ cameraId, cameraName, motion, allowTalk, compact, def
         playsInline
         autoPlay
         muted
-        aria-label={`Ao vivo: ${cameraName}`}
+        aria-label={t("Live: {cameraName}", { cameraName })}
         style={zoom.scale > 1 ? { transform: `translate(${zoom.x}px, ${zoom.y}px) scale(${zoom.scale})` } : undefined}
         onLoadedMetadata={(e) => e.currentTarget.videoWidth && setDims({ w: e.currentTarget.videoWidth, h: e.currentTarget.videoHeight })}
         onResize={(e) => e.currentTarget.videoWidth && setDims({ w: e.currentTarget.videoWidth, h: e.currentTarget.videoHeight })}
@@ -356,24 +357,24 @@ export function LiveView({ cameraId, cameraName, motion, allowTalk, compact, def
 
       <div className="player-tag">
         {status.state === "playing" && !frozen ? <span className="dot rec" /> : <span className="dot warn" />}
-        <span>{status.state === "playing" && !frozen ? "Ao vivo" : frozen ? "Reconectando" : "Conectando"}</span>
+        <span>{status.state === "playing" && !frozen ? t("Live") : frozen ? t("Reconnecting") : t("Connecting")}</span>
         {!compact && <span className="faint">{streamLabel[stream]}</span>}
         {status.transport && status.state === "playing" && (
-          <span className="faint" title="Transporte e quanto vídeo o navegador segura antes de mostrar. Quanto menor, mais perto do tempo real.">
+          <span className="faint" title={t("Transport and how much video the browser holds before showing it. The lower, the closer to real time.")}>
             {transportLabel[status.transport]}
-            {delay !== null && ` ${delay < 0.1 ? "<0,1" : delay.toFixed(1).replace(".", ",")} s`}
+            {delay !== null && ` ${delay < 0.1 ? `<${fmtNum(0.1)}` : fmtNum(delay, 1, 1)} s`}
           </span>
         )}
-        {zoom.scale > 1 && <span className="faint">{zoom.scale.toFixed(1).replace(".", ",")}×</span>}
+        {zoom.scale > 1 && <span className="faint">{fmtNum(zoom.scale, 1, 1)}×</span>}
       </div>
       {motion && (
         <div className="player-tag motion" role="status">
-          <span className="dot bad" /> Movimento
+          <span className="dot bad" />{" "}{t("Motion")}
         </div>
       )}
       {clip && (
         <div className="player-tag rec-tag" role="status">
-          <span className="dot rec" /> Gravando no aparelho <span className="num">{fmtClock(clipMs)}</span>
+          <span className="dot rec" />{" "}{t("Recording on this device")}{" "}<span className="num">{fmtClock(clipMs)}</span>
         </div>
       )}
 
@@ -387,21 +388,21 @@ export function LiveView({ cameraId, cameraName, motion, allowTalk, compact, def
               {status.state === "error"
                 ? status.message
                 : status.state === "reconnecting"
-                  ? `Reconectando… ${status.message ?? ""}`
-                  : "Abrindo vídeo…"}
+                  ? t("Reconnecting… {v0}", { v0: status.message ?? "" })
+                  : t("Opening video…")}
             </p>
           </div>
         </div>
       )}
 
       <div className={`player-bar${holding ? " always" : ""}`}>
-        <button className="btn icon" onClick={() => setMuted((m) => !m)} aria-label={muted ? "Ativar som" : "Silenciar"} title={muted ? "Ativar som" : "Silenciar"}>
+        <button className="btn icon" onClick={() => setMuted((m) => !m)} aria-label={muted ? t("Unmute") : t("Mute")} title={muted ? t("Unmute") : t("Mute")}>
           <Icon name={muted ? "mute" : "sound"} />
         </button>
         {allowTalk && (
           <button
             className={`btn icon talk${holding ? " on" : ""}`}
-            aria-label={holding ? (status.state === "playing" ? "Falando" : "Conectando") : "Segure para falar"}
+            aria-label={holding ? (status.state === "playing" ? t("Talking") : t("Connecting")) : t("Hold to talk")}
             disabled={!talkAvailable}
             aria-pressed={holding}
             onPointerDown={(e) => {
@@ -413,13 +414,13 @@ export function LiveView({ cameraId, cameraName, motion, allowTalk, compact, def
             onKeyDown={(e) => talkKey(e, true)}
             onKeyUp={(e) => talkKey(e, false)}
             onContextMenu={(e) => e.preventDefault()}
-            title={talkAvailable ? "Segure para falar pelo alto-falante da câmera" : "Falar exige HTTPS e WebRTC (indisponível pela rede de casa em HTTP e pelo Funnel)"}
+            title={talkAvailable ? t("Hold to talk through the camera's speaker") : t("Talking requires HTTPS and WebRTC (unavailable over the home network on HTTP and over Funnel)")}
           >
             <Icon name="mic" />
           </button>
         )}
         <span className="spacer" />
-        <button className="btn icon" onClick={snapshot} disabled={status.state !== "playing"} aria-label="Salvar imagem" title="Salvar a imagem atual no aparelho">
+        <button className="btn icon" onClick={snapshot} disabled={status.state !== "playing"} aria-label={t("Save picture")} title={t("Save the current picture on this device")}>
           <Icon name="camera" />
         </button>
         {canRecord() && (
@@ -428,8 +429,8 @@ export function LiveView({ cameraId, cameraName, motion, allowTalk, compact, def
             onClick={() => (clip ? void stopClip() : startClip())}
             disabled={!clip && status.state !== "playing"}
             aria-pressed={!!clip}
-            aria-label={clip ? "Parar e salvar a gravação" : "Gravar no aparelho"}
-            title={clip ? "Parar e salvar a gravação no aparelho" : "Gravar o que aparece aqui e salvar no aparelho"}
+            aria-label={clip ? t("Stop and save the recording") : t("Record on this device")}
+            title={clip ? t("Stop and save the recording on this device") : t("Record what appears here and save it on this device")}
           >
             <Icon name={clip ? "stop" : "record"} />
           </button>
@@ -438,8 +439,8 @@ export function LiveView({ cameraId, cameraName, motion, allowTalk, compact, def
           className={`btn icon hide-sm${meter ? " on" : ""}`}
           onClick={() => setMeter((m) => !m)}
           aria-pressed={meter}
-          aria-label="Medir atraso"
-          title="Medir atraso: compara o relógio da câmera com a hora certa"
+          aria-label={t("Measure delay")}
+          title={t("Measure delay: compares the camera's clock with the right time")}
         >
           <Icon name="timer" />
         </button>
@@ -448,13 +449,13 @@ export function LiveView({ cameraId, cameraName, motion, allowTalk, compact, def
           <button
             className="btn stream-toggle"
             onClick={() => pickStream(stream === "main" ? "sub" : "main")}
-            aria-label={stream === "main" ? "HD: tocar para mudar para SD" : "SD: tocar para mudar para HD"}
-            title={stream === "main" ? "HD (stream principal, 2K). Toque para SD: abre mais rápido e gasta menos dados" : "SD (substream). Toque para HD: resolução máxima (2K)"}
+            aria-label={stream === "main" ? t("HD: tap to switch to SD") : t("SD: tap to switch to HD")}
+            title={stream === "main" ? t("HD (main stream, 2K). Tap for SD: opens faster and uses less data") : t("SD (substream). Tap for HD: maximum resolution (2K)")}
           >
-            {stream === "main" ? "HD" : "SD"}
+            {stream === "main" ? t("HD") : t("SD")}
           </button>
         )}
-        <button className="btn icon" onClick={fullscreen} aria-pressed={expanded} aria-label={expanded ? "Sair da tela cheia" : "Tela cheia"} title={expanded ? "Sair da tela cheia" : "Tela cheia"}>
+        <button className="btn icon" onClick={fullscreen} aria-pressed={expanded} aria-label={expanded ? t("Exit full screen") : t("Full screen")} title={expanded ? t("Exit full screen") : t("Full screen")}>
           <Icon name="fullscreen" />
         </button>
       </div>

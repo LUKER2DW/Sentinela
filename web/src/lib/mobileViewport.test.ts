@@ -20,7 +20,7 @@ describe("mobile routing across rotation", () => {
   ])("keeps the intended device layout at %i × %i", (width, height, coarse, mobile) => {
     device(width, height, coarse);
     expect(isMobileViewport()).toBe(mobile);
-    expect(mobilePage("servicos", isMobileViewport())).toBe(mobile ? "system" : "servicos");
+    expect(mobilePage("services", isMobileViewport())).toBe(mobile ? "system" : "services");
     expect(mobilePage("events", isMobileViewport())).toBe("events");
   });
 

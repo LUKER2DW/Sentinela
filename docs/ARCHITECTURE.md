@@ -7,7 +7,7 @@ from their original runs; they are not new hardware measurements.
 
 | Component | Runtime | Responsibility |
 |---|---|---|
-| `sentinela` | `sentinela serve` container | Auth, SPA/API, camera control, stream proxy, events, Nuvem, notification sending and APK feed |
+| `sentinela` | `sentinela serve` container | Auth, SPA/API, camera control, stream proxy, events, Cloud, notification sending and APK feed |
 | `recorder` | `sentinela record`, same image | Separate ffmpeg supervisor, indexing, retention and heartbeat |
 | `go2rtc` | Pinned container | Live WebRTC/MSE, RTSP restream and talk backchannel |
 | `detector` | Motion-gated sidecar, ADR-0016 | Substream keyframes, YOLO26n, zones and event snapshots; CPU capped at 0.15 core, memory 192 MB |
@@ -133,10 +133,10 @@ services cannot reach private ranges; their ports answer private sources,
 and the internet only when listed). Services and builds share at most
 `apps.total_memory_mb` and one core; they weigh less than the NVR.
 
-### 2.7 Nuvem and accounts
+### 2.7 Cloud and accounts
 
 The existing API confines filesystem access through `os.Root`.
-Viewers cannot use Nuvem; operators use personal and shared directories;
+Viewers cannot use Cloud; operators use personal and shared directories;
 admins can access the share. Top-level folders cannot be renamed, moved or
 deleted through the API. Samba's separate LAN account is not a web account.
 
@@ -234,7 +234,7 @@ page shows the error instead of filling `/`.
 |---|---|---|
 | `/` | OS and Docker | Yes |
 | `/data` | Rolling video and application state (database, keys) | Yes: its own disk |
-| `/srv/nas` | Nuvem (LAN share and web file browser) | Optional, its own disk |
+| `/srv/nas` | Cloud (LAN share and web file browser) | Optional, its own disk |
 | `/srv/backup` | Local DB/config backups (ADR-0014) | Optional, recommended; not on the `/data` disk |
 
 The SMART timer snapshots disk state hourly for the System page.

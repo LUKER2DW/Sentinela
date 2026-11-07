@@ -1,7 +1,8 @@
 // The Android app's back button (MainActivity) asks the page first:
 // close what is on top (fullscreen, a sheet, a dialog), else go back a page,
-// else return to Ao vivo. false = nothing left; the app then handles it
+// else return to Live. false = nothing left; the app then handles it
 // (second press leaves).
+import { t } from "./i18n";
 import { EXIT_PLAYER_FULLSCREEN } from "./playerFullscreen";
 
 declare global {
@@ -28,7 +29,7 @@ function closeTopmost(): boolean {
   const dialog = [...document.querySelectorAll<HTMLElement>(".dialog-backdrop")].pop();
   if (dialog) {
     const close =
-      dialog.querySelector<HTMLElement>('[aria-label="Fechar"]') ??
+      dialog.querySelector<HTMLElement>(`[aria-label="${t("Close")}"]`) ??
       [...dialog.querySelectorAll<HTMLElement>("button")].find((b) => /^(Cancelar|Fechar)$/.test(b.textContent?.trim() ?? ""));
     (close ?? dialog).click(); // a click on the backdrop itself closes the others
     return true;

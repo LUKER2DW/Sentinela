@@ -56,7 +56,9 @@ On Windows without `make`, run the steps of the `check` target by hand.
 - Commit messages in [Conventional Commits](https://www.conventionalcommits.org/)
   style, with a body that says *why* when it is not obvious.
 - Update the docs only when behaviour changes.
-- UI text is Portuguese (Brazil); code, comments and docs are English.
+- UI text is written in English and wrapped in `t("…")`; Brazilian Portuguese
+  lives in `web/src/lib/locales/pt-BR.ts` (English key → Portuguese). Code,
+  comments and docs are English.
 
 ## Licence
 

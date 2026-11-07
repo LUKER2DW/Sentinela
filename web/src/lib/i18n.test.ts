@@ -11,11 +11,11 @@ describe("i18n", () => {
   });
   it("translates, fills placeholders and falls back to Portuguese", () => {
     setLang("en");
-    expect(t("Ao vivo")).toBe("Live");
-    expect(t("Versão {v}", { v: "1.2.0" })).toBe("Version 1.2.0");
-    expect(t("Frase sem tradução")).toBe("Frase sem tradução");
+    expect(t("Live")).toBe("Live");
+    expect(t("Version {v}", { v: "1.2.0" })).toBe("Version 1.2.0");
+    expect(t("Frase que não existe no dicionário")).toBe("Frase que não existe no dicionário");
     setLang("pt-BR");
-    expect(t("Ao vivo")).toBe("Ao vivo");
+    expect(t("Live")).toBe("Ao vivo");
     setLang("auto");
   });
 });

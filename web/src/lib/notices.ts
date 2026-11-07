@@ -2,6 +2,7 @@ import { useCallback, useSyncExternalStore } from "react";
 import type { SystemInfo } from "./api";
 import { fmtDuration, fmtTime } from "./time";
 
+import { t } from "./i18n";
 // System notices (disk wear, recording gaps, vendor cloud, backups…). Each
 // has a signature of what it says: marking it read hides it until the
 // situation changes (a new gap, another disk), then it comes back unread.
@@ -22,15 +23,15 @@ const STORM = 5;
 
 export function buildNotices(s: SystemInfo, camName: (id: string) => string, cloudOn: string[]): Notice[] {
   const out: Notice[] = [];
-  const names: Record<string, string> = { "/data": "gravações", "/srv/nas": "Nuvem", "/srv/backup": "backups" };
+  const names: Record<string, string> = { "/data": t("recordings"), "/srv/nas": t("Cloud"), "/srv/backup": "backups" };
   for (const [m, h] of Object.entries(s.disk_health?.mounts ?? {})) {
     if (m === "/" || h.state === "ok") continue;
     out.push({
       id: `disk:${m}`,
       sig: `${h.state}:${h.uncorrectable}:${h.pending}:${h.reallocated}`,
       level: h.state === "fail" ? "error" : "warn",
-      title: `Disco de ${names[m] ?? m} com sinais de desgaste`,
-      text: `${h.model}: ${h.uncorrectable} leituras com erro, ${h.pending} setores pendentes. Troque esse disco quando puder; as gravações continuam, mas podem perder trechos se ele piorar.`,
+      title: t("Disk {v0} showing wear", { v0: names[m] ?? m }),
+      text: t("{model}: {uncorrectable} read errors, {pending} pending sectors. Replace this disk when you can; recordings continue, but may lose clips if it gets worse.", { model: h.model, uncorrectable: h.uncorrectable, pending: h.pending }),
       section: "server",
     });
   }
@@ -41,8 +42,8 @@ export function buildNotices(s: SystemInfo, camName: (id: string) => string, clo
       id: `gaps:${id}`,
       sig: `${g.count}:${last?.from ?? ""}`,
       level: "warn",
-      title: `${camName(id)} ficou sem gravar ${g.count}× nas últimas 24 h`,
-      text: `${last ? `A última de ${fmtTime(last.from)} a ${fmtTime(last.to)}` : ""}${g.longest_secs ? ` (maior: ${fmtDuration(g.longest_secs * 1000)})` : ""}. Veja se a câmera está ligada e na rede; a gravação continua sozinha quando ela volta.`,
+      title: t("{v0} stopped recording {count}× in the last 24 h", { v0: camName(id), count: g.count }),
+      text: t("{v0}{v1}. Check that the camera is on and on the network; recording continues by itself when it comes back.", { v0: last ? t("The last one, from {v0} to {v1}", { v0: fmtTime(last.from), v1: fmtTime(last.to) }) : "", v1: g.longest_secs ? ` (maior: ${fmtDuration(g.longest_secs * 1000)})` : "" }),
       section: "recording",
     });
   }
@@ -52,8 +53,8 @@ export function buildNotices(s: SystemInfo, camName: (id: string) => string, clo
       id: `storm:${r.camera_id}`,
       sig: String(Math.floor(r.restarts_1h / STORM)),
       level: "error",
-      title: `${camName(r.camera_id)} reconectou ${r.restarts_1h}× na última hora`,
-      text: r.last_error || "A câmera está caindo e voltando. Verifique a rede e a alimentação dela.",
+      title: t("{v0} reconnected {restarts_1h}× in the last hour", { v0: camName(r.camera_id), restarts_1h: r.restarts_1h }),
+      text: r.last_error || t("The camera keeps dropping and coming back. Check its network and power."),
       section: "recording",
     });
   }
@@ -62,8 +63,8 @@ export function buildNotices(s: SystemInfo, camName: (id: string) => string, clo
       id: `cloud:${id}`,
       sig: "on",
       level: "warn",
-      title: `${camName(id)} ainda usa a nuvem do fabricante`,
-      text: "Ela se conecta ao serviço P2P da XMEye pela internet. Desligue “Nuvem”/“P2P” nas configurações de rede da câmera e bloqueie a saída dela no roteador.",
+      title: t("{v0} still uses the manufacturer's cloud", { v0: camName(id) }),
+      text: t("It connects to XMEye's P2P service over the internet. Turn off \"Cloud\"/\"P2P\" in the camera's network settings and block its outgoing traffic on the router."),
       section: "cameras",
     });
   }
@@ -75,8 +76,8 @@ export function buildNotices(s: SystemInfo, camName: (id: string) => string, clo
         id: "backup:db",
         sig: b.db_at || "never",
         level: "warn",
-        title: "A cópia noturna do banco não está em dia",
-        text: "O backup do banco de dados (todas as noites) não rodou nas últimas 36 h. Veja o serviço sentinela-backup no servidor.",
+        title: t("The nightly database backup is out of date"),
+        text: t("The database backup (every night) has not run in the last 36 h. Check the sentinela-backup service on the server."),
         section: "server",
       });
     if (b.restic === "failed" || b.restic === "disk_missing")
@@ -84,8 +85,8 @@ export function buildNotices(s: SystemInfo, camName: (id: string) => string, clo
         id: "backup:restic",
         sig: b.restic,
         level: "warn",
-        title: b.restic === "failed" ? "A cópia para o disco externo falhou" : "O disco externo de backup está desconectado",
-        text: "As gravações continuam; só a cópia de segurança externa está parada.",
+        title: b.restic === "failed" ? t("The copy to the external disk failed") : t("The external backup disk is disconnected"),
+        text: t("Recordings continue; only the external backup copy is stopped."),
         section: "server",
       });
   }
@@ -94,8 +95,8 @@ export function buildNotices(s: SystemInfo, camName: (id: string) => string, clo
       id: "go2rtc",
       sig: "down",
       level: "error",
-      title: "Serviço de vídeo ao vivo fora do ar",
-      text: "O ao vivo não abre até o go2rtc voltar. As gravações não dependem dele e continuam.",
+      title: t("Live video service is down"),
+      text: t("Live does not open until go2rtc comes back. Recordings do not depend on it and continue."),
       section: "cameras",
     });
   return out;

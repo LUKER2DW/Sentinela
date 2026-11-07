@@ -3,6 +3,7 @@ import type { Timeline } from "../lib/api";
 import { DAY_MS, fmtHM, fmtTime, mergeRanges } from "../lib/time";
 import { Moon, Sun } from "./Doodles";
 
+import { t, plural } from "../lib/i18n";
 interface Props {
   /** Local midnight of the day shown. */
   dayStart: Date;
@@ -147,13 +148,13 @@ export function DayRibbon({ dayStart, data, cursor, now, onPick, label, view, pr
         )}
       </div>
       {hours.some((h) => h.n) && (
-        <div className="activity" role="group" aria-label="Atividade por hora">
+        <div className="activity" role="group" aria-label={t("Activity per hour")}>
           {hours.map((h, i) => (
             <button
               key={i}
               disabled={!h.n}
-              title={h.n ? `${String(i).padStart(2, "0")}h: ${h.n} ${h.n === 1 ? "evento" : "eventos"}` : undefined}
-              aria-label={h.n ? `${i} horas, ${h.n} eventos` : `${i} horas, nada`}
+              title={h.n ? `${String(i).padStart(2, "0")}h: ${plural(h.n, "{n} event", "{n} events")}` : undefined}
+              aria-label={h.n ? t("{i} hours, {n} events", { i, n: h.n }) : t("{i} hours, nothing", { i })}
               onClick={() => h.n && pick(h.first - 5000)}
             >
               {/* sqrt keeps a single event visible next to a busy hour */}
@@ -179,15 +180,15 @@ export function RibbonLegend() {
     <div className="ribbon-legend">
       <span>
         <i style={{ background: "var(--sea)" }} />
-        Gravado
+        {t("Recorded")}
       </span>
       <span>
         <i style={{ background: "repeating-linear-gradient(135deg, var(--line-strong) 0 2px, transparent 2px 5px)" }} />
-        Sem gravação
+        {t("No recording")}
       </span>
       <span>
         <i style={{ background: "var(--coral)" }} />
-        Movimento
+        {t("Motion")}
       </span>
     </div>
   );

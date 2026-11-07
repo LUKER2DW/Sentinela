@@ -9,6 +9,7 @@ import { useCompact } from "../lib/viewport";
 import { useCameras } from "../pages/LivePage";
 import { Icon } from "./Icon";
 
+import { t } from "../lib/i18n";
 /** The server's current notices, with this device's read state. */
 export function useSystemNotices() {
   const sys = useQuery({ queryKey: ["system"], queryFn: fetchSystem, refetchInterval: 60_000 });
@@ -46,7 +47,7 @@ function useTodayEvents() {
   return { items: q.data?.items ?? [], unseen: q.data?.unseen ?? 0, loaded: q.isSuccess, seen };
 }
 
-const typesText = (it: ReviewItem) => [...new Set(it.types.map((t) => eventLabel[t] ?? t))].join(", ") || "Evento";
+const typesText = (it: ReviewItem) => [...new Set(it.types.map((t) => eventLabel[t] ?? t))].join(", ") || t("Event");
 
 type Tab = "events" | "system";
 
@@ -95,19 +96,19 @@ export function NoticeBell() {
   const multi = (cams.data?.length ?? 0) > 1;
 
   const panel = (
-    <div className={`inbox${compact ? " sheet" : ""}`} role="dialog" aria-label="Avisos">
+    <div className={`inbox${compact ? " sheet" : ""}`} role="dialog" aria-label={t("Notices")}>
       <div className="inbox-head">
-        <strong>Avisos</strong>
-        <div className="inbox-tabs" role="tablist" aria-label="Tipo de aviso">
+        <strong>{t("Notices")}</strong>
+        <div className="inbox-tabs" role="tablist" aria-label={t("Notice type")}>
           <button role="tab" aria-selected={tab === "events"} onClick={() => setTab("events")}>
-            Eventos {ev.unseen > 0 && <span className="count-badge">{ev.unseen > 99 ? "99+" : ev.unseen}</span>}
+            {t("Events")}{" "}{ev.unseen > 0 && <span className="count-badge">{ev.unseen > 99 ? "99+" : ev.unseen}</span>}
           </button>
           <button role="tab" aria-selected={tab === "system"} onClick={() => setTab("system")}>
-            Sistema {sys.unread.length > 0 && <span className="count-badge">{sys.unread.length}</span>}
+            {t("System")}{" "}{sys.unread.length > 0 && <span className="count-badge">{sys.unread.length}</span>}
           </button>
         </div>
         {compact && (
-          <button className="btn ghost icon small" aria-label="Fechar" onClick={() => setOpen(false)}>
+          <button className="btn ghost icon small" aria-label={t("Close")} onClick={() => setOpen(false)}>
             <Icon name="x" />
           </button>
         )}
@@ -116,7 +117,7 @@ export function NoticeBell() {
       <div className="inbox-body" role="tabpanel">
         {tab === "events" ? (
           ev.items.length === 0 ? (
-            <InboxEmpty icon="events" title={ev.loaded ? "Nenhum evento hoje" : "Carregando…"} text={ev.loaded ? "Pessoas, carros e alertas das câmeras aparecem aqui." : ""} />
+            <InboxEmpty icon="events" title={ev.loaded ? t("No events today") : t("Loading…")} text={ev.loaded ? t("People, cars and camera alerts show up here.") : ""} />
           ) : (
             <ul className="inbox-list">
               {ev.items.slice(0, 20).map((it) => (
@@ -139,14 +140,14 @@ export function NoticeBell() {
                         {fmtTime(it.start)} ({relative(it.start)})
                       </span>
                     </span>
-                    {!it.seen && <span className="inbox-dot" aria-label="Novo" />}
+                    {!it.seen && <span className="inbox-dot" aria-label={t("New")} />}
                   </button>
                 </li>
               ))}
             </ul>
           )
         ) : sys.all.length === 0 ? (
-          <InboxEmpty icon="check" ok title="Tudo em ordem" text="Gravação, discos e backups sem problemas." />
+          <InboxEmpty icon="check" ok title={t("All in order")} text={t("Recording, disks and backups without problems.")} />
         ) : (
           <ul className="inbox-list">
             {[...sys.unread, ...sys.all.filter((n) => isRead(n, sys.read))].map((n) => (
@@ -172,22 +173,22 @@ export function NoticeBell() {
           <>
             {ev.unseen > 0 && (
               <button className="btn ghost small" disabled={ev.seen.isPending} onClick={() => ev.seen.mutate({ all: true })}>
-                <Icon name="check" /> Marcar todos como vistos
+                <Icon name="check" />{" "}{t("Mark all as seen")}
               </button>
             )}
             <a className="btn ghost small inbox-more" href={href("events")} onClick={() => setOpen(false)}>
-              Abrir Eventos
+              {t("Open Events")}
             </a>
           </>
         ) : (
           <>
             {sys.unread.length > 0 && (
               <button className="btn ghost small" onClick={() => sys.mark(sys.unread)}>
-                <Icon name="check" /> Marcar todos como lidos
+                <Icon name="check" />{" "}{t("Mark all as read")}
               </button>
             )}
             <a className="btn ghost small inbox-more" href={href("system")} onClick={() => setOpen(false)}>
-              Abrir Sistema
+              {t("Open System")}
             </a>
           </>
         )}
@@ -197,7 +198,7 @@ export function NoticeBell() {
 
   return (
     <div className="bell" ref={ref}>
-      <button className="theme-btn bell-btn" aria-label={total ? `${total} avisos não lidos` : "Avisos"} title="Avisos" aria-expanded={open} onClick={toggle}>
+      <button className="theme-btn bell-btn" aria-label={total ? t("{total} unread notices", { total }) : t("Notices")} title={t("Notices")} aria-expanded={open} onClick={toggle}>
         <Icon name="bell" />
         {total > 0 && <span className={`bell-count${sys.unread.some((n) => n.level === "error") ? " bad" : ""}`}>{total > 99 ? "99+" : total}</span>}
       </button>
@@ -238,7 +239,7 @@ function NoticeItem({ n, read, onOpen, onToggle }: { n: Notice; read: boolean; o
         <strong>{n.title}</strong>
         <span className="muted small clamp-2">{n.text}</span>
       </button>
-      <button className="btn ghost icon small" onClick={onToggle} title={read ? "Marcar como não lido" : "Marcar como lido"} aria-label={read ? "Marcar como não lido" : "Marcar como lido"}>
+      <button className="btn ghost icon small" onClick={onToggle} title={read ? t("Mark as unread") : t("Mark as read")} aria-label={read ? t("Mark as unread") : t("Mark as read")}>
         <Icon name={read ? "bell" : "check"} />
       </button>
     </div>
@@ -253,16 +254,16 @@ export function NoticesPanel() {
   if (!all.length)
     return (
       <div className="notice ok-notice">
-        <Icon name="check" /> Nenhum aviso: gravação, discos e backups em ordem.
+        <Icon name="check" />{" "}{t("No notices: recording, disks and backups in order.")}
       </div>
     );
   return (
-    <section className="notices" aria-label="Avisos do sistema">
+    <section className="notices" aria-label={t("System notices")}>
       <div className="notices-head">
-        <h2>Avisos {unread.length > 0 && <span className="count-badge">{unread.length}</span>}</h2>
+        <h2>{t("Notices")}{" "}{unread.length > 0 && <span className="count-badge">{unread.length}</span>}</h2>
         {unread.length > 0 && (
           <button className="btn small ghost" onClick={() => mark(unread)}>
-            <Icon name="check" /> Marcar todos como lidos
+            <Icon name="check" />{" "}{t("Mark all as read")}
           </button>
         )}
       </div>
@@ -271,7 +272,7 @@ export function NoticesPanel() {
       ))}
       {readList.length > 0 && (
         <button className="linkish small" onClick={() => setShowRead((v) => !v)}>
-          {showRead ? "Esconder os lidos" : `Mostrar ${readList.length} ${readList.length === 1 ? "aviso lido" : "avisos lidos"}`}
+          {showRead ? t("Hide read ones") : t("Show {length} {v1}", { length: readList.length, v1: readList.length === 1 ? t("read notice") : t("read notices") })}
         </button>
       )}
       {showRead && readList.map((n) => <NoticeRow key={n.id} n={n} read onUnread={() => mark([n], false)} />)}
@@ -291,11 +292,11 @@ function NoticeRow({ n, read, onRead, onUnread }: { n: Notice; read?: boolean; o
       </div>
       {read ? (
         <button className="btn ghost small" onClick={onUnread}>
-          Marcar como não lido
+          {t("Mark as unread")}
         </button>
       ) : (
-        <button className="btn ghost small" onClick={onRead} title="Esconde este aviso até algo mudar">
-          <Icon name="check" /> Marcar como lido
+        <button className="btn ghost small" onClick={onRead} title={t("Hide this notice until something changes")}>
+          <Icon name="check" />{" "}{t("Mark as read")}
         </button>
       )}
     </div>

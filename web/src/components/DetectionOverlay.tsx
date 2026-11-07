@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, get } from "../lib/api";
+import { t } from "../lib/i18n";
 import { useSeen } from "../lib/detections";
 import { useOverlay } from "../lib/overlay";
 import { KIND_ONE, ZONE_COLORS, svgPoints, type DetectionSettings } from "../lib/zones";
@@ -91,7 +92,7 @@ export function DetectionOverlay({ cameraId, videoW, videoH, style, probe }: Pro
               {(prefs.labels || prefs.score) && (
                 <span className={`det-label${o.y < 0.08 ? " inside" : ""}`}>
                   {prefs.labels && KIND_ONE[o.kind]}
-                  {prefs.labels && o.parked && " parado"}
+                  {prefs.labels && o.parked && ` ${t("still")}`}
                   {prefs.score && <span className="num"> {Math.round(o.score * 100)}%</span>}
                 </span>
               )}

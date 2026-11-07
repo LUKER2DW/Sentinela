@@ -6,16 +6,16 @@ video, so the camera's own stream goes to disk and to your screen as-is.
 
 ## Adding a camera
 
-In the browser: **System → Câmeras → Configurar câmeras → Adicionar câmera**
+In the browser: **System → Cameras → Configure cameras → Add camera**
 (or the first-run guide). Type the camera's address, user and password, then:
 
-- **Most cameras (ONVIF):** press **Descobrir os streams pelo ONVIF**. The
+- **Most cameras (ONVIF):** press **Find the streams over ONVIF**. The
   camera lists its streams and Sentinela fills in the paths: the largest
   picture becomes the main stream, the next one the light stream used for
   grids and phones. Turn ONVIF on in the camera's own settings if it is off;
   some brands need a separate ONVIF user.
 - **A brand with a preset:** pick it under *Marca* and no paths are needed.
-- **Anything else:** choose *Qualquer câmera* and type the stream paths
+- **Anything else:** choose *Any camera* and type the stream paths
   yourself (see the table below or the camera's manual).
 
 Save: the server checks the settings, keeps a backup, applies them and rolls
@@ -33,9 +33,15 @@ From a shell instead: `sudo /opt/sentinela/scripts/add-camera.sh` (see
 | Motion and tamper events | – | ✓ (ONVIF events) | ✓ |
 | Object detection (people, vehicles, animals) | ✓ (sub stream) | ✓ | ✓ |
 | PTZ, saved positions, tours, white light, day/night | – | – | ✓ (DVRIP) |
-| Two-way audio | – | – | ✓ |
+| Two-way audio | ✓ (if `talk: true`) | ✓ (if `talk: true`) | ✓ |
 
-PTZ and two-way audio over ONVIF for other brands are on the roadmap.
+Each camera says what it has under `features` (System → Cameras: "Has PTZ",
+"Has a white light", "Has a speaker"). The live page shows only those
+controls and the API refuses the others, so a fixed XMEye bullet gets no PTZ
+pad and a camera without a speaker gets no talk button. XMEye cameras default
+to all three; other brands default to none. Talk on another brand uses the
+camera's own ONVIF/RTSP two-way audio through go2rtc. PTZ over ONVIF for
+other brands is on the roadmap.
 
 ## Presets
 

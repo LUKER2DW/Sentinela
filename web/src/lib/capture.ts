@@ -1,4 +1,5 @@
-// Client-side captures from a playing <video>: a still image and a local
+
+import { t } from "./i18n";// Client-side captures from a playing <video>: a still image and a local
 // recording. Both run in the viewer's browser (its own decoder and encoder);
 // the server never decodes video (AGENTS.md §2.1).
 
@@ -33,13 +34,13 @@ export async function saveBlob(blob: Blob, name: string): Promise<void> {
 export async function grabFrame(video: HTMLVideoElement): Promise<Blob> {
   const w = video.videoWidth;
   const h = video.videoHeight;
-  if (!w || !h) throw new Error("O vídeo ainda não mostrou nenhuma imagem.");
+  if (!w || !h) throw new Error(t("The video has not shown any picture yet."));
   const canvas = document.createElement("canvas");
   canvas.width = w;
   canvas.height = h;
   canvas.getContext("2d")!.drawImage(video, 0, 0, w, h);
   return new Promise((resolve, reject) =>
-    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("Não foi possível gerar a imagem."))), "image/jpeg", 0.92),
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error(t("Could not create the picture.")))), "image/jpeg", 0.92),
   );
 }
 
@@ -90,7 +91,7 @@ export class ClipRecorder {
     this.rec.ondataavailable = (e) => e.data.size && this.chunks.push(e.data);
     this.done = new Promise((resolve, reject) => {
       this.rec.onstop = () => resolve(new Blob(this.chunks, { type: this.type.split(";")[0] }));
-      this.rec.onerror = () => reject(new Error("A gravação local falhou."));
+      this.rec.onerror = () => reject(new Error(t("The local recording failed.")));
     });
     this.rec.start(1000);
   }

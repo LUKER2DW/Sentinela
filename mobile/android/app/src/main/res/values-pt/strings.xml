@@ -1,0 +1,40 @@
+<?xml version='1.0' encoding='utf-8'?>
+<!-- Portuguese for values/strings.xml (any Portuguese device; matches the web UI rule). -->
+<resources>
+    <string name="err_unknown_address">Endereço desconhecido.</string>
+    <string name="err_https_address">Use um endereço https:// (só o IP ou o nome e a porta, sem caminho).</string>
+    <string name="err_bad_pin">Código de certificado inválido: use o código de pareamento da casa.</string>
+    <string name="pair_invalid_link">Link de pareamento inválido.</string>
+    <string name="pair_title">Conectar a %1$s?</string>
+    <string name="pair_message">O app vai se conectar a %1$s.</string>
+    <string name="pair_message_pin">O app vai se conectar a %1$s, com o certificado desta casa.</string>
+    <string name="pair_warning">Só confirme se este código veio de Sistema → App, no Sentinela da sua casa.</string>
+    <string name="cancel">Cancelar</string>
+    <string name="connect">Conectar</string>
+
+    <string name="back_again">Toque em voltar de novo para sair</string>
+    <string name="locked">Sentinela bloqueado\nToque para desbloquear</string>
+    <string name="unlock_title">Desbloquear o Sentinela</string>
+    <string name="unlock_subtitle">Use a digital, o rosto ou o bloqueio de tela</string>
+
+    <string name="downloading">Baixando %1$s</string>
+    <string name="download_saved">Salvo em Downloads/Sentinela: %1$s</string>
+    <string name="download_failed">Não foi possível baixar %1$s</string>
+
+    <string name="channel_events">Eventos das câmeras</string>
+    <string name="channel_events_desc">Pessoa, veículo, movimento e câmera mexida, como escolhido em Minha conta</string>
+    <string name="channel_service">Conexão com a casa</string>
+    <string name="channel_service_desc">Aviso exigido pelo Android enquanto o app espera os eventos. Desligue para ocultar; os avisos de eventos continuam.</string>
+    <string name="sign_in_first">Entre no Sentinela neste celular primeiro.</string>
+    <string name="service_title">Conectado à casa</string>
+    <string name="service_text">Toque para ocultar este aviso; os alertas continuam</string>
+    <string name="pending_title">Novo evento no Sentinela</string>
+    <string name="pending_text">Abra o app para conferir o que aconteceu.</string>
+    <string name="paused_title">Avisos do Sentinela pausados</string>
+    <string name="paused_text">A sessão deste celular terminou. Abra o app e entre de novo.</string>
+
+    <string name="update_unavailable">Atualização indisponível.</string>
+    <string name="update_busy">A atualização já está sendo baixada.</string>
+    <string name="update_mismatch">O arquivo baixado não confere. Tente de novo.</string>
+    <string name="update_failed">Não foi possível baixar a atualização. Verifique a conexão e tente de novo.</string>
+</resources>

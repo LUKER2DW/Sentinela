@@ -16,6 +16,7 @@ import { frameFor, previewUrl } from "../lib/previewFrames";
 import { usePinchZoom } from "../lib/pinch";
 import { grabFrame, saveBlob, stamp } from "../lib/capture";
 
+import { fmtNum, t } from "../lib/i18n";
 const SPEEDS = [1, 2, 4, 8, 16];
 // A transparent pixel: no browser placeholder over a video still loading.
 const BLANK = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
@@ -62,21 +63,21 @@ export function RecordingsPage({ params }: { params: URLSearchParams }) {
     <>
       <header className="page-head">
         <div className="title">
-          <h1>Gravações</h1>
-          <span className="sub">Escolha um horário na faixa ou um evento ao lado para assistir.</span>
+          <h1>{t("Recordings")}</h1>
+          <span className="sub">{t("Pick a time on the strip or an event on the side to watch.")}</span>
         </div>
         <div className="day-nav">
-          <button className="btn icon" aria-label="Dia anterior" onClick={() => go(null, addDays(dayStart, -1))}>
+          <button className="btn icon" aria-label={t("Previous day")} onClick={() => go(null, addDays(dayStart, -1))}>
             <Icon name="chevronLeft" />
           </button>
           <span className="day-title">{fmtDay(dayStart)}</span>
-          <button className="btn icon" aria-label="Próximo dia" disabled={sameDay(dayStart, new Date(now))} onClick={() => go(null, addDays(dayStart, 1))}>
+          <button className="btn icon" aria-label={t("Next day")} disabled={sameDay(dayStart, new Date(now))} onClick={() => go(null, addDays(dayStart, 1))}>
             <Icon name="chevronRight" />
           </button>
           <input
             type="date"
             className="input"
-            aria-label="Escolher dia"
+            aria-label={t("Pick a day")}
             max={toDateInput(new Date(now))}
             value={toDateInput(dayStart)}
             onChange={(e) => {
@@ -86,7 +87,7 @@ export function RecordingsPage({ params }: { params: URLSearchParams }) {
           />
           {!sameDay(dayStart, new Date(now)) && (
             <button className="btn small ghost" onClick={() => go(null, new Date(now))}>
-              Hoje
+              {t("Today")}
             </button>
           )}
         </div>
@@ -110,7 +111,7 @@ export function RecordingsPage({ params }: { params: URLSearchParams }) {
           onPick={(ms) => go(ms)}
           view={view}
           preview={(ms) => <TimelinePreview segments={timeline.data?.segments ?? []} ms={ms} />}
-          label="Linha do tempo do dia. Clique para assistir a partir desse horário."
+          label={t("Day timeline. Click to watch from that time.")}
         />
         <TimeRuler
           dayStart={dayStart}
@@ -162,7 +163,7 @@ function CameraPicker({ cams, value, onPick }: { cams: Camera[]; value?: string;
     return !!r && r.state === "recording" && new Date(sys.data!.now).getTime() - new Date(r.heartbeat).getTime() < 60_000;
   };
   return (
-    <div className="cam-picker hscroll" role="radiogroup" aria-label="Câmera">
+    <div className="cam-picker hscroll" role="radiogroup" aria-label={t("Camera")}>
       {cams.map((c) => {
         const on = c.id === value;
         const rec = live(c.id);
@@ -174,7 +175,7 @@ function CameraPicker({ cams, value, onPick }: { cams: Camera[]; value?: string;
             <span className="cam-chip-text">
               <strong>{c.name}</strong>
               <span className="small">
-                <span className={`dot ${rec ? "rec" : sys.data ? "bad" : ""}`} /> {sys.data ? (rec ? "Gravando" : "Sem gravar agora") : "…"}
+                <span className={`dot ${rec ? "rec" : sys.data ? "bad" : ""}`} /> {sys.data ? (rec ? t("Recording now") : t("Not recording now")) : "…"}
               </span>
             </span>
           </button>
@@ -206,15 +207,15 @@ function SidePanel({
   const [tab, setTab] = useState<Tab>("events");
   return (
     <section className="card side-card">
-      <div className="side-tabs" role="tablist" aria-label="Painel">
+      <div className="side-tabs" role="tablist" aria-label={t("Panel")}>
         <button role="tab" aria-selected={tab === "events"} onClick={() => setTab("events")}>
-          Eventos <span className="count">{events.length}</span>
+          {t("Events")}{" "}<span className="count">{events.length}</span>
         </button>
         <button role="tab" aria-selected={tab === "timelapse"} onClick={() => setTab("timelapse")}>
-          Timelapse
+          {t("Timelapse")}
         </button>
         <button role="tab" aria-selected={tab === "summary"} onClick={() => setTab("summary")}>
-          Resumo
+          {t("Summary")}
         </button>
       </div>
       <div className="side-body" role="tabpanel">
@@ -234,15 +235,15 @@ function DayEvents({ events, cursor, onPick }: { events: CamEvent[]; cursor: num
     return (
       <div className="empty compact-empty">
         <Fish />
-        <p>Nenhum evento neste dia.</p>
+        <p>{t("No events on this day.")}</p>
       </div>
     );
   return (
     <>
       {types.length > 1 && (
-        <div className="chip-row" role="group" aria-label="Tipo de evento">
+        <div className="chip-row" role="group" aria-label={t("Event type")}>
           <button className={`chip small${type === "" ? " on" : ""}`} onClick={() => setType("")}>
-            Todos
+            {t("All")}
           </button>
           {types.map((t) => (
             <button key={t} className={`chip small${type === t ? " on" : ""}`} onClick={() => setType(t)}>
@@ -282,17 +283,17 @@ function DaySummary({ timeline, dayStart, now }: { timeline?: Timeline; dayStart
   for (const e of timeline?.events ?? []) counts.set(eventLabel[e.type] ?? e.type, (counts.get(eventLabel[e.type] ?? e.type) ?? 0) + 1);
   return (
     <dl className="kv summary-kv">
-      <dt>Gravado</dt>
+      <dt>{t("Recorded")}</dt>
       <dd>
-        {(recorded / 3600_000).toFixed(1).replace(".", ",")} h de {((end - t0) / 3600_000).toFixed(1).replace(".", ",")} h
+        {t("{a} h of {b} h", { a: fmtNum(recorded / 3600_000, 1, 1), b: fmtNum((end - t0) / 3600_000, 1, 1) })}
       </dd>
-      <dt>Falhas</dt>
-      <dd>{gaps === 0 ? "nenhuma" : `${gaps} ${gaps === 1 ? "interrupção" : "interrupções"}`}</dd>
-      <dt>Arquivos</dt>
+      <dt>{t("Failures")}</dt>
+      <dd>{gaps === 0 ? t("none") : `${gaps} ${gaps === 1 ? t("interruption") : t("interruptions")}`}</dd>
+      <dt>{t("Files")}</dt>
       <dd>
         {segs.length} · {fmtBytes(bytes)}
       </dd>
-      <dt>Protegidos</dt>
+      <dt>{t("Protected")}</dt>
       <dd>{segs.filter((s) => s.protected).length}</dd>
       {[...counts.entries()].map(([k, v]) => (
         <FragmentRow key={k} k={k} v={v} />
@@ -375,7 +376,7 @@ function Playback({
   const protect = useMutation({
     mutationFn: (p: boolean) => api("PUT", `/api/recordings/${current!.seg.id}/protected`, { protected: p }),
     onSuccess: (_, p) => {
-      toast(p ? "Trecho protegido contra apagamento" : "Proteção removida");
+      toast(p ? t("Clip protected from deletion") : t("Protection removed"));
       void qc.invalidateQueries({ queryKey: ["timeline"] });
       if (current) setCurrent({ ...current, seg: { ...current.seg, protected: p } });
     },
@@ -425,7 +426,7 @@ function Playback({
     if (!v || pos === null) return;
     grabFrame(v)
       .then((b) => saveBlob(b, `sentinela-${camId}-${stamp(new Date(pos))}.jpg`))
-      .then(() => toast("Imagem salva no aparelho."))
+      .then(() => toast(t("Image saved on this device.")))
       .catch((e: Error) => e.name !== "AbortError" && toast(e.message, true));
   };
 
@@ -434,7 +435,7 @@ function Playback({
       <div className="player">
         <div className="player-overlay">
           <Boat />
-          <p>Clique na faixa acima ou num evento para assistir a partir de um horário.</p>
+          <p>{t("Click the strip above or an event to watch from that time.")}</p>
         </div>
       </div>
     );
@@ -443,12 +444,12 @@ function Playback({
       <div className="player">
         <div className="player-overlay">
           <Boat />
-          <p>Não há gravação a partir de {fmtHM(requested)} neste dia.</p>
+          <p>{t("There is no recording from")}{" "}{fmtHM(requested)}{" "}{t("on this day.")}</p>
         </div>
       </div>
     );
 
-  const gapNote = requested < segStart - 5000 ? `Sem gravação às ${fmtHM(requested)}; começando às ${fmtHM(segStart)}.` : "";
+  const gapNote = requested < segStart - 5000 ? t("No recording at {v0}; starting at {v1}.", { v0: fmtHM(requested), v1: fmtHM(segStart) }) : "";
 
   return (
     <div className="playback">
@@ -473,7 +474,7 @@ function Playback({
           autoPlay
           muted
           controls={false}
-          aria-label={`Gravação de ${camName}`}
+          aria-label={t("Recording of {camName}", { camName })}
           onLoadedMetadata={(e) => {
             const v = e.currentTarget;
             v.currentTime = current.offset;
@@ -498,7 +499,7 @@ function Playback({
           }}
           onError={() =>
             setError(
-              "O navegador não conseguiu tocar este vídeo (H.265). Use Chrome/Edge com aceleração de hardware, Safari, ou exporte o trecho.",
+              t("The browser could not play this video (H.265). Use Chrome/Edge with hardware acceleration, Safari, or export the clip."),
             )
           }
         />
@@ -519,28 +520,28 @@ function Playback({
         </div>
         {clipFrom !== null && (
           <div className="player-tag rec-tag" role="status">
-            <Icon name="scissors" /> Trecho desde {fmtTime(clipFrom)}
+            <Icon name="scissors" />{" "}{t("Clip from")}{" "}{fmtTime(clipFrom)}
           </div>
         )}
         <div className="player-bar">
-          <button className="btn icon" aria-label={playing ? "Pausar" : "Reproduzir"} title="Reproduzir/pausar (espaço)" onClick={toggle}>
+          <button className="btn icon" aria-label={playing ? t("Pause") : t("Play")} title={t("Play/pause (space)")} onClick={toggle}>
             <Icon name={playing ? "pause" : "play"} />
           </button>
-          <button className="btn skip" aria-label="Voltar 10 segundos" title="Voltar 10 s (←)" onClick={() => skip(-10)}>
+          <button className="btn skip" aria-label={t("Back 10 seconds")} title={t("Back 10 s (←)")} onClick={() => skip(-10)}>
             −10
           </button>
-          <button className="btn skip" aria-label="Avançar 10 segundos" title="Avançar 10 s (→)" onClick={() => skip(10)}>
+          <button className="btn skip" aria-label={t("Skip ahead 10 seconds")} title={t("Skip ahead 10 s (→)")} onClick={() => skip(10)}>
             +10
           </button>
           {/* Phone: one button that cycles the speeds, so the bar fits the width. */}
           <button
             className="btn speed-cycle"
-            aria-label={`Velocidade ${speed}×, tocar para mudar`}
+            aria-label={t("Speed {speed}×, tap to change", { speed })}
             onClick={() => setSpeed(SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.length])}
           >
             {speed}×
           </button>
-          <div className="segmented speed-seg" role="group" aria-label="Velocidade">
+          <div className="segmented speed-seg" role="group" aria-label={t("Speed")}>
             {SPEEDS.map((s) => (
               <button key={s} aria-pressed={speed === s} onClick={() => setSpeed(s)}>
                 {s}×
@@ -548,10 +549,10 @@ function Playback({
             ))}
           </div>
           <span className="spacer" />
-          <button className="btn icon" onClick={() => setMuted((m) => !m)} aria-label={muted ? "Ativar som" : "Silenciar"} title={muted ? "Ativar som" : "Silenciar"}>
+          <button className="btn icon" onClick={() => setMuted((m) => !m)} aria-label={muted ? t("Unmute") : t("Mute")} title={muted ? t("Unmute") : t("Mute")}>
             <Icon name={muted ? "mute" : "sound"} />
           </button>
-          <button className="btn icon" onClick={fullscreen} aria-label="Tela cheia" title="Tela cheia (F)">
+          <button className="btn icon" onClick={fullscreen} aria-label={t("Full screen")} title={t("Full screen (F)")}>
             <Icon name="fullscreen" />
           </button>
         </div>
@@ -559,22 +560,22 @@ function Playback({
 
       <div className="rec-toolbar">
         <div className="rec-toolbar-group">
-          <button className="btn small" disabled={!prevEvent} onClick={() => prevEvent && onJump(new Date(prevEvent.start).getTime() - 5000)} title="Evento anterior">
-            <Icon name="skipBack" /> <span className="hide-sm">Evento anterior</span>
+          <button className="btn small" disabled={!prevEvent} onClick={() => prevEvent && onJump(new Date(prevEvent.start).getTime() - 5000)} title={t("Previous event")}>
+            <Icon name="skipBack" /> <span className="hide-sm">{t("Previous event")}</span>
           </button>
-          <button className="btn small" disabled={!nextEvent} onClick={() => nextEvent && onJump(new Date(nextEvent.start).getTime() - 5000)} title="Próximo evento">
-            <span className="hide-sm">Próximo evento</span> <Icon name="skipFwd" />
+          <button className="btn small" disabled={!nextEvent} onClick={() => nextEvent && onJump(new Date(nextEvent.start).getTime() - 5000)} title={t("Next event")}>
+            <span className="hide-sm">{t("Next event")}</span> <Icon name="skipFwd" />
           </button>
         </div>
         {gapNote && <span className="muted small">{gapNote}</span>}
         <span className="grow" />
         <div className="rec-toolbar-group">
-          <button className="btn small" onClick={snapshot} title="Salvar a imagem na tela como JPEG">
-            <Icon name="camera" /> Imagem
+          <button className="btn small" onClick={snapshot} title={t("Save the on-screen picture as JPEG")}>
+            <Icon name="camera" />{" "}{t("Image")}
           </button>
           {clipFrom === null ? (
-            <button className="btn small" onClick={() => pos && setClipFrom(pos)} title="Marca o começo; toque de novo no fim para salvar o trecho">
-              <Icon name="scissors" /> Marcar trecho
+            <button className="btn small" onClick={() => pos && setClipFrom(pos)} title={t("Marks the start; tap again at the end to save the clip")}>
+              <Icon name="scissors" />{" "}{t("Mark clip")}
             </button>
           ) : (
             <>
@@ -586,11 +587,11 @@ function Playback({
                   setExportRange({ from: clipFrom, to: pos });
                   setClipFrom(null);
                 }}
-                title="Termina o trecho aqui e salva no aparelho"
+                title={t("Ends the clip here and saves it on this device")}
               >
-                <Icon name="download" /> Salvar trecho{pos && pos > clipFrom ? ` (${fmtDuration(pos - clipFrom)})` : ""}
+                <Icon name="download" />{" "}{t("Save clip")}{pos && pos > clipFrom ? ` (${fmtDuration(pos - clipFrom)})` : ""}
               </button>
-              <button className="btn small ghost" onClick={() => setClipFrom(null)} aria-label="Cancelar trecho">
+              <button className="btn small ghost" onClick={() => setClipFrom(null)} aria-label={t("Cancel clip")}>
                 <Icon name="x" />
               </button>
             </>
@@ -599,13 +600,13 @@ function Playback({
             <button
               className={`btn small${current.seg.protected ? " on" : ""}`}
               onClick={() => protect.mutate(!current.seg.protected)}
-              title="Trechos protegidos não são apagados pela limpeza automática"
+              title={t("Protected clips are not deleted by automatic cleanup")}
             >
-              <Icon name="shield" /> {current.seg.protected ? "Protegido" : "Proteger"}
+              <Icon name="shield" /> {current.seg.protected ? t("Protected") : t("Protect")}
             </button>
           )}
           <button className="btn small primary" onClick={() => pos && setExportRange({ from: pos })}>
-            <Icon name="download" /> Exportar
+            <Icon name="download" />{" "}{t("Export")}
           </button>
         </div>
       </div>
@@ -644,21 +645,21 @@ function ExportDialog({ camId, range, onClose }: { camId: string; range: { from:
   return (
     <div className="dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="exp-title" onClick={onClose}>
       <div className="dialog" onClick={(e) => e.stopPropagation()}>
-        <h2 id="exp-title">{exact ? "Salvar trecho" : "Exportar vídeo"}</h2>
+        <h2 id="exp-title">{exact ? t("Save clip") : t("Export video")}</h2>
         {!exact && (
           <>
             <div className="field">
-              <label>Começar</label>
+              <label>{t("Get started")}</label>
               <div className="segmented">
                 {[0, 1, 5].map((b) => (
                   <button key={b} aria-pressed={back === b} onClick={() => setBack(b)}>
-                    {b === 0 ? "No horário atual" : `${b} min antes`}
+                    {b === 0 ? t("At the current time") : t("{b} min before", { b })}
                   </button>
                 ))}
               </div>
             </div>
             <div className="field">
-              <label>Duração</label>
+              <label>{t("Duration")}</label>
               <div className="segmented">
                 {[1, 5, 10, 30].map((m) => (
                   <button key={m} aria-pressed={minutes === m} onClick={() => setMinutes(m)}>
@@ -670,12 +671,11 @@ function ExportDialog({ camId, range, onClose }: { camId: string; range: { from:
           </>
         )}
         <p className="muted">
-          De {fmtTime(from)} até {fmtTime(to)} ({fmtDuration(to.getTime() - from.getTime())}). O arquivo MP4 é montado da gravação original, sem perda de
-          qualidade.
+          {t("From")}{" "}{fmtTime(from)}{" "}{t("until")}{" "}{fmtTime(to)} ({fmtDuration(to.getTime() - from.getTime())}{t("). The MP4 file is assembled from the original recording, without quality loss.")}
         </p>
         <div className="dialog-actions">
           <button className="btn ghost" onClick={onClose}>
-            Cancelar
+            {t("Cancel")}
           </button>
           {"share" in navigator && lengthMin <= SHARE_MAX_MIN && (
             <button
@@ -685,16 +685,16 @@ function ExportDialog({ camId, range, onClose }: { camId: string; range: { from:
                 setSharing(true);
                 const name = `sentinela-${camId}-${stamp(from)}.mp4`;
                 shareClip(url, name)
-                  .then((ok) => (ok ? onClose() : toast("Este aparelho não compartilha vídeos; use Baixar.", true)))
-                  .catch((e: Error) => e.name !== "AbortError" && toast(`Compartilhar: ${e.message}`, true))
+                  .then((ok) => (ok ? onClose() : toast(t("This device does not share videos; use Download."), true)))
+                  .catch((e: Error) => e.name !== "AbortError" && toast(t("Share: {message}", { message: e.message }), true))
                   .finally(() => setSharing(false));
               }}
             >
-              <Icon name="share" /> {sharing ? "Preparando…" : "Compartilhar"}
+              <Icon name="share" /> {sharing ? t("Preparing…") : t("Share")}
             </button>
           )}
           <a className="btn primary" href={url} download onClick={() => window.setTimeout(onClose, 300)}>
-            <Icon name="download" /> Baixar MP4
+            <Icon name="download" />{" "}{t("Download MP4")}
           </a>
         </div>
       </div>

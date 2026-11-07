@@ -6,6 +6,7 @@ import { useToast } from "../lib/session";
 import { isPublicZone } from "../lib/access";
 import { Icon } from "./Icon";
 
+import { t } from "../lib/i18n";
 /** One version of CHANGELOG.md: its title and its "### group" lists. */
 export interface ChangelogVersion {
   title: string;
@@ -52,17 +53,17 @@ function inline(text: string): ReactNode[] {
   );
 }
 
-const versionLabel = (t: string) => (t.toLowerCase() === "unreleased" ? "Próxima versão" : t);
+const versionLabel = (v: string) => (v.toLowerCase() === "unreleased" ? t("Next version") : v);
 
 /** "Novidades": the changelog shipped with this build. */
 export function ChangelogCard() {
   const versions = useMemo(() => parseChangelog(changelog), []);
   const [open, setOpen] = useState(1);
   return (
-    <section className="card" aria-label="Novidades">
+    <section className="card" aria-label={t("What's new")}>
       <div className="card-head">
-        <h2>Novidades</h2>
-        <span className="muted small">O que mudou em cada versão</span>
+        <h2>{t("What's new")}</h2>
+        <span className="muted small">{t("What changed in each version")}</span>
       </div>
       {versions.slice(0, open).map((v) => (
         <article key={v.title} className="changelog-version">
@@ -86,7 +87,7 @@ export function ChangelogCard() {
       ))}
       {open < versions.length && (
         <button className="btn ghost small" onClick={() => setOpen(versions.length)}>
-          Ver versões anteriores
+          {t("Show earlier versions")}
         </button>
       )}
     </section>
@@ -114,13 +115,13 @@ interface UpdatesInfo {
 }
 
 const stateText: Record<UpdateLast["state"], string> = {
-  current: "Em dia",
-  updated: "Atualizado",
-  updating: "Atualizando agora",
-  manual: "Versão instalada a partir de um computador: só é trocada se você permitir abaixo",
-  major: "Há uma versão nova com mudanças grandes: leia as notas e permita versões maiores para instalar",
-  failed: "A última atualização falhou e foi desfeita",
-  error: "Não foi possível verificar",
+  current: t("Up to date"),
+  updated: t("Updated"),
+  updating: t("Updating now"),
+  manual: t("Version installed from a computer: only replaced if you allow it below"),
+  major: t("There is a new version with big changes: read the notes and allow major versions to install"),
+  failed: t("The last update failed and was rolled back"),
+  error: t("Could not check"),
 };
 
 const hours = Array.from({ length: 24 }, (_, h) => `${String(h).padStart(2, "0")}:00`);
@@ -134,15 +135,15 @@ export function UpdatesCard({ s, admin }: { s: SystemInfo; admin: boolean }) {
   const save = useMutation({
     mutationFn: (next: UpdateSettings) => api<UpdateSettings>("PUT", "/api/updates", next),
     onSuccess: () => {
-      toast("Preferências de atualização salvas");
+      toast(t("Update preferences saved"));
       void qc.invalidateQueries({ queryKey: ["updates"] });
     },
-    onError: (e: Error) => toast(`Atualizações: ${e.message}`, true),
+    onError: (e: Error) => toast(t("Updates: {message}", { message: e.message }), true),
   });
   const check = useMutation({
     mutationFn: () => api("POST", "/api/updates/check"),
-    onSuccess: () => toast("Verificando agora; a página mostra o resultado em instantes"),
-    onError: (e: Error) => toast(`Atualizações: ${e.message}`, true),
+    onSuccess: () => toast(t("Checking now; the page shows the result in a moment")),
+    onError: (e: Error) => toast(t("Updates: {message}", { message: e.message }), true),
   });
   const info = q.data;
   const st = info?.settings;
@@ -151,29 +152,29 @@ export function UpdatesCard({ s, admin }: { s: SystemInfo; admin: boolean }) {
   const outside = isPublicZone();
 
   return (
-    <section className="card" aria-label="Atualizações">
+    <section className="card" aria-label={t("Updates")}>
       <div className="card-head">
-        <h2>Atualizações</h2>
-        <span className="pill">Versão {s.version}</span>
+        <h2>{t("Updates")}</h2>
+        <span className="pill">{t("Version")}{" "}{s.version}</span>
       </div>
       {admin && st && (
         <>
           <div className="toggle-row">
             <span>
-              <Icon name="refresh" /> Atualizar automaticamente
+              <Icon name="refresh" />{" "}{t("Update automatically")}
             </span>
             <button
               className={`switch${st.enabled ? " on" : ""}`}
               role="switch"
               aria-checked={st.enabled}
-              aria-label="Atualizar automaticamente"
+              aria-label={t("Update automatically")}
               disabled={save.isPending || outside}
               onClick={() => set({ enabled: !st.enabled })}
             />
           </div>
           <div className="row-gap" style={{ marginTop: 8 }}>
             <label className="field">
-              <span>Horário (o de menos uso da casa)</span>
+              <span>{t("Time (when the house uses it least)")}</span>
               <select className="input" value={st.at} disabled={save.isPending || outside} onChange={(e) => set({ at: e.target.value })}>
                 {hours.map((h) => (
                   <option key={h} value={h}>
@@ -185,7 +186,7 @@ export function UpdatesCard({ s, admin }: { s: SystemInfo; admin: boolean }) {
           </div>
           <label className="check-row">
             <input type="checkbox" checked={st.major} disabled={save.isPending || outside} onChange={(e) => set({ major: e.target.checked })} />
-            Instalar também versões maiores (podem mudar configurações)
+            {t("Also install major versions (they may change settings)")}
           </label>
           <label className="check-row">
             <input
@@ -194,42 +195,41 @@ export function UpdatesCard({ s, admin }: { s: SystemInfo; admin: boolean }) {
               disabled={save.isPending || outside}
               onChange={(e) => set({ replace_manual: e.target.checked })}
             />
-            Substituir uma versão instalada a partir de um computador
+            {t("Replace a version installed from a computer")}
           </label>
           <div className="row-gap" style={{ marginTop: 10 }}>
             <button className="btn small" disabled={check.isPending || outside || !info?.host} onClick={() => check.mutate()}>
-              <Icon name="refresh" /> Verificar agora
+              <Icon name="refresh" />{" "}{t("Check now")}
             </button>
           </div>
-          {outside && <p className="muted small">Mude isto em casa ou pelo Tailscale.</p>}
+          {outside && <p className="muted small">{t("Change this at home or over Tailscale.")}</p>}
           {info && !info.host && (
             <p className="notice">
-              Este servidor ainda não tem o serviço de atualização. Rode uma vez{" "}
-              <code>sudo /opt/sentinela/scripts/setup-auto-update.sh install</code> (ou faça um deploy).
+              {t("This server does not have the update service yet. Run once")}{" "}
+              <code>sudo /opt/sentinela/scripts/setup-auto-update.sh install</code>{" "}{t("(or run a deploy).")}
             </p>
           )}
         </>
       )}
       {last && (
         <dl className="setup-facts">
-          <dt>Última verificação</dt>
+          <dt>{t("Last check")}</dt>
           <dd>{new Date(last.checked).toLocaleString()}</dd>
-          <dt>Situação</dt>
+          <dt>{t("Status")}</dt>
           <dd>
             {stateText[last.state] ?? last.state}
             {last.message && last.state !== "manual" && last.state !== "major" ? ` (${last.message})` : ""}
           </dd>
           {last.latest && (
             <>
-              <dt>Última versão publicada</dt>
+              <dt>{t("Latest published version")}</dt>
               <dd>{last.latest}</dd>
             </>
           )}
         </dl>
       )}
       <p className="muted small">
-        O servidor só baixa versões prontas (nada é compilado nele), confere as somas SHA-256, reinicia em segundos e
-        volta à versão anterior se algo falhar.
+        {t("The server only downloads ready versions (nothing is compiled on it), checks the SHA-256 sums, restarts in seconds and goes back to the previous version if anything fails.")}
       </p>
     </section>
   );

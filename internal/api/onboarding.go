@@ -7,7 +7,7 @@ import (
 )
 
 // First-run setup guide. Creating the first admin (POST /api/setup) marks
-// it pending; the admin then walks through cameras, recording, Nuvem,
+// it pending; the admin then walks through cameras, recording, Cloud,
 // notifications and two-step login, and may skip any step. Installs that
 // already had users never see it (the setting is absent = done). It can be
 // reopened from the System page.
@@ -42,7 +42,7 @@ func (s *Server) getOnboarding(w http.ResponseWriter, r *http.Request) {
 		"max_disk_percent": s.Cfg.Recording.MaxDiskPercent,
 		"retention_days":   s.Cfg.Recording.DefaultRetentionDays,
 		"volume_marker":    s.Cfg.Recording.VolumeMarker != "none",
-		"nuvem":            s.nas != nil,
+		"cloud":            s.nas != nil,
 		"nas_host":         s.Cfg.NASHost,
 		"push":             s.push.sender != nil,
 		"hosting":          s.hosting.proxy != nil,

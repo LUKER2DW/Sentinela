@@ -142,7 +142,7 @@ func (a *Agent) source(app *App) (Source, error) {
 	if s := a.Sources[app.Source]; s != nil {
 		return s, nil
 	}
-	return nil, fmt.Errorf("fonte %q indisponível", app.Source)
+	return nil, fmt.Errorf("source %q unavailable", app.Source)
 }
 
 type stateFile struct {
@@ -326,7 +326,7 @@ func (a *Agent) Run(ctx context.Context) {
 
 // ---------- jobs ----------
 
-var errBusy = errors.New("já há um deploy deste serviço na fila ou em andamento")
+var errBusy = errors.New("a deploy of this service is already queued or running")
 
 // Enqueue asks for a deploy ("deploy": fetch, build, start) or a recreate
 // (the current build with new settings).
@@ -400,9 +400,9 @@ func (a *Agent) runJob(ctx context.Context, id string) {
 		logf("✗ %v", err)
 		a.Log.Warn("apps: job failed", "app", id, "kind", kind, "err", job.Error)
 	} else if kind == "deploy" {
-		logf("✓ Deploy concluído")
+		logf("✓ Deploy finished")
 	} else {
-		logf("✓ Novas configurações aplicadas")
+		logf("✓ New settings applied")
 	}
 	a.saveLog(id)
 }
@@ -450,7 +450,7 @@ func (a *Agent) deploy(ctx context.Context, id string, job *Job, logf func(strin
 		return err
 	}
 	if free := a.memFreeMB(); free > 0 && free < minFreeMB {
-		return fmt.Errorf("pouca memória livre no servidor (%d MB): deploy adiado para proteger as gravações", free)
+		return fmt.Errorf("little free memory on the server (%d MB): deploy postponed to protect the recordings", free)
 	}
 	if app.Managed {
 		logf("Lendo o projeto protegido de %s", app.Name)
@@ -487,7 +487,7 @@ func (a *Agent) deploy(ctx context.Context, id string, job *Job, logf func(strin
 	dep := &Deployment{Commit: v.Commit, Message: v.Message, Ref: v.Branch, Version: v.Label, Release: rel, At: a.now().UTC()}
 	work := a.workDir(app, dep)
 	if st, err := os.Stat(work); err != nil || !st.IsDir() {
-		return fail(fmt.Errorf("a pasta %q não existe na fonte", app.Dir))
+		return fail(fmt.Errorf("folder %q does not exist in the source", app.Dir))
 	}
 	if err = a.absorbEnv(ctx, id, dir); err != nil {
 		return fail(err)
@@ -497,7 +497,7 @@ func (a *Agent) deploy(ctx context.Context, id string, job *Job, logf func(strin
 	a.rt(id).secrets = envSecrets(dep.FileEnv)
 	a.mu.Unlock()
 	if len(dep.FileEnv) > 0 {
-		logf("Injetando %d variáveis do gerenciador de secrets", len(dep.FileEnv))
+		logf("Injecting %d variables from the secrets manager", len(dep.FileEnv))
 	}
 	for _, d := range []string{"data", "cache"} {
 		if err := os.MkdirAll(filepath.Join(a.appDir(id), d), 0o750); err != nil {
@@ -519,7 +519,7 @@ func (a *Agent) deploy(ctx context.Context, id string, job *Job, logf func(strin
 	case ModeDockerfile:
 		dep.Image = imagePrefix + id + ":" + strings.ToLower(v.Label)
 		if _, err := os.Stat(filepath.Join(work, "Dockerfile")); err != nil {
-			return fail(errors.New("não há Dockerfile nesta pasta"))
+			return fail(errors.New("there is no Dockerfile in this folder"))
 		}
 		if err := a.build(ctx, dep.Image, work, logf); err != nil {
 			return fail(err)
@@ -545,12 +545,12 @@ func (a *Agent) deploy(ctx context.Context, id string, job *Job, logf func(strin
 		}
 	} else if err := a.activate(ctx, cur, dep, logf); err != nil {
 		if cur.Deployed != nil && cur.Desired == Running {
-			logf("A nova versão falhou; restaurando a versão anterior")
+			logf("The new version failed; restoring the previous version")
 			restoreCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
 			restoreErr := a.activate(restoreCtx, cur, cur.Deployed, logf)
 			cancel()
 			if restoreErr != nil {
-				err = fmt.Errorf("%w; restauração falhou: %v", err, restoreErr)
+				err = fmt.Errorf("%w; restore failed: %v", err, restoreErr)
 			}
 		} else {
 			_ = a.Eng.Remove(ctx, containerName(id))
@@ -641,7 +641,7 @@ func (a *Agent) runSetup(ctx context.Context, app *App, dep *Deployment, logf fu
 		return err
 	}
 	if code != 0 {
-		return fmt.Errorf("o setup terminou com código %d", code)
+		return fmt.Errorf("the setup exited with code %d", code)
 	}
 	return nil
 }
@@ -674,7 +674,7 @@ func (a *Agent) recreate(ctx context.Context, id string, logf func(string, ...an
 	if app == nil || app.Deployed == nil {
 		return nil
 	}
-	logf("Aplicando as configurações")
+	logf("Applying the settings")
 	if app.Mode == ModeCompose {
 		if err := a.canStart(app); err != nil {
 			return err
@@ -726,7 +726,7 @@ func (a *Agent) activate(ctx context.Context, app *App, dep *Deployment, logf fu
 	if err := a.Eng.Start(ctx, name); err != nil {
 		return err
 	}
-	logf("Iniciado; conferindo se continua de pé…")
+	logf("Started; checking that it is still running…")
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -745,7 +745,7 @@ func (a *Agent) activate(ctx context.Context, app *App, dep *Deployment, logf fu
 		if st != nil {
 			return errors.New(exitReason(st))
 		}
-		return errors.New("o contêiner desapareceu durante a validação do início")
+		return errors.New("the container disappeared while checking the start")
 	}
 	a.mu.Lock()
 	a.rt(app.ID).container = st
@@ -760,7 +760,7 @@ func (a *Agent) settle() time.Duration { return a.settleTime }
 // canStart enforces the shared limits before a service (re)starts.
 func (a *Agent) canStart(app *App) error {
 	if free := a.memFreeMB(); free > 0 && free < minFreeMB {
-		return fmt.Errorf("pouca memória livre no servidor (%d MB): o serviço não foi iniciado", free)
+		return fmt.Errorf("little free memory on the server (%d MB): the service was not started", free)
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -773,7 +773,7 @@ func (a *Agent) canStart(app *App) error {
 		}
 	}
 	if total > a.Cfg.TotalMemoryMB {
-		return fmt.Errorf("os serviços ligados somariam %d MB de memória, acima do limite total de %d MB", total, a.Cfg.TotalMemoryMB)
+		return fmt.Errorf("the running services would add up to %d MB of memory, above the total limit of %d MB", total, a.Cfg.TotalMemoryMB)
 	}
 	return nil
 }
@@ -795,7 +795,7 @@ func (a *Agent) bindIP(exposure string) (string, error) {
 	case ExposeTailnet:
 		ip := a.tailnetIP()
 		if ip == "" {
-			return "", errors.New("o Tailscale não está ativo neste servidor")
+			return "", errors.New("tailscale is not active on this server")
 		}
 		return ip, nil
 	}
@@ -845,7 +845,7 @@ func (a *Agent) spec(app *App, dep *Deployment) (Spec, error) {
 	s.Ports = map[string]HostAddr{}
 	for _, p := range app.Ports {
 		if p.Host == 0 {
-			return s, fmt.Errorf("a porta %d não tem porta no servidor", p.Container)
+			return s, fmt.Errorf("port %d has no server port", p.Container)
 		}
 		s.Ports[fmt.Sprintf("%d/%s", p.Container, p.Proto)] = HostAddr{IP: ip, Port: p.Host}
 	}
@@ -950,7 +950,7 @@ func (a *Agent) noteRestart(r *svcState, id string, now time.Time) bool {
 		return false
 	}
 	r.restartCount++
-	a.eventLocked(id, "restart", fmt.Sprintf("Tentativa automática de início #%d", r.restartCount))
+	a.eventLocked(id, "restart", fmt.Sprintf("Automatic start attempt #%d", r.restartCount))
 	return true
 }
 

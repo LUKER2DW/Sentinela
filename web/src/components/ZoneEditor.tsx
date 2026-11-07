@@ -24,6 +24,7 @@ import {
 } from "../lib/zones";
 import { Icon } from "./Icon";
 
+import { t } from "../lib/i18n";
 const KINDS = Object.keys(KIND_LABEL) as ObjectKind[];
 type Tool = "select" | "polygon" | "rect";
 
@@ -58,9 +59,9 @@ function useHistory(initial: Zone[]) {
 }
 
 const HINT: Record<Tool, string> = {
-  select: "Arraste uma zona para movê-la e os pontos para ajustar. Puxe o ponto pequeno no meio de um lado para criar um canto; toque duas vezes num canto para tirá-lo.",
-  polygon: "Toque nos cantos da zona, um depois do outro. Toque no primeiro ponto (ou Enter) para fechar.",
-  rect: "Arraste na imagem para desenhar um retângulo.",
+  select: t("Drag a zone to move it and the points to adjust. Pull the small point in the middle of a side to create a corner; double-tap a corner to remove it."),
+  polygon: t("Tap the corners of the zone, one after another. Tap the first point (or Enter) to close it."),
+  rect: t("Drag on the picture to draw a rectangle."),
 };
 
 /**
@@ -116,7 +117,7 @@ export function ZoneEditor({ camId, camName, zones: initial, watch, saving, onSa
   }, [live, camId]);
 
   const close = useCallback(() => {
-    if (!hist.dirty || window.confirm("Sair sem salvar as zonas?")) onClose();
+    if (!hist.dirty || window.confirm(t("Leave without saving the zones?"))) onClose();
   }, [hist.dirty, onClose]);
 
   const finishDraft = useCallback(
@@ -233,37 +234,37 @@ export function ZoneEditor({ camId, camName, zones: initial, watch, saving, onSa
     <div className="dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="zones-title">
       <div className="dialog zone-dialog">
         <header className="zone-head">
-          <h2 id="zones-title">Zonas de {camName}</h2>
-          <button className="btn icon ghost" aria-label="Fechar" onClick={close}>
+          <h2 id="zones-title">{t("Zones of")}{" "}{camName}</h2>
+          <button className="btn icon ghost" aria-label={t("Close")} onClick={close}>
             <Icon name="x" />
           </button>
         </header>
 
-        <div className="zone-tools" role="toolbar" aria-label="Ferramentas">
-          <div className="segmented small" role="group" aria-label="Ferramenta">
+        <div className="zone-tools" role="toolbar" aria-label={t("Tools")}>
+          <div className="segmented small" role="group" aria-label={t("Tool")}>
             <button aria-pressed={tool === "select"} onClick={() => (setTool("select"), setDraft([]))}>
-              <Icon name="pointer" /> Mover
+              <Icon name="pointer" />{" "}{t("Move")}
             </button>
             <button aria-pressed={tool === "polygon"} disabled={zones.length >= MAX_ZONES} onClick={() => (setTool("polygon"), setSelected(null))}>
-              <Icon name="polygon" /> Polígono
+              <Icon name="polygon" />{" "}{t("Polygon")}
             </button>
             <button aria-pressed={tool === "rect"} disabled={zones.length >= MAX_ZONES} onClick={() => (setTool("rect"), setDraft([]), setSelected(null))}>
-              <Icon name="square" /> Retângulo
+              <Icon name="square" />{" "}{t("Rectangle")}
             </button>
           </div>
-          <div className="segmented small" role="group" aria-label="Histórico">
-            <button disabled={!hist.canUndo} onClick={hist.undo} aria-label="Desfazer" title="Desfazer (Ctrl+Z)">
+          <div className="segmented small" role="group" aria-label={t("History")}>
+            <button disabled={!hist.canUndo} onClick={hist.undo} aria-label={t("Undo")} title={t("Undo (Ctrl+Z)")}>
               <Icon name="undo" />
             </button>
-            <button disabled={!hist.canRedo} onClick={hist.redo} aria-label="Refazer" title="Refazer (Ctrl+Shift+Z)">
+            <button disabled={!hist.canRedo} onClick={hist.redo} aria-label={t("Redo")} title={t("Redo (Ctrl+Shift+Z)")}>
               <Icon name="redo" />
             </button>
           </div>
           <span className="grow" />
           <label className="check-row zone-live">
-            <input type="checkbox" checked={live} onChange={(e) => setLive(e.target.checked)} /> Ver detecções
+            <input type="checkbox" checked={live} onChange={(e) => setLive(e.target.checked)} />{" "}{t("View detections")}
           </label>
-          <button className="btn ghost icon small" aria-label="Nova imagem da câmera" title="Nova imagem" onClick={() => (setImgError(false), setNonce(Date.now()))}>
+          <button className="btn ghost icon small" aria-label={t("New camera picture")} title={t("New picture")} onClick={() => (setImgError(false), setNonce(Date.now()))}>
             <Icon name="refresh" />
           </button>
         </div>
@@ -271,9 +272,9 @@ export function ZoneEditor({ camId, camName, zones: initial, watch, saving, onSa
         <div className={`zone-stage tool-${tool}`} style={{ aspectRatio: `${W} / ${H}` }}>
           {imgError ? (
             <div className="zone-noimg">
-              Não foi possível pegar uma imagem da câmera.
+              {t("Could not get a picture from the camera.")}
               <button className="btn small" onClick={() => (setImgError(false), setNonce(Date.now()))}>
-                Tentar de novo
+                {t("Try again")}
               </button>
             </div>
           ) : (
@@ -364,7 +365,7 @@ export function ZoneEditor({ camId, camName, zones: initial, watch, saving, onSa
                   <rect x={o.x * W} y={o.y * H} width={o.w * W} height={o.h * H} rx={4 * k} />
                   <circle cx={(o.x + o.w / 2) * W} cy={Math.min(o.y + o.h, 0.999) * H} r={5 * k} />
                   <text x={o.x * W} y={o.y * H - 5 * k} fontSize={12 * k}>
-                    {KIND_ONE[o.kind]}: {counts ? `conta${hits[0] !== "*" ? ` em ${hits.join(", ")}` : ""}` : o.parked && hits.length ? "parado, não conta" : "não conta"}
+                    {KIND_ONE[o.kind]}: {counts ? (hits[0] !== "*" ? t("counts in {zones}", { zones: hits.join(", ") }) : t("counts")) : o.parked && hits.length ? t("still, does not count") : t("does not count")}
                   </text>
                 </g>
               );
@@ -391,24 +392,24 @@ export function ZoneEditor({ camId, camName, zones: initial, watch, saving, onSa
         {tool === "polygon" && (
           <div className="dialog-actions">
             <button className="btn ghost" disabled={!draft.length} onClick={() => setDraft([])}>
-              Recomeçar
+              {t("Start over")}
             </button>
             <button className="btn" disabled={!draft.length} onClick={() => setDraft(draft.slice(0, -1))}>
-              Desfazer ponto
+              {t("Undo point")}
             </button>
             <button className="btn primary" disabled={draft.length < 3} onClick={() => finishDraft(draft)}>
-              <Icon name="check" /> Fechar zona
+              <Icon name="check" />{" "}{t("Close zone")}
             </button>
           </div>
         )}
 
         <div className="zone-list">
-          {zones.length === 0 && <p className="muted">Nenhuma zona ainda. Sem zonas, a imagem inteira vigia {watch.map((w) => KIND_LABEL[w].toLowerCase()).join(" e ")}.</p>}
+          {zones.length === 0 && <p className="muted">{t("No zones yet. Without zones, the whole picture is watched")}{" "}{watch.map((w) => KIND_LABEL[w].toLowerCase()).join(" e ")}.</p>}
           {zones.map((z, i) => (
             <div key={i} className={`zone-row${selected === i ? " on" : ""}`} onClick={() => (setSelected(i), setTool("select"))}>
               <span className="zone-swatch" style={{ background: ZONE_COLORS[i % ZONE_COLORS.length] }} />
-              <input className="input" aria-label="Nome da zona" value={z.name} maxLength={40} onChange={(e) => update(i, { name: e.target.value })} />
-              <div className="segmented small" role="group" aria-label={`O que ${z.name} vigia`}>
+              <input className="input" aria-label={t("Zone name")} value={z.name} maxLength={40} onChange={(e) => update(i, { name: e.target.value })} />
+              <div className="segmented small" role="group" aria-label={t("What {name} watches", { name: z.name })}>
                 {KINDS.map((kd) => (
                   <button
                     key={kd}
@@ -425,7 +426,7 @@ export function ZoneEditor({ camId, camName, zones: initial, watch, saving, onSa
               </div>
               <button
                 className="btn icon ghost danger"
-                aria-label={`Apagar ${z.name}`}
+                aria-label={t("Delete {name}", { name: z.name })}
                 onClick={(e) => {
                   e.stopPropagation();
                   commit((all) => all.filter((_, j) => j !== i));
@@ -442,18 +443,18 @@ export function ZoneEditor({ camId, camName, zones: initial, watch, saving, onSa
         {problem ? (
           <p className="notice error">{problem}</p>
         ) : twisted ? (
-          <p className="notice">Os lados da zona "{twisted.name}" se cruzam: arraste um canto para desfazer o laço.</p>
+          <p className="notice">{t("The sides of the zone \"")}{twisted.name}{t("\" cross: drag a corner to undo the loop.")}</p>
         ) : null}
         <div className="dialog-actions">
           <span className="faint small">
-            {zones.length} de {MAX_ZONES} zonas
+            {t("{a} of {b} zones", { a: zones.length, b: MAX_ZONES })}
           </span>
           <span className="grow" />
           <button className="btn ghost" onClick={close}>
-            Cancelar
+            {t("Cancel")}
           </button>
           <button className="btn primary" disabled={!!problem || saving} onClick={() => onSave(zones)}>
-            {saving ? "Salvando…" : "Salvar zonas"}
+            {saving ? t("Saving…") : t("Save zones")}
           </button>
         </div>
       </div>

@@ -824,7 +824,7 @@ table.table { width: 100%; border-collapse: collapse; }
 .spinner { width: 28px; height: 28px; border: 2.5px solid rgb(255 255 255 / 0.18); border-top-color: #c2d3ce; border-radius: 50%; }
 .spinner.small { width: 16px; height: 16px; border-width: 2px; border-color: color-mix(in srgb, currentColor 30%, transparent); border-top-color: currentColor; }
 
-/* ---------- nuvem: file browser ---------- */
+/* ---------- cloud: file browser ---------- */
 .files { position: relative; padding-bottom: 12px; }
 .files.dragging { outline: 2px dashed var(--sea); outline-offset: -8px; }
 .files-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 12px; }
@@ -1390,14 +1390,14 @@ table.table { width: 100%; border-collapse: collapse; }
 .btn.danger-fill { background: var(--coral); border-color: var(--coral); color: #fff; }
 .btn.danger-fill:hover:not(:disabled) { background: color-mix(in srgb, var(--coral) 85%, #000); border-color: transparent; }
 
-/* ---------- Nuvem v2: command card, tree + list explorer, menus, viewer ---------- */
-.nuvem { display: grid; gap: 16px; }
-.nuvem-top { display: flex; align-items: center; gap: 16px 24px; flex-wrap: wrap; padding: 14px 20px; }
-.nuvem-space { flex: 1 1 280px; display: grid; gap: 8px; min-width: 0; }
+/* ---------- Cloud v2: command card, tree + list explorer, menus, viewer ---------- */
+.cloud { display: grid; gap: 16px; }
+.cloud-top { display: flex; align-items: center; gap: 16px 24px; flex-wrap: wrap; padding: 14px 20px; }
+.cloud-space { flex: 1 1 280px; display: grid; gap: 8px; min-width: 0; }
 .space-line { display: flex; align-items: center; gap: 12px; }
 .space-line .health { margin-left: 8px; vertical-align: middle; }
 .space-whale { width: 54px; flex: none; color: var(--doodle); }
-.nuvem-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.cloud-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 
 .explorer { display: grid; grid-template-columns: 240px minmax(0, 1fr); padding: 0; overflow: hidden; min-height: 520px; }
 .tree { border-right: 1px solid var(--line); background: var(--bg-soft); padding: 10px 6px; overflow: auto; }
@@ -1541,9 +1541,9 @@ table.table { width: 100%; border-collapse: collapse; }
   .file-list.list .file-more { grid-column: 5; }
 }
 @media (max-width: 760px) {
-  .nuvem-top { padding: 12px 14px; }
-  .nuvem-actions { width: 100%; }
-  .nuvem-actions .btn { flex: 1; }
+  .cloud-top { padding: 12px 14px; }
+  .cloud-actions { width: 100%; }
+  .cloud-actions .btn { flex: 1; }
   .explorer { min-height: 0; }
   .explorer-main { padding: 10px 10px 12px; }
   .files-tools { width: 100%; }
@@ -1695,7 +1695,7 @@ table.table { width: 100%; border-collapse: collapse; }
 .account-hero-actions { display: flex; gap: 8px; }
 .account-grid { align-items: start; }
 
-/* ---------- Nuvem v3: VS Code-like explorer, filters, details pane, editor ---------- */
+/* ---------- Cloud v3: VS Code-like explorer, filters, details pane, editor ---------- */
 .explorer { grid-template-columns: 260px minmax(0, 1fr); height: calc(100dvh - 250px); min-height: 480px; }
 .explorer.with-pane { grid-template-columns: 260px minmax(0, 1fr) 300px; }
 .explorer-main { overflow-y: auto; }
@@ -1967,7 +1967,7 @@ textarea.viewer-text.editing { border: 0; outline: none; resize: none; backgroun
   @keyframes bd-float { 0%, 100% { translate: 0 0; } 50% { translate: 6px -14px; } }
 }
 
-/* ---------- Nuvem on phones: compact top, floating +, scrolling filters ---------- */
+/* ---------- Cloud on phones: compact top, floating +, scrolling filters ---------- */
 .fab { position: fixed; right: 18px; bottom: calc(var(--tabbar, 0px) + 18px + var(--sa-bottom)); z-index: 30; width: 56px; height: 56px;
   border-radius: 18px; border: 0; display: grid; place-items: center; background: var(--sea); color: var(--sea-ink); box-shadow: var(--shadow-lift); cursor: pointer; }
 .fab svg { width: 26px; height: 26px; }
@@ -1977,9 +1977,9 @@ textarea.viewer-text.editing { border: 0; outline: none; resize: none; backgroun
   border-top-left-radius: var(--r-lg); border-top-right-radius: var(--r-lg); border: 1px solid var(--line); box-shadow: var(--shadow-lift); }
 .action-sheet .btn { height: 50px; justify-content: flex-start; font-size: 1rem; }
 @media (max-width: 760px) {
-  .nuvem-page > .page-head .sub { display: none; }
-  .nuvem-top { padding: 10px 14px; gap: 8px; }
-  .nuvem-top .space-whale { display: none; }
+  .cloud-page > .page-head .sub { display: none; }
+  .cloud-top { padding: 10px 14px; gap: 8px; }
+  .cloud-top .space-whale { display: none; }
   .filter-row { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin: 0 -10px; padding: 2px 10px; }
   .filter-row::-webkit-scrollbar { display: none; }
   .filter-row > * { flex: none; }
@@ -1987,7 +1987,7 @@ textarea.viewer-text.editing { border: 0; outline: none; resize: none; backgroun
   .bd-jelly { display: none; }
   .file-list.grid { padding-bottom: 72px; }
 }
-.nuvem-page { display: contents; }
+.cloud-page { display: contents; }
 
 .mode-card.compact { display: grid; gap: 10px; }
 .mode-card.compact .mode-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
@@ -2176,7 +2176,7 @@ textarea.viewer-text.editing { border: 0; outline: none; resize: none; backgroun
   .cam-chip { min-width: 150px; }
 }
 
-/* ---------- Nuvem: folder upload, drop target, phone list ---------- */
+/* ---------- Cloud: folder upload, drop target, phone list ---------- */
 .split-btn { display: inline-flex; }
 .split-btn .btn:first-child:not(:last-child) { border-top-right-radius: 0; border-bottom-right-radius: 0; }
 .split-btn .btn + .btn { border-top-left-radius: 0; border-bottom-left-radius: 0; border-left: 1px solid color-mix(in srgb, var(--sea-ink) 30%, transparent); }
@@ -2191,15 +2191,15 @@ textarea.viewer-text.editing { border: 0; outline: none; resize: none; backgroun
 .file-list.list .file-sub { grid-column: 4 / 6; }
 @media (max-width: 760px) {
   /* The phone list reads like a file manager: icon, name, one quiet line, ⋮. */
-  .nuvem .explorer { border: 0; background: none; overflow: visible; }
-  .nuvem .explorer-main { padding: 0; gap: 8px; }
-  .nuvem .files-bar { gap: 8px; }
-  .nuvem .crumbs { width: 100%; flex-wrap: nowrap; overflow-x: auto; white-space: nowrap; font-size: 1.1rem; scrollbar-width: none; }
-  .nuvem .crumbs::-webkit-scrollbar { display: none; }
-  .nuvem .crumbs > * { flex: none; }
-  .nuvem .search .input { height: 42px; border-radius: 999px; background: var(--surface); }
-  .nuvem .files-tools .segmented button { height: 34px; }
-  .nuvem .filter-row { margin: 0 calc(-1 * var(--gutter)); padding: 2px var(--gutter); }
+  .cloud .explorer { border: 0; background: none; overflow: visible; }
+  .cloud .explorer-main { padding: 0; gap: 8px; }
+  .cloud .files-bar { gap: 8px; }
+  .cloud .crumbs { width: 100%; flex-wrap: nowrap; overflow-x: auto; white-space: nowrap; font-size: 1.1rem; scrollbar-width: none; }
+  .cloud .crumbs::-webkit-scrollbar { display: none; }
+  .cloud .crumbs > * { flex: none; }
+  .cloud .search .input { height: 42px; border-radius: 999px; background: var(--surface); }
+  .cloud .files-tools .segmented button { height: 34px; }
+  .cloud .filter-row { margin: 0 calc(-1 * var(--gutter)); padding: 2px var(--gutter); }
   .file-list.list { border-radius: var(--r-lg); background: var(--surface); border: 1px solid var(--line); overflow: hidden; }
   .file-list.list .file { grid-template-columns: 44px minmax(0, 1fr) 40px; min-height: 64px; padding: 8px 4px 8px 12px; border-bottom: 1px solid var(--line); column-gap: 14px; }
   .file-list.list li:last-child .file { border-bottom: 0; }
@@ -2410,7 +2410,7 @@ textarea.viewer-text.editing { border: 0; outline: none; resize: none; backgroun
   .cam-chip-text { min-width: 0; }
   .cam-chip-text strong, .cam-chip-text .small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .page-head .segmented { overflow: visible; flex-wrap: wrap; }
-  .nuvem .crumbs { flex-wrap: wrap; overflow: visible; white-space: normal; }
+  .cloud .crumbs { flex-wrap: wrap; overflow: visible; white-space: normal; }
 }
 @media (max-width: 760px) {
   .review-bar::after { display: none; }
@@ -2422,7 +2422,7 @@ textarea.viewer-text.editing { border: 0; outline: none; resize: none; backgroun
   .avatar-picker .linkish { display: none; }
   .account-hero-actions { position: absolute; top: 8px; right: 6px; width: auto; }
   .account-hero-actions .btn { min-height: 36px; height: 36px; padding: 0 8px; }
-  .account-hero-actions .btn .sair-label { display: none; }
+  .account-hero-actions .btn .signout-label { display: none; }
 }
 .inbox-foot { flex-wrap: wrap; }
 .inbox.sheet { box-sizing: border-box; max-width: 100vw; }

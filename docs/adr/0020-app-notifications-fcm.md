@@ -37,14 +37,14 @@ through Google Play services.
   or on a phone without Google Play services, the app keeps the round-4
   foreground service. It retries when opened, and switches after successful
   registration. If the house cannot be reached when a Google signal arrives,
-  the app shows a generic notice that opens Eventos.
+  the app shows a generic notice that opens Events.
 - Browsers keep Web Push (VAPID) unchanged.
 
 ## Consequences
 + No fixed notice, less battery (no own socket), delivery in Doze like any
   messaging app.
 - A new external dependency (Google FCM + Play services). The house keeps
-  recording and events stay on the Eventos page during a push outage.
+  recording and events stay on the Events page during a push outage.
 - The Firebase project and its key are owned by the owner; rotating the key
   is replacing one file on the server.
 

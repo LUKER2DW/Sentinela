@@ -1,4 +1,5 @@
-// How this page reached the server (ADR-0019): the zone comes from the
+
+import { t } from "./i18n";// How this page reached the server (ADR-0019): the zone comes from the
 // server, by the listener the request arrived on.
 
 export type Zone = "lan" | "tailnet" | "funnel" | "public";
@@ -16,13 +17,13 @@ export const isPublicZone = (z: Zone = zone) => z === "funnel" || z === "public"
 export function zoneLabel(z: Zone = zone): string {
   switch (z) {
     case "lan":
-      return "Rede de casa";
+      return t("Home network");
     case "tailnet":
       return "Tailscale";
     case "funnel":
-      return "Tailscale Funnel (público)";
+      return t("Tailscale Funnel (public)");
     case "public":
-      return "Endereço público da casa";
+      return t("Public address of the home");
   }
 }
 

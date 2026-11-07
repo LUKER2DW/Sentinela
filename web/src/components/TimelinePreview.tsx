@@ -3,6 +3,7 @@ import type { Segment } from "../lib/api";
 import { frameFailed, frameFor, onFrames, previewUrl, wantFrame } from "../lib/previewFrames";
 import { fmtTime } from "../lib/time";
 
+import { t } from "../lib/i18n";
 /**
  * The picture at a moment of the timeline, shown while hovering the day
  * ribbon or holding/dragging on the ribbon or ruler. The picture is from up
@@ -29,11 +30,11 @@ export function TimelinePreview({ segments, ms }: { segments: Segment[]; ms: num
     <div className="tl-preview" aria-hidden="true">
       <div className="tl-preview-frame">
         {!want ? (
-          <span className="tl-preview-none">Sem gravação</span>
+          <span className="tl-preview-none">{t("No recording")}</span>
         ) : (
           <>
             {shown && <img src={shown} alt="" />}
-            {frameFailed(want) ? <span className="tl-preview-none">Sem prévia</span> : !shown && <span className="spinner small" />}
+            {frameFailed(want) ? <span className="tl-preview-none">{t("No preview")}</span> : !shown && <span className="spinner small" />}
           </>
         )}
       </div>

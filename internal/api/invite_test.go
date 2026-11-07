@@ -71,7 +71,7 @@ func TestInviteLink(t *testing.T) {
 	admin := newClient(t, priv.URL)
 	admin.do("POST", "/api/setup", `{"username":"admin","password":"long enough pw"}`)
 	_, m, _ := admin.do("POST", "/api/users", `{"email":"ana@example.com","role":"viewer"}`)
-	want := "https://203.0.113.7:18443/#/convite?c=" + m["invite_code"].(string) + "&u=ana%40example.com"
+	want := "https://203.0.113.7:18443/#/invite?c=" + m["invite_code"].(string) + "&u=ana%40example.com"
 	if m["invite_url"] != want {
 		t.Fatalf("invite_url = %v, want %s", m["invite_url"], want)
 	}

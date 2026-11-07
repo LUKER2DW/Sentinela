@@ -176,7 +176,7 @@ func Detect(dir string) Detection {
 		d.Found = append(d.Found, "index.html")
 	default:
 		d.Runtime = "shell"
-		d.Notes = append(d.Notes, "Não reconheci o tipo do projeto: escolha o ambiente e os comandos.")
+		d.Notes = append(d.Notes, "I did not recognize the project type: choose the environment and commands.")
 	}
 	return d
 }
@@ -219,7 +219,7 @@ func composeSummary(raw []byte) ([]ComposeService, []string) {
 		Services map[string]map[string]any `yaml:"services"`
 	}
 	if err := yaml.Unmarshal(raw, &doc); err != nil {
-		return nil, []string{"O arquivo Compose não pôde ser lido: " + err.Error()}
+		return nil, []string{"The Compose file could not be read: " + err.Error()}
 	}
 	var out []ComposeService
 	var notes []string
@@ -235,15 +235,15 @@ func composeSummary(raw []byte) ([]ComposeService, []string) {
 			}
 		}
 		if v, _ := s["privileged"].(bool); v {
-			notes = append(notes, fmt.Sprintf("%s: privileged não é permitido.", name))
+			notes = append(notes, fmt.Sprintf("%s: privileged is not allowed.", name))
 		}
 		if nm, _ := s["network_mode"].(string); nm == "host" {
-			notes = append(notes, fmt.Sprintf("%s: network_mode host não é permitido.", name))
+			notes = append(notes, fmt.Sprintf("%s: network_mode host is not allowed.", name))
 		}
 		if vols, ok := s["volumes"].([]any); ok {
 			for _, v := range vols {
 				if str, ok := v.(string); ok && strings.Contains(str, "docker.sock") {
-					notes = append(notes, fmt.Sprintf("%s: o socket do Docker não pode ser montado.", name))
+					notes = append(notes, fmt.Sprintf("%s: the Docker socket cannot be mounted.", name))
 				}
 			}
 		}
@@ -290,7 +290,7 @@ func detectInSnapshot(dir, sub string) (Detection, error) {
 		work = filepath.Join(dir, filepath.FromSlash(sub))
 	}
 	if st, err := os.Stat(work); err != nil || !st.IsDir() {
-		return Detection{}, fmt.Errorf("a pasta %q não existe na fonte", sub)
+		return Detection{}, fmt.Errorf("folder %q does not exist in the source", sub)
 	}
 	return Detect(work), nil
 }

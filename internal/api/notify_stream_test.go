@@ -88,7 +88,7 @@ func TestNotifyStreamAndPrefs(t *testing.T) {
 	}()
 	select {
 	case line := <-got:
-		if !strings.Contains(line, "Notificações funcionando") {
+		if !strings.Contains(line, "Notifications are working") {
 			t.Fatalf("stream data %q", line)
 		}
 	case <-deadline:

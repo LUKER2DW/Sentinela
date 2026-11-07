@@ -2,7 +2,7 @@ package nas
 
 import "path"
 
-// Who put a file or folder in the Nuvem is stored on the item itself (an
+// Who put a file or folder in the Cloud is stored on the item itself (an
 // extended attribute, owner_linux.go), so it follows renames and moves
 // (including through Samba) and does not depend on the database.
 

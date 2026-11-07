@@ -38,25 +38,25 @@ type diagnostics struct {
 
 func exitReason(st *ContainerState) string {
 	if st.OOMKilled {
-		return "O limite de memória foi excedido (OOM). Revise o consumo ou aumente o limite em Configurações."
+		return "The memory limit was exceeded (OOM). Review usage or raise the limit in Settings."
 	}
 	switch st.ExitCode {
 	case 0:
-		return "O processo terminou sem erro, mas este serviço deveria continuar rodando. Revise o comando de início."
+		return "The process exited without error, but this service should keep running. Review the start command."
 	case 132:
-		return "Instrução de CPU incompatível (SIGILL, código 132). Revise dependências nativas; neste servidor prefira Node.js Debian a Alpine."
+		return "Incompatible CPU instruction (SIGILL, code 132). Review native dependencies; on this server prefer Debian-based Node.js over Alpine."
 	case 139:
-		return "Falha de memória do processo (SIGSEGV, código 139). Revise as dependências nativas e os logs."
+		return "Process memory fault (SIGSEGV, code 139). Review the native dependencies and the logs."
 	case 137:
-		return "O processo foi encerrado à força (SIGKILL, código 137). O Docker não informou OOM."
+		return "The process was killed (SIGKILL, code 137). Docker did not report OOM."
 	case 143:
-		return "O processo recebeu um pedido de encerramento (SIGTERM, código 143)."
+		return "The process received a termination request (SIGTERM, code 143)."
 	case 126:
-		return "O comando não pôde ser executado (código 126). Confira as permissões do arquivo."
+		return "The command could not be run (code 126). Check the file permissions."
 	case 127:
-		return "Comando ou executável não encontrado (código 127). Confira o ambiente e a preparação."
+		return "Command or executable not found (code 127). Check the environment and the preparation."
 	default:
-		return fmt.Sprintf("O processo parou com código %d. Confira a saída e os erros abaixo.", st.ExitCode)
+		return fmt.Sprintf("The process stopped with code %d. Check the output and the errors below.", st.ExitCode)
 	}
 }
 
@@ -154,7 +154,7 @@ func (a *Agent) loadDiagnostics(id string) {
 	r.job, r.events, r.lastExit, r.restartCount, r.err, r.pauseTill = d.Job, d.Events, d.LastExit, d.Restarts, d.Error, d.PauseTill
 	if r.job != nil && r.job.Finished.IsZero() {
 		r.job.Phase, r.job.Finished = "failed", a.now().UTC()
-		r.job.Error = "Deploy interrompido pelo reinício do agente. Tente implantar novamente."
+		r.job.Error = "Deploy interrupted by an agent restart. Try deploying again."
 		r.err = r.job.Error
 	}
 	if len(r.events) > 40 {
@@ -180,13 +180,13 @@ func (a *Agent) rememberError(id string, err error) {
 // sanitizeFileError keeps content and absolute paths out of editor errors.
 func sanitizeFileError(err error) error {
 	if errors.Is(err, os.ErrNotExist) {
-		return errors.New("arquivo ou pasta não encontrado")
+		return errors.New("file or folder not found")
 	}
 	if errors.Is(err, os.ErrPermission) {
-		return errors.New("sem permissão para alterar este arquivo")
+		return errors.New("no permission to change this file")
 	}
 	if err != nil {
-		return errors.New("não foi possível acessar este arquivo dentro do projeto")
+		return errors.New("this file could not be accessed inside the project")
 	}
 	return nil
 }

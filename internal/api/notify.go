@@ -264,7 +264,7 @@ func (s *Server) notify(ctx context.Context, cameraID, typ string, eventID int64
 	loc := s.localNow().Location()
 	msg := map[string]any{
 		"title": fmt.Sprintf("%s · %s", eventTitle(typ), name),
-		"body":  fmt.Sprintf("%s. Toque para ver a gravação.", at.In(loc).Format("15:04:05")),
+		"body":  fmt.Sprintf("%s. Tap to see the recording.", at.In(loc).Format("15:04:05")),
 		"tag":   "sentinela-" + cameraID,
 		"url":   eventURL(cameraID, eventID, at),
 	}
@@ -305,11 +305,11 @@ func eventTitle(typ string) string {
 	case "line":
 		return "Linha cruzada"
 	case "intrusion":
-		return "Entrada na área"
+		return "Entered area"
 	case "tamper":
-		return "Câmera mexida"
+		return "Camera moved"
 	case "vehicle":
-		return "Veículo"
+		return "Vehicle"
 	case "animal":
 		return "Animal"
 	}
@@ -442,7 +442,7 @@ func (s *Server) pushUnsubscribe(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) pushTest(w http.ResponseWriter, r *http.Request) {
 	n := s.sendAll(r.Context(), userFrom(r).ID, map[string]any{
-		"title": "Sentinela", "body": "Notificações funcionando neste aparelho.", "tag": "sentinela-test", "url": "/#/events",
+		"title": "Sentinela", "body": "Notifications are working on this device.", "tag": "sentinela-test", "url": "/#/events",
 	})
 	writeJSON(w, http.StatusOK, map[string]int{"sent": n})
 }

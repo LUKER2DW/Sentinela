@@ -1,6 +1,6 @@
 import { Avatar } from "./Avatar";
 
-// Drawn file icons for the Nuvem (round 6, owner): a page with a folded
+// Drawn file icons for the Cloud (round 6, owner): a page with a folded
 // corner, a glyph for what is inside and a coloured label with the
 // extension; folders are two-tone. Colours come from CSS (.fi-*), so both
 // themes work.

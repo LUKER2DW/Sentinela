@@ -7,12 +7,13 @@ import { useCameras } from "../pages/LivePage";
 import { deviceName } from "./Devices";
 import { Icon } from "./Icon";
 
-export const roleLabel: Record<Role, string> = { admin: "Administrador", operator: "Operador", viewer: "Visualizador" };
+import { t, translated } from "../lib/i18n";
+export const roleLabel: Record<Role, string> = translated({ admin: "Administrator", operator: "Operator", viewer: "Viewer" });
 
 const ROLES: { role: Role; icon: string; text: string }[] = [
-  { role: "viewer", icon: "eye", text: "Assiste ao vivo e às gravações e vê os eventos. Sem acesso à Nuvem." },
-  { role: "operator", icon: "live", text: "Também move a câmera, liga a luz, fala e usa a Nuvem: a própria pasta e a Compartilhado." },
-  { role: "admin", icon: "shield", text: "Tudo, inclusive usuários, câmeras e configurações do sistema." },
+  { role: "viewer", icon: "eye", text: t("Watches live and recordings and sees events. No access to Cloud.") },
+  { role: "operator", icon: "live", text: t("Also moves the camera, turns on the light, talks and uses Cloud: its own folder and Shared.") },
+  { role: "admin", icon: "shield", text: t("Everything, including users, cameras and system settings.") },
 ];
 
 interface Usage {
@@ -27,33 +28,33 @@ interface UserDetail {
   last_login: string;
   sessions: { id: string; created_at: string; expires_at: string; user_agent: string; mfa: boolean }[];
   audit: AuditEntry[];
-  nuvem?: { folder: string; files: Usage; trash: Usage };
+  cloud?: { folder: string; files: Usage; trash: Usage };
 }
 
 const actionLabel: Record<string, string> = {
-  login: "Entrou",
-  setup: "Configuração inicial",
-  "user.create": "Criou usuário",
-  "user.delete": "Removeu usuário",
-  "user.role": "Mudou perfil",
-  "user.password": "Trocou senha",
-  "user.invite": "Novo convite",
-  "user.email": "Mudou e-mail",
-  "invite.accept": "Primeiro acesso",
-  "user.disabled": "Ativou/desativou conta",
-  "user.cameras": "Mudou câmeras",
-  "notify.mode": "Modo de avisos",
-  "camera.white_light": "Luz branca",
-  "camera.day_night": "Modo dia e noite",
-  "camera.preset.set": "Salvou posição",
-  "camera.preset.clear": "Apagou posição",
-  "recording.export": "Exportou vídeo",
+  login: t("Signed in"),
+  setup: t("Initial setup"),
+  "user.create": t("Created user"),
+  "user.delete": t("Removed user"),
+  "user.role": t("Changed role"),
+  "user.password": t("Changed password"),
+  "user.invite": t("New invite"),
+  "user.email": t("Changed email"),
+  "invite.accept": t("First sign-in"),
+  "user.disabled": t("Turned account on/off"),
+  "user.cameras": t("Changed cameras"),
+  "notify.mode": t("Notice mode"),
+  "camera.white_light": t("White light"),
+  "camera.day_night": t("Day and night mode"),
+  "camera.preset.set": t("Saved position"),
+  "camera.preset.clear": t("Deleted position"),
+  "recording.export": t("Exported video"),
   "recording.timelapse": "Timelapse",
-  "segment.protect": "Proteção de trecho",
-  "nas.upload": "Enviou arquivo",
-  "nas.mkdir": "Criou pasta",
-  "nas.move": "Moveu/renomeou",
-  "nas.delete": "Apagou arquivo",
+  "segment.protect": t("Clip protection"),
+  "nas.upload": t("Uploaded file"),
+  "nas.mkdir": t("Created folder"),
+  "nas.move": t("Moved/renamed"),
+  "nas.delete": t("Deleted file"),
 };
 export const auditLabel = (a: string) => actionLabel[a] ?? a;
 
@@ -80,16 +81,16 @@ export function UsersAdmin() {
     <div className="users-admin">
       <section className="card users-list">
         <div className="card-head">
-          <h2>Usuários</h2>
+          <h2>{t("Users")}</h2>
           <span className="muted small">{users.data?.length ?? 0}</span>
         </div>
         <div className="users-tools">
           <label className="search">
             <Icon name="search" />
-            <input className="input" placeholder="Procurar" aria-label="Procurar usuário" value={filter} onChange={(e) => setFilter(e.target.value)} />
+            <input className="input" placeholder={t("Search")} aria-label={t("Search user")} value={filter} onChange={(e) => setFilter(e.target.value)} />
           </label>
           <button className="btn primary" onClick={() => setCreating(true)}>
-            <Icon name="plus" /> Autorizar pessoa
+            <Icon name="plus" />{" "}{t("Authorize person")}
           </button>
         </div>
         <ul className="user-rows">
@@ -103,13 +104,13 @@ export function UsersAdmin() {
                   <strong>{u.username}</strong>
                   <span className="muted small">
                     {roleLabel[u.role]}
-                    {u.pending ? " · aguardando 1º acesso" : ""}
-                    {u.disabled ? " · desativado" : ""}
+                    {u.pending ? t(" · waiting for first sign-in") : ""}
+                    {u.disabled ? t(" · disabled") : ""}
                   </span>
                 </span>
                 {u.totp && (
-                  <span className="pill ok small-pill" title="Verificação em 2 etapas ativa">
-                    2 etapas
+                  <span className="pill ok small-pill" title={t("Two-step verification active")}>
+                    {t("2 steps")}
                   </span>
                 )}
               </button>
@@ -152,7 +153,7 @@ function UserPanel({ id, onGone }: { id: number; onGone: () => void }) {
   const remove = useMutation({
     mutationFn: () => api("DELETE", `/api/users/${id}`),
     onSuccess: () => {
-      toast("Usuário removido.");
+      toast(t("User removed."));
       void qc.invalidateQueries({ queryKey: ["users"] });
       onGone();
     },
@@ -160,7 +161,7 @@ function UserPanel({ id, onGone }: { id: number; onGone: () => void }) {
   });
 
   const d = q.data;
-  if (!d) return <section className="card user-panel">{q.isError ? <p className="notice error">Não foi possível ler o usuário.</p> : <p className="muted">Carregando…</p>}</section>;
+  if (!d) return <section className="card user-panel">{q.isError ? <p className="notice error">{t("Could not read the user.")}</p> : <p className="muted">{t("Loading…")}</p>}</section>;
   const u = d.user;
   const self = u.id === me.id;
   const multiCam = (cams.data?.length ?? 0) > 1;
@@ -173,26 +174,26 @@ function UserPanel({ id, onGone }: { id: number; onGone: () => void }) {
         </span>
         <div className="user-head-text">
           <h2>
-            {u.username} {self && <span className="pill small-pill">você</span>}
+            {u.username} {self && <span className="pill small-pill">{t("you")}</span>}
           </h2>
           <span className="muted small">
-            {roleLabel[u.role]} · conta criada em {fmtDate(u.created_at)} · {d.last_login ? `último acesso ${relative(d.last_login)}` : "nunca entrou"}
+            {roleLabel[u.role]}{" "}{t("· account created on")}{" "}{fmtDate(u.created_at)} · {d.last_login ? t("last sign-in {v0}", { v0: relative(d.last_login) }) : t("never signed in")}
           </span>
           <span className="small">
-            E-mail: {u.email || <span className="muted">nenhum</span>}{" "}
+            {t("Email:")}{" "}{u.email || <span className="muted">{t("no email")}</span>}{" "}
             <button className="linkish" onClick={() => setDialog("email")}>
-              {u.email ? "mudar" : "adicionar"}
+              {u.email ? t("change") : t("add")}
             </button>
           </span>
         </div>
         <span className={`pill${u.disabled || u.pending ? "" : " ok"}`}>
-          <span className={`dot ${u.disabled ? "bad" : u.pending ? "warn" : "ok"}`} /> {u.disabled ? "Desativado" : u.pending ? "Aguardando 1º acesso" : "Ativo"}
+          <span className={`dot ${u.disabled ? "bad" : u.pending ? "warn" : "ok"}`} /> {u.disabled ? t("Disabled") : u.pending ? t("Waiting for first sign-in") : t("Active")}
         </span>
       </header>
 
       <div className="user-grid">
         <div className="user-block">
-          <h3>Perfil</h3>
+          <h3>{t("Profile")}</h3>
           <div className="role-pick compact">
             {ROLES.map((r) => (
               <button
@@ -200,7 +201,7 @@ function UserPanel({ id, onGone }: { id: number; onGone: () => void }) {
                 className={`role-card${u.role === r.role ? " on" : ""}`}
                 aria-pressed={u.role === r.role}
                 disabled={update.isPending || (self && r.role !== "admin")}
-                onClick={() => u.role !== r.role && update.mutate({ role: r.role }, { onSuccess: () => toast(`${u.username} agora é ${roleLabel[r.role].toLowerCase()}.`) })}
+                onClick={() => u.role !== r.role && update.mutate({ role: r.role }, { onSuccess: () => toast(t("{username} is now {v1}.", { username: u.username, v1: roleLabel[r.role].toLowerCase() })) })}
               >
                 <Icon name={r.icon} />
                 <strong>{roleLabel[r.role]}</strong>
@@ -210,43 +211,43 @@ function UserPanel({ id, onGone }: { id: number; onGone: () => void }) {
           <p className="muted small">{ROLES.find((r) => r.role === u.role)?.text}</p>
           {multiCam && u.role !== "admin" && (
             <p className="small">
-              Câmeras: {u.cameras.length === 0 ? "todas" : u.cameras.map((c) => cams.data?.find((x) => x.id === c)?.name ?? c).join(", ")}{" "}
+              {t("Cameras:")}{" "}{u.cameras.length === 0 ? t("all") : u.cameras.map((c) => cams.data?.find((x) => x.id === c)?.name ?? c).join(", ")}{" "}
               <button className="linkish" onClick={() => setDialog("cameras")}>
-                mudar
+                {t("change")}
               </button>
             </p>
           )}
         </div>
 
         <div className="user-block">
-          <h3>Nuvem</h3>
-          {d.nuvem ? (
+          <h3>{t("Cloud")}</h3>
+          {d.cloud ? (
             <dl className="kv">
-              <dt>Pasta</dt>
-              <dd>{d.nuvem.folder}</dd>
-              <dt>Arquivos</dt>
+              <dt>{t("Folder")}</dt>
+              <dd>{d.cloud.folder}</dd>
+              <dt>{t("Files")}</dt>
               <dd>
-                {d.nuvem.files.files} em {d.nuvem.files.folders} {d.nuvem.files.folders === 1 ? "pasta" : "pastas"}
+                {t(d.cloud.files.folders === 1 ? "{files} in {folders} folder" : "{files} in {folders} folders", { files: d.cloud.files.files, folders: d.cloud.files.folders })}
               </dd>
-              <dt>Ocupa</dt>
+              <dt>{t("Uses")}</dt>
               <dd>
-                {fmtBytes(d.nuvem.files.bytes)}
-                {d.nuvem.files.partial ? "+" : ""}
+                {fmtBytes(d.cloud.files.bytes)}
+                {d.cloud.files.partial ? "+" : ""}
               </dd>
-              <dt>Na lixeira</dt>
-              <dd>{fmtBytes(d.nuvem.trash.bytes)}</dd>
+              <dt>{t("In trash")}</dt>
+              <dd>{fmtBytes(d.cloud.trash.bytes)}</dd>
             </dl>
           ) : (
-            <p className="muted small">A Nuvem não está montada neste servidor.</p>
+            <p className="muted small">{t("Cloud is not mounted on this server.")}</p>
           )}
         </div>
 
         <div className="user-block">
-          <h3>Segurança</h3>
+          <h3>{t("Security")}</h3>
           <dl className="kv">
-            <dt>2 etapas</dt>
-            <dd>{u.totp ? "ativa" : "desligada"}</dd>
-            <dt>Aparelhos</dt>
+            <dt>{t("2 steps")}</dt>
+            <dd>{u.totp ? t("on") : t("turned off")}</dd>
+            <dt>{t("Devices")}</dt>
             <dd>{d.sessions.length}</dd>
           </dl>
           <ul className="mini-list">
@@ -254,7 +255,7 @@ function UserPanel({ id, onGone }: { id: number; onGone: () => void }) {
               <li key={s.id}>
                 <span>{deviceName(s.user_agent)}</span>
                 <span className="muted small">
-                  {s.mfa ? "de fora · " : ""}desde {fmtDate(s.created_at)}
+                  {s.mfa ? t("from outside · ") : ""}{t("since {date}", { date: fmtDate(s.created_at) })}
                 </span>
               </li>
             ))}
@@ -262,9 +263,9 @@ function UserPanel({ id, onGone }: { id: number; onGone: () => void }) {
         </div>
 
         <div className="user-block span-2">
-          <h3>Últimas ações</h3>
+          <h3>{t("Recent actions")}</h3>
           {d.audit.length === 0 ? (
-            <p className="muted small">Nada registrado ainda.</p>
+            <p className="muted small">{t("Nothing recorded yet.")}</p>
           ) : (
             <ul className="mini-list audit-mini">
               {d.audit.map((a) => (
@@ -284,18 +285,18 @@ function UserPanel({ id, onGone }: { id: number; onGone: () => void }) {
       <footer className="user-actions">
         {!self && (
           <button className="btn" onClick={() => setDialog("invite")}>
-            <Icon name="lock" /> {u.pending ? "Gerar novo convite" : "Esqueceu a senha: novo convite"}
+            <Icon name="lock" /> {u.pending ? t("Create new invite") : t("Forgot the password: new invite")}
           </button>
         )}
         {u.totp && (
           <button
             className="btn"
             onClick={() =>
-              window.confirm(`Desligar a verificação em 2 etapas de ${u.username}? Os acessos de fora dessa conta são encerrados.`) &&
-              update.mutate({ totp_off: true }, { onSuccess: () => toast("Verificação em 2 etapas desligada.") })
+              window.confirm(t("Turn off two-step verification for {username}? Outside access for this account is ended.", { username: u.username })) &&
+              update.mutate({ totp_off: true }, { onSuccess: () => toast(t("Two-step verification turned off.")) })
             }
           >
-            <Icon name="shield" /> Desligar 2 etapas
+            <Icon name="shield" />{" "}{t("Turn off 2 steps")}
           </button>
         )}
         <span className="grow" />
@@ -304,14 +305,14 @@ function UserPanel({ id, onGone }: { id: number; onGone: () => void }) {
             <button
               className="btn"
               onClick={() =>
-                (u.disabled || window.confirm(`Desativar ${u.username}? A conta sai de todos os aparelhos e não entra até ser reativada.`)) &&
-                update.mutate({ disabled: !u.disabled }, { onSuccess: () => toast(u.disabled ? "Conta reativada." : "Conta desativada.") })
+                (u.disabled || window.confirm(t("Disable {username}? The account is signed out of every device and cannot sign in until it is re-enabled.", { username: u.username }))) &&
+                update.mutate({ disabled: !u.disabled }, { onSuccess: () => toast(u.disabled ? t("Account re-enabled.") : t("Account disabled.")) })
               }
             >
-              <Icon name={u.disabled ? "check" : "x"} /> {u.disabled ? "Reativar conta" : "Desativar conta"}
+              <Icon name={u.disabled ? "check" : "x"} /> {u.disabled ? t("Re-enable account") : t("Disable account")}
             </button>
             <button className="btn danger" onClick={() => setDialog("delete")}>
-              <Icon name="trash" /> Excluir
+              <Icon name="trash" />{" "}{t("Remove")}
             </button>
           </>
         )}
@@ -320,18 +321,18 @@ function UserPanel({ id, onGone }: { id: number; onGone: () => void }) {
       {dialog === "invite" && (
         <div className="dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="reinv-title" onMouseDown={(e) => e.target === e.currentTarget && setDialog(null)}>
           <div className="dialog">
-            <h2 id="reinv-title">Novo convite para {u.username}</h2>
+            <h2 id="reinv-title">{t("New invite for")}{" "}{u.username}</h2>
             <p className="muted">
               {u.pending
-                ? "O código anterior deixa de valer."
-                : "A senha atual e a verificação em 2 etapas deixam de valer e a conta sai de todos os aparelhos. A pessoa cria uma senha nova com o código."}
+                ? t("The previous code stops working.")
+                : t("The current password and two-step check stop working and the account is signed out of every device. The person creates a new password with the code.")}
             </p>
             <div className="dialog-actions">
               <button type="button" className="btn ghost" onClick={() => setDialog(null)}>
-                Cancelar
+                {t("Cancel")}
               </button>
               <button className="btn primary" disabled={reinvite.isPending} onClick={() => reinvite.mutate()}>
-                Gerar convite
+                {t("Create invite")}
               </button>
             </div>
           </div>
@@ -341,7 +342,7 @@ function UserPanel({ id, onGone }: { id: number; onGone: () => void }) {
         <EmailDialog
           user={u}
           onClose={() => setDialog(null)}
-          onSave={(email) => update.mutate({ email }, { onSuccess: () => (toast("E-mail salvo."), setDialog(null)) })}
+          onSave={(email) => update.mutate({ email }, { onSuccess: () => (toast(t("Email saved.")), setDialog(null)) })}
         />
       )}
       {invitedNow && <InviteCodeDialog user={invitedNow} onClose={() => setInvitedNow(null)} />}
@@ -350,7 +351,7 @@ function UserPanel({ id, onGone }: { id: number; onGone: () => void }) {
           user={u}
           cameras={cams.data}
           onClose={() => setDialog(null)}
-          onSave={(ids) => update.mutate({ cameras: ids }, { onSuccess: () => (toast(`Câmeras de ${u.username} atualizadas`), setDialog(null)) })}
+          onSave={(ids) => update.mutate({ cameras: ids }, { onSuccess: () => (toast(t("{username}'s cameras updated", { username: u.username })), setDialog(null)) })}
         />
       )}
       {dialog === "delete" && <DeleteUserDialog user={u} onClose={() => setDialog(null)} onDelete={() => remove.mutate()} busy={remove.isPending} />}
@@ -359,12 +360,12 @@ function UserPanel({ id, onGone }: { id: number; onGone: () => void }) {
 }
 
 function translate(msg: string): string {
-  if (msg.includes("last admin")) return "É preciso manter pelo menos um administrador ativo.";
-  if (msg.includes("yourself")) return "Você não pode fazer isso com a sua própria conta.";
-  if (msg.includes("already exists")) return "Já existe uma conta com esse nome ou e-mail.";
-  if (msg.includes("already used")) return "Esse e-mail já é de outra conta.";
-  if (msg.includes("invalid e-mail")) return "E-mail inválido.";
-  if (msg.includes("invalid username")) return "Nome inválido: use 3 a 32 letras, números, ponto, hífen ou sublinhado.";
+  if (msg.includes("last admin")) return t("At least one active administrator must remain.");
+  if (msg.includes("yourself")) return t("You cannot do that with your own account.");
+  if (msg.includes("already exists")) return t("An account with this name or email already exists.");
+  if (msg.includes("already used")) return t("This email already belongs to another account.");
+  if (msg.includes("invalid e-mail")) return t("Invalid email.");
+  if (msg.includes("invalid username")) return t("Invalid name: use 3 to 32 letters, numbers, dot, hyphen or underscore.");
   return msg;
 }
 
@@ -378,20 +379,20 @@ interface InvitedUser extends User {
 function inviteLink(u: InvitedUser): string {
   if (u.invite_url) return u.invite_url;
   const q = new URLSearchParams({ c: u.invite_code ?? "", u: u.email || u.username });
-  return `${window.location.origin}/#/convite?${q.toString()}`;
+  return `${window.location.origin}/#/invite?${q.toString()}`;
 }
 
 /** Shows an invite code once, with ways to pass it on. */
 function InviteCodeDialog({ user, onClose }: { user: InvitedUser; onClose: () => void }) {
   const toast = useToast();
   const link = inviteLink(user);
-  const text = `Você foi convidado para o Sentinela. Abra este link para criar a sua senha (vale por 7 dias):\n${link}`;
+  const text = t("You were invited to Sentinela. Open this link to create your password (valid for 7 days):\n{link}", { link });
   const share = async () => {
     try {
-      if (navigator.share) await navigator.share({ title: "Convite do Sentinela", text });
+      if (navigator.share) await navigator.share({ title: t("Sentinela invite"), text });
       else {
         await navigator.clipboard.writeText(text);
-        toast("Convite copiado.");
+        toast(t("Invite copied."));
       }
     } catch {
       // share sheet closed
@@ -400,37 +401,37 @@ function InviteCodeDialog({ user, onClose }: { user: InvitedUser; onClose: () =>
   return (
     <div className="dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="code-title">
       <div className="dialog">
-        <h2 id="code-title">Convite de {user.username}</h2>
+        <h2 id="code-title">{t("Invite from")}{" "}{user.username}</h2>
         <p className="muted">
-          Envie este link para a pessoa. Ao abrir, ela cria a própria senha e já entra. Ele vale por 7 dias, funciona uma vez e só aparece agora.
+          {t("Send this link to the person. When they open it, they create their own password and sign in. It is valid for 7 days, works once and is shown only now.")}
         </p>
         <dl className="kv">
-          <dt>Usuário</dt>
+          <dt>{t("User")}</dt>
           <dd className="selectable">{user.username}</dd>
           {user.email && (
             <>
-              <dt>E-mail</dt>
+              <dt>{t("Email")}</dt>
               <dd className="selectable">{user.email}</dd>
             </>
           )}
         </dl>
-        <code className="invite-link selectable" aria-label="Link de convite">
+        <code className="invite-link selectable" aria-label={t("Invite link")}>
           {link}
         </code>
         {!user.invite_url && (
           <p className="muted small">
-            O link usa o endereço desta página. Para funcionar fora de casa, configure <code>remote.public.url</code> no servidor.
+            {t("The link uses this page's address. To work from outside the home, set up")}{" "}<code>remote.public.url</code>{" "}{t("on the server.")}
           </p>
         )}
         <div className="dialog-actions">
-          <button type="button" className="btn" onClick={() => void navigator.clipboard?.writeText(link).then(() => toast("Link copiado."))}>
-            Copiar link
+          <button type="button" className="btn" onClick={() => void navigator.clipboard?.writeText(link).then(() => toast(t("Link copied.")))}>
+            {t("Copy link")}
           </button>
           <button type="button" className="btn" onClick={() => void share()}>
-            Enviar convite
+            {t("Send invite")}
           </button>
           <button type="button" className="btn primary" onClick={onClose}>
-            Pronto
+            {t("Done")}
           </button>
         </div>
       </div>
@@ -449,17 +450,17 @@ function EmailDialog({ user, onClose, onSave }: { user: User; onClose: () => voi
           onSave(email.trim());
         }}
       >
-        <h2 id="email-title">E-mail de {user.username}</h2>
-        <p className="muted">A pessoa pode entrar com o usuário ou com este e-mail. Deixe vazio para não usar e-mail.</p>
+        <h2 id="email-title">{t("Email from")}{" "}{user.username}</h2>
+        <p className="muted">{t("The person can sign in with the username or this email. Leave empty to not use an email.")}</p>
         <div className="field">
-          <label htmlFor="em">E-mail</label>
+          <label htmlFor="em">{t("Email")}</label>
           <input id="em" className="input" type="email" autoComplete="off" value={email} onChange={(e) => setEmail(e.target.value)} autoFocus />
         </div>
         <div className="dialog-actions">
           <button type="button" className="btn ghost" onClick={onClose}>
-            Cancelar
+            {t("Cancel")}
           </button>
-          <button className="btn primary">Salvar</button>
+          <button className="btn primary">{t("Save")}</button>
         </div>
       </form>
     </div>
@@ -501,19 +502,18 @@ function CreateUserDialog({ onClose, onCreated }: { onClose: () => void; onCreat
       >
         <div className="dialog-head">
           <div>
-            <h2 id="new-user">Autorizar pessoa</h2>
+            <h2 id="new-user">{t("Authorize person")}</h2>
             <p className="muted small">
-              Você só autoriza o usuário ou o e-mail. O sistema gera um link de convite; ao abrir o link (em casa ou de fora) a pessoa cria a própria
-              senha.
+              {t("You only authorize the username or the email. The system creates an invite link; when the person opens it (at home or outside), they create their own password.")}
             </p>
           </div>
-          <button type="button" className="btn ghost icon small" aria-label="Fechar" onClick={onClose}>
+          <button type="button" className="btn ghost icon small" aria-label={t("Close")} onClick={onClose}>
             <Icon name="x" />
           </button>
         </div>
         <div className="form-grid">
           <div className="field">
-            <label htmlFor="nu-email">E-mail</label>
+            <label htmlFor="nu-email">{t("Email")}</label>
             <input
               id="nu-email"
               className="input"
@@ -523,12 +523,12 @@ function CreateUserDialog({ onClose, onCreated }: { onClose: () => void; onCreat
               autoFocus
               autoComplete="off"
               spellCheck={false}
-              placeholder="ex.: maria@gmail.com"
+              placeholder={t("e.g. maria@gmail.com")}
             />
-            <span className={`hint${emailOk ? "" : " bad"}`}>Opcional. A pessoa poderá entrar com ele.</span>
+            <span className={`hint${emailOk ? "" : " bad"}`}>{t("Optional. The person can sign in with it.")}</span>
           </div>
           <div className="field">
-            <label htmlFor="nu-name">Nome de usuário</label>
+            <label htmlFor="nu-name">{t("Username")}</label>
             <input
               id="nu-name"
               className="input"
@@ -536,13 +536,13 @@ function CreateUserDialog({ onClose, onCreated }: { onClose: () => void; onCreat
               onChange={(e) => setName(e.target.value.trim())}
               autoComplete="off"
               spellCheck={false}
-              placeholder={email ? `vazio = ${email.split("@")[0]}` : "ex.: maria"}
+              placeholder={email ? t("empty = {v0}", { v0: email.split("@")[0] }) : t("e.g. maria")}
             />
-            <span className={`hint${nameOk ? "" : " bad"}`}>3 a 32 letras, números, ponto, hífen ou sublinhado. Também é o nome da pasta na Nuvem.</span>
+            <span className={`hint${nameOk ? "" : " bad"}`}>{t("3 to 32 letters, numbers, dot, hyphen or underscore. It is also the folder name in Cloud.")}</span>
           </div>
         </div>
         <fieldset className="role-pick">
-          <legend>Perfil</legend>
+          <legend>{t("Profile")}</legend>
           {ROLES.map((r) => (
             <label key={r.role} className={`role-card${role === r.role ? " on" : ""}`}>
               <input type="radio" name="nu-role" checked={role === r.role} onChange={() => setRole(r.role)} />
@@ -554,7 +554,7 @@ function CreateUserDialog({ onClose, onCreated }: { onClose: () => void; onCreat
         </fieldset>
         {(cams.data?.length ?? 0) > 1 && role !== "admin" && (
           <fieldset className="choice-list">
-            <legend>Câmeras (nenhuma marcada = todas)</legend>
+            <legend>{t("Cameras (none ticked = all)")}</legend>
             {cams.data!.map((c) => (
               <label key={c.id} className={`choice${picked.includes(c.id) ? " on" : ""}`}>
                 <input type="checkbox" checked={picked.includes(c.id)} onChange={() => setPicked((p) => (p.includes(c.id) ? p.filter((x) => x !== c.id) : [...p, c.id]))} />
@@ -565,10 +565,10 @@ function CreateUserDialog({ onClose, onCreated }: { onClose: () => void; onCreat
         )}
         <div className="dialog-actions">
           <button type="button" className="btn ghost" onClick={onClose}>
-            Cancelar
+            {t("Cancel")}
           </button>
           <button className="btn primary" disabled={!valid || create.isPending}>
-            <Icon name="plus" /> Autorizar e gerar convite
+            <Icon name="plus" />{" "}{t("Authorize and create invite")}
           </button>
         </div>
       </form>
@@ -587,21 +587,20 @@ function DeleteUserDialog({ user, onClose, onDelete, busy }: { user: User; onClo
           if (typed === user.username) onDelete();
         }}
       >
-        <h2 id="del-title">Excluir {user.username}?</h2>
+        <h2 id="del-title">{t("Remove")}{" "}{user.username}?</h2>
         <p className="muted">
-          A conta é apagada e sai de todos os aparelhos. Os arquivos dela na Nuvem continuam no disco, na pasta <strong>{user.username}</strong>. Para só
-          bloquear o acesso, use Desativar conta.
+          {t("The account is deleted and signed out of every device. Its files in Cloud stay on disk, in the folder")}{" "}<strong>{user.username}</strong>{t(". To just block access, use Disable account.")}
         </p>
         <div className="field">
-          <label htmlFor="del-confirm">Digite {user.username} para confirmar</label>
+          <label htmlFor="del-confirm">{t("Enter")}{" "}{user.username}{" "}{t("to confirm")}</label>
           <input id="del-confirm" className="input" value={typed} onChange={(e) => setTyped(e.target.value)} autoFocus autoComplete="off" />
         </div>
         <div className="dialog-actions">
           <button type="button" className="btn ghost" onClick={onClose}>
-            Cancelar
+            {t("Cancel")}
           </button>
           <button className="btn danger-fill" disabled={typed !== user.username || busy}>
-            <Icon name="trash" /> Excluir usuário
+            <Icon name="trash" />{" "}{t("Delete user")}
           </button>
         </div>
       </form>
@@ -622,8 +621,8 @@ function CameraAccessDialog({ user, cameras, onClose, onSave }: { user: User; ca
           onSave(picked.length === cameras.length ? [] : picked);
         }}
       >
-        <h2 id="cams-title">Câmeras de {user.username}</h2>
-        <p className="muted">Ao vivo, gravações, eventos e avisos só das câmeras marcadas. Nenhuma marcada = todas.</p>
+        <h2 id="cams-title">{t("Cameras of")}{" "}{user.username}</h2>
+        <p className="muted">{t("Live, recordings, events and notices only from the ticked cameras. None ticked = all.")}</p>
         {cameras.map((c) => (
           <label key={c.id} className="check-row">
             <input type="checkbox" checked={picked.includes(c.id)} onChange={() => toggle(c.id)} /> {c.name}
@@ -631,9 +630,9 @@ function CameraAccessDialog({ user, cameras, onClose, onSave }: { user: User; ca
         ))}
         <div className="dialog-actions">
           <button type="button" className="btn ghost" onClick={onClose}>
-            Cancelar
+            {t("Cancel")}
           </button>
-          <button className="btn primary">Salvar</button>
+          <button className="btn primary">{t("Save")}</button>
         </div>
       </form>
     </div>

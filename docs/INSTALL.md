@@ -32,7 +32,7 @@ an old CPU without HEVC hardware decode is enough.
 | Mount | Use | Required |
 |---|---|---|
 | `/data` | Recordings, database, keys | Yes. The installer refuses to record on the system disk |
-| `/srv/nas` | Nuvem files (LAN share and web file browser) | Optional |
+| `/srv/nas` | Cloud files (LAN share and web file browser) | Optional |
 | `/srv/backup` | Nightly database/config backups | Optional, recommended |
 
 Size `/data` for your cameras: one stream at ~2 Mbit/s writes about
@@ -149,13 +149,13 @@ from releases or are built on a development PC (section 11).
    cameras (any brand; ONVIF finds the streams), recording, the file share,
    remote access, the app and two-step login. Every step can be skipped.
 2. Two-step login (TOTP) is optional and recommended if you open access from
-   the internet; enroll it from home in **System → Minha conta**.
-3. Check **Live** (*Ao vivo*): the picture should open in about a second.
-4. After 5–10 minutes, check **Recordings** (*Gravações*): the day ribbon
+   the internet; enroll it from home in **System → My account**.
+3. Check **Live** (*Live*): the picture should open in about a second.
+4. After 5–10 minutes, check **Recordings** (*Recordings*): the day ribbon
    fills and playback works.
-5. Create the other people's accounts in **System → Users** (*Sistema →
-   Usuários*, desktop): *viewer* (cameras, recordings and events),
-   *operator* (also Nuvem and camera control) or *admin*.
+5. Create the other people's accounts in **System → Users** (*System →
+   Users*, desktop): *viewer* (cameras, recordings and events),
+   *operator* (also Cloud and camera control) or *admin*.
 
 If a password is lost:
 
@@ -165,7 +165,7 @@ cd /opt/sentinela/deploy && sudo docker compose exec -T sentinela sentinela user
 
 ---
 
-## 6. LAN file share (Nuvem)
+## 6. LAN file share (Cloud)
 
 When `/srv/nas` is mounted, the installer configures Samba with two shares:
 `\\192.168.1.10\Nuvem` (read/write) and `\\192.168.1.10\Gravacoes`
@@ -176,7 +176,7 @@ sudo smbpasswd -a "$USER"
 ```
 
 Samba accounts are separate from web accounts. The same files are
-available in the web/app **Nuvem** page for operators and admins.
+available in the web/app **Cloud** page for operators and admins.
 
 ---
 
@@ -283,7 +283,7 @@ Tailscale or the public address).
 ### Connect a phone
 
 1. Install the APK (from a release, or built as below) and open it.
-2. On a computer, open Sentinela → **Sistema → Aplicativo**. It shows a
+2. On a computer, open Sentinela → **System → App**. It shows a
    QR code for each way the house can be reached (Tailscale,
    `remote.tailnet_url`; public address, `remote.public`).
 3. Point the phone's camera at the QR code and open the link. The app shows
@@ -317,7 +317,7 @@ pairing. Put it in `~/.sentinela-android/connection.json` (outside Git):
 }
 ```
 
-Later versions appear in **Sistema → Aplicativo**. Only changes in
+Later versions appear in **System → App**. Only changes in
 `mobile/` need a new APK; UI changes reach the app with a server deploy.
 Android notifications use Firebase only when the APK was built with your
 own Firebase project (ADR-0020); otherwise the app keeps a direct
@@ -342,7 +342,7 @@ sudo /opt/sentinela/scripts/setup-auto-update.sh disable
 
 New major versions and servers running a build deployed from a computer are
 left alone unless you change that in `/etc/sentinela/auto-update.env`. The
-System page → Atualizações shows the schedule, the last check and what is
+System page → Updates shows the schedule, the last check and what is
 new in each version.
 
 ### From a computer
@@ -376,7 +376,7 @@ cd /opt/sentinela && sudo git pull && sudo SENTINELA_BUILD=1 ./scripts/install-s
 
 ## 12. More cameras
 
-The easiest way: **System → Câmeras → Configurar câmeras** in the browser
+The easiest way: **System → Cameras → Configure cameras** in the browser
 (admin, at home or over Tailscale). The server validates the change, keeps a
 backup, applies it and rolls back if anything fails (ADR-0024). The same
 page edits recording, the time zone and the disks shown in System.
@@ -394,7 +394,7 @@ stream layout:
 | `generic` | your `rtsp_main` (and optional `rtsp_sub`) path | View and record |
 
 For an XMEye camera, test it first in **System → Add camera** (*Adicionar
-câmera*, admin, desktop). Then, on the server:
+camera*, admin, desktop). Then, on the server:
 
 ```bash
 sudo /opt/sentinela/scripts/add-camera.sh cam2 192.168.1.21 "Back yard"
@@ -423,10 +423,10 @@ sudo /opt/sentinela/scripts/setup-apps.sh enable
 ```
 
 It adds `apps: {enabled: true}` to the config, starts the `apps` agent and
-installs the services firewall. Admins then see **Serviços** in the
+installs the services firewall. Admins then see **Services** in the
 sidebar (on the phone, under **Mais**). To deploy a project from your PC
-without GitHub, copy its folder (with `.git`) into the Nuvem over the LAN
-share and pick it under **Novo serviço → Pasta no servidor**.
+without GitHub, copy its folder (with `.git`) into the Cloud over the LAN
+share and pick it under **New service → Folder on the server**.
 
 - Services use host ports 20000–20099. For Tailscale devices, allow
   `tag:nvr:20000-20099` in the tailnet ACL.
@@ -488,16 +488,16 @@ The interface is in Portuguese. The names used in this guide:
 
 | UI | English |
 |---|---|
-| Ao vivo | Live |
-| Gravações | Recordings |
-| Eventos | Events |
-| Nuvem | Cloud (file storage) |
+| Live | Live |
+| Recordings | Recordings |
+| Events | Events |
+| Cloud | Cloud (file storage) |
 | Mais | More |
-| Minha conta | My account |
-| Sistema | System |
-| Usuários | Users |
-| Notificações | Notifications |
-| Aplicativo | App (Android updates) |
-| Compartilhado | Shared (common Nuvem folder) |
-| Adicionar câmera | Add camera |
-| Serviços | Self-hosted services |
+| My account | My account |
+| System | System |
+| Users | Users |
+| Notifications | Notifications |
+| App | App (Android updates) |
+| Shared | Shared (common Cloud folder) |
+| Add camera | Add camera |
+| Services | Self-hosted services |

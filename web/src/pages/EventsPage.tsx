@@ -9,12 +9,13 @@ import { Fish } from "../components/Doodles";
 import { Icon } from "../components/Icon";
 import { ModeCard } from "../components/Notifications";
 
+import { t, plural } from "../lib/i18n";
 type Severity = "" | "alert" | "detection";
 
 const SEVERITY: { value: Severity; label: string }[] = [
-  { value: "", label: "Tudo" },
-  { value: "alert", label: "Alertas" },
-  { value: "detection", label: "Detecções" },
+  { value: "", label: t("Everything") },
+  { value: "alert", label: t("Alerts") },
+  { value: "detection", label: t("Detections") },
 ];
 
 const typeLabel = (t: string) => eventLabel[t] ?? t;
@@ -78,16 +79,16 @@ export function EventsPage() {
     <>
       <header className="page-head">
         <div className="title">
-          <h1>Eventos</h1>
+          <h1>{t("Events")}</h1>
           <span className="sub">
             {counts.total === 0
-              ? "Nada no período."
-              : `${counts.total} ${counts.total === 1 ? "evento" : "eventos"}, ${counts.alerts} ${counts.alerts === 1 ? "alerta" : "alertas"}${unseen ? ` · ${unseen} ${unseen === 1 ? "novo" : "novos"}` : " · tudo visto"}`}
+              ? t("Nothing in the period.")
+              : `${plural(counts.total, "{n} event", "{n} events")}, ${plural(counts.alerts, "{n} alert", "{n} alerts")}${unseen ? ` · ${plural(unseen, "{n} new", "{n} new")}` : t(" · all seen")}`}
           </span>
         </div>
         {multi && (
-          <select className="input" value={cam} onChange={(e) => setCam(e.target.value)} aria-label="Câmera">
-            <option value="">Todas as câmeras</option>
+          <select className="input" value={cam} onChange={(e) => setCam(e.target.value)} aria-label={t("Camera")}>
+            <option value="">{t("All cameras")}</option>
             {cams.data!.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
@@ -95,10 +96,10 @@ export function EventsPage() {
             ))}
           </select>
         )}
-        <div className="segmented" role="group" aria-label="Período">
+        <div className="segmented" role="group" aria-label={t("Period")}>
           {[1, 7, 30].map((d) => (
             <button key={d} aria-pressed={days === d} onClick={() => setDays(d)}>
-              {d === 1 ? "Hoje" : `${d} dias`}
+              {d === 1 ? t("Today") : t("{d} days", { d })}
             </button>
           ))}
         </div>
@@ -107,7 +108,7 @@ export function EventsPage() {
       <ModeCard />
 
       <div className="review-bar">
-        <div className="segmented" role="group" aria-label="Gravidade">
+        <div className="segmented" role="group" aria-label={t("Severity")}>
           {SEVERITY.map((s) => (
             <button key={s.value} aria-pressed={severity === s.value} onClick={() => setSeverity(s.value)}>
               {s.label}
@@ -115,9 +116,9 @@ export function EventsPage() {
           ))}
         </div>
         {kinds.length > 1 && (
-          <div className="chip-row" role="group" aria-label="Tipo">
+          <div className="chip-row" role="group" aria-label={t("Type")}>
             <button className={`chip small${kind === "" ? " on" : ""}`} onClick={() => setKind("")}>
-              Todos os tipos
+              {t("All types")}
             </button>
             {kinds.map((k) => (
               <button key={k} className={`chip small${kind === k ? " on" : ""}`} onClick={() => setKind(kind === k ? "" : k)}>
@@ -127,24 +128,24 @@ export function EventsPage() {
           </div>
         )}
         <button className={`btn small${onlyUnseen ? " on" : ""}`} aria-pressed={onlyUnseen} onClick={() => setOnlyUnseen((v) => !v)}>
-          <Icon name="eye" /> Só não vistos
+          <Icon name="eye" />{" "}{t("Unseen only")}
         </button>
         <span className="grow" />
         {unseen > 0 && (
           <button className="btn small" disabled={seen.isPending} onClick={() => seen.mutate({ all: true })}>
-            <Icon name="check" /> Marcar tudo como visto
+            <Icon name="check" />{" "}{t("Mark everything as seen")}
           </button>
         )}
       </div>
 
-      {q.isLoading && <p className="muted">Carregando…</p>}
-      {q.isError && <p className="notice error">Não foi possível carregar os eventos.</p>}
+      {q.isLoading && <p className="muted">{t("Loading…")}</p>}
+      {q.isError && <p className="notice error">{t("Could not load the events.")}</p>}
       {q.data && items.length === 0 && (
         <div className="card empty">
           <Fish />
-          <strong>{onlyUnseen || severity || kind ? "Nada com esse filtro" : "Tudo calmo por aqui"}</strong>
+          <strong>{onlyUnseen || severity || kind ? t("Nothing with this filter") : t("All quiet here")}</strong>
           <p>
-            A câmera avisa movimento e o detector marca pessoas, veículos e animais. Movimentos a menos de 30 s um do outro viram um só evento.
+            {t("The camera reports motion and the detector marks people, vehicles and animals. Motion less than 30 s apart becomes one event.")}
           </p>
         </div>
       )}
@@ -158,16 +159,16 @@ export function EventsPage() {
             <ul className="review-grid">
               {list.map((it) => (
                 <li key={it.id} className="review-cell">
-                  <button className={`review-item ${it.severity}${it.seen ? " seen" : ""}`} onClick={() => watch(it)} title="Assistir a gravação deste evento">
+                  <button className={`review-item ${it.severity}${it.seen ? " seen" : ""}`} onClick={() => watch(it)} title={t("Watch this event's recording")}>
                     <span className="review-shot">
                       {it.snapshot_event ? <img src={`/api/events/${it.snapshot_event}/snapshot`} alt="" loading="lazy" decoding="async" /> : <Fish />}
-                      {!it.seen && <span className="review-new">Novo</span>}
-                      {it.severity === "alert" && <span className="review-alert">Alerta</span>}
+                      {!it.seen && <span className="review-new">{t("New")}</span>}
+                      {it.severity === "alert" && <span className="review-alert">{t("Alert")}</span>}
                     </span>
                     <span className="review-text">
                       <span className="review-when">
                         {fmtHM(it.start)}
-                        <span className="muted small">{it.end ? ` · ${fmtDuration(new Date(it.end).getTime() - new Date(it.start).getTime())}` : " · agora"}</span>
+                        <span className="muted small">{it.end ? ` · ${fmtDuration(new Date(it.end).getTime() - new Date(it.start).getTime())}` : t(" · now")}</span>
                       </span>
                       <span className="review-tags">
                         {it.types.map((t) => (
@@ -176,12 +177,12 @@ export function EventsPage() {
                             {typeLabel(t)}
                           </span>
                         ))}
-                        {it.events > 1 && <span className="muted small">{it.events} disparos</span>}
+                        {it.events > 1 && <span className="muted small">{t("{n} triggers", { n: it.events })}</span>}
                       </span>
                       {multi && <span className="muted small">{camName(it.camera_id)}</span>}
                     </span>
                   </button>
-                  <button className="review-zoom" onClick={() => show(it)} aria-label="Ver a foto do evento" title="Ver a foto do evento">
+                  <button className="review-zoom" onClick={() => show(it)} aria-label={t("View the event picture")} title={t("View the event picture")}>
                     <Icon name="fullscreen" />
                   </button>
                 </li>
@@ -236,44 +237,44 @@ function EventDialog({ item, camName, items, onGo, onClose }: { item: ReviewItem
             </h2>
             <p className="muted small">
               {camName} · {fmtDay(item.start)}
-              {item.end ? ` · durou ${fmtDuration(new Date(item.end).getTime() - new Date(item.start).getTime())}` : " · acontecendo agora"}
-              {item.events > 1 ? ` · ${item.events} disparos agrupados` : ""}
+              {item.end ? t(" · lasted {v0}", { v0: fmtDuration(new Date(item.end).getTime() - new Date(item.start).getTime()) }) : t(" · happening now")}
+              {item.events > 1 ? t(" · {events} triggers grouped", { events: item.events }) : ""}
             </p>
           </div>
-          <button className="btn ghost icon small" aria-label="Fechar" onClick={onClose}>
+          <button className="btn ghost icon small" aria-label={t("Close")} onClick={onClose}>
             <Icon name="x" />
           </button>
         </div>
         <div className="event-shot">
           {item.snapshot_event ? (
-            <img src={`/api/events/${item.snapshot_event}/snapshot`} alt={`Imagem do evento das ${fmtTime(item.start)}`} />
+            <img src={`/api/events/${item.snapshot_event}/snapshot`} alt={t("Event image at {v0}", { v0: fmtTime(item.start) })} />
           ) : (
             <div className="event-noshot">
               <Fish />
-              <p>Sem imagem para este evento.</p>
+              <p>{t("No picture for this event.")}</p>
             </div>
           )}
           {older && (
-            <button className="viewer-nav prev" aria-label="Evento anterior" title="Anterior (←)" onClick={() => onGo(older)}>
+            <button className="viewer-nav prev" aria-label={t("Previous event")} title={t("Previous (←)")} onClick={() => onGo(older)}>
               <Icon name="chevronLeft" />
             </button>
           )}
           {newer && (
-            <button className="viewer-nav next" aria-label="Próximo evento" title="Próximo (→)" onClick={() => onGo(newer)}>
+            <button className="viewer-nav next" aria-label={t("Next event")} title={t("Next (→)")} onClick={() => onGo(newer)}>
               <Icon name="chevronRight" />
             </button>
           )}
         </div>
         <div className="dialog-actions">
-          {item.severity === "alert" ? <span className="tag alert">Alerta</span> : <span className="muted small">Detecção</span>}
+          {item.severity === "alert" ? <span className="tag alert">{t("Alert")}</span> : <span className="muted small">{t("Detection")}</span>}
           <span className="grow" />
           {item.snapshot_event && (
-            <a className="btn" href={`/api/events/${item.snapshot_event}/snapshot`} download={`evento-${item.id}.jpg`}>
-              <Icon name="download" /> Imagem
+            <a className="btn" href={`/api/events/${item.snapshot_event}/snapshot`} download={`event-${item.id}.jpg`}>
+              <Icon name="download" />{" "}{t("Image")}
             </a>
           )}
           <button className="btn primary" onClick={watch}>
-            <Icon name="play" /> Assistir a gravação
+            <Icon name="play" />{" "}{t("Watch the recording")}
           </button>
         </div>
       </div>

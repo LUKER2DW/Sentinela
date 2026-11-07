@@ -4,6 +4,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { get } from "./api";
 
+import { t } from "./i18n";
 export interface AppRelease {
   available: boolean;
   version_code?: number;
@@ -86,7 +87,7 @@ export function nativeSize(size: number, versionCode: number): number {
  */
 export async function installUpdate(rel: AppRelease, onProgress: (pct: number) => void): Promise<"installing" | "permission"> {
   const cap = bridge();
-  if (!cap || !rel.sha256 || !rel.size) throw new Error("Atualização indisponível.");
+  if (!cap || !rel.sha256 || !rel.size) throw new Error(t("Update unavailable."));
   const size = rel.size;
   let sub: Listener | undefined;
   try {

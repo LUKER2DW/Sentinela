@@ -25,7 +25,7 @@ const (
 )
 
 // Sources: a GitHub repository, or a folder on the server (under
-// apps.local_root, e.g. a project copied to the Nuvem with its .git).
+// apps.local_root, e.g. a project copied to the Cloud with its .git).
 const (
 	SourceGitHub = "github"
 	SourceLocal  = "local"

@@ -5,6 +5,7 @@
 // Google Play services it keeps the direct foreground connection.
 import { api, get } from "./api";
 
+import { t } from "./i18n";
 export type PushState = "unsupported" | "insecure" | "denied" | "off" | "on";
 
 interface NativeStatus {
@@ -41,14 +42,14 @@ export const hideOngoing = () => native()?.("hideOngoing");
 
 /** Labels for the camera and login notice choices. */
 export const TYPE_LABEL: Record<string, string> = {
-  human: "Pessoa",
-  vehicle: "Veículo",
+  human: t("Person"),
+  vehicle: t("Vehicle"),
   animal: "Animal",
-  line: "Linha cruzada",
-  intrusion: "Entrada na área",
-  tamper: "Câmera mexida ou tapada",
-  motion: "Movimento",
-  login: "Novo acesso de fora de casa",
+  line: t("Line crossed"),
+  intrusion: t("Entered area"),
+  tamper: t("Camera moved or covered"),
+  motion: t("Motion"),
+  login: t("New access from outside the home"),
 };
 
 export interface NotifyPrefs {

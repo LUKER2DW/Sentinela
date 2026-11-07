@@ -4,6 +4,7 @@ import { DAY_MS, fmtHM, fmtTime, mergeRanges } from "../lib/time";
 import { haptic } from "../lib/gestures";
 import { Icon } from "./Icon";
 
+import { t } from "../lib/i18n";
 // Pixels per hour at each zoom step: a whole day on a wide screen down to
 // a tick every minute.
 const SCALES = [60, 120, 240, 480, 960];
@@ -186,11 +187,11 @@ export function TimeRuler({ dayStart, data, cursor, now, onPick, onView, preview
           {shown != null ? fmtTime(shown) : "--:--:--"}
         </span>
         <span className="grow" />
-        <div className="segmented small ruler-zoom" role="group" aria-label="Zoom da régua">
-          <button onClick={() => zoom(-1)} disabled={scaleIdx === 0} aria-label="Afastar">
+        <div className="segmented small ruler-zoom" role="group" aria-label={t("Ruler zoom")}>
+          <button onClick={() => zoom(-1)} disabled={scaleIdx === 0} aria-label={t("Zoom out")}>
             <Icon name="minus" />
           </button>
-          <button onClick={() => zoom(1)} disabled={scaleIdx === SCALES.length - 1} aria-label="Aproximar">
+          <button onClick={() => zoom(1)} disabled={scaleIdx === SCALES.length - 1} aria-label={t("Zoom in")}>
             <Icon name="plus" />
           </button>
         </div>
@@ -250,11 +251,11 @@ export function TimeRuler({ dayStart, data, cursor, now, onPick, onView, preview
           onTouchCancel={release}
           role="slider"
           tabIndex={0}
-          aria-label="Régua do dia: arraste até um horário e solte para assistir"
+          aria-label={t("Day ruler: drag to a time and release to watch")}
           aria-valuemin={t0}
           aria-valuemax={limit}
           aria-valuenow={shown ?? t0}
-          aria-valuetext={shown != null ? fmtTime(shown) : "sem horário"}
+          aria-valuetext={shown != null ? fmtTime(shown) : t("no time")}
           onKeyDown={(e) => {
             const step = { ArrowLeft: -60_000, ArrowRight: 60_000, PageDown: -600_000, PageUp: 600_000 }[e.key];
             if (step) {

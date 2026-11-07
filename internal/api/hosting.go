@@ -82,7 +82,7 @@ func (s *Server) openHosting() {
 		},
 		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, err error) {
 			s.Log.Warn("apps agent unreachable", "err", err)
-			writeErr(w, http.StatusBadGateway, "o agente de serviços não respondeu")
+			writeErr(w, http.StatusBadGateway, "the services agent did not respond")
 		},
 	}
 }

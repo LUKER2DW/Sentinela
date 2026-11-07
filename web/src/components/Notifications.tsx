@@ -22,36 +22,37 @@ import { useCompact } from "../lib/viewport";
 import { Icon } from "./Icon";
 import { CardHead } from "./CardHead";
 
+import { t } from "../lib/i18n";
 export const MODES: { value: ModeSettings["mode"]; label: string; hint: string }[] = [
-  { value: "home", label: "Casa", hint: "Dos tipos ativados, só avisa se mexerem na câmera." },
-  { value: "night", label: "Noite", hint: "Dos tipos ativados, permite alertas de pessoa, linha, área e câmera." },
-  { value: "away", label: "Fora", hint: "Permite todos os tipos ativados, inclusive movimento." },
+  { value: "home", label: t("Home"), hint: t("For the enabled types, only alerts if the camera is moved.") },
+  { value: "night", label: t("Night"), hint: t("For the enabled types, allows person, line, area and camera alerts.") },
+  { value: "away", label: t("Away"), hint: t("Allows all enabled types, including motion.") },
 ];
 
 const MODE_CARDS: { value: ModeSettings["mode"]; label: string; icon: string; when: string; notifies: string[]; quiet: string }[] = [
   {
     value: "home",
-    label: "Casa",
+    label: t("Home"),
     icon: "home",
-    when: "Tem gente em casa, de dia.",
-    notifies: ["Câmera obstruída ou mexida"],
-    quiet: "Pessoas, carros e movimento só ficam registrados.",
+    when: t("Someone is home, during the day."),
+    notifies: [t("Camera obstructed or moved")],
+    quiet: t("People, cars and motion are only recorded."),
   },
   {
     value: "night",
-    label: "Noite",
+    label: t("Night"),
     icon: "moon",
-    when: "Todos dormindo.",
-    notifies: ["Pessoa", "Linha cruzada ou área invadida", "Câmera obstruída"],
-    quiet: "Veículos, animais e movimento só ficam registrados.",
+    when: t("Everyone is asleep."),
+    notifies: [t("Person"), t("Line crossed or area entered"), t("Camera obstructed")],
+    quiet: t("Vehicles, animals and motion are only recorded."),
   },
   {
     value: "away",
-    label: "Fora",
+    label: t("Away"),
     icon: "away",
-    when: "Casa vazia.",
-    notifies: ["Pessoa, veículo e animal", "Linha, área e obstrução", "Movimento (se o detector estiver parado)"],
-    quiet: "Só os tipos ativados na conta enviam avisos.",
+    when: t("Home empty."),
+    notifies: [t("Person, vehicle and animal"), t("Line, area and tampering"), t("Motion (if the detector is stopped)")],
+    quiet: t("Only the types enabled in the account send notices."),
   },
 ];
 
@@ -68,7 +69,7 @@ export function ModeCard() {
     mutationFn: putMode,
     onSuccess: (d) => {
       qc.setQueryData(["notify-mode"], d);
-      toast(`Modo ${MODES.find((m) => m.value === d.settings.mode)?.label} ativado`);
+      toast(t("{label} mode on", { label: MODES.find((m) => m.value === d.settings.mode)?.label }));
     },
     onError: (e: Error) => toast(e.message, true),
   });
@@ -81,37 +82,37 @@ export function ModeCard() {
   if (compact && !details) {
     const cur = MODE_CARDS.find((m) => m.value === effective);
     return (
-      <section className="card mode-card compact" aria-label="Modo de avisos da casa">
+      <section className="card mode-card compact" aria-label={t("Home notice mode")}>
         <div className="mode-card-head">
-          <h2>Modo da casa</h2>
+          <h2>{t("Home mode")}</h2>
           <button className="linkish small" onClick={() => setDetails(true)}>
-            O que cada modo avisa
+            {t("What each mode alerts for")}
           </button>
         </div>
         <ModeSwitch compact />
         {cur && (
           <p className="muted small">
-            {autoNight ? `Noite automática até ${s.night_to}. ` : ""}Pode avisar: {cur.notifies.join(", ").toLowerCase()}.
+            {autoNight ? t("Automatic night until {night_to}. ", { night_to: s.night_to }) : ""}{t("Can alert:")}{" "}{cur.notifies.join(", ").toLowerCase()}.
           </p>
         )}
       </section>
     );
   }
   return (
-    <section className="card mode-card" aria-label="Modo de avisos da casa">
+    <section className="card mode-card" aria-label={t("Home notice mode")}>
       <div className="mode-card-head">
         <div>
-          <h2>Modo da casa</h2>
+          <h2>{t("Home mode")}</h2>
           <p className="muted small">
-            Filtra os tipos de aviso que cada pessoa ativou na conta. Tudo continua gravado e aparece aqui nos Eventos.
+            {t("Filters the notice types each person turned on in their account. Everything stays recorded and shows up here in Events.")}
           </p>
         </div>
         <span className="pill ok">
-          <span className="dot ok" /> Agora: {MODES.find((m) => m.value === effective)?.label}
-          {autoNight && ` (automático até ${s.night_to})`}
+          <span className="dot ok" />{" "}{t("Now:")}{" "}{MODES.find((m) => m.value === effective)?.label}
+          {autoNight && t(" (automatic until {night_to})", { night_to: s.night_to })}
         </span>
       </div>
-      <div className="mode-options" role="radiogroup" aria-label="Modo">
+      <div className="mode-options" role="radiogroup" aria-label={t("Mode")}>
         {MODE_CARDS.map((m) => {
           const on = s.mode === m.value;
           return (
@@ -126,11 +127,11 @@ export function ModeCard() {
               <span className="mode-option-head">
                 <Icon name={m.icon} />
                 <strong>{m.label}</strong>
-                {on && <span className="mode-on">Ativo</span>}
-                {!on && effective === m.value && <span className="mode-on soft">Automático</span>}
+                {on && <span className="mode-on">{t("Active")}</span>}
+                {!on && effective === m.value && <span className="mode-on soft">{t("Automatic")}</span>}
               </span>
               <span className="muted small">{m.when}</span>
-              <span className="mode-list-title small">Pode avisar:</span>
+              <span className="mode-list-title small">{t("Can alert:")}</span>
               <ul className="mode-list">
                 {m.notifies.map((n) => (
                   <li key={n}>{n}</li>
@@ -143,10 +144,10 @@ export function ModeCard() {
       </div>
       <p className="muted small mode-foot">
         {s.night_auto
-          ? `No modo Casa, a Noite liga sozinha das ${s.night_from} às ${s.night_to}.`
-          : "A Noite automática está desligada."}{" "}
-        Ajuste em Minha conta, em Notificações.
-        {!can("operator") && " Seu perfil só permite ver o modo."}
+          ? t("In Home mode, Night turns on by itself from {night_from} to {night_to}.", { night_from: s.night_from, night_to: s.night_to })
+          : t("Automatic night is off.")}{" "}
+        {t("Adjust in My account, under Notifications.")}
+        {!can("operator") && t(" Your profile only lets you see the mode.")}
       </p>
     </section>
   );
@@ -162,7 +163,7 @@ export function ModeSwitch({ compact }: { compact?: boolean }) {
     mutationFn: putMode,
     onSuccess: (d) => {
       qc.setQueryData(["notify-mode"], d);
-      toast(`Modo ${MODES.find((m) => m.value === d.settings.mode)?.label}`);
+      toast(t("{label} mode", { label: MODES.find((m) => m.value === d.settings.mode)?.label }));
     },
     onError: (e: Error) => toast(e.message, true),
   });
@@ -171,7 +172,7 @@ export function ModeSwitch({ compact }: { compact?: boolean }) {
   const autoNight = s.mode === "home" && q.data?.effective === "night";
   return (
     <div className={`mode-switch${compact ? " compact" : ""}`}>
-      <div className="segmented" role="group" aria-label="Modo de avisos">
+      <div className="segmented" role="group" aria-label={t("Notice mode")}>
         {MODES.map((m) => (
           <button
             key={m.value}
@@ -185,17 +186,17 @@ export function ModeSwitch({ compact }: { compact?: boolean }) {
         ))}
       </div>
       {!compact && <p className="muted small">{MODES.find((m) => m.value === s.mode)?.hint}</p>}
-      {autoNight && <span className="pill small-pill">Noite automática até {s.night_to}</span>}
+      {autoNight && <span className="pill small-pill">{t("Automatic night until")}{" "}{s.night_to}</span>}
     </div>
   );
 }
 
 const stateText: Record<PushState, string> = {
-  unsupported: "Este navegador não recebe notificações. No iPhone, instale o Sentinela na tela de início primeiro.",
-  insecure: "Notificações no navegador só funcionam pelo endereço HTTPS.",
-  denied: "As notificações foram bloqueadas nas configurações deste aparelho.",
-  off: "Desligadas neste aparelho. Ative para receber os avisos aqui.",
-  on: "Este aparelho recebe os avisos, mesmo com o Sentinela fechado.",
+  unsupported: t("This browser does not receive notifications. On iPhone, add Sentinela to the Home Screen first."),
+  insecure: t("Browser notifications only work over the HTTPS address."),
+  denied: t("Notifications were blocked in this device's settings."),
+  off: t("Off on this device. Turn on to receive notices here."),
+  on: t("This device receives notices, even with Sentinela closed."),
 };
 
 /** This device's notification state; null while checking. */
@@ -241,39 +242,39 @@ export function DeviceNotifyCard() {
   const on = state === "on";
 
   return (
-    <section className="card set-card" aria-label="Notificações neste aparelho">
+    <section className="card set-card" aria-label={t("Notifications on this device")}>
       <CardHead
         icon={on ? "bell" : "bellOff"}
         tone={on ? "kelp" : state === "denied" ? "coral" : undefined}
-        title="Neste aparelho"
+        title={t("On this device")}
         sub={state === "on" && transport === "firebase"
-          ? "O Android recebe os avisos sem manter o app aberto. Os detalhes vêm direto da sua casa."
-          : state ? stateText[state] : "Verificando…"}
+          ? t("Android receives notices without keeping the app open. The details come straight from your home.")
+          : state ? stateText[state] : t("Checking…")}
         aside={
           state && (
             <span className={`pill${on ? " ok" : ""}`}>
-              <span className={`dot ${on ? "ok" : state === "off" ? "" : "bad"}`} /> {on ? "Ligadas" : state === "off" ? "Desligadas" : "Indisponível"}
+              <span className={`dot ${on ? "ok" : state === "off" ? "" : "bad"}`} /> {on ? t("On") : state === "off" ? t("Off") : t("Unavailable")}
             </span>
           )
         }
       />
       {on && battery && (
         <p className="notice small">
-          O Android pode pausar os avisos para economizar bateria.{" "}
+          {t("Android may pause notices to save battery.")}{" "}
           <button className="linkish" onClick={() => void allowBackground()?.then(() => setBattery(false)).catch(() => {})}>
-            Permitir em segundo plano
+            {t("Allow in the background")}
           </button>
         </p>
       )}
       <div className="row-actions">
         {state === "denied" && isApp() && (
           <button className="btn" onClick={() => void run(enablePush)}>
-            Abrir permissões do app
+            {t("Open app permissions")}
           </button>
         )}
         {state === "off" && (
           <button className="btn primary" disabled={busy} onClick={() => void run(enablePush)}>
-            <Icon name="bell" /> Ativar neste aparelho
+            <Icon name="bell" />{" "}{t("Enable on this device")}
           </button>
         )}
         {on && (
@@ -284,19 +285,19 @@ export function DeviceNotifyCard() {
               onClick={() => {
                 setBusy(true);
                 testPush()
-                  .then((r) => toast(r.sent ? "Teste enviado." : "Nenhum aparelho recebeu. Ative de novo.", !r.sent))
+                  .then((r) => toast(r.sent ? t("Test sent.") : t("No device received it. Turn it on again."), !r.sent))
                   .catch((e: Error) => toast(e.message, true))
                   .finally(() => setBusy(false));
               }}
             >
-              Enviar teste
+              {t("Send test")}
             </button>
             <button className="btn ghost" disabled={busy} onClick={() => void run(disablePush)}>
-              Desativar
+              {t("Disable")}
             </button>
             {isApp() && transport === "direct" && (
-              <button className="btn ghost" onClick={() => void hideOngoing()?.catch(() => toast("Atualize o app para usar esta opção.", true))}>
-                Ocultar aviso fixo
+              <button className="btn ghost" onClick={() => void hideOngoing()?.catch(() => toast(t("Update the app to use this option."), true))}>
+                {t("Hide pinned notice")}
               </button>
             )}
           </>
@@ -305,9 +306,9 @@ export function DeviceNotifyCard() {
       <p className="muted small card-foot">
         {isApp()
           ? transport === "firebase"
-            ? "O Firebase entrega só um sinal de novo evento. O título, a imagem e a gravação vêm direto do servidor da casa."
-            : "O app mantém uma conexão cifrada com o servidor da casa. Tocar num aviso abre a gravação do momento."
-          : "A imagem do evento vem direto do servidor; o serviço de avisos do navegador só vê texto cifrado."}
+            ? t("Firebase only delivers a new-event signal. The title, picture and recording come straight from the home server.")
+            : t("The app keeps an encrypted connection to the home server. Tapping a notice opens that moment's recording.")
+          : t("The event image comes straight from the server; the browser's notification service only sees encrypted text.")}
       </p>
     </section>
   );
@@ -315,19 +316,19 @@ export function DeviceNotifyCard() {
 
 /** Icon and group for each notice choice. */
 const TYPE_META: Record<string, { icon: string; group: "alert" | "camera" | "other"; hint: string }> = {
-  human: { icon: "user", group: "alert", hint: "Alguém aparece na imagem" },
-  vehicle: { icon: "car", group: "alert", hint: "Carro, moto ou bicicleta" },
-  animal: { icon: "paw", group: "alert", hint: "Cachorro, gato, pássaro" },
-  line: { icon: "line", group: "alert", hint: "Alguém cruza a linha desenhada" },
-  intrusion: { icon: "zone", group: "alert", hint: "Alguém entra na área marcada" },
-  tamper: { icon: "camera", group: "camera", hint: "Câmera coberta, virada ou sem imagem" },
-  motion: { icon: "motion", group: "other", hint: "Qualquer mudança na imagem; avisa muito" },
-  login: { icon: "lock", group: "other", hint: "Entrada pelo acesso público; independe do modo da casa" },
+  human: { icon: "user", group: "alert", hint: t("Someone appears in the picture") },
+  vehicle: { icon: "car", group: "alert", hint: t("Car, motorcycle or bicycle") },
+  animal: { icon: "paw", group: "alert", hint: t("Dog, cat, bird") },
+  line: { icon: "line", group: "alert", hint: t("Someone crosses the drawn line") },
+  intrusion: { icon: "zone", group: "alert", hint: t("Someone enters the marked area") },
+  tamper: { icon: "camera", group: "camera", hint: t("Camera covered, turned or without picture") },
+  motion: { icon: "motion", group: "other", hint: t("Any change in the picture; alerts a lot") },
+  login: { icon: "lock", group: "other", hint: t("Entry through public access; independent of the home mode") },
 };
 const GROUPS: { id: "alert" | "camera" | "other"; label: string }[] = [
-  { id: "alert", label: "Detecção" },
-  { id: "camera", label: "Câmera" },
-  { id: "other", label: "Outros" },
+  { id: "alert", label: t("Detection") },
+  { id: "camera", label: t("Camera") },
+  { id: "other", label: t("Other") },
 ];
 
 /** Which event types notify this user, and whether the house mode applies. */
@@ -345,15 +346,15 @@ export function NotifyTypesCard() {
   const toggle = (t: string) => p && save.mutate({ ...p, types: p.types.includes(t) ? p.types.filter((x) => x !== t) : [...p.types, t] });
   const count = p?.types.filter((t) => d?.types.includes(t)).length ?? 0;
   return (
-    <section className="card set-card" aria-label="O que me avisa">
+    <section className="card set-card" aria-label={t("What alerts me")}>
       <CardHead
         icon="events"
-        title="O que me avisa"
-        sub="Nenhum aviso vem ativado. Marque os tipos que quer receber; tudo continua gravado e aparece em Eventos."
+        title={t("What alerts me")}
+        sub={t("No notices are on. Tick the types you want to receive; everything is still recorded and shows up in Events.")}
         aside={
           d && (
             <span className="pill num">
-              {count} de {d.types.length}
+              {t("{count} of {total}", { count, total: d.types.length })}
             </span>
           )
         }
@@ -387,23 +388,23 @@ export function NotifyTypesCard() {
             );
           })}
           <div className="set-group">
-            <h3 className="set-group-title">Modo da casa</h3>
+            <h3 className="set-group-title">{t("Home mode")}</h3>
             <div className="toggle-list">
               <div className={`toggle-item${p.follow_mode ? " on" : ""}`}>
                 <span className="toggle-ico" aria-hidden="true">
                   <Icon name="home" />
                 </span>
                 <span className="toggle-text">
-                  <strong>Respeitar o modo da casa</strong>
+                  <strong>{t("Respect the home mode")}</strong>
                   <span className="muted small">
-                    {p.follow_mode ? "No modo Casa, por exemplo, só câmera mexida avisa." : "Avisa os tipos marcados em qualquer modo."}
+                    {p.follow_mode ? t("In Home mode, for example, only a moved camera alerts.") : t("Alerts for the ticked types in any mode.")}
                   </span>
                 </span>
                 <button
                   className="switch"
                   role="switch"
                   aria-checked={p.follow_mode}
-                  aria-label="Respeitar o modo da casa"
+                  aria-label={t("Respect the home mode")}
                   disabled={save.isPending}
                   onClick={() => save.mutate({ ...p, follow_mode: !p.follow_mode })}
                 />
@@ -430,13 +431,13 @@ export function HouseModeCard() {
   const s = mode.data?.settings;
   const effective = mode.data?.effective;
   return (
-    <section className="card set-card" aria-label="Modo da casa">
+    <section className="card set-card" aria-label={t("Home mode")}>
       <CardHead
         icon={effective === "night" ? "moon" : effective === "away" ? "away" : "home"}
         tone="sea"
-        title="Modo da casa"
-        sub="Vale para todos da casa. Filtra os avisos que cada pessoa ativou; não muda o que é gravado."
-        aside={effective && <span className="pill ok">Agora: {MODES.find((m) => m.value === effective)?.label}</span>}
+        title={t("Home mode")}
+        sub={t("Applies to everyone in the home. Filters the notices each person turned on; does not change what is recorded.")}
+        aside={effective && <span className="pill ok">{t("Now:")}{" "}{MODES.find((m) => m.value === effective)?.label}</span>}
       />
       <ModeSwitch />
       {s && (
@@ -446,33 +447,33 @@ export function HouseModeCard() {
               <Icon name="moon" />
             </span>
             <span className="toggle-text">
-              <strong>Noite automática</strong>
-              <span className="muted small">No modo Casa, liga a Noite no horário abaixo.</span>
+              <strong>{t("Automatic night")}</strong>
+              <span className="muted small">{t("In Home mode, turns Night on at the time below.")}</span>
             </span>
             <button
               className="switch"
               role="switch"
               aria-checked={s.night_auto}
-              aria-label="Noite automática"
+              aria-label={t("Automatic night")}
               disabled={!can("operator")}
               onClick={() => saveNight.mutate({ ...s, night_auto: !s.night_auto })}
             />
           </div>
           <div className="night-range">
-            <span className="muted">Das</span>
+            <span className="muted">{t("From the")}</span>
             <input
               className="input"
               type="time"
-              aria-label="Início da noite"
+              aria-label={t("Start of night")}
               value={s.night_from}
               disabled={!can("operator") || !s.night_auto}
               onChange={(e) => e.target.value && saveNight.mutate({ ...s, night_from: e.target.value })}
             />
-            <span className="muted">às</span>
+            <span className="muted">{t("at")}</span>
             <input
               className="input"
               type="time"
-              aria-label="Fim da noite"
+              aria-label={t("End of night")}
               value={s.night_to}
               disabled={!can("operator") || !s.night_auto}
               onChange={(e) => e.target.value && saveNight.mutate({ ...s, night_to: e.target.value })}
@@ -480,7 +481,7 @@ export function HouseModeCard() {
           </div>
         </div>
       )}
-      {!can("operator") && <p className="muted small card-foot">Seu perfil só permite ver o modo.</p>}
+      {!can("operator") && <p className="muted small card-foot">{t("Your profile only lets you see the mode.")}</p>}
     </section>
   );
 }

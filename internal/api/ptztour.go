@@ -229,6 +229,10 @@ func (s *Server) putTour(w http.ResponseWriter, r *http.Request) {
 	if cam == nil {
 		return
 	}
+	if !cam.HasPTZ() {
+		writeErr(w, http.StatusNotImplemented, "this camera has no PTZ")
+		return
+	}
 	var body struct {
 		Presets      []int   `json:"presets"`
 		DwellSeconds int     `json:"dwell_seconds"`

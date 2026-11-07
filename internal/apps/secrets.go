@@ -53,13 +53,13 @@ func (a *Agent) openVaultKey() error {
 			return fmt.Errorf("guardar chave dos secrets: %w", err)
 		}
 	} else if err != nil {
-		return errors.New("não foi possível abrir a chave dos secrets")
+		return errors.New("could not open the secrets key")
 	}
 	if len(b) != 32 {
-		return errors.New("a chave dos secrets está inválida")
+		return errors.New("the secrets key is invalid")
 	}
 	if err := os.Chmod(p, 0o600); err != nil {
-		return errors.New("não foi possível proteger a chave dos secrets")
+		return errors.New("could not protect the secrets key")
 	}
 	block, err := aes.NewCipher(b)
 	if err != nil {
@@ -75,19 +75,19 @@ func (a *Agent) readVault(p, identity string) (secretVault, error) {
 		return secretVault{}, nil
 	}
 	if err != nil {
-		return secretVault{}, errors.New("não foi possível abrir os secrets do serviço")
+		return secretVault{}, errors.New("could not open the service's secrets")
 	}
 	n := a.vaultCipher.NonceSize()
 	if len(b) < n {
-		return secretVault{}, errors.New("arquivo de secrets inválido")
+		return secretVault{}, errors.New("invalid secrets file")
 	}
 	plain, err := a.vaultCipher.Open(nil, b[:n], b[n:], []byte(identity))
 	if err != nil {
-		return secretVault{}, errors.New("não foi possível autenticar os secrets do serviço")
+		return secretVault{}, errors.New("could not authenticate the service's secrets")
 	}
 	var v secretVault
 	if json.Unmarshal(plain, &v) != nil {
-		return secretVault{}, errors.New("arquivo de secrets inválido")
+		return secretVault{}, errors.New("invalid secrets file")
 	}
 	return v, nil
 }
@@ -106,10 +106,10 @@ func (a *Agent) writeVault(p, identity string, v secretVault) error {
 		return fmt.Errorf("criar pasta dos secrets: %w", err)
 	}
 	if err := os.WriteFile(p+".tmp", ciphertext, 0o600); err != nil {
-		return errors.New("não foi possível guardar os secrets")
+		return errors.New("could not save the secrets")
 	}
 	if err := os.Rename(p+".tmp", p); err != nil {
-		return errors.New("não foi possível guardar os secrets")
+		return errors.New("could not save the secrets")
 	}
 	return nil
 }
@@ -214,7 +214,7 @@ func collectEnv(ctx context.Context, dir string) (secretVault, error) {
 		}
 		if importableEnv(p) {
 			if !d.Type().IsRegular() {
-				return errors.New("um arquivo .env é um link ou arquivo especial")
+				return errors.New(".env file is a link or special file")
 			}
 			names = append(names, p)
 		}
@@ -238,7 +238,7 @@ func collectEnv(ctx context.Context, dir string) (secretVault, error) {
 	for _, name := range names {
 		b, err := readProjectText(root, name)
 		if err != nil {
-			return secretVault{}, errors.New("não foi possível ler um arquivo .env do projeto")
+			return secretVault{}, errors.New("could not read a .env file from the project")
 		}
 		vars, err := parseDotEnv(b)
 		if err != nil {
@@ -246,7 +246,7 @@ func collectEnv(ctx context.Context, dir string) (secretVault, error) {
 		}
 		v = mergeVault(v, vars, []string{name}, true)
 		if len(v.Vars) > maxEnv {
-			return secretVault{}, fmt.Errorf("os arquivos .env somam mais de %d variáveis", maxEnv)
+			return secretVault{}, fmt.Errorf("the .env files add up to more than %d variables", maxEnv)
 		}
 	}
 	return v, nil
@@ -278,7 +278,7 @@ func removeEnvFiles(dir string, names []string) error {
 	defer root.Close()
 	for _, name := range names {
 		if err := root.Remove(name); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return errors.New("secrets guardados, mas não foi possível remover um arquivo .env")
+			return errors.New("secrets saved, but a .env file could not be removed")
 		}
 	}
 	return nil
@@ -322,7 +322,7 @@ func (a *Agent) hSecrets(w http.ResponseWriter, r *http.Request) {
 	}
 	b, err := os.ReadFile(a.vaultFile(id))
 	if err != nil {
-		reply(w, nil, errors.New("não foi possível ler a versão dos secrets"))
+		reply(w, nil, errors.New("could not read the secrets version"))
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"env": out, "files": v.Files, "encrypted": true, "revision": fileRevision(b)})

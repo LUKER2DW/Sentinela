@@ -1,4 +1,5 @@
 import { syncServerClock } from "./time";
+import { t } from "./i18n";
 // Typed client for the Sentinela API. The CSRF token comes from /api/me or
 // /api/login and is sent on every unsafe request.
 
@@ -28,9 +29,13 @@ export interface Camera {
   recording: boolean;
   record_audio: boolean;
   retention_days: number;
-  /** PTZ, presets, light and day/night (XMEye/DVRIP cameras only). */
+  /** Camera settings over DVRIP: day/night and clock (XMEye cameras only). */
   control?: boolean;
   vendor?: string;
+  /** What the camera has: its controls show only when true. */
+  ptz?: boolean;
+  light?: boolean;
+  talk?: boolean;
 }
 
 export interface Preset {
@@ -269,8 +274,8 @@ export function apiUpload<T>(method: string, path: string, file: Blob, progress?
     req.setRequestHeader("Content-Type", file.type || "application/octet-stream");
     if (csrf) req.setRequestHeader("X-CSRF-Token", csrf);
     req.upload.onprogress = (e) => { if (e.lengthComputable) progress?.(Math.round(e.loaded / e.total * 100)); };
-    req.onerror = () => reject(new Error("O envio foi interrompido. Confira a conexão e tente novamente."));
-    req.onabort = () => reject(new Error("Envio cancelado."));
+    req.onerror = () => reject(new Error(t("The upload was interrupted. Check the connection and try again.")));
+    req.onabort = () => reject(new Error(t("Upload canceled.")));
     req.onload = () => {
       let data: unknown;
       try { data = JSON.parse(req.responseText); } catch { data = null; }

@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// Automatic server updates (ADR-0023), switched from System → Atualizações.
+// Automatic server updates (ADR-0023), switched from System → Updates.
 // The API cannot touch the host: it only writes preferences and a "check
 // now" request under data_dir/updates, which the host's sentinela-update
 // units read (scripts/auto-update.sh runs as root there). Where releases

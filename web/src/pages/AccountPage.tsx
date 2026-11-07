@@ -20,18 +20,18 @@ import { isApp } from "../lib/push";
 import { Avatar, removeAvatar, uploadAvatar } from "../components/Avatar";
 
 const roleText = {
-  admin: "Você gerencia tudo: usuários, câmeras e o sistema.",
-  operator: "Você assiste, move a câmera, liga a luz, fala e envia arquivos.",
-  viewer: "Você assiste ao vivo e às gravações e vê os eventos.",
+  admin: t("You manage everything: users, cameras and the system."),
+  operator: t("You watch, move the camera, turn on the light, talk and upload files."),
+  viewer: t("You watch live and recordings and see events."),
 } as const;
 
 export type AccountSection = "security" | "devices" | "notify" | "look";
 type Section = AccountSection;
 export const ACCOUNT_SECTIONS: { id: Section; label: string; icon: string; hint: string }[] = [
-  { id: "security", label: "Senha e acesso", icon: "key", hint: "Senha e verificação em 2 etapas" },
-  { id: "devices", label: "Aparelhos", icon: "monitor", hint: "Onde a conta está aberta" },
-  { id: "notify", label: "Notificações", icon: "bell", hint: "O que avisa e o modo da casa" },
-  { id: "look", label: "Aparência", icon: "sun", hint: "Tema claro, escuro ou automático" },
+  { id: "security", label: t("Password and access"), icon: "key", hint: t("Password and two-step login") },
+  { id: "devices", label: t("Devices"), icon: "monitor", hint: t("Where this account is signed in") },
+  { id: "notify", label: t("Notifications"), icon: "bell", hint: t("What notifies you") },
+  { id: "look", label: t("Appearance"), icon: "sun", hint: t("Light, dark or automatic theme, and language") },
 ];
 
 /** Minha conta: the signed-in user's own settings, by category. */
@@ -42,7 +42,7 @@ export function AccountPage({ params }: { params: URLSearchParams }) {
   const section: Section = ACCOUNT_SECTIONS.some((x) => x.id === asked) ? asked! : "security";
   // On phones each category is its own screen: keep it in the history, so
   // "back" returns to Minha conta instead of the start page.
-  const pick = (id: Section) => navigate("conta", { s: id }, { push: compact });
+  const pick = (id: Section) => navigate("account", { s: id }, { push: compact });
   // Phone, opened from a "Mais" row: just that page, like a settings app.
   const sub = compact && !!asked;
 
@@ -50,8 +50,8 @@ export function AccountPage({ params }: { params: URLSearchParams }) {
     <>
       <header className="page-head">
         <div className="title">
-          <h1>{sub ? ACCOUNT_SECTIONS.find((x) => x.id === section)?.label : "Minha conta"}</h1>
-          {!sub && <span className="sub">Acesso, aparelhos e avisos desta conta. Nada aqui muda a conta das outras pessoas.</span>}
+          <h1>{sub ? ACCOUNT_SECTIONS.find((x) => x.id === section)?.label : t("My account")}</h1>
+          {!sub && <span className="sub">{t("Access, devices and notices for this account. Nothing here changes other people's accounts.")}</span>}
         </div>
       </header>
       <div className="account-layout">
@@ -63,18 +63,18 @@ export function AccountPage({ params }: { params: URLSearchParams }) {
               <div className="account-who">
                 <h2>{user.username}</h2>
                 <p className="muted small">
-                  {roleLabel[user.role]}, conta desde {fmtDate(user.created_at)}
+                  {roleLabel[user.role]}{t(", account since")}{" "}{fmtDate(user.created_at)}
                 </p>
                 <p className="small">{roleText[user.role]}</p>
               </div>
               <div className="account-hero-actions">
                 {can("admin") && !compact && (
                   <a className="btn small" href={href("system", { s: "users" })}>
-                    <Icon name="users" /> Usuários
+                    <Icon name="users" />{" "}{t("Users")}
                   </a>
                 )}
-                <button className="btn small ghost danger" onClick={logout} aria-label="Sair" title="Sair">
-                  <Icon name="logout" /> <span className="sair-label">Sair</span>
+                <button className="btn small ghost danger" onClick={logout} aria-label={t("Sign out")} title={t("Sign out")}>
+                  <Icon name="logout" /> <span className="signout-label">{t("Sign out")}</span>
                 </button>
               </div>
             </div>
@@ -84,7 +84,7 @@ export function AccountPage({ params }: { params: URLSearchParams }) {
 
         <div className="sys-layout account-sections">
           {!sub && (
-            <nav className={compact ? "section-tabs" : "sys-nav"} role="tablist" aria-label="Categorias da conta">
+            <nav className={compact ? "section-tabs" : "sys-nav"} role="tablist" aria-label={t("Account categories")}>
               {ACCOUNT_SECTIONS.map((x) => (
                 <button key={x.id} role="tab" aria-selected={section === x.id} onClick={() => pick(x.id)}>
                   {!compact && <Icon name={x.icon} />}
@@ -110,29 +110,29 @@ function AvatarPicker({ name, role }: { name: string; role: string }) {
     if (!file) return;
     setBusy(true);
     uploadAvatar(file)
-      .then(() => toast("Foto de perfil atualizada."))
+      .then(() => toast(t("Profile picture updated.")))
       .catch((e: Error) => toast(e.message, true))
       .finally(() => setBusy(false));
   };
   return (
     <div className="avatar-picker">
-      <label className={`avatar-edit${busy ? " busy" : ""}`} title="Trocar a foto de perfil">
+      <label className={`avatar-edit${busy ? " busy" : ""}`} title={t("Change profile picture")}>
         <Avatar name={name} className={`big role-${role}`} />
         <span className="avatar-cam" aria-hidden="true">
           <Icon name="camera" />
         </span>
-        <input type="file" accept="image/*" className="sr-only" aria-label="Escolher foto de perfil" disabled={busy} onChange={(e) => (pick(e.target.files?.[0]), (e.target.value = ""))} />
+        <input type="file" accept="image/*" className="sr-only" aria-label={t("Choose profile picture")} disabled={busy} onChange={(e) => (pick(e.target.files?.[0]), (e.target.value = ""))} />
       </label>
       <button
         className="linkish small"
         disabled={busy}
         onClick={() =>
           removeAvatar()
-            .then(() => toast("Foto removida."))
+            .then(() => toast(t("Picture removed.")))
             .catch((e: Error) => toast(e.message, true))
         }
       >
-        Remover foto
+        {t("Remove picture")}
       </button>
     </div>
   );
@@ -145,13 +145,13 @@ function AccountFacts({ onPick }: { onPick: (s: Section) => void }) {
   const [push] = usePushState();
   const totp = me.data?.user.totp;
   const facts: { s: Section; icon: string; label: string; value: string; ok: boolean | null }[] = [
-    { s: "security", icon: "shield", label: "Verificação em 2 etapas", value: totp === undefined ? "…" : totp ? "Ativa" : "Desligada", ok: totp ?? null },
-    { s: "devices", icon: "monitor", label: "Aparelhos conectados", value: devices.data ? String(devices.data.length) : "…", ok: null },
+    { s: "security", icon: "shield", label: t("Two-step verification"), value: totp === undefined ? "…" : totp ? t("Active") : t("Off"), ok: totp ?? null },
+    { s: "devices", icon: "monitor", label: t("Connected devices"), value: devices.data ? String(devices.data.length) : "…", ok: null },
     {
       s: "notify",
       icon: "bell",
-      label: isApp() ? "Avisos no app" : "Avisos neste navegador",
-      value: push === null ? "…" : push === "on" ? "Ligados" : push === "off" ? "Desligados" : "Indisponíveis",
+      label: isApp() ? t("Notices in the app") : t("Notices in this browser"),
+      value: push === null ? "…" : push === "on" ? t("On") : push === "off" ? t("Off") : t("Unavailable"),
       ok: push === null ? null : push === "on",
     },
   ];
@@ -179,16 +179,16 @@ function PasswordCard() {
   const change = useMutation({
     mutationFn: () => api("POST", "/api/me/password", { current: cur, new: next }),
     onSuccess: () => {
-      toast("Senha alterada. Outros aparelhos foram desconectados.");
+      toast(t("Password changed. Other devices were signed out."));
       setCur("");
       setNext("");
       setAgain("");
     },
-    onError: (e: Error) => toast(e.message.includes("current password") ? "Senha atual incorreta." : policyError(next) || e.message, true),
+    onError: (e: Error) => toast(e.message.includes("current password") ? t("Current password is wrong.") : policyError(next) || e.message, true),
   });
   return (
-    <section className="card set-card" aria-label="Senha">
-      <CardHead icon="key" title="Senha" sub="Trocar a senha desconecta os outros aparelhos desta conta." />
+    <section className="card set-card" aria-label={t("Password")}>
+      <CardHead icon="key" title={t("Password")} sub={t("Changing the password signs out the other devices on this account.")} />
       <form
         className="form-stack"
         onSubmit={(e) => {
@@ -196,12 +196,12 @@ function PasswordCard() {
           if (next === again) change.mutate();
         }}
       >
-        <PasswordField label="Senha atual" value={cur} onChange={setCur} autoComplete="current-password" />
-        <PasswordField label="Nova senha" value={next} onChange={setNext} autoComplete="new-password" meter />
-        <PasswordField label="Repita a nova senha" value={again} onChange={setAgain} autoComplete="new-password" matches={next} />
+        <PasswordField label={t("Current password")} value={cur} onChange={setCur} autoComplete="current-password" />
+        <PasswordField label={t("New password")} value={next} onChange={setNext} autoComplete="new-password" meter />
+        <PasswordField label={t("Repeat the new password")} value={again} onChange={setAgain} autoComplete="new-password" matches={next} />
         <div className="card-foot row-gap">
           <button className="btn primary" disabled={change.isPending || !cur || policyError(next) !== "" || next !== again}>
-            Alterar senha
+            {t("Change password")}
           </button>
         </div>
       </form>
@@ -246,11 +246,11 @@ export function ProfileCard() {
       <div className="account-who">
         <h2>{user.username}</h2>
         <p className="muted small">
-          {roleLabel[user.role]}, conta desde {fmtDate(user.created_at)}. {roleText[user.role]}
+          {roleLabel[user.role]}{t(", account since")}{" "}{fmtDate(user.created_at)}. {roleText[user.role]}
         </p>
       </div>
-      <button className="btn small ghost danger" onClick={logout} aria-label="Sair" title="Sair">
-        <Icon name="logout" /> <span className="sair-label">Sair</span>
+      <button className="btn small ghost danger" onClick={logout} aria-label={t("Sign out")} title={t("Sign out")}>
+        <Icon name="logout" /> <span className="signout-label">{t("Sign out")}</span>
       </button>
     </section>
   );

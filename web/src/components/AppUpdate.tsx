@@ -6,6 +6,7 @@ import { fmtBytes } from "../lib/time";
 import { CardHead } from "./CardHead";
 import { Icon } from "./Icon";
 
+import { t } from "../lib/i18n";
 /** Runs the download + install, with progress and the one-time permission step. */
 function useInstall() {
   const toast = useToast();
@@ -33,13 +34,13 @@ export function AppUpdateBanner() {
     <div className="app-update" role="status">
       <Icon name="app" />
       <span className="grow">
-        <strong>App {release?.version_name} disponível</strong>
-        <span className="muted small">{pct !== null ? `Baixando… ${pct}%` : "Atualiza sem sair do app."}</span>
+        <strong>{t("App")}{" "}{release?.version_name}{" "}{t("available")}</strong>
+        <span className="muted small">{pct !== null ? t("Downloading… {pct}%", { pct }) : t("Updates without leaving the app.")}</span>
       </span>
       <button className="btn small primary" disabled={pct !== null} onClick={start}>
-        {pct !== null ? `${pct}%` : "Atualizar"}
+        {pct !== null ? `${pct}%` : t("Update")}
       </button>
-      <button className="btn ghost icon small" aria-label="Agora não" onClick={() => setHidden(true)}>
+      <button className="btn ghost icon small" aria-label={t("Not now")} onClick={() => setHidden(true)}>
         <Icon name="x" />
       </button>
     </div>
@@ -55,22 +56,22 @@ export function AppCard() {
   const android = /Android/i.test(navigator.userAgent);
 
   return (
-    <section className="card set-card" aria-label="Aplicativo Android">
+    <section className="card set-card" aria-label={t("Android app")}>
       <CardHead
         icon="app"
         tone={newer ? "amber" : inApp ? "kelp" : undefined}
-        title="Aplicativo Android"
+        title={t("Android app")}
         sub={
           inApp
             ? info
-              ? `Você usa a versão ${info.versionName}.`
-              : "Esta versão do app não se atualiza sozinha: instale a nova uma vez e as próximas chegam por aqui."
-            : "O app recebe avisos com o celular bloqueado e fecha sozinho com a trava do celular."
+              ? t("You are using version {versionName}.", { versionName: info.versionName })
+              : t("This app version does not update by itself: install the new one once and the next ones arrive here.")
+            : t("The app receives notices with the phone locked and closes by itself with the phone lock.")
         }
         aside={
           inApp && info ? (
             <span className={`pill${newer ? "" : " ok"}`}>
-              <span className={`dot ${newer ? "warn" : "ok"}`} /> {newer ? "Atualização disponível" : "Em dia"}
+              <span className={`dot ${newer ? "warn" : "ok"}`} /> {newer ? t("Update available") : t("Up to date")}
             </span>
           ) : undefined
         }
@@ -78,14 +79,14 @@ export function AppCard() {
       {inApp && info && newer && release && (
         <div className="update-box">
           <div>
-            <strong>Versão {release.version_name}</strong>
+            <strong>{t("Version")}{" "}{release.version_name}</strong>
             <p className="muted small">
               {fmtBytes(release.size ?? 0)}
               {release.notes ? `. ${release.notes}` : ""}
             </p>
           </div>
           <button className="btn primary" disabled={pct !== null} onClick={start}>
-            <Icon name="download" /> {pct !== null ? `Baixando ${pct}%` : "Atualizar agora"}
+            <Icon name="download" /> {pct !== null ? t("Downloading {pct}%", { pct }) : t("Update now")}
           </button>
           {pct !== null && (
             <span className="meter thin update-meter" aria-hidden="true">
@@ -96,22 +97,21 @@ export function AppCard() {
       )}
       {needsPermission && (
         <p className="notice small">
-          O Android pediu permissão: ative <strong>Permitir desta fonte</strong> para o Sentinela, volte aqui e toque em Atualizar agora de novo. Só é
-          preciso uma vez.
+          {t("Android asked for permission: turn on")}{" "}<strong>{t("Allow from this source")}</strong>{" "}{t("to Sentinela, come back here and tap Update now again. It only needs to happen once.")}
         </p>
       )}
       {(!inApp || !info) && apk && (
         <div className="row-actions">
           <a className={`btn${android || inApp ? " primary" : ""}`} href={apk} download="sentinela.apk">
-            <Icon name="download" /> Baixar o app {release?.version_name} ({fmtBytes(release?.size ?? 0)})
+            <Icon name="download" />{" "}{t("Download the app")}{" "}{release?.version_name} ({fmtBytes(release?.size ?? 0)})
           </a>
         </div>
       )}
-      {!apk && !inApp && <p className="muted small">Nenhuma versão do app foi publicada neste servidor ainda.</p>}
+      {!apk && !inApp && <p className="muted small">{t("No app version has been published on this server yet.")}</p>}
       <p className="muted small card-foot">
         {inApp
-          ? "A atualização vem do servidor da casa, não da Play Store. O Android confere a assinatura antes de instalar."
-          : "No celular, abra o arquivo baixado e permita instalar. Depois, o próprio app avisa quando houver versão nova."}
+          ? t("The update comes from the home server, not the Play Store. Android checks the signature before installing.")
+          : t("On the phone, open the downloaded file and allow the install. Afterwards, the app itself tells you when there is a new version.")}
       </p>
     </section>
   );

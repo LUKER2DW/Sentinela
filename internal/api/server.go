@@ -65,7 +65,7 @@ type Server struct {
 	// Self-hosted services: proxy to the apps agent (ADR-0021).
 	hosting hostingState
 
-	// Nuvem file API (ADR-0012); nil when the share is not mounted.
+	// Cloud file API (ADR-0012); nil when the share is not mounted.
 	nas     *nas.Share
 	nasRoot string
 	thumbs  *nas.Thumbs
@@ -251,7 +251,7 @@ func (s *Server) handler(zone string) http.Handler {
 	mux.Handle("GET /api/app/pairing", viewer(s.appPairing))
 	mux.Handle("GET /api/app/sentinela.apk", viewer(s.appAPK))
 
-	// Nuvem file API (ADR-0012): operators use their own folder and the
+	// Cloud file API (ADR-0012): operators use their own folder and the
 	// shared one, admins everything; viewers only see cameras (round 6).
 	mux.Handle("GET /api/nas/list", operator(s.nasList))
 	mux.Handle("GET /api/nas/file", operator(s.nasFile))

@@ -166,7 +166,7 @@ func (s *Server) eventSnapshot(w http.ResponseWriter, r *http.Request) {
 }
 
 // PruneCaches trims the disk caches the API keeps on the recordings disk:
-// prepared timelapses (hours), Nuvem thumbnails unused for 90 days, and the
+// prepared timelapses (hours), Cloud thumbnails unused for 90 days, and the
 // record of finished timelapse jobs. Called hourly.
 func (s *Server) PruneCaches() {
 	pruneTimelapses(s.timelapseDir(), time.Now())

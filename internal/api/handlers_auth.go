@@ -248,7 +248,11 @@ func (s *Server) revokeSession(w http.ResponseWriter, r *http.Request) {
 func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 	u := userFrom(r)
 	// Optional parts of the dashboard this user may open.
-	features := map[string]bool{"hosting": s.hosting.proxy != nil && u.Role == auth.RoleAdmin, "setup_guide": s.onboardingFor(r)}
+	features := map[string]bool{
+		"hosting":     s.hosting.proxy != nil && u.Role == auth.RoleAdmin,
+		"cloud":       s.nas != nil,
+		"setup_guide": s.onboardingFor(r),
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"user": u, "csrf": sessionFrom(r).CSRF, "zone": zoneFrom(r), "features": features})
 }
 
@@ -376,7 +380,7 @@ func (s *Server) invited(u *store.User, code string) invitedUser {
 		if u.Email != "" {
 			login = u.Email
 		}
-		out.InviteURL = base + "/#/convite?" + url.Values{"u": {login}, "c": {code}}.Encode()
+		out.InviteURL = base + "/#/invite?" + url.Values{"u": {login}, "c": {code}}.Encode()
 	}
 	return out
 }
@@ -654,7 +658,7 @@ func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request) {
 }
 
 // userDetail is the admin's view of one account: sessions, last sign-in,
-// Nuvem usage and recent actions.
+// Cloud usage and recent actions.
 func (s *Server) userDetail(w http.ResponseWriter, r *http.Request) {
 	u := s.targetUser(w, r)
 	if u == nil {
@@ -674,7 +678,7 @@ func (s *Server) userDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	out := map[string]any{"user": u, "sessions": sessions, "last_login": last, "audit": audit}
 	if s.nasRoot != "" {
-		out["nuvem"] = map[string]any{
+		out["cloud"] = map[string]any{
 			"folder": u.Username,
 			"files":  folderUsage(ctx, filepath.Join(s.nasRoot, u.Username)),
 			"trash":  folderUsage(ctx, filepath.Join(s.nasRoot, nas.Trash, u.Username)),

@@ -44,6 +44,34 @@ func Vendors() []string {
 // light, day/night, two-way audio). Other vendors are view and record only.
 func (cam *Camera) HasDVRIP() bool { return cam.Vendor == VendorXMEye }
 
+// CameraFeatures are the optional parts of a camera (nil = vendor default).
+type CameraFeatures struct {
+	// PTZ: a pan/tilt/zoom motor (presets and tours too). XMEye default: on.
+	PTZ *bool `yaml:"ptz"`
+	// Light: a white light (spotlight). XMEye default: on.
+	Light *bool `yaml:"light"`
+	// Talk: a speaker for push-to-talk. XMEye default: on (DVRIP
+	// backchannel); other vendors default off and, when on, use the
+	// camera's RTSP/ONVIF backchannel through go2rtc.
+	Talk *bool `yaml:"talk"`
+}
+
+func orDefault(v *bool, def bool) bool {
+	if v == nil {
+		return def
+	}
+	return *v
+}
+
+// HasPTZ reports whether the camera can be moved (DVRIP cameras only).
+func (cam *Camera) HasPTZ() bool { return cam.HasDVRIP() && orDefault(cam.Features.PTZ, true) }
+
+// HasLight reports whether the camera has a white light (DVRIP cameras only).
+func (cam *Camera) HasLight() bool { return cam.HasDVRIP() && orDefault(cam.Features.Light, true) }
+
+// HasTalk reports whether the camera has a speaker for push-to-talk.
+func (cam *Camera) HasTalk() bool { return orDefault(cam.Features.Talk, cam.HasDVRIP()) }
+
 // HasSubstream reports whether a second, lighter stream is known.
 func (cam *Camera) HasSubstream() bool { return cam.streamPath(1) != "" }
 
@@ -92,9 +120,9 @@ func (cam *Camera) Go2RTCURL(stream int) string {
 }
 
 // Go2RTCBackchannel is the DVRIP source go2rtc uses for two-way audio
-// (XMEye only; "" otherwise).
+// (XMEye with talk on; "" otherwise: no extra DVRIP session for nothing).
 func (cam *Camera) Go2RTCBackchannel() string {
-	if !cam.HasDVRIP() {
+	if !cam.HasDVRIP() || !cam.HasTalk() {
 		return ""
 	}
 	return fmt.Sprintf("dvrip://${%s}:${%s}@%s?channel=%d&subtype=0&backchannel=1",

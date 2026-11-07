@@ -6,6 +6,7 @@ import { dayNightLabel } from "../lib/time";
 import { Icon } from "./Icon";
 import { LighthouseMark } from "./Lighthouse";
 import { haptic } from "../lib/gestures";
+import { t } from "../lib/i18n";
 
 type Op = "move" | "zoom" | "focus";
 
@@ -77,14 +78,14 @@ function useHold(cameraId: string, speed: number, onError: (m: string) => void) 
 }
 
 const DIRS: { dir: string; label: string; angle: number }[] = [
-  { dir: "up", label: "Cima", angle: -90 },
-  { dir: "up_right", label: "Cima e direita", angle: -45 },
-  { dir: "right", label: "Direita", angle: 0 },
-  { dir: "down_right", label: "Baixo e direita", angle: 45 },
-  { dir: "down", label: "Baixo", angle: 90 },
-  { dir: "down_left", label: "Baixo e esquerda", angle: 135 },
-  { dir: "left", label: "Esquerda", angle: 180 },
-  { dir: "up_left", label: "Cima e esquerda", angle: -135 },
+  { dir: "up", label: t("Up"), angle: -90 },
+  { dir: "up_right", label: t("Up and right"), angle: -45 },
+  { dir: "right", label: t("Right"), angle: 0 },
+  { dir: "down_right", label: t("Down and right"), angle: 45 },
+  { dir: "down", label: t("Down"), angle: 90 },
+  { dir: "down_left", label: t("Down and left"), angle: 135 },
+  { dir: "left", label: t("Left"), angle: 180 },
+  { dir: "up_left", label: t("Up and left"), angle: -135 },
 ];
 
 // Keyboard: arrows (two at once = diagonals), + / − zoom, [ ] focus.
@@ -108,13 +109,13 @@ export function keyDir(held: Iterable<string>): string | null {
 }
 
 function speedLabel(v: number) {
-  return v <= 2 ? `Lento (${v})` : v >= 7 ? `Rápido (${v})` : `Normal (${v})`;
+  return v <= 2 ? t("Slow ({v})", { v }) : v >= 7 ? t("Fast ({v})", { v }) : t("Normal ({v})", { v });
 }
 
 export function PtzPanel({ cameraId, canControl }: { cameraId: string; canControl: boolean }) {
   const toast = useToast();
   const [speed, setSpeed] = useState(4);
-  const onError = useCallback((m: string) => toast(`PTZ: ${m}`, true), [toast]);
+  const onError = useCallback((m: string) => toast(t("PTZ: {m}", { m }), true), [toast]);
   const { bind, start, stop, pressed } = useHold(cameraId, speed, onError);
   const moving = pressed?.startsWith("move:") ? DIRS.find((d) => `move:${d.dir}` === pressed) : undefined;
 
@@ -160,16 +161,16 @@ export function PtzPanel({ cameraId, canControl }: { cameraId: string; canContro
   }, [canControl, start, stop]);
 
   return (
-    <section className="card ptz" aria-label="Controle de movimento">
+    <section className="card ptz" aria-label={t("Motion control")}>
       <div className="card-head">
-        <h2>Movimento</h2>
+        <h2>{t("Motion")}</h2>
         {canControl && (
-          <span className="ptz-keys muted small" title="Setas do teclado movem (duas juntas = diagonal). + e − dão zoom, [ e ] ajustam o foco.">
-            <Icon name="keyboard" /> <span className="hide-sm">Setas, + e −</span>
+          <span className="ptz-keys muted small" title={t("Arrow keys move (two together = diagonal). + and − zoom, [ and ] adjust focus.")}>
+            <Icon name="keyboard" />{" "}<span className="hide-sm">{t("Arrows, + and −")}</span>
           </span>
         )}
       </div>
-      <div className={`dial${moving ? " moving" : ""}`} role="group" aria-label="Direções" style={moving ? ({ "--dir": `${moving.angle}deg` } as React.CSSProperties) : undefined}>
+      <div className={`dial${moving ? " moving" : ""}`} role="group" aria-label={t("Directions")} style={moving ? ({ "--dir": `${moving.angle}deg` } as React.CSSProperties) : undefined}>
         {DIRS.map(({ dir, label, angle }) => {
           const rad = (angle * Math.PI) / 180;
           return (
@@ -191,37 +192,50 @@ export function PtzPanel({ cameraId, canControl }: { cameraId: string; canContro
       </div>
 
       <label className="speed">
-        <span className="muted">Velocidade</span>
+        <span className="muted">{t("Speed")}</span>
         <input type="range" min={1} max={8} value={speed} onChange={(e) => setSpeed(Number(e.target.value))} disabled={!canControl} aria-valuetext={speedLabel(speed)} />
         <span className="speed-val">{speedLabel(speed)}</span>
       </label>
 
       <div className="ptz-lens">
         <div className="ptz-row">
-          <span className="label">Zoom</span>
-          <button className="btn icon small" aria-label="Afastar" title="Afastar (−)" disabled={!canControl} {...bind("zoom", "out")}>
+          <span className="label">{t("Zoom")}</span>
+          <button className="btn icon small" aria-label={t("Zoom out")} title={t("Zoom out (−)")} disabled={!canControl} {...bind("zoom", "out")}>
             <Icon name="minus" />
           </button>
-          <button className="btn icon small" aria-label="Aproximar" title="Aproximar (+)" disabled={!canControl} {...bind("zoom", "in")}>
+          <button className="btn icon small" aria-label={t("Zoom in")} title={t("Zoom in (+)")} disabled={!canControl} {...bind("zoom", "in")}>
             <Icon name="plus" />
           </button>
         </div>
         <div className="ptz-row">
-          <span className="label">Foco</span>
-          <button className="btn icon small" aria-label="Foco perto" title="Foco perto ([)" disabled={!canControl} {...bind("focus", "near")}>
+          <span className="label">{t("Focus")}</span>
+          <button className="btn icon small" aria-label={t("Focus near")} title={t("Focus near ([)")} disabled={!canControl} {...bind("focus", "near")}>
             <Icon name="minus" />
           </button>
-          <button className="btn icon small" aria-label="Foco longe" title="Foco longe (])" disabled={!canControl} {...bind("focus", "far")}>
+          <button className="btn icon small" aria-label={t("Focus far")} title={t("Focus far (])")} disabled={!canControl} {...bind("focus", "far")}>
             <Icon name="plus" />
           </button>
         </div>
       </div>
-      {!canControl && <p className="muted small">Seu perfil só permite assistir.</p>}
+      {!canControl && <p className="muted small">{t("Your profile only lets you watch.")}</p>}
     </section>
   );
 }
 
-export function CameraSettings({ cameraId, canControl, isAdmin }: { cameraId: string; canControl: boolean; isAdmin: boolean }) {
+/** Saved positions (cameras with PTZ) and image settings; ptz/light come from the camera's features. */
+export function CameraSettings({
+  cameraId,
+  canControl,
+  isAdmin,
+  ptz = true,
+  light: hasLight = true,
+}: {
+  cameraId: string;
+  canControl: boolean;
+  isAdmin: boolean;
+  ptz?: boolean;
+  light?: boolean;
+}) {
   const toast = useToast();
   const qc = useQueryClient();
   const key = ["control", cameraId];
@@ -240,28 +254,28 @@ export function CameraSettings({ cameraId, canControl, isAdmin }: { cameraId: st
   const light = useMutation({
     mutationFn: (on: boolean) => api("PUT", `/api/cameras/${cameraId}/light`, { on }),
     onSuccess: (_, on) => {
-      toast(on ? "Luz branca ligada" : "Luz branca desligada");
+      toast(on ? t("White light on") : t("White light off"));
       void qc.invalidateQueries({ queryKey: key });
     },
-    onError: (e: Error) => toast(`Luz: ${e.message}`, true),
+    onError: (e: Error) => toast(t("Light: {message}", { message: e.message }), true),
   });
   const dayNight = useMutation({
     mutationFn: (mode: DayNight) => api("PUT", `/api/cameras/${cameraId}/daynight`, { mode }),
     onSuccess: (_, mode) => {
-      toast(`Modo de imagem: ${dayNightLabel[mode]}`);
+      toast(t("Picture mode: {v0}", { v0: dayNightLabel[mode] }));
       void qc.invalidateQueries({ queryKey: key });
     },
-    onError: (e: Error) => toast(`Modo de imagem: ${e.message}`, true),
+    onError: (e: Error) => toast(t("Picture mode: {message}", { message: e.message }), true),
   });
   const preset = useMutation({
     mutationFn: ({ id, action }: { id: number; action: "goto" | "set" | "clear" }) =>
       api("POST", `/api/cameras/${cameraId}/presets/${id}`, { action }),
     onSuccess: (_, v) => {
-      if (v.action === "set") toast(`Posição ${v.id} salva`);
-      if (v.action === "clear") toast(`Posição ${v.id} apagada`);
+      if (v.action === "set") toast(t("Position {id} saved", { id: v.id }));
+      if (v.action === "clear") toast(t("Position {id} deleted", { id: v.id }));
       if (v.action !== "goto") void qc.invalidateQueries({ queryKey: key });
     },
-    onError: (e: Error) => toast(`Posição: ${e.message}`, true),
+    onError: (e: Error) => toast(t("Position: {message}", { message: e.message }), true),
   });
 
   const st = state.data;
@@ -275,18 +289,19 @@ export function CameraSettings({ cameraId, canControl, isAdmin }: { cameraId: st
 
   return (
     <>
-      <section className="card" aria-label="Posições salvas">
+      {ptz && (
+      <section className="card" aria-label={t("Saved positions")}>
         <div className="card-head">
-          <h2>Posições salvas</h2>
+          <h2>{t("Saved positions")}</h2>
           {canControl && isAdmin && presets.length > 0 && (
             <button className={`btn small ghost${editing ? " on" : ""}`} aria-pressed={editing} onClick={() => setEditing((v) => !v)}>
-              {editing ? "Concluir" : "Editar"}
+              {editing ? t("Finish") : t("Edit")}
             </button>
           )}
         </div>
-        {state.isLoading && <p className="muted">Lendo a câmera…</p>}
-        {state.isError && <p className="notice error">Câmera não respondeu. {(state.error as Error).message}</p>}
-        {st && presets.length === 0 && <p className="muted">Nenhuma posição salva ainda.</p>}
+        {state.isLoading && <p className="muted">{t("Reading the camera…")}</p>}
+        {state.isError && <p className="notice error">{t("Camera did not respond.")} {(state.error as Error).message}</p>}
+        {st && presets.length === 0 && <p className="muted">{t("No position saved yet.")}</p>}
         <div className={`presets${editing ? " editing" : ""}`}>
           {presets.map((p) => {
             // The firmware names untouched presets "Preset N"; show the number then.
@@ -297,8 +312,8 @@ export function CameraSettings({ cameraId, canControl, isAdmin }: { cameraId: st
                 className="chip remove"
                 disabled={preset.isPending}
                 onClick={() => setConfirmClear(p.id)}
-                title={`Apagar a posição ${p.id}`}
-                aria-label={`Apagar a posição ${p.id}`}
+                title={t("Delete position {id}", { id: p.id })}
+                aria-label={t("Delete position {id}", { id: p.id })}
               >
                 <span className="num">{p.id}</span>
                 {named && <span className="chip-name">{p.name}</span>}
@@ -313,7 +328,10 @@ export function CameraSettings({ cameraId, canControl, isAdmin }: { cameraId: st
                   haptic();
                   preset.mutate({ id: p.id, action: "goto" });
                 }}
-                title={`Ir para a posição ${p.id}${named ? `: ${p.name}` : ""}`}
+                title={t("Go to position {id}{v1}", {
+                    id: p.id,
+                    v1: named ? `: ${p.name}` : "",
+                  })}
               >
                 <span className="num">{p.id}</span>
                 {named && <span className="chip-name">{p.name}</span>}
@@ -323,20 +341,21 @@ export function CameraSettings({ cameraId, canControl, isAdmin }: { cameraId: st
         </div>
         {canControl && isAdmin && nextFree !== null && !editing && (
           <button className="btn ghost small" style={{ marginTop: 10 }} onClick={() => setConfirmSave(nextFree)}>
-            <Icon name="plus" /> Salvar posição atual
+            <Icon name="plus" /> {t("Save current position")}
           </button>
         )}
         {presets.length >= 2 && !editing && <PresetTour cameraId={cameraId} presets={presets} canControl={canControl} />}
       </section>
+      )}
 
       {confirmClear !== null && (
         <div className="dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="clear-title" onClick={(e) => e.target === e.currentTarget && setConfirmClear(null)}>
           <div className="dialog">
-            <h2 id="clear-title">Apagar a posição {confirmClear}?</h2>
-            <p className="muted">A câmera esquece essa posição. A câmera não se move.</p>
+            <h2 id="clear-title">{t("Delete the position")} {confirmClear}?</h2>
+            <p className="muted">{t("The camera forgets this position. The camera does not move.")}</p>
             <div className="dialog-actions">
               <button className="btn ghost" onClick={() => setConfirmClear(null)}>
-                Cancelar
+                {t("Cancel")}
               </button>
               <button
                 className="btn primary danger-fill"
@@ -345,30 +364,32 @@ export function CameraSettings({ cameraId, canControl, isAdmin }: { cameraId: st
                   setConfirmClear(null);
                 }}
               >
-                Apagar posição
+                {t("Delete position")}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      <section className="card" aria-label="Imagem e luz">
-        <h2>Imagem</h2>
+      <section className="card" aria-label={t("Image and light")}>
+        <h2>{t("Image")}</h2>
+        {hasLight && (
         <div className="toggle-row">
           <span>
-            <Icon name="light" /> Luz branca
+            <Icon name="light" /> {t("White light")}
           </span>
           <button
             className="switch"
             role="switch"
             aria-checked={!!st?.white_light}
-            aria-label="Luz branca"
+            aria-label={t("White light")}
             disabled={!canControl || !st || busy}
             onClick={() => st && light.mutate(!st.white_light)}
           />
         </div>
+        )}
         <div className="field" style={{ marginTop: 8 }}>
-          <label htmlFor={`dn-${cameraId}`}>Dia e noite</label>
+          <label htmlFor={`dn-${cameraId}`}>{t("Day and night")}</label>
           <select
             id={`dn-${cameraId}`}
             className="input"
@@ -394,11 +415,11 @@ export function CameraSettings({ cameraId, canControl, isAdmin }: { cameraId: st
       {confirmSave !== null && (
         <div className="dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="save-title">
           <div className="dialog">
-            <h2 id="save-title">Salvar posição {confirmSave}?</h2>
-            <p className="muted">A posição atual da câmera fica gravada nela como a posição {confirmSave}.</p>
+            <h2 id="save-title">{t("Save position")} {confirmSave}?</h2>
+            <p className="muted">{t("The camera's current position is saved in the camera as position")} {confirmSave}.</p>
             <div className="dialog-actions">
               <button className="btn ghost" onClick={() => setConfirmSave(null)}>
-                Cancelar
+                {t("Cancel")}
               </button>
               <button
                 className="btn primary"
@@ -407,7 +428,7 @@ export function CameraSettings({ cameraId, canControl, isAdmin }: { cameraId: st
                   setConfirmSave(null);
                 }}
               >
-                Salvar posição
+                {t("Save position")}
               </button>
             </div>
           </div>
@@ -439,18 +460,18 @@ function PresetTour({ cameraId, presets, canControl }: { cameraId: string; prese
   const start = useMutation({
     mutationFn: () => api("PUT", `/api/cameras/${cameraId}/tour`, { presets: chosen, dwell_seconds: dwell, hours }),
     onSuccess: () => {
-      toast("Ronda iniciada");
+      toast(t("Tour started"));
       void qc.invalidateQueries({ queryKey: key });
     },
-    onError: (e: Error) => toast(`Ronda: ${e.message}`, true),
+    onError: (e: Error) => toast(t("Tour: {message}", { message: e.message }), true),
   });
   const stop = useMutation({
     mutationFn: () => api("DELETE", `/api/cameras/${cameraId}/tour`),
     onSuccess: () => {
-      toast("Ronda parada");
+      toast(t("Tour stopped"));
       void qc.invalidateQueries({ queryKey: key });
     },
-    onError: (e: Error) => toast(`Ronda: ${e.message}`, true),
+    onError: (e: Error) => toast(t("Tour: {message}", { message: e.message }), true),
   });
   const st = tour.data;
   const toggle = (id: number) =>
@@ -464,13 +485,15 @@ function PresetTour({ cameraId, presets, canControl }: { cameraId: string; prese
     return (
       <div className="tour" aria-live="polite">
         <p>
-          <strong>Ronda ativa</strong>: posições {st.presets?.join(" → ")}, {st.dwell_seconds} s em cada
-          {st.current ? `; agora na ${st.current}` : ""}
-          {ends ? `; termina às ${ends}` : ""}.
+          <strong>{t("Tour active")}</strong>
+          {t(": positions")} {st.presets?.join(" → ")}, {st.dwell_seconds}{" "}
+          {t("s each")}
+          {st.current ? t("; now at {current}", { current: st.current }) : ""}
+          {ends ? t("; ends at {ends}", { ends }) : ""}.
         </p>
-        {st.last_error && <p className="muted small">Último erro: {st.last_error}</p>}
+        {st.last_error && <p className="muted small">{t("Last error:")} {st.last_error}</p>}
         <button className="btn small" disabled={!canControl || stop.isPending} onClick={() => stop.mutate()}>
-          <Icon name="x" /> Parar ronda
+          <Icon name="x" /> {t("Stop tour")}
         </button>
       </div>
     );
@@ -478,9 +501,9 @@ function PresetTour({ cameraId, presets, canControl }: { cameraId: string; prese
   if (!canControl) return null;
   return (
     <div className="tour">
-      <h3>Ronda</h3>
-      <p className="muted small">A câmera passa pelas posições marcadas, em ordem. Mexer nela à mão encerra a ronda.</p>
-      <div className="presets" role="group" aria-label="Posições da ronda">
+      <h3>{t("Tour")}</h3>
+      <p className="muted small">{t("The camera visits the marked positions, in order. Moving it by hand ends the tour.")}</p>
+      <div className="presets" role="group" aria-label={t("Tour positions")}>
         {presets.map((p) => (
           <button
             key={p.id}
@@ -494,7 +517,7 @@ function PresetTour({ cameraId, presets, canControl }: { cameraId: string; prese
       </div>
       <div className="row-gap" style={{ marginTop: 8 }}>
         <label className="field">
-          <span>Tempo em cada</span>
+          <span>{t("Time in each")}</span>
           <select className="input" value={dwell} onChange={(e) => setDwell(Number(e.target.value))}>
             {tourDwells.map((d) => (
               <option key={d} value={d}>
@@ -504,7 +527,7 @@ function PresetTour({ cameraId, presets, canControl }: { cameraId: string; prese
           </select>
         </label>
         <label className="field">
-          <span>Duração</span>
+          <span>{t("Duration")}</span>
           <select className="input" value={hours} onChange={(e) => setHours(Number(e.target.value))}>
             {tourHours.map((h) => (
               <option key={h} value={h}>
@@ -520,18 +543,18 @@ function PresetTour({ cameraId, presets, canControl }: { cameraId: string; prese
         disabled={chosen.length < 2 || start.isPending}
         onClick={() => start.mutate()}
       >
-        Iniciar ronda
+        {t("Start tour")}
       </button>
-      {st && !st.running && st.stop_reason && <p className="muted small">Última ronda: {tourReason(st.stop_reason)}.</p>}
+      {st && !st.running && st.stop_reason && <p className="muted small">{t("Last tour:")} {tourReason(st.stop_reason)}.</p>}
     </div>
   );
 }
 
 function tourReason(r: string): string {
-  if (r === "time is up") return "terminou no horário";
-  if (r === "the camera did not answer") return "a câmera não respondeu";
-  if (r.startsWith("manual control by ")) return `encerrada pelo controle manual de ${r.slice(18)}`;
-  if (r.startsWith("stopped by ")) return `parada por ${r.slice(11)}`;
-  if (r === "server stopping") return "interrompida ao reiniciar o servidor";
-  return "parada";
+  if (r === "time is up") return t("finished on time");
+  if (r === "the camera did not answer") return t("the camera did not respond");
+  if (r.startsWith("manual control by ")) return t("ended by the manual control of {v0}", { v0: r.slice(18) });
+  if (r.startsWith("stopped by ")) return t("stopped by {name}", { name: r.slice(11) });
+  if (r === "server stopping") return t("interrupted when the server restarted");
+  return t("stopped");
 }

@@ -9,14 +9,15 @@ import { useCameras } from "../pages/LivePage";
 import { Icon } from "./Icon";
 import { ZoneEditor } from "./ZoneEditor";
 
+import { t } from "../lib/i18n";
 const KINDS = Object.keys(KIND_LABEL) as ObjectKind[];
 
 const OVERLAY_OPTIONS: { key: keyof OverlayPrefs; label: string; hint?: string }[] = [
-  { key: "boxes", label: "Caixas em volta do que for detectado" },
-  { key: "labels", label: "Nome em cada caixa", hint: "Pessoa, Veículo ou Animal." },
-  { key: "score", label: "Confiança da detecção", hint: "Quanto o detector tem certeza, em %." },
-  { key: "all", label: "Também o que não avisa", hint: "Fora das zonas ou parado, em traço pontilhado." },
-  { key: "zones", label: "Contorno das zonas" },
+  { key: "boxes", label: t("Boxes around what is detected") },
+  { key: "labels", label: t("Name on each box"), hint: t("Person, Vehicle or Animal.") },
+  { key: "score", label: t("Detection confidence"), hint: t("How sure the detector is, in %.") },
+  { key: "all", label: t("Also what does not alert"), hint: t("Outside the zones or still, as a dotted line.") },
+  { key: "zones", label: t("Zone outlines") },
 ];
 
 /** Object detector status and per-camera settings (ADR-0016). */
@@ -35,7 +36,7 @@ export function DetectionCard({ s }: { s: SystemInfo }) {
     onSuccess: (d, { id }) => {
       qc.setQueryData(["detection", id], d);
       setEditing(null);
-      toast("Detecção atualizada");
+      toast(t("Detection updated"));
     },
     onError: (e: Error) => toast(e.message, true),
   });
@@ -46,17 +47,17 @@ export function DetectionCard({ s }: { s: SystemInfo }) {
 
   return (
     <section className="card det-card">
-      <h2>Detecção</h2>
+      <h2>{t("Detection")}</h2>
       <p className="muted" style={{ marginBottom: 8 }}>
         {!det?.healthy
-          ? "Detector parado: o movimento avisa como antes."
+          ? t("Detector stopped: motion alerts as before.")
           : analysing
-            ? `Analisando agora (${Math.round(st!.inference_ms)} ms por imagem).`
-            : `Pronto, esperando movimento${det.last_seen ? `, visto ${relative(det.last_seen)}` : ""}.`}
+            ? t("Analyzing now ({v0} ms per frame).", { v0: Math.round(st!.inference_ms) })
+            : t("Ready, waiting for motion{v0}.", { v0: det.last_seen ? `, visto ${relative(det.last_seen)}` : "" })}
         {det?.healthy && st?.model && <span className="faint"> {st.model}.</span>}
       </p>
       <p className="faint" style={{ fontSize: "0.85rem", marginBottom: 14 }}>
-        Liga só quando a câmera vê movimento e avisa apenas pessoas, veículos ou animais. Árvores, sombras e carros fora das zonas não avisam.
+        {t("Turns on only when the camera sees motion and alerts only for people, vehicles or animals. Trees, shadows and cars outside the zones do not alert.")}
       </p>
 
       {list.map((c, i) => {
@@ -68,13 +69,13 @@ export function DetectionCard({ s }: { s: SystemInfo }) {
           <div key={c.id} className="det-cam">
             {list.length > 1 && <strong>{c.name}</strong>}
             <label className="check-row">
-              <input type="checkbox" checked={d.enabled} disabled={busy} onChange={(e) => set({ enabled: e.target.checked })} /> Detectar nesta câmera
+              <input type="checkbox" checked={d.enabled} disabled={busy} onChange={(e) => set({ enabled: e.target.checked })} />{" "}{t("Detect on this camera")}
             </label>
             {d.enabled && (
               <div className="det-settings">
                 <div className="det-field">
-                  <span className="det-name">Sensibilidade</span>
-                  <div className="segmented small" role="group" aria-label="Sensibilidade">
+                  <span className="det-name">{t("Sensitivity")}</span>
+                  <div className="segmented small" role="group" aria-label={t("Sensitivity")}>
                     {SENSITIVITY.map((x) => (
                       <button key={x.label} aria-pressed={Math.abs(d.min_score - x.value) < 0.01} disabled={busy} onClick={() => set({ min_score: x.value })}>
                         {x.label}
@@ -84,10 +85,10 @@ export function DetectionCard({ s }: { s: SystemInfo }) {
                 </div>
 
                 <div className="det-field">
-                  <span className="det-name">Zonas</span>
+                  <span className="det-name">{t("Zones")}</span>
                   <div className="det-zone-line">
                     <button className="btn small" disabled={!op} onClick={() => setEditing(c.id)}>
-                      <Icon name="zone" /> {d.zones.length ? `Editar zonas (${d.zones.length})` : "Desenhar zonas"}
+                      <Icon name="zone" /> {d.zones.length ? t("Edit zones ({length})", { length: d.zones.length }) : t("Draw zones")}
                     </button>
                     {d.zones.length > 0 && <span className="faint small">{d.zones.map((z) => z.name).join(", ")}</span>}
                   </div>
@@ -95,8 +96,8 @@ export function DetectionCard({ s }: { s: SystemInfo }) {
 
                 {d.zones.length === 0 && (
                   <div className="det-field">
-                    <span className="det-name">Sem zonas, vigiar</span>
-                    <div className="segmented small" role="group" aria-label="O que vigiar na imagem toda">
+                    <span className="det-name">{t("Without zones, watch")}</span>
+                    <div className="segmented small" role="group" aria-label={t("What to watch in the whole picture")}>
                       {KINDS.map((k) => {
                         const on = d.objects.includes(k);
                         return (
@@ -115,8 +116,8 @@ export function DetectionCard({ s }: { s: SystemInfo }) {
                 )}
 
                 <div className="det-field">
-                  <span className="det-name">Tamanho</span>
-                  <div className="segmented small" role="group" aria-label="Tamanho mínimo do objeto">
+                  <span className="det-name">{t("Size")}</span>
+                  <div className="segmented small" role="group" aria-label={t("Minimum object size")}>
                     {MIN_SIZE.map((x) => (
                       <button key={x.value} aria-pressed={Math.abs(d.min_size - x.value) < 0.001} disabled={busy} onClick={() => set({ min_size: x.value })}>
                         {x.label}
@@ -128,8 +129,8 @@ export function DetectionCard({ s }: { s: SystemInfo }) {
                 <label className="check-row">
                   <input type="checkbox" checked={d.ignore_parked} disabled={busy} onChange={(e) => set({ ignore_parked: e.target.checked })} />
                   <span>
-                    Ignorar o que fica parado
-                    <span className="faint small det-hint">Carro estacionado depois de 30 s, animal deitado depois de 1 min.</span>
+                    {t("Ignore what stays still")}
+                    <span className="faint small det-hint">{t("Car parked after 30 s, animal lying down after 1 min.")}</span>
                   </span>
                 </label>
               </div>
@@ -163,9 +164,9 @@ export function OverlayCard() {
   const noZones = settings.length > 0 && settings.every((q) => q.data && q.data.zones.length === 0);
   return (
     <section className="card det-overlay">
-      <h2>Caixas no ao vivo</h2>
+      <h2>{t("Boxes in live view")}</h2>
       <p className="faint small" style={{ marginBottom: 10 }}>
-        Neste aparelho. Enquanto você assiste a uma câmera, o detector analisa a imagem a cada 2 segundos.
+        {t("On this device. While you watch a camera, the detector analyzes the picture every 2 seconds.")}
       </p>
       {OVERLAY_OPTIONS.map((o) => (
         <label key={o.key} className={`check-row${o.key !== "boxes" && o.key !== "zones" && !overlay.boxes ? " off" : ""}`}>
@@ -178,7 +179,7 @@ export function OverlayCard() {
           <span>
             {o.label}
             {o.key === "zones" && noZones ? (
-              <span className="faint small det-hint">Nenhuma zona desenhada ainda: desenhe em Detecção, Zonas.</span>
+              <span className="faint small det-hint">{t("No zones drawn yet: draw them in Detection, Zones.")}</span>
             ) : (
               o.hint && <span className="faint small det-hint">{o.hint}</span>
             )}

@@ -65,7 +65,7 @@ export function MoreMenu({ version, unread }: { version?: string; unread: number
   const count = (n: number) => (n > 0 ? <span className="count-badge">{n}</span> : null);
   return (
     <div className="more">
-      <a className="phone-who" href={href("conta")} aria-label="Minha conta">
+      <a className="phone-who" href={href("account")} aria-label={t("My account")}>
         <OceanScene className="phone-ocean" />
         <div className="who">
           <Avatar name={user.username} />
@@ -77,13 +77,13 @@ export function MoreMenu({ version, unread }: { version?: string; unread: number
         </div>
       </a>
 
-      <section className="menu-group" aria-label="Minha conta">
-        <h2 className="menu-title">{t("Minha conta")}</h2>
+      <section className="menu-group" aria-label={t("My account")}>
+        <h2 className="menu-title">{t("My account")}</h2>
         <div className="menu-list">
           {ACCOUNT_SECTIONS.map((x) => (
             <Row
               key={x.id}
-              to={href("conta", { s: x.id })}
+              to={href("account", { s: x.id })}
               icon={x.icon}
               label={x.label}
               hint={x.hint}
@@ -92,37 +92,37 @@ export function MoreMenu({ version, unread }: { version?: string; unread: number
         </div>
       </section>
 
-      <section className="menu-group" aria-label="Sistema">
-        <h2 className="menu-title">{t("Sistema")}</h2>
+      <section className="menu-group" aria-label={t("System")}>
+        <h2 className="menu-title">{t("System")}</h2>
         <div className="menu-list">
-          <Row to={href("system", { s: "overview" })} icon="gauge" label="Visão geral" hint="Avisos e saúde do servidor" badge={count(unread)} />
-          <Row to={href("system", { s: "recording" })} icon="recordings" label="Gravação" hint="Espaço e gravadores" />
-          <Row to={href("system", { s: "detection" })} icon="scan" label="Detecção" hint="Modo da casa, pessoas, veículos e áreas" />
+          <Row to={href("system", { s: "overview" })} icon="gauge" label={t("Overview")} hint={t("Notices and server health")} badge={count(unread)} />
+          <Row to={href("system", { s: "recording" })} icon="recordings" label={t("Recording")} hint={t("Space and recorders")} />
+          <Row to={href("system", { s: "detection" })} icon="scan" label={t("Detection")} hint={t("House mode, people, vehicles and zones")} />
           <Row
             to={href("system", { s: "app" })}
             icon="app"
-            label="Aplicativo"
-            hint="Conectar e atualizar o app"
+            label={t("App")}
+            hint={t("Connect and update the app")}
             badge={newer ? <span className="count-badge">1</span> : undefined}
           />
-          <Row to={href("system", { s: "server" })} icon="server" label="Servidor e discos" hint="Memória, discos e backups" />
+          <Row to={href("system", { s: "server" })} icon="server" label={t("Server and disks")} hint={t("Memory, disks and backups")} />
         </div>
       </section>
 
-      <section className="menu-group" aria-label="Ferramentas">
-        <h2 className="menu-title">{t("Ferramentas")}</h2>
+      <section className="menu-group" aria-label={t("Tools")}>
+        <h2 className="menu-title">{t("Tools")}</h2>
         <div className="menu-list">
-          <Row to={href("relogio")} icon="timer" label="Medir atraso" hint="Compara o relógio da câmera com o do servidor" />
+          <Row to={href("clock")} icon="timer" label={t("Measure delay")} hint={t("Compares the camera's clock with the server's")} />
         </div>
       </section>
 
       <div className="menu-list">
-        <Row icon="logout" label="Sair desta conta" onClick={logout} danger trailing={<span />} />
+        <Row icon="logout" label={t("Sign out of this account")} onClick={logout} danger trailing={<span />} />
       </div>
 
       <p className="muted small more-foot">
-        Sentinela {version ?? ""}
-        {info ? `, app ${info.versionName}` : ""}. Câmeras e usuários são configurados no computador.
+        {t("Sentinela")}{" "}{version ?? ""}
+        {info ? t(", app {versionName}", { versionName: info.versionName }) : ""}{t(". Cameras and users are configured on the computer.")}
       </p>
     </div>
   );

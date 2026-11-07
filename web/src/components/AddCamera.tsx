@@ -2,11 +2,12 @@ import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import { useToast } from "../lib/session";
-import { CopyField } from "../pages/NuvemPage";
+import { CopyField } from "../pages/CloudPage";
 import { PasswordField } from "./PasswordField";
 import { Icon } from "./Icon";
 import { addCameraCommand } from "../lib/camera";
 
+import { t } from "../lib/i18n";
 interface Found {
   host: string;
   port: number;
@@ -35,7 +36,7 @@ interface TestResult {
   sessions_ok: boolean;
 }
 
-const STEPS = ["Encontrar", "Acesso", "Teste e instalação"];
+const STEPS = [t("Find"), t("Access"), t("Test and install")];
 
 /** Find and test a camera (read-only); adding it happens on the server. */
 export function AddCameraCard() {
@@ -61,10 +62,10 @@ export function AddCameraCard() {
   return (
     <section className="card add-cam">
       <div className="card-head">
-        <h2>Procurar e testar câmeras na rede</h2>
-        <span className="muted small">Nada é gravado na câmera: é só leitura. Para adicionar, use o editor acima.</span>
+        <h2>{t("Find and test cameras on the network")}</h2>
+        <span className="muted small">{t("Nothing is written to the camera: it is read only. To add one, use the editor above.")}</span>
       </div>
-      <ol className="stepper" aria-label="Etapas">
+      <ol className="stepper" aria-label={t("Steps")}>
         {STEPS.map((s, i) => (
           <li key={s} className={i === step ? "on" : i < step ? "done" : ""}>
             <button type="button" disabled={i > step || test.isPending} onClick={() => setStep(i)}>
@@ -77,16 +78,16 @@ export function AddCameraCard() {
 
       {step === 0 && (
         <div className="step-body">
-          <p className="muted">Procure câmeras XMEye/ONVIF ligadas na mesma rede do servidor, ou digite o IP se já souber.</p>
+          <p className="muted">{t("Look for XMEye/ONVIF cameras on the same network as the server, or type the IP if you already know it.")}</p>
           <div className="row-gap">
             <button className="btn primary" disabled={search.isPending} onClick={() => search.mutate()}>
-              {search.isPending ? <span className="spinner small" /> : <Icon name="search" />} {search.isPending ? "Procurando (até 5 s)…" : "Procurar na rede"}
+              {search.isPending ? <span className="spinner small" /> : <Icon name="search" />} {search.isPending ? t("Searching (up to 5 s)…") : t("Search the network")}
             </button>
             <button className="btn" onClick={() => setStep(1)}>
-              <Icon name="edit" /> Digitar o IP
+              <Icon name="edit" />{" "}{t("Type the IP")}
             </button>
           </div>
-          {search.data && search.data.length === 0 && <p className="notice">Nenhuma câmera respondeu. Confira se ela está ligada e na mesma rede, ou digite o IP.</p>}
+          {search.data && search.data.length === 0 && <p className="notice">{t("No camera responded. Check that it is on and on the same network, or type the IP.")}</p>}
           {search.data && search.data.length > 0 && (
             <ul className="found-list">
               {search.data.map((d) => (
@@ -105,13 +106,13 @@ export function AddCameraCard() {
                       <Icon name="video" />
                     </span>
                     <span className="found-text">
-                      <strong>{d.name || "Câmera ONVIF"}</strong>
+                      <strong>{d.name || t("ONVIF camera")}</strong>
                       <span className="muted small">
                         {d.host}:{d.port}
                         {d.hardware ? ` · ${d.hardware}` : ""}
                       </span>
                     </span>
-                    {d.known ? <span className="pill">já cadastrada ({d.known})</span> : <Icon name="chevronRight" />}
+                    {d.known ? <span className="pill">{t("already registered (")}{d.known})</span> : <Icon name="chevronRight" />}
                   </button>
                 </li>
               ))}
@@ -130,31 +131,31 @@ export function AddCameraCard() {
         >
           <div className="form-grid">
             <div className="field">
-              <label htmlFor="ac-host">Endereço IP</label>
+              <label htmlFor="ac-host">{t("IP address")}</label>
               <input id="ac-host" className="input" placeholder="192.168.1.21" value={host} onChange={(e) => setHost(e.target.value.trim())} required autoFocus />
             </div>
             <div className="field">
-              <label htmlFor="ac-port">Porta ONVIF</label>
+              <label htmlFor="ac-port">{t("ONVIF port")}</label>
               <input id="ac-port" className="input" type="number" value={port} onChange={(e) => setPort(Number(e.target.value) || 8899)} />
-              <span className="hint">As XMEye usam 8899.</span>
+              <span className="hint">{t("XMEye cameras use 8899.")}</span>
             </div>
             <div className="field">
-              <label htmlFor="ac-name">Nome</label>
-              <input id="ac-name" className="input" placeholder="ex.: Fundo, Garagem" value={name} onChange={(e) => setName(e.target.value)} maxLength={40} />
+              <label htmlFor="ac-name">{t("Name")}</label>
+              <input id="ac-name" className="input" placeholder={t("e.g. Backyard, Garage")} value={name} onChange={(e) => setName(e.target.value)} maxLength={40} />
             </div>
             <div className="field">
-              <label htmlFor="ac-user">Usuário da câmera</label>
+              <label htmlFor="ac-user">{t("Camera username")}</label>
               <input id="ac-user" className="input" value={user} onChange={(e) => setUser(e.target.value)} required autoComplete="off" />
             </div>
-            <PasswordField label="Senha da câmera" value={pw} onChange={setPw} autoComplete="new-password" />
+            <PasswordField label={t("Camera password")} value={pw} onChange={setPw} autoComplete="new-password" />
           </div>
-          <p className="muted small">A senha só é usada para este teste; no servidor ela é pedida de novo pelo script e nunca aparece na tela.</p>
+          <p className="muted small">{t("The password is only used for this test; on the server the script asks for it again and it never appears on screen.")}</p>
           <div className="row-gap">
             <button type="button" className="btn ghost" onClick={() => setStep(0)}>
-              Voltar
+              {t("Back")}
             </button>
             <button className="btn primary" disabled={test.isPending || !validHost || !pw}>
-              {test.isPending ? <span className="spinner small" /> : <Icon name="scan" />} {test.isPending ? "Testando (até 30 s)…" : "Testar a câmera"}
+              {test.isPending ? <span className="spinner small" /> : <Icon name="scan" />} {test.isPending ? t("Testing (up to 30 s)…") : t("Test the camera")}
             </button>
           </div>
         </form>
@@ -162,20 +163,20 @@ export function AddCameraCard() {
 
       {step === 2 && r && (
         <div className="step-body">
-          {r.known && <p className="notice">Esta câmera já está cadastrada como {r.known}.</p>}
+          {r.known && <p className="notice">{t("This camera is already registered as")}{" "}{r.known}.</p>}
           <ul className="check-list big">
             <li className={r.onvif ? "ok" : "fail"}>
-              <strong>Identificação (ONVIF)</strong>
-              <span className="muted small">{r.onvif ? `${r.onvif.manufacturer} ${r.onvif.model}, firmware ${r.onvif.firmware}` : r.onvif_error}</span>
+              <strong>{t("Identification (ONVIF)")}</strong>
+              <span className="muted small">{r.onvif ? t("{manufacturer} {model}, firmware {firmware}", { manufacturer: r.onvif.manufacturer, model: r.onvif.model, firmware: r.onvif.firmware }) : r.onvif_error}</span>
             </li>
             <li className={r.model ? "ok" : "fail"}>
-              <strong>Senha e controle (DVRIP)</strong>
-              <span className="muted small">{r.model ? `${r.model}${r.control_approved ? ": PTZ e luz liberados" : ": modelo não verificado, só vídeo"}` : r.dvrip_error}</span>
+              <strong>{t("Password and control (DVRIP)")}</strong>
+              <span className="muted small">{r.model ? r.model + (r.control_approved ? t(": PTZ and light enabled") : t(": model not verified, video only")) : r.dvrip_error}</span>
             </li>
             {r.sessions.map((s, i) => (
               <li key={i} className={s.ok ? "ok" : "fail"}>
                 <strong>
-                  Conexão {i + 1} ({s.stream === "main" ? "HD" : "SD"})
+                  {t("Connection")}{" "}{i + 1} ({s.stream === "main" ? t("HD") : t("SD")})
                 </strong>
                 <span className="muted small">{s.ok ? [s.video, s.audio].filter(Boolean).join(" + ") : s.error}</span>
               </li>
@@ -183,19 +184,19 @@ export function AddCameraCard() {
           </ul>
           {r.sessions_ok && !r.known ? (
             <div className="install-box">
-              <strong>Tudo certo. Para adicionar, rode no servidor:</strong>
-              <CopyField label="comando" value={addCameraCommand(r.suggested_id, host, name, port)} />
-              <span className="muted small">A senha é pedida lá, sem aparecer. Depois disso a câmera aparece em Ao vivo e começa a gravar.</span>
+              <strong>{t("All good. To add it, run on the server:")}</strong>
+              <CopyField label={t("command")} value={addCameraCommand(r.suggested_id, host, name, port)} />
+              <span className="muted small">{t("The password is asked there, without showing. After that the camera appears in Live and starts recording.")}</span>
             </div>
           ) : (
-            !r.sessions_ok && <p className="notice error">A câmera não abriu as 3 conexões ao mesmo tempo. Feche outros apps (VLC, XMEye) ligados a ela e teste de novo.</p>
+            !r.sessions_ok && <p className="notice error">{t("The camera did not open the 3 connections at the same time. Close other apps (VLC, XMEye) connected to it and test again.")}</p>
           )}
           <div className="row-gap">
             <button className="btn ghost" onClick={() => setStep(1)}>
-              Voltar
+              {t("Back")}
             </button>
             <button className="btn" disabled={test.isPending} onClick={() => test.mutate()}>
-              <Icon name="refresh" /> Testar de novo
+              <Icon name="refresh" />{" "}{t("Test again")}
             </button>
           </div>
         </div>

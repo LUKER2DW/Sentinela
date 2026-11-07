@@ -87,7 +87,7 @@ public class NotifyPlugin extends Plugin {
         getActivity().runOnUiThread(() -> {
             NotifyService.refreshCookie(getContext());
             if (NotifyService.cookie(getContext()) == null) {
-                call.reject("Entre no Sentinela neste celular primeiro.");
+                call.reject(getContext().getString(R.string.sign_in_first));
                 return;
             }
             PushMode.enable(getContext(), firebase -> call.resolve(status()));
@@ -119,7 +119,7 @@ public class NotifyPlugin extends Plugin {
     }
 
     /**
-     * Opens Android's switch for the "Conexão com a casa" channel only: turning
+     * Opens Android's switch for the "Connection to the home" channel only: turning
      * it off hides the fixed notice while event notifications keep coming (the
      * service keeps running; Android only hides its notice).
      */

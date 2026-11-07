@@ -20,7 +20,7 @@ if grep -qE "[[:space:]]$OLD[[:space:]]" /etc/fstab; then
   cp -a /etc/fstab "/etc/fstab.bak-$(date +%Y%m%d%H%M%S)"
   sed -i -E "s#[[:space:]]$OLD[[:space:]]+ext4[[:space:]]+defaults,noatime,nofail,x-systemd.requires-mounts-for=/srv/nas#\t$NEW ext4 defaults,noatime,nofail,x-systemd.device-timeout=15s#" /etc/fstab
   grep -qE "[[:space:]]$NEW[[:space:]]" /etc/fstab || { echo "fstab edit failed; restore the .bak" >&2; exit 1; }
-  # The old mount point lives on the Nuvem disk (immutable while empty).
+  # The old mount point lives on the Cloud disk (immutable while empty).
   chattr -i "$OLD" 2>/dev/null || true
   rmdir "$OLD" 2>/dev/null || true
 fi
