@@ -174,6 +174,8 @@ func (s *Server) handler(zone string) http.Handler {
 	mux.Handle("POST /api/users/{id}/invite", admin(privateOnly(s.reinvite)))
 	mux.Handle("DELETE /api/users/{id}", admin(privateOnly(s.deleteUser)))
 	mux.Handle("GET /api/audit", admin(s.listAudit))
+	mux.Handle("GET /api/onboarding", admin(s.getOnboarding))
+	mux.Handle("PUT /api/onboarding", admin(s.putOnboarding))
 	mux.Handle("POST /api/cameras/discover", admin(s.discoverCameras))
 	mux.Handle("POST /api/cameras/test", admin(s.testCamera))
 

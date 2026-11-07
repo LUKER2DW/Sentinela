@@ -2723,3 +2723,26 @@ textarea.input { height: auto; padding: 9px 12px; resize: vertical; line-height:
   background: var(--k); box-shadow: 0 0 0 2px rgb(0 0 0 / 0.5); }
 .player.compact .det-label, .live-grid .det-label { font-size: 0.62rem; }
 @media (prefers-reduced-motion: reduce) { .det-boxes { animation-duration: 0.01s; animation-delay: 4.5s; } }
+
+/* First-run setup guide (components/SetupGuide.tsx) */
+.setup-page { min-height: 100dvh; padding: clamp(16px, 4vw, 40px); background: var(--bg); }
+.setup-guide { max-width: 880px; margin: 0 auto; display: grid; gap: 20px; }
+.setup-head { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.setup-head > div { flex: 1 1 260px; }
+.setup-head h1 { margin: 0 0 4px; }
+.setup-head svg { width: 48px; height: 48px; }
+.setup-body { display: grid; gap: 20px; }
+.setup-step p + p, .setup-step p + ul, .setup-step ul + p { margin-top: 10px; }
+.setup-list { margin: 8px 0 0 20px; display: grid; gap: 4px; }
+.setup-status { display: flex; gap: 8px; align-items: flex-start; padding: 10px 12px; border-radius: var(--r-md); background: var(--surface-2); }
+.setup-status svg { width: 18px; height: 18px; flex: none; margin-top: 2px; color: var(--muted); }
+.setup-status.ok svg { color: var(--sea-strong); }
+.setup-cams { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 8px; }
+.setup-cams li { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.setup-cams svg { width: 18px; height: 18px; color: var(--muted); }
+.setup-facts { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 12px 0; }
+.setup-facts dt { color: var(--muted); }
+.setup-facts dd { margin: 0; }
+.setup-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; position: sticky; bottom: 0; padding: 12px 0; background: var(--bg); }
+.setup-foot .spacer { flex: 1; }
+.setup-step code { overflow-wrap: anywhere; }

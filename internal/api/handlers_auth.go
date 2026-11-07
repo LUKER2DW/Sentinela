@@ -91,6 +91,10 @@ func (s *Server) setup(w http.ResponseWriter, r *http.Request) {
 	}
 	s.Log.Info("first admin created", "user", c.Username)
 	_ = s.Store.Audit(r.Context(), id, c.Username, "setup", c.Username, true, "")
+	// A new install: the admin is guided through the rest of the setup.
+	if err := s.Store.SetSetting(r.Context(), onboardingKey, "pending"); err != nil {
+		s.Log.Warn("setup guide flag", "err", err)
+	}
 	s.startSession(w, r, id, false, true)
 }
 
@@ -244,7 +248,7 @@ func (s *Server) revokeSession(w http.ResponseWriter, r *http.Request) {
 func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 	u := userFrom(r)
 	// Optional parts of the dashboard this user may open.
-	features := map[string]bool{"hosting": s.hosting.proxy != nil && u.Role == auth.RoleAdmin}
+	features := map[string]bool{"hosting": s.hosting.proxy != nil && u.Role == auth.RoleAdmin, "setup_guide": s.onboardingFor(r)}
 	writeJSON(w, http.StatusOK, map[string]any{"user": u, "csrf": sessionFrom(r).CSRF, "zone": zoneFrom(r), "features": features})
 }
 

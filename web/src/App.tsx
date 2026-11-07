@@ -18,7 +18,8 @@ import { SystemPage } from "./pages/SystemPage";
 import { NuvemPage } from "./pages/NuvemPage";
 import { AccountPage } from "./pages/AccountPage";
 import { ServicesPage } from "./pages/ServicesPage";
-import { useHostingEnabled } from "./lib/hosting";
+import { useHostingEnabled, useSetupGuidePending } from "./lib/hosting";
+import { SetupGuide } from "./components/SetupGuide";
 import { NoticeBell } from "./components/Notices";
 import { ClockPage } from "./components/DelayMeter";
 import { setZone } from "./lib/access";
@@ -171,6 +172,7 @@ function Shell() {
     route.page === page || (compact && page === "system" && (route.page === "conta" || route.page === "relogio" || route.page === "servicos"));
   // Serviços stays on the computer, including when a phone rotates sideways.
   const hostingOn = useHostingEnabled();
+  const setupGuide = useSetupGuidePending();
   const eventsToday = useUnseenEvents();
   const updated = useNewVersion();
   // Keeps the UI clock on server time on every page (shared cache with the pages).
@@ -181,6 +183,13 @@ function Shell() {
     const label = pageTitle[route.page] ?? NAV.find((n) => n.page === route.page)?.label;
     document.title = label ? `${label} – Sentinela` : "Sentinela";
   }, [route.page]);
+
+  if (setupGuide && can("admin"))
+    return (
+      <main className="setup-page">
+        <SetupGuide onClose={() => void qc.invalidateQueries({ queryKey: ["me"] }).then(() => navigate("live"))} />
+      </main>
+    );
 
   const badge = (page: string) => {
     if (page === "events" && eventsToday > 0) return <span className="nav-badge">{eventsToday > 99 ? "99+" : eventsToday}</span>;

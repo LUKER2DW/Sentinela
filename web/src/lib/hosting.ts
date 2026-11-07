@@ -3,14 +3,23 @@
 import { useQuery } from "@tanstack/react-query";
 import { api, apiUpload, get } from "./api";
 
-/** Whether this user may open the Serviços page (admin, platform on). */
-export function useHostingEnabled(): boolean {
-  const q = useQuery({
+/** Optional parts of the dashboard for this user (GET /api/me features). */
+function useFeatures() {
+  return useQuery({
     queryKey: ["me", "features"],
-    queryFn: () => get<{ features?: { hosting?: boolean } }>("/api/me"),
+    queryFn: () => get<{ features?: { hosting?: boolean; setup_guide?: boolean } }>("/api/me"),
     staleTime: 5 * 60_000,
   });
-  return !!q.data?.features?.hosting;
+}
+
+/** Whether this user may open the Serviços page (admin, platform on). */
+export function useHostingEnabled(): boolean {
+  return !!useFeatures().data?.features?.hosting;
+}
+
+/** Whether the first-run setup guide should open (admin of a new install). */
+export function useSetupGuidePending(): boolean {
+  return !!useFeatures().data?.features?.setup_guide;
 }
 
 export type Source = "github" | "local" | "zip";

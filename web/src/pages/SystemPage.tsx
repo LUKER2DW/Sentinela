@@ -6,6 +6,7 @@ import { fmtBytes, fmtDuration, fmtTime, relative, spanDays } from "../lib/time"
 import { useCameras } from "./LivePage";
 import { VolumeMeter } from "./NuvemPage";
 import { AddCameraCard } from "../components/AddCamera";
+import { ReopenSetupGuide } from "../components/SetupGuide";
 import { DetectionCard, OverlayCard } from "../components/Detection";
 import { useCompact } from "../lib/viewport";
 import { MoreMenu } from "../components/MoreMenu";
@@ -108,6 +109,11 @@ function SectionBody({ section, s, admin }: { section: Section; s: SystemInfo; a
     case "overview":
       return (
         <div className="stack">
+          {admin && (
+            <div className="row-gap">
+              <ReopenSetupGuide />
+            </div>
+          )}
           <NoticesPanel />
           <StatusTiles s={s} />
           <div className="grid-2">
