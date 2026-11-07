@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily Sentinela update check in the quiet hour
+
+[Timer]
+# setup-auto-update.sh writes the chosen hour in a drop-in (default 04:00).
+OnCalendar=*-*-* 04:00:00
+RandomizedDelaySec=30min
+Persistent=false
+
+[Install]
+WantedBy=timers.target

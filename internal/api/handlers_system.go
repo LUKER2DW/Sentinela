@@ -242,6 +242,10 @@ func (s *Server) system(w http.ResponseWriter, r *http.Request) {
 	// Optional host snapshots (absent on dev machines): SMART and backups.
 	health := hostJSON(s.Cfg.DiskHealthFile)
 	backup := hostJSON(s.Cfg.BackupStatusFile)
+	update := map[string]json.RawMessage{
+		"last":     hostJSON(s.Cfg.UpdateStatusFile),
+		"schedule": hostJSON(s.Cfg.UpdateScheduleFile),
+	}
 	g2r, gerr := s.go2rtcStatus(ctx)
 	g2rErr := ""
 	if gerr != nil {
@@ -265,6 +269,7 @@ func (s *Server) system(w http.ResponseWriter, r *http.Request) {
 		"nas_host":     s.Cfg.NASHost,
 		"disk_health":  health,
 		"backup":       backup,
+		"update":       update,
 		"detector":     s.detectorInfo(),
 		"event_watch":  s.eventWatchInfo(),
 	})

@@ -45,5 +45,8 @@ The first public release. Highlights of what is in it:
 - Releases publish a server image with SBOM and provenance, a Linux binary
   and the signed APK; servers pick up new app versions from the latest
   release and offer them to the phones.
+- Optional automatic server updates from releases, daily in a chosen hour,
+  with checksum checks and automatic rollback; System → Atualizações shows
+  the schedule and these notes.
 
 [Unreleased]: https://github.com/LUKER2DW/Sentinela/commits/main

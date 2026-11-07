@@ -2760,3 +2760,9 @@ textarea.input { height: auto; padding: 9px 12px; resize: vertical; line-height:
 .pairing { min-width: 0; }
 .pairing .copy-field { max-width: 100%; min-width: 0; }
 .pairing .copy-field code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Changelog (components/Changelog.tsx) */
+.changelog-version + .changelog-version { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
+.changelog-version h3 { margin: 0 0 6px; }
+.changelog-group h4 { margin: 12px 0 4px; font-size: 0.95rem; color: var(--sea-strong); }
+.changelog-group ul { margin: 0 0 0 20px; display: grid; gap: 4px; }

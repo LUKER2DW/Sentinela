@@ -155,6 +155,8 @@ export interface SystemInfo {
   nas_host: string;
   disk_health: { updated: string; mounts: Record<string, DiskHealth> } | null;
   backup: BackupStatus | null;
+  /** Automatic updates (ADR-0023): last run and schedule, from host files. */
+  update?: { last: unknown; schedule: unknown };
   /** ONVIF event subscription per camera: motion events (and the detector) depend on it. */
   event_watch?: Record<string, { ok: boolean; since: string; error?: string }>;
   detector?: {

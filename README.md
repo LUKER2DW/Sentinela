@@ -225,6 +225,12 @@ echo 'SENTINELA_HOST=you@192.168.1.10' > ~/.sentinela/deploy.env
 The script builds the images locally, sends them over SSH, restarts the
 stack and waits for the health check. The server never needs Go or Node.
 
+Or let the server follow releases on its own, once a day in a quiet hour,
+with automatic rollback:
+`sudo /opt/sentinela/scripts/setup-auto-update.sh enable 04:00`
+([INSTALL §11](docs/INSTALL.md#11-updating)). System → Atualizações shows
+the schedule and what changed in each version.
+
 ## Development
 
 ```bash

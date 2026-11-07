@@ -34,7 +34,9 @@ deploys, uses a self-hosted runner or holds secrets for a server.
   house.
 - The workflow never deploys and never sees server secrets.
 - Installs keep building locally by default; a server may use a published
-  image instead (docs/RELEASING.md).
+  image instead (docs/RELEASING.md), or follow releases automatically
+  (ADR-0023). Each release also carries the deploy bundle and `image.txt`
+  (the image digest), both in `SHA256SUMS`.
 
 ## Consequences
 

@@ -7,6 +7,7 @@ import { useCameras } from "./LivePage";
 import { VolumeMeter } from "./NuvemPage";
 import { AddCameraCard } from "../components/AddCamera";
 import { ReopenSetupGuide } from "../components/SetupGuide";
+import { ChangelogCard, UpdatesCard } from "../components/Changelog";
 import { DetectionCard, OverlayCard } from "../components/Detection";
 import { useCompact } from "../lib/viewport";
 import { MoreMenu } from "../components/MoreMenu";
@@ -42,13 +43,14 @@ export function recordingDays(s: SystemInfo): number | null {
   return daily > 0 && s.disk.total > 0 ? Math.max(0, Math.floor(budget / daily)) : null;
 }
 
-type Section = "overview" | "recording" | "cameras" | "detection" | "server" | "users" | "audit";
+type Section = "overview" | "recording" | "cameras" | "detection" | "server" | "updates" | "users" | "audit";
 const SECTIONS: { id: Section; label: string; icon: string; admin?: boolean }[] = [
   { id: "overview", label: "Visão geral", icon: "gauge" },
   { id: "recording", label: "Gravação", icon: "recordings" },
   { id: "cameras", label: "Câmeras", icon: "video" },
   { id: "detection", label: "Detecção", icon: "scan" },
   { id: "server", label: "Servidor e discos", icon: "server" },
+  { id: "updates", label: "Atualizações", icon: "refresh" },
   { id: "users", label: "Usuários", icon: "users", admin: true },
   { id: "audit", label: "Registro de ações", icon: "history", admin: true },
 ];
@@ -120,6 +122,13 @@ function SectionBody({ section, s, admin }: { section: Section; s: SystemInfo; a
             <Storage s={s} />
             <Recorders s={s} />
           </div>
+        </div>
+      );
+    case "updates":
+      return (
+        <div className="stack">
+          <UpdatesCard s={s} />
+          <ChangelogCard />
         </div>
       );
     case "recording":

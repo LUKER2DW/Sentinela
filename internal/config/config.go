@@ -38,6 +38,10 @@ type Config struct {
 	// BackupStatusFile is written by the nightly host backup
 	// (scripts/backup.sh, ADR-0014), mounted read-only like DiskHealthFile.
 	BackupStatusFile string `yaml:"backup_status_file"`
+	// UpdateStatusFile / UpdateScheduleFile come from scripts/auto-update.sh
+	// and setup-auto-update.sh (ADR-0023), mounted read-only the same way.
+	UpdateStatusFile   string `yaml:"update_status_file"`
+	UpdateScheduleFile string `yaml:"update_schedule_file"`
 	// Timezone for schedules shown to people (night mode); storage stays UTC.
 	Timezone string `yaml:"timezone"`
 	// PushSubject identifies the sender to push services (VAPID "sub").
@@ -309,6 +313,8 @@ func (c *Config) applyDefaults() {
 	def(&c.Go2RTCAPI, "http://127.0.0.1:1984")
 	def(&c.DiskHealthFile, "/host/disks.json")
 	def(&c.BackupStatusFile, "/host/backup.json")
+	def(&c.UpdateStatusFile, "/host/update.json")
+	def(&c.UpdateScheduleFile, "/host/update-schedule.json")
 	def(&c.Timezone, defaultTimezone())
 	def(&c.PushSubject, "mailto:admin@sentinela.invalid")
 	if c.Remote.Public.Domain != "" {

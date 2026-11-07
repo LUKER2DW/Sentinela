@@ -27,6 +27,8 @@ const API = process.env.SENTINELA_API ?? "http://127.0.0.1:8080";
 export default defineConfig({
   plugins: [react(), stampServiceWorker()],
   server: {
+    // The changelog lives at the repository root (Changelog.tsx).
+    fs: { allow: [".."] },
     proxy: {
       "/api": { target: API },
       "/stream": { target: API.replace(/^http/, "ws"), ws: true },

@@ -332,6 +332,26 @@ connection for notifications.
 
 ## 11. Updating
 
+### Automatically, from releases
+
+The server can install new releases by itself once a day, in the hour you
+choose (ADR-0023). It downloads the ready-made image and deploy files,
+checks their SHA-256, restarts, and goes back to the previous version if
+anything fails. Nothing is compiled on the server.
+
+```bash
+sudo /opt/sentinela/scripts/setup-auto-update.sh enable 04:00
+sudo /opt/sentinela/scripts/setup-auto-update.sh status
+sudo /opt/sentinela/scripts/setup-auto-update.sh disable
+```
+
+New major versions and servers running a build deployed from a computer are
+left alone unless you change that in `/etc/sentinela/auto-update.env`. The
+System page → Atualizações shows the schedule, the last check and what is
+new in each version.
+
+### From a computer
+
 From the development PC, with the change committed. Tell the scripts
 where the server is once, in a file outside the repository:
 

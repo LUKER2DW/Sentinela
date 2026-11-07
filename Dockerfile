@@ -6,6 +6,8 @@ WORKDIR /src/web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY web/ ./
+# The System page shows the changelog (web/src/components/Changelog.tsx).
+COPY CHANGELOG.md /src/CHANGELOG.md
 RUN npm run build
 
 FROM golang:1.26.10-trixie@sha256:fd9a91f0ece5664556f4851d06dce5e5b505a71166dffd385a03ba9d200b6983 AS go
