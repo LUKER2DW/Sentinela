@@ -43,8 +43,8 @@ open the public door. Without it, the public path relies on the password
 policy, the closed door (nothing behind the login answers without a
 session), per-account and per-address limits, and the outside-login push
 alert. Invite/password-reset links no longer enroll TOTP. The Android app's
-session no longer expires (it ends on sign-out, device revocation, password
-change or account disable); remembered browser sessions slide 30 days from
+session slides over 1 year from last use (2026-11-07; it also ends on
+sign-out, device revocation, password change or account disable); remembered browser sessions slide 30 days from
 last use. Accepted risk: a leaked password alone now opens the account
 remotely; accounts that want the stronger setting turn TOTP on in Minha
 conta.

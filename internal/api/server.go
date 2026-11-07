@@ -46,14 +46,15 @@ type Server struct {
 	stateMu     sync.Mutex
 	stateTTL    map[string]cachedState
 
-	snaps    snapshotter
-	tlSem    chan struct{} // one timelapse at a time
-	tl       tlJobs        // timelapses being written to disk
-	det      detectorState // object detector sidecar (ADR-0016)
-	frames   frameCache
-	segs     segCache   // fragment indexes and timeline previews
-	wizardMu sync.Mutex // one camera search/test at a time
-	push     notifier
+	snaps     snapshotter
+	tlSem     chan struct{} // one timelapse at a time
+	exportSem chan struct{} // bounded concurrent exports (one ffmpeg each)
+	tl        tlJobs        // timelapses being written to disk
+	det       detectorState // object detector sidecar (ADR-0016)
+	frames    frameCache
+	segs      segCache   // fragment indexes and timeline previews
+	wizardMu  sync.Mutex // one camera search/test at a time
+	push      notifier
 
 	// Self-hosted services: proxy to the apps agent (ADR-0021).
 	hosting hostingState
@@ -79,7 +80,7 @@ func New(cfg *config.Config, st *store.Store, web fs.FS, log *slog.Logger) (*Ser
 		tickets: auth.NewTickets(60 * time.Second), loginRL: auth.NewLimiter(5, time.Minute),
 		acctRL: auth.NewLimiter(10, time.Hour), failRL: auth.NewLimiter(20, time.Hour),
 		go2rtc: g, ctrl: map[string]*dvrip.Controller{}, hub: NewHub(), stateTTL: map[string]cachedState{},
-		tlSem: make(chan struct{}, 1)}
+		tlSem: make(chan struct{}, 1), exportSem: make(chan struct{}, 2)}
 	for i := range cfg.Cameras {
 		cam := &cfg.Cameras[i]
 		addr := hostPort(cam.Host, cam.DVRIPPort)

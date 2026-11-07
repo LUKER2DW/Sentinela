@@ -137,9 +137,9 @@ func TestRememberMe(t *testing.T) {
 	}
 }
 
-// The Android app stays signed in until the user signs out, even when the
-// page asked not to remember.
-func TestAppSessionDoesNotExpire(t *testing.T) {
+// The Android app is always remembered, for a year from last use, even
+// when the page asked not to remember.
+func TestAppSessionLastsAYear(t *testing.T) {
 	priv, _ := newTestServer(t)
 	newClient(t, priv.URL).do("POST", "/api/setup", `{"username":"admin","password":"long enough pw"}`)
 	req, _ := http.NewRequest("POST", priv.URL+"/api/login",
@@ -152,7 +152,8 @@ func TestAppSessionDoesNotExpire(t *testing.T) {
 	}
 	resp.Body.Close()
 	ck := resp.Cookies()
-	if resp.StatusCode != 200 || len(ck) != 1 || ck[0].Expires.Before(time.Now().Add(50*365*24*time.Hour)) {
+	year := time.Now().Add(appSessionTTL)
+	if resp.StatusCode != 200 || len(ck) != 1 || ck[0].Expires.Before(year.Add(-time.Hour)) || ck[0].Expires.After(year.Add(time.Hour)) {
 		t.Fatalf("app login = %d, cookie %+v", resp.StatusCode, ck)
 	}
 }

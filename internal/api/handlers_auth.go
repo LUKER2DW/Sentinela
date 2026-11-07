@@ -112,6 +112,13 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	zone := zoneFrom(r)
 	public := PublicZone(zone)
 	name := strings.TrimSpace(c.Username)
+	if len(name) > 254 {
+		// Longer than any username or e-mail: refused before it becomes a
+		// rate-limit key or reaches the database.
+		s.failed(ip)
+		writeErr(w, http.StatusUnauthorized, "invalid username or password")
+		return
+	}
 	// From the internet, an account takes 10 attempts per hour (ADR-0019).
 	if public && !s.acctRL.Allow("acct:"+strings.ToLower(name)) {
 		_ = s.Store.Audit(r.Context(), 0, name, "login", ip, false, zone+": account locked")
@@ -167,9 +174,9 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 
 // startSession logs userID in on this device; mfa marks a two-step login.
 // Without remember the session lasts 12 hours and its cookie ends with the
-// browser. The Android app always remembers and its session does not
-// expire: it ends only when the user signs out, revokes the device, changes
-// the password or an admin disables the account.
+// browser. The Android app always remembers, over a year from last use
+// (sliding); it also ends when the user signs out, revokes the device,
+// changes the password or an admin disables the account.
 func (s *Server) startSession(w http.ResponseWriter, r *http.Request, userID int64, mfa, remember bool) {
 	tok, csrf := auth.NewToken(), auth.NewToken()
 	app := isAppRequest(r)

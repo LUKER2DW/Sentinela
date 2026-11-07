@@ -33,8 +33,8 @@ are superseded where noted by ADR-0019 and ADR-0020.
 4. Passwords use argon2id (64 MiB, 3 iterations, one lane). Policy is at
    least 10 characters mixing two kinds, or a 16-character passphrase;
    common passwords are rejected. Remembered browser sessions last 30 days
-   from last use (sliding), otherwise 12 hours; Android app sessions do not
-   expire and end on sign-out, revocation, password change or disable. Cookies are HttpOnly, SameSite=Strict and Secure
+   from last use (sliding), otherwise 12 hours; Android app sessions slide
+   over 1 year from last use and also end on sign-out, revocation, password change or disable. Cookies are HttpOnly, SameSite=Strict and Secure
    for HTTPS. Unsafe requests require CSRF and a valid Origin. Forwarded
    headers are trusted only from loopback. Limits include 5 requests/minute
    per IP, 10 outside-login attempts/account/hour and 20 failed sign-ins or

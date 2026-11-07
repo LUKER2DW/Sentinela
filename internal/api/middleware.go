@@ -24,9 +24,11 @@ const sessionCookie = "sentinela_session"
 // (docs/SECURITY.md). It slides: use pushes it forward once a day.
 const SessionTTL = 30 * 24 * time.Hour
 
-// appSessionTTL: the Android app stays signed in until the user signs out
-// (owner decision, 2026-11-06). A far expiry keeps the schema unchanged.
-const appSessionTTL = 100 * 365 * 24 * time.Hour
+// appSessionTTL: the Android app session slides like a remembered browser
+// one, but over a year: a phone in use never signs out, while a stolen
+// cookie stops working a year after its last use (owner decision,
+// 2026-11-07; it replaced the 100-year session of 2026-11-06).
+const appSessionTTL = 365 * 24 * time.Hour
 
 // sessionRefresh: a sliding session is pushed forward at most once a day.
 const sessionRefresh = 24 * time.Hour
@@ -265,7 +267,9 @@ func hostPort(host string, port int) string { return net.JoinHostPort(host, strc
 // day), so a device in use is never signed out by age.
 func (s *Server) slideSession(w http.ResponseWriter, r *http.Request, tok string, sess *store.Session) {
 	exp := time.Now().Add(sessionTTL(true, isAppRequest(r)))
-	if exp.Sub(sess.ExpiresAt) < sessionRefresh {
+	// Moved at most once a day; a session that outlives its new expiry
+	// (the old 100-year app sessions) is brought down to it.
+	if d := exp.Sub(sess.ExpiresAt); d < sessionRefresh && d > -sessionRefresh {
 		return
 	}
 	if err := s.Store.ExtendSession(r.Context(), sess.IDHash, exp); err != nil {

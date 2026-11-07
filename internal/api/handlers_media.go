@@ -215,6 +215,13 @@ func (s *Server) export(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "no recording in this range")
 		return
 	}
+	select {
+	case s.exportSem <- struct{}{}:
+		defer func() { <-s.exportSem }()
+	default:
+		writeErr(w, http.StatusTooManyRequests, "other exports are running, try again shortly")
+		return
+	}
 	var list strings.Builder
 	for _, seg := range segs {
 		p := s.segmentPath(seg.Path)
