@@ -17,14 +17,18 @@ deploy_target || exit 1
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 APK=mobile/build/sentinela.apk
-GRADLE=mobile/android/app/build.gradle
 [[ -f "$APK" ]] || { echo "no $APK: run ./scripts/build-apk.sh first" >&2; exit 1; }
-code="$(sed -n 's/^ *versionCode \([0-9]*\).*/\1/p' "$GRADLE" | head -1)"
-name="$(sed -n 's/^ *versionName "\([^"]*\)".*/\1/p' "$GRADLE" | head -1)"
+# The version is read from the APK itself (CI builds take it from the tag).
+if [[ -n "${LOCALAPPDATA:-}" ]]; then : "${ANDROID_HOME:=$LOCALAPPDATA/Android/Sdk}"; fi
+aapt2="$(find "${ANDROID_HOME:?set ANDROID_HOME}/build-tools" -name 'aapt2*' -type f 2>/dev/null | sort -V | tail -1)"
+[[ -n "$aapt2" ]] || { echo "aapt2 not found in $ANDROID_HOME/build-tools" >&2; exit 1; }
+badging="$("$aapt2" dump badging "$APK" | head -1)"
+code="$(sed -n "s/.*versionCode='\([0-9]*\)'.*/\1/p" <<<"$badging")"
+name="$(sed -n "s/.*versionName='\([^']*\)'.*/\1/p" <<<"$badging")"
 size="$(wc -c <"$APK" | tr -d ' ')"
 sha="$(sha256sum "$APK" | cut -d' ' -f1)"
 notes="${1:-}"
-[[ -n "$code" && -n "$name" ]] || { echo "version not found in $GRADLE" >&2; exit 1; }
+[[ -n "$code" && -n "$name" ]] || { echo "version not found in $APK" >&2; exit 1; }
 
 json="$(printf '{"version_code":%s,"version_name":"%s","size":%s,"sha256":"%s","notes":"%s"}\n' \
   "$code" "$name" "$size" "$sha" "${notes//\"/\'}")"

@@ -1,0 +1,11 @@
+[Unit]
+Description=Sentinela update check asked from the dashboard (ADR-0023)
+Wants=network-online.target
+After=network-online.target docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/sentinela/scripts/auto-update.sh --request
+Nice=10
+IOSchedulingClass=idle

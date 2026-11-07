@@ -6,6 +6,8 @@ Requires=docker.service
 
 [Service]
 Type=oneshot
-ExecStart=/opt/sentinela/scripts/auto-update.sh
+# The timer passes --scheduled (only in the chosen hour, when turned on);
+# sentinela-update-request.service passes --request.
+ExecStart=/opt/sentinela/scripts/auto-update.sh --scheduled
 Nice=10
 IOSchedulingClass=idle

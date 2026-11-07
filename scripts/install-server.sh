@@ -123,6 +123,7 @@ if docker image inspect sentinela:local >/dev/null 2>&1 && [[ "${SENTINELA_BUILD
 else
   docker compose up -d --build --remove-orphans
 fi
+"${REPO_DIR}/scripts/setup-auto-update.sh" install   # off until turned on in System -> Atualizações
 if [[ "$("${REPO_DIR}/scripts/gen-go2rtc-cameras.sh")" == changed ]]; then
   docker compose restart go2rtc >/dev/null
 fi

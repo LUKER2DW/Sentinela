@@ -242,9 +242,9 @@ func (s *Server) system(w http.ResponseWriter, r *http.Request) {
 	// Optional host snapshots (absent on dev machines): SMART and backups.
 	health := hostJSON(s.Cfg.DiskHealthFile)
 	backup := hostJSON(s.Cfg.BackupStatusFile)
-	update := map[string]json.RawMessage{
+	update := map[string]any{
 		"last":     hostJSON(s.Cfg.UpdateStatusFile),
-		"schedule": hostJSON(s.Cfg.UpdateScheduleFile),
+		"settings": s.updateSettings(),
 	}
 	g2r, gerr := s.go2rtcStatus(ctx)
 	g2rErr := ""

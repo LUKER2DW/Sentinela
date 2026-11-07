@@ -127,7 +127,7 @@ function SectionBody({ section, s, admin }: { section: Section; s: SystemInfo; a
     case "updates":
       return (
         <div className="stack">
-          <UpdatesCard s={s} />
+          <UpdatesCard s={s} admin={admin} />
           <ChangelogCard />
         </div>
       );

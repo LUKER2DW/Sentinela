@@ -1,9 +1,14 @@
 #!/usr/bin/env bash
-# Automatic updates from the project's releases (ADR-0023). Run as root by
-# sentinela-update.timer once a day in the quiet hour configured with
-# scripts/setup-auto-update.sh; `sudo scripts/auto-update.sh --now` runs it
-# by hand. Nothing is built here: the release already holds the server
-# image (built in CI) and the deploy files.
+# Automatic updates from the project's releases (ADR-0023). Run as root:
+#   --scheduled  by sentinela-update.timer every hour; acts only when the
+#                dashboard (System -> Atualizações) turned updates on and
+#                this is the chosen hour;
+#   --request    by sentinela-update.path when the dashboard asks to check now;
+#   --now        by hand.
+# Preferences come from <data>/updates/settings.json (written by the
+# dashboard or setup-auto-update.sh); where releases come from only from the
+# root-owned /etc/sentinela/auto-update.env. Nothing is built here: the
+# release already holds the server image (built in CI) and deploy files.
 #
 #   1. Read the latest release of SENTINELA_UPDATE_REPO (GitHub API).
 #   2. Skip when the running version is the same or newer, when it is not a
@@ -26,11 +31,32 @@ ENV_FILE="$ETC/auto-update.env"
 # shellcheck disable=SC1090
 [[ -f "$ENV_FILE" ]] && . "$ENV_FILE"
 REPO="${SENTINELA_UPDATE_REPO:-LUKER2DW/Sentinela}"
-ENABLED="${SENTINELA_UPDATE_ENABLED:-no}"
-MANUAL="${SENTINELA_UPDATE_MANUAL:-keep}"
-MAJOR="${SENTINELA_UPDATE_MAJOR:-no}"
-[[ "${1:-}" == --now ]] && ENABLED=yes
-[[ "$ENABLED" == yes ]] || { echo "automatic updates are off (scripts/setup-auto-update.sh enable)"; exit 0; }
+UPDATES="${SENTINELA_DATA:-/data}/updates"
+# Dashboard preferences (missing file = off).
+read -r ENABLED AT MAJOR MANUAL < <(python3 - "$UPDATES/settings.json" <<'PY'
+import json, re, sys
+try:
+    s = json.load(open(sys.argv[1]))
+except Exception:
+    s = {}
+at = s.get("at") if isinstance(s.get("at"), str) and re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", s.get("at", "")) else "04:00"
+print("yes" if s.get("enabled") is True else "no", at,
+      "yes" if s.get("major") is True else "no",
+      "replace" if s.get("replace_manual") is True else "keep")
+PY
+)
+case "${1:---scheduled}" in
+  --now) ;;
+  --request)
+    [[ -f "$UPDATES/request" ]] || exit 0
+    rm -f "$UPDATES/request"
+    ;;
+  --scheduled)
+    [[ "$ENABLED" == yes ]] || exit 0
+    [[ "$(date +%H)" == "${AT%%:*}" ]] || exit 0
+    ;;
+  *) echo "usage: $0 [--scheduled|--request|--now]" >&2; exit 2 ;;
+esac
 [[ "$REPO" =~ ^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$ ]] || { echo "bad SENTINELA_UPDATE_REPO" >&2; exit 1; }
 
 exec 9>/run/sentinela-update.lock
