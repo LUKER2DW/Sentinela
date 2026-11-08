@@ -120,8 +120,9 @@ jobs:
       - name: docker compose file is valid (with the optional services profile)
         working-directory: deploy
         run: |
-          # The file names the server's secrets file by absolute path.
-          sudo install -D -m 0600 secrets.env.example /etc/sentinela/secrets.env
+          # The file names the server's secrets file by absolute path (the example
+          # holds no real secret, so it may be world-readable here).
+          sudo install -D -m 0644 secrets.env.example /etc/sentinela/secrets.env
           docker compose --profile apps config --quiet
 
   image:
