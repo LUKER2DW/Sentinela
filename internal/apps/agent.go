@@ -129,7 +129,8 @@ func (a *Agent) tokenFile() string   { return filepath.Join(a.Cfg.StateDir, "git
 func containerName(id string) string { return "sapp-" + id }
 
 func (a *Agent) releaseDir(id, rel string) string {
-	return filepath.Join(a.appDir(id), "releases", rel)
+	// A release folder is one path element (a commit or a timestamp label).
+	return filepath.Join(a.appDir(id), "releases", filepath.Base(rel))
 }
 
 // workDir is where a deployment's code (at the configured subfolder) is.

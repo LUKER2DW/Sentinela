@@ -8,6 +8,10 @@ func TestURL(t *testing.T) {
 		{"rtsp://10.0.0.2:554/user=admin&password=s3cr3t&channel=1", "rtsp://10.0.0.2:554/user=admin&password=REDACTED&channel=1"},
 		{"rtsp://h/user=admin_password=abc_channel=0", "rtsp://h/user=admin_password=REDACTED_channel=0"},
 		{"/stream/ws?ticket=abcdef&x=1", "/stream/ws?ticket=REDACTED&x=1"},
+		// Tokens are base64url: an underscore or a dash is part of the value.
+		{"/stream/ws?ticket=ab_cd-ef_gh&x=1", "/stream/ws?ticket=REDACTED&x=1"},
+		{"GET /x?token=a_b_c", "GET /x?token=REDACTED"},
+		{`url "/s?ticket=a_b" failed`, `url "/s?ticket=REDACTED" failed`},
 		{"plain text", "plain text"},
 	}
 	for _, c := range cases {
