@@ -1726,4 +1726,12 @@ export const ptBR: Record<string, string> = {
   "Turn on the public link": "Ligar o link público",
   "Tailscale address (by hand)": "Endereço do Tailscale (à mão)",
   "Offered to the app in the pairing code. Empty = none.": "Oferecido ao app no código de pareamento. Vazio = nenhum.",
+  "This camera sends H.265, which this browser cannot decode: it is converted to H.264 here, on this device. The server records the original.": "Esta câmera envia H.265, que este navegador não decodifica: ele é convertido para H.264 aqui, neste aparelho. O servidor grava o original.",
+  "This camera sends H.265, which this browser cannot decode: showing its H.264 substream instead.": "Esta câmera envia H.265, que este navegador não decodifica: mostrando o substream H.264 dela no lugar.",
+  "H.265 → H.264 here": "H.265 → H.264 aqui",
+  "H.264 substream": "Substream H.264",
+  "This camera sends H.265 and this browser cannot show it ({reason}). Open the panel over HTTPS (Tailscale, the app or the public address) to convert it here, use an up-to-date Chrome, Edge or Safari, or set the camera's substream to H.264.": "Esta câmera envia H.265 e este navegador não consegue mostrá-lo ({reason}). Abra o painel por HTTPS (Tailscale, o app ou o endereço público) para convertê-lo aqui, use um Chrome, Edge ou Safari atualizado, ou configure o substream da câmera em H.264.",
+  "conversion failed": "a conversão falhou",
+  "The browser could not play this video (H.265). Open the panel over HTTPS (Tailscale, the app or the public address) to convert it in this browser, use Chrome/Edge with hardware acceleration or Safari, or export the clip.": "O navegador não conseguiu reproduzir este vídeo (H.265). Abra o painel por HTTPS (Tailscale, o app ou o endereço público) para convertê-lo neste navegador, use Chrome/Edge com aceleração de hardware ou Safari, ou exporte o trecho.",
+  "conversion too slow": "a conversão está lenta demais",
 };

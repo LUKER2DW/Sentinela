@@ -495,3 +495,30 @@ describe("live-edge guard", () => {
     expect(catchUpRate(1.0)).toBeGreaterThan(catchUpRate(0.5));
   });
 });
+
+describe("H.265 in a browser without it (ADR-0026)", () => {
+  it("asks only for what the browser plays, then falls back to the H.264 substream", async () => {
+    const orig = FakeMediaSource.isTypeSupported;
+    FakeMediaSource.isTypeSupported = (t?: string) => !String(t).includes("hvc1");
+    try {
+      const { player, status } = createPlayer();
+      const ws = await connect(player);
+      const asked = JSON.parse(ws.sent.at(-1)!);
+      expect(asked.type).toBe("mse");
+      expect(asked.value).not.toContain("hvc1");
+      // go2rtc finds no codec in common: the camera sends H.265.
+      ws.receive(JSON.stringify({ type: "error", value: "codecs not matched" }));
+      await flush();
+      await flush();
+      expect(vi.mocked(api).mock.calls.at(-1)?.[1]).toContain("stream=sub");
+      const ws2 = FakeSocket.instances.at(-1)!;
+      ws2.open();
+      await flush();
+      ws2.receive(JSON.stringify({ type: "mse", value: 'video/mp4; codecs="avc1.640029"' }));
+      FakeMediaSource.instances.at(-1)!.open();
+      expect(status).toHaveBeenLastCalledWith(expect.objectContaining({ state: "playing", via: "substream" }));
+    } finally {
+      FakeMediaSource.isTypeSupported = orig;
+    }
+  });
+});

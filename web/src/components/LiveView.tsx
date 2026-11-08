@@ -365,6 +365,18 @@ export function LiveView({ cameraId, cameraName, motion, allowTalk, compact, def
             {delay !== null && ` ${delay < 0.1 ? `<${fmtNum(0.1)}` : fmtNum(delay, 1, 1)} s`}
           </span>
         )}
+        {status.state === "playing" && status.via && (
+          <span
+            className="faint"
+            title={
+              status.via === "converted"
+                ? t("This camera sends H.265, which this browser cannot decode: it is converted to H.264 here, on this device. The server records the original.")
+                : t("This camera sends H.265, which this browser cannot decode: showing its H.264 substream instead.")
+            }
+          >
+            {status.via === "converted" ? t("H.265 → H.264 here") : t("H.264 substream")}
+          </span>
+        )}
         {zoom.scale > 1 && <span className="faint">{fmtNum(zoom.scale, 1, 1)}×</span>}
       </div>
       {motion && (

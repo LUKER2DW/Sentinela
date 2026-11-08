@@ -7,6 +7,23 @@ All notable changes to Sentinela. The format follows
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-11-08
+
+### Added
+- **H.265 in any browser** (ADR-0026): when the browser cannot decode
+  H.265, the live view and the recordings are converted to H.264 in the
+  browser itself (WebAssembly, hevc.js), only for viewing. The server keeps
+  recording and serving H.265 exactly as before. Needs HTTPS (Tailscale,
+  the public address or the app); a tag on the picture says when it is
+  converted.
+- When converting is not possible (plain `http://`, a slow device, too
+  many cameras at once), the live view uses the camera's H.264 substream,
+  and says what to change when there is no H.264 at all.
+
+### Fixed
+- The live view no longer refuses a camera in a browser without H.265
+  before trying: cameras that send H.264 play there.
+
 ## [1.4.0] - 2026-11-08
 
 ### Added
@@ -197,7 +214,8 @@ The first public release. Highlights of what is in it:
   with checksum checks and automatic rollback; System → Updates shows
   the schedule and these notes.
 
-[Unreleased]: https://github.com/LUKER2DW/Sentinela/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/LUKER2DW/Sentinela/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/LUKER2DW/Sentinela/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/LUKER2DW/Sentinela/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/LUKER2DW/Sentinela/compare/v1.2.2...v1.3.0
 [1.2.2]: https://github.com/LUKER2DW/Sentinela/compare/v1.2.1...v1.2.2

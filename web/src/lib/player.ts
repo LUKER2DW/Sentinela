@@ -7,6 +7,7 @@ import { api } from "./api";
 import { getZone } from "./access";
 
 import { t } from "./i18n";
+import { nativeHevc, nativeSupported, resetConverter, takeConversionSlot, type ConversionSlot } from "./hevcFallback";
 export type Transport = "webrtc" | "mse";
 export type PlayerState = "connecting" | "playing" | "reconnecting" | "error" | "stopped";
 
@@ -14,6 +15,9 @@ export interface PlayerStatus {
   state: PlayerState;
   transport?: Transport;
   message?: string;
+  /** How a camera that sends H.265 is shown in a browser that cannot decode
+   *  it (ADR-0026): converted in this browser, or its H.264 substream. */
+  via?: "converted" | "substream";
 }
 
 export interface PlayerOptions {
@@ -136,6 +140,14 @@ export class LivePlayer {
   private lagTimer?: number;
   private lagSamples: (number | null)[] = [];
   private micOn = false;
+  // H.265 in a browser without it (ADR-0026): "convert" holds a conversion
+  // slot and asks go2rtc for H.265 anyway (hevc.js turns it into H.264 here);
+  // "sub" falls back to the camera's substream (often H.264).
+  private hevcMode?: "convert" | "sub";
+  private slot?: ConversionSlot;
+  private streamNow: "main" | "sub";
+  private convertRestarts: number[] = [];
+  private tried = new Set<string>();
   // Bumped by every connect/teardown: a connect still waiting for its ticket
   // when a newer one starts gives up instead of opening a second socket.
   private gen = 0;
@@ -143,6 +155,7 @@ export class LivePlayer {
   constructor(video: HTMLVideoElement, opts: PlayerOptions) {
     this.video = video;
     this.opts = opts;
+    this.streamNow = opts.stream;
   }
 
   get currentTransport() {
@@ -181,18 +194,22 @@ export class LivePlayer {
   stop() {
     this.stopped = true;
     window.clearTimeout(this.retryTimer);
+    this.slot?.release();
+    this.slot = undefined;
     this.teardown();
     this.emit({ state: "stopped" });
   }
 
   private emit(s: PlayerStatus) {
     this.lastState = s.state;
+    if (s.state === "playing" && this.hevcMode) s = { ...s, via: this.hevcMode === "convert" ? "converted" : "substream" };
     this.opts.onStatus?.(s);
   }
 
   private pickTransport(): Transport {
     if (this.opts.talk) return "webrtc";
     if (this.opts.prefer) return this.opts.prefer;
+    if (this.hevcMode) return "mse"; // the fallbacks below are MSE paths
     // Tailscale Funnel and HTTP tunnels carry no WebRTC media (ADR-0019, ADR-0025).
     if (getZone() === "funnel" || getZone() === "proxy") return "mse";
     const sinceFailure = Date.now() - this.webrtcFailedAt;
@@ -209,7 +226,7 @@ export class LivePlayer {
     try {
       const t = await api<{ url: string }>(
         "POST",
-        `/api/cameras/${encodeURIComponent(this.opts.cameraId)}/stream-ticket?stream=${this.opts.stream}`,
+        `/api/cameras/${encodeURIComponent(this.opts.cameraId)}/stream-ticket?stream=${this.streamNow}`,
       );
       url = t.url;
     } catch (e) {
@@ -269,11 +286,21 @@ export class LivePlayer {
         if (msg.value) await this.pc?.addIceCandidate({ candidate: msg.value, sdpMid: "0" }).catch(() => {});
         break;
       case "mse":
+        // go2rtc drops tracks this browser cannot play: H.265 video without
+        // support arrives as audio only. That is the H.265 case too.
+        if (!/avc1|hvc1|hev1/.test(msg.value) && !nativeHevc()) {
+          void this.hevcFallback("codecs not matched");
+          break;
+        }
         this.openSourceBuffer(msg.value);
         break;
       case "error":
         if (this.transport === "webrtc" && !this.opts.talk) {
           this.fallbackToMSE();
+        } else if (this.transport === "mse" && !this.ms && !nativeHevc() && /codec/i.test(msg.value)) {
+          // go2rtc found no codec this browser plays ("codecs not matched"):
+          // H.265 without support. Other errors (no stream...) retry as usual.
+          void this.hevcFallback(msg.value);
         } else {
           this.scheduleRetry(msg.value);
         }
@@ -389,27 +416,73 @@ export class LivePlayer {
   // ---------- MSE ----------
 
   private startMSE() {
-    const MS = mediaSourceClass();
-    if (!MS) {
+    if (!mediaSourceClass()) {
       this.emit({ state: "error", message: t("This browser cannot play live video (no MSE)") });
       return;
     }
-    const codecs = supportedMseCodecs((t) => MS.isTypeSupported(t));
-    if (!codecs.includes("hvc1")) {
-      this.emit({
-        state: "error",
-        message: t("This browser cannot decode H.265. Use an up-to-date Chrome, Edge or Safari."),
-      });
-      this.stopped = true;
-      this.ws?.close();
+    // What this browser plays by itself; H.265 only through the converter
+    // when this player holds a conversion slot.
+    let codecs = supportedMseCodecs(nativeSupported);
+    // Converting: video only. The converter handles one H.265 track; the
+    // camera's audio (FLAC/PCM through go2rtc) would make it a muxed stream
+    // it cannot rebuild. The recording on the server keeps its audio.
+    if (this.hevcMode === "convert") codecs = ["hvc1.1.6.L153.B0", ...codecs.split(",").filter((c) => c.startsWith("avc1"))].join(",");
+    this.send({ type: "mse", value: codecs });
+  }
+
+  /**
+   * The camera sends H.265 and this browser cannot decode it (ADR-0026). The
+   * server is not involved: first convert in this browser (hevc.js, when the
+   * device can and a slot is free), else the camera's substream, else say so.
+   */
+  private async hevcFallback(reason: string) {
+    // What this attempt was, so it is not tried again.
+    const wasConverting = this.hevcMode === "convert";
+    this.tried.add(`${this.streamNow}:${wasConverting ? "convert" : "plain"}`);
+    this.slot?.release();
+    this.slot = undefined;
+    this.teardown();
+    const gen = this.gen;
+    if (wasConverting) await resetConverter();
+    if (this.stopped || gen !== this.gen) return;
+    // In order: convert what was asked for, the substream as it is (often
+    // H.264), the substream converted (lighter than the main stream).
+    const order = this.opts.stream === "main" ? ["main:convert", "sub:plain", "sub:convert"] : ["sub:convert"];
+    for (const step of order) {
+      if (this.tried.has(step)) continue;
+      const [stream, how] = step.split(":") as ["main" | "sub", "convert" | "plain"];
+      if (how === "convert") {
+        const slot = await takeConversionSlot();
+        if (this.stopped || gen !== this.gen) {
+          slot?.release();
+          return;
+        }
+        if (!slot) {
+          this.tried.add(step);
+          continue;
+        }
+        this.slot = slot;
+      }
+      console.info(`[sentinela] ${this.opts.cameraId}: H.265 not playable here (${reason}); trying ${step}`);
+      this.hevcMode = how === "convert" ? "convert" : "sub";
+      this.streamNow = stream;
+      this.convertRestarts = [];
+      this.retry = 0;
+      void this.connect();
       return;
     }
-    this.send({ type: "mse", value: codecs });
+    this.stopped = true;
+    this.teardown();
+    this.emit({
+      state: "error",
+      message: t("This camera sends H.265 and this browser cannot show it ({reason}). Open the panel over HTTPS (Tailscale, the app or the public address) to convert it here, use an up-to-date Chrome, Edge or Safari, or set the camera's substream to H.264.", { reason }),
+    });
   }
 
   private openSourceBuffer(mime: string) {
     if (this.ms) return;
-    const MS = mediaSourceClass()!;
+    // The converter wraps the classic MediaSource.
+    const MS = this.hevcMode === "convert" ? window.MediaSource : mediaSourceClass()!;
     const ms = new MS();
     this.ms = ms;
     const v = this.video as HTMLVideoElement & { disableRemotePlayback: boolean };
@@ -428,7 +501,9 @@ export class LivePlayer {
             if (sb === this.sb) this.pump();
           });
           sb.addEventListener("error", () => {
-            if (sb === this.sb) this.scheduleRetry(t("invalid video fragment"));
+            if (sb !== this.sb) return;
+            if (this.hevcMode === "convert") void this.hevcFallback(t("conversion failed"));
+            else this.scheduleRetry(t("invalid video fragment"));
           });
           this.sb = sb;
           this.pump();
@@ -436,11 +511,27 @@ export class LivePlayer {
           this.retry = 0;
           this.emit({ state: "playing", transport: "mse" });
         } catch {
-          this.scheduleRetry(t("codec not supported"));
+          if (this.hevcMode === "convert") void this.hevcFallback(t("conversion failed"));
+          else this.scheduleRetry(t("codec not supported"));
         }
       },
       { once: true },
     );
+  }
+
+  /** The buffer fell behind: reopen from a fresh keyframe. While converting,
+   *  a backlog that keeps coming back means this device converts slower than
+   *  the camera sends: after a few, move to the next fallback. */
+  private backlogRestart() {
+    if (this.hevcMode === "convert") {
+      const now = Date.now();
+      this.convertRestarts = [...this.convertRestarts.filter((x) => now - x < 60_000), now];
+      if (this.convertRestarts.length > 3) {
+        void this.hevcFallback(t("conversion too slow"));
+        return;
+      }
+    }
+    this.restart();
   }
 
   private appendMSE(buf: ArrayBuffer) {
@@ -449,8 +540,8 @@ export class LivePlayer {
     this.queueBytes += buf.byteLength;
     // Dropping fragments mid-GOP smears every frame up to the next keyframe:
     // a backlog this long reopens the stream from a fresh keyframe instead.
-    if (this.queueBytes > MAX_QUEUE_BYTES || performance.now() - this.queue[0].at > MAX_QUEUE_MS) {
-      this.restart();
+    if (this.queueBytes > MAX_QUEUE_BYTES || performance.now() - this.queue[0].at > this.maxQueueMs()) {
+      this.backlogRestart();
       return;
     }
     this.pump();
@@ -482,8 +573,8 @@ export class LivePlayer {
       }
       const next = this.queue.shift();
       if (next) {
-        if (performance.now() - next.at > MAX_QUEUE_MS) {
-          this.restart();
+        if (performance.now() - next.at > this.maxQueueMs()) {
+          this.backlogRestart();
           return;
         }
         this.queueBytes -= next.data.byteLength;
@@ -494,6 +585,12 @@ export class LivePlayer {
       // frames the next ones depend on. Start over from a keyframe.
       this.restart();
     }
+  }
+
+  /** How old a queued fragment may get: converting takes a moment per GOP
+   *  (the first one also loads the converter), so it gets more room. */
+  private maxQueueMs() {
+    return this.hevcMode === "convert" ? MAX_QUEUE_MS * 3 : MAX_QUEUE_MS;
   }
 
   /**

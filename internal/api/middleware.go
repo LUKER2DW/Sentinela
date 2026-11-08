@@ -146,7 +146,9 @@ func sameOrigin(origin string, r *http.Request) bool {
 func (s *Server) securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
-		h.Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "+
+		// 'wasm-unsafe-eval': the in-browser H.265 converter is WebAssembly
+		// (ADR-0026); it allows compiling WASM only, not eval().
+		h.Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; "+
 			"img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; worker-src 'self'; "+
 			"font-src 'self'; manifest-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
 		h.Set("X-Content-Type-Options", "nosniff")

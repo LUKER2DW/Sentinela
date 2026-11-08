@@ -25,7 +25,8 @@ holds on that host.
    substream exceptions are event snapshots (ADR-0015) and the motion-gated
    detector (ADR-0016), including its keyframe motion gate for cameras that
    send no motion events (~2.3 % of one core per camera, measured);
-   timeline previews remain copy-only.
+   timeline previews remain copy-only. Browsers without H.265 convert it
+   themselves for viewing (ADR-0026); the server still never transcodes.
 2. **Recording is independent of everything else.** If the API, web UI,
    go2rtc or the database crashes, recording must continue. Recorders are
    supervised ffmpeg processes pulling RTSP directly from the camera.

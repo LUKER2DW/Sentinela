@@ -15,6 +15,8 @@ import { TimelinePreview } from "../components/TimelinePreview";
 import { frameFor, previewUrl } from "../lib/previewFrames";
 import { usePinchZoom } from "../lib/pinch";
 import { grabFrame, saveBlob, stamp } from "../lib/capture";
+import { nativeHevc } from "../lib/hevcFallback";
+import { playConverted } from "../lib/hevcRecording";
 
 import { fmtNum, t } from "../lib/i18n";
 const SPEEDS = [1, 2, 4, 8, 16];
@@ -356,6 +358,25 @@ function Playback({
     return segments.find((s) => new Date(s.start).getTime() >= end - 3000 && s.id !== current.seg.id) ?? null;
   }, [current, segments]);
 
+  const recUrl = current ? `/api/recordings/${current.seg.id}${current.offset > 2 ? `?at=${current.offset.toFixed(1)}` : ""}` : "";
+  // H.265 that this browser cannot decode is converted here (ADR-0026); once
+  // needed, the following files are converted too.
+  const [convert, setConvert] = useState(false);
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!convert || !v || !current) return;
+    let stop: (() => void) | undefined;
+    let cancelled = false;
+    const dur = (new Date(current.seg.end).getTime() - new Date(current.seg.start).getTime()) / 1000;
+    playConverted(v, recUrl, dur)
+      .then((s) => (cancelled ? s() : (stop = s)))
+      .catch(() => !cancelled && setError(t("The browser could not play this video (H.265). Open the panel over HTTPS (Tailscale, the app or the public address) to convert it in this browser, use Chrome/Edge with hardware acceleration or Safari, or export the clip.")));
+    return () => {
+      cancelled = true;
+      stop?.();
+    };
+  }, [convert, recUrl, current]);
+
   useEffect(() => {
     if (videoRef.current) videoRef.current.playbackRate = speed;
   }, [speed, current]);
@@ -462,12 +483,13 @@ function Playback({
         {...pz.handlers}
       >
         <video
-          key={current.seg.id}
+          key={current.seg.id + (convert ? ":converted" : "")}
           ref={videoRef}
           style={pz.style}
           // ?at: the server starts the file at the keyframe before the offset
-          // (one request instead of one per fragment up to it).
-          src={`/api/recordings/${current.seg.id}${current.offset > 2 ? `?at=${current.offset.toFixed(1)}` : ""}`}
+          // (one request instead of one per fragment up to it). When this
+          // browser converts H.265 (ADR-0026), playConverted sets the source.
+          src={convert ? undefined : recUrl}
           preload="auto"
           poster={poster}
           playsInline
@@ -497,11 +519,16 @@ function Playback({
             if (nextSeg) setCurrent({ seg: nextSeg, offset: 0 });
             else setPlaying(false);
           }}
-          onError={() =>
+          onError={() => {
+            // H.265 this browser cannot decode: convert it here, once.
+            if (!convert && !nativeHevc()) {
+              setConvert(true);
+              return;
+            }
             setError(
-              t("The browser could not play this video (H.265). Use Chrome/Edge with hardware acceleration, Safari, or export the clip."),
-            )
-          }
+              t("The browser could not play this video (H.265). Open the panel over HTTPS (Tailscale, the app or the public address) to convert it in this browser, use Chrome/Edge with hardware acceleration or Safari, or export the clip."),
+            );
+          }}
         />
         {error ? (
           <div className="player-overlay">
