@@ -7,6 +7,8 @@ All notable changes to Sentinela. The format follows
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-08
+
 ### Added
 - Motion from the video for cameras that send no motion events (RTSP only,
   or ONVIF events that stopped): the detector compares sub-stream keyframes,
@@ -22,6 +24,20 @@ All notable changes to Sentinela. The format follows
   for a few seconds (growing up to 30 s) and answers 503 meanwhile, and the
   live page sends one hold request at a time and stops with a message when it
   fails. Stopping a movement is always tried.
+- Folder and message names left in Portuguese in the services agent and the
+  Tailscale pairing are now in English.
+
+### Security
+- The app installs an update only if it is this app, signed with its own key,
+  and not older than the installed version.
+- Logs hide whole tokens and stream tickets (they could keep the part after an
+  underscore).
+- The app's WebView refuses content:// and file:// URLs, and addresses from
+  pairing links are trimmed without a regular expression.
+- App and snapshot paths can no longer leave their folders, whatever id
+  reaches them.
+- CI runs race tests, shellcheck, the image and APK builds, CodeQL (with a
+  real Android build) and dependency review on every change.
 
 ## [1.0.0] - 2026-11-07
 
@@ -74,5 +90,6 @@ The first public release. Highlights of what is in it:
   with checksum checks and automatic rollback; System → Updates shows
   the schedule and these notes.
 
-[Unreleased]: https://github.com/LUKER2DW/Sentinela/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/LUKER2DW/Sentinela/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/LUKER2DW/Sentinela/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/LUKER2DW/Sentinela/releases/tag/v1.0.0
