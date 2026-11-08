@@ -2846,3 +2846,27 @@ textarea.input { height: auto; padding: 9px 12px; resize: vertical; line-height:
 .remote-howto { display: grid; gap: 6px; padding: 12px; border-radius: var(--r-md); border: 1px dashed var(--line); margin: 8px 0; }
 .remote-howto ul { margin: 0; padding-left: 1.2em; display: grid; gap: 2px; }
 .remote-snippet { display: block; white-space: pre; overflow-x: auto; padding: 8px 10px; border-radius: var(--r-sm); background: var(--surface-2); font-size: 0.85rem; }
+
+/* Tailscale Funnel panel */
+.funnel { display: grid; gap: 10px; margin-top: 8px; padding-top: 14px; border-top: 1px solid var(--line); }
+.funnel h3 { margin: 0; font-size: 1rem; }
+.funnel .copy-field { max-width: 100%; min-width: 0; }
+.funnel .copy-field code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.funnel select.input { max-width: 100%; text-overflow: ellipsis; }
+.ts-manual { margin-top: 10px; display: grid; gap: 6px; }
+.ts-manual summary { cursor: pointer; }
+.ts-manual[open] { gap: 8px; }
+.funnel-ports { border: 0; margin: 0; padding: 0; display: grid; gap: 6px; min-width: 0; }
+.funnel-ports legend { padding: 0; margin-bottom: 4px; color: var(--muted); }
+.funnel-ports .check-row { align-items: flex-start; }
+.funnel-ports .check-row span { overflow-wrap: anywhere; }
+.copy-wrap .copy-field { align-items: flex-start; }
+.copy-wrap .copy-field code { white-space: pre-wrap !important; overflow: visible !important; text-overflow: clip !important; overflow-wrap: anywhere; }
+.ts-steps .ts-check, .ts-steps .ts-checks .ts-check { display: flex; }
+
+/* The columns follow the room the System body actually has (the side
+   menus take part of the screen), not the screen width. */
+.sys-body { container-type: inline-size; }
+@media (max-width: 1200px) { .sys-cols, .sys-cols.even { grid-template-columns: minmax(0, 3fr) minmax(320px, 2fr); } .sys-cols.even { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container (max-width: 980px) { .sys-cols, .sys-cols.even { grid-template-columns: minmax(0, 1fr); } }
+@container (min-width: 1500px) { .pairing-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }

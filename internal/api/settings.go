@@ -72,6 +72,9 @@ type SettingsDoc struct {
 type SettingsRemote struct {
 	Public SettingsPublic `json:"public"`
 	Proxy  SettingsProxy  `json:"proxy"`
+	// Funnel: the public listener Tailscale Funnel sends to
+	// (remote.funnel_listen, 127.0.0.1:8081).
+	Funnel bool `json:"funnel"`
 }
 
 // SettingsPublic is the port-forwarded HTTPS listener. Domain "" = off.
@@ -109,7 +112,8 @@ func (s *Server) currentRemote() *SettingsRemote {
 	r := &SettingsRemote{
 		Public: SettingsPublic{Domain: p.Domain, Port: listenPort(p.Listen), URL: p.URL, SelfSigned: p.SelfSigned,
 			HTTP01Port: listenPort(p.HTTP01Listen), Email: p.Email},
-		Proxy: SettingsProxy{URL: x.URL, Port: listenPort(x.Listen), Kind: x.Kind},
+		Proxy:  SettingsProxy{URL: x.URL, Port: listenPort(x.Listen), Kind: x.Kind},
+		Funnel: s.Cfg.Remote.FunnelListen != "",
 	}
 	if r.Public.Port == 0 {
 		r.Public.Port = 7443
@@ -173,6 +177,11 @@ func applyRemote(remote map[string]any, r *SettingsRemote) error {
 			delete(pub, "http01_listen")
 		}
 		remote["public"] = pub
+	}
+	if !r.Funnel {
+		delete(remote, "funnel_listen")
+	} else if v, _ := remote["funnel_listen"].(string); v == "" {
+		remote["funnel_listen"] = "127.0.0.1:8081"
 	}
 	x := r.Proxy
 	if u := strings.TrimRight(strings.TrimSpace(x.URL), "/"); u == "" {

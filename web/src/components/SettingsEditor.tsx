@@ -495,13 +495,6 @@ export function ServerEditor() {
           </select>
         </label>
         <TextField label={t("Server name on the network (Cloud)")} value={draft.nas_host} onChange={(v) => setDraft({ ...draft, nas_host: v })} placeholder="SENTINELA" />
-        <TextField
-          label={t("Tailscale address")}
-          value={draft.tailnet_url}
-          onChange={(v) => setDraft({ ...draft, tailnet_url: v.trim() })}
-          placeholder="https://sentinela.example.ts.net"
-          hint={t("Offered to the app in the pairing code.")}
-        />
       </div>
       <h3 className="settings-sub">{t("Disks")}</h3>
       <p className="muted small">

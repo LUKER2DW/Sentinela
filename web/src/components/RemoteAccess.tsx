@@ -12,6 +12,7 @@ import { t } from "../lib/i18n";
 export interface SettingsRemote {
   public: { domain: string; port: number; url: string; self_signed: boolean; http01_port: number; email: string };
   proxy: { url: string; port: number; kind: "cloudflare" | "other" };
+  funnel: boolean;
 }
 
 interface RemoteCheckResult {
@@ -76,7 +77,7 @@ const reasonText: Record<string, string> = {
 };
 
 /** Asks the configured address, over the internet, for this server's id. */
-function RemoteCheck({ target }: { target: "public" | "proxy" }) {
+export function RemoteCheck({ target }: { target: "public" | "proxy" | "funnel" }) {
   const toast = useToast();
   const [res, setRes] = useState<RemoteCheckResult | null>(null);
   const run = useMutation({

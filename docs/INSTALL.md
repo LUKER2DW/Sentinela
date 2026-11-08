@@ -223,7 +223,10 @@ internet (ADR-0025). The commands below are the manual way.
 ### 8.1 Tailscale (private administration)
 
 In the dashboard: create an auth key in the Tailscale admin console
-(Settings → Keys) and paste it. By hand:
+(Settings → Keys) and paste it. To open the same ts.net address without the
+Tailscale app (any browser, the Android app), turn on **Public link
+(Funnel)** in the same card: port 8443 keeps the address without a port
+private to your tailnet. By hand:
 
 ```bash
 sudo /opt/sentinela/scripts/setup-tailscale.sh

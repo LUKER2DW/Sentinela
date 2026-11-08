@@ -4,6 +4,8 @@ import { api, get } from "../lib/api";
 import { useToast } from "../lib/session";
 import { isPublicZone } from "../lib/access";
 import type { SettingsDoc } from "./SettingsEditor";
+import { RemoteCheck, type SettingsRemote } from "./RemoteAccess";
+import { CopyField } from "../pages/CloudPage";
 import { Icon } from "./Icon";
 import { t } from "../lib/i18n";
 
@@ -19,6 +21,7 @@ interface TailscaleStatus {
   magic_dns: boolean;
   https: boolean;
   serve: boolean;
+  funnel?: number[];
   busy: boolean;
   action: string;
   message: string;
@@ -31,6 +34,8 @@ interface TailscaleInfo {
   configured: string;
   suggested: string;
   check: "ok" | "mismatch" | "unknown";
+  funnel_url?: string;
+  funnel_listener?: boolean;
 }
 
 const ADMIN = "https://login.tailscale.com/admin";
@@ -44,6 +49,9 @@ const messageText: Record<string, string> = {
   https_disabled: t("Connected, but HTTPS certificates are off in your tailnet. Turn them on (DNS page), then press Publish again."),
   not_installed: t("Tailscale is not installed on the server yet: connect with an auth key first."),
   disconnected: t("The server left the tailnet."),
+  funnel_denied: t("Your tailnet does not allow Funnel for this server yet: add the rule below in Access controls, save, then press Turn on again."),
+  funnel_off: t("The public link is off: the Tailscale address is private again."),
+  bad_port: t("Funnel works on ports 443, 8443 or 10000."),
   "installing Tailscale": t("Installing Tailscale on the server…"),
   "joining the tailnet": t("Joining your tailnet…"),
 };
@@ -83,7 +91,7 @@ export function TailscaleSetup({ compact = false }: { compact?: boolean }) {
   });
   const [key, setKey] = useState("");
   const ask = useMutation({
-    mutationFn: (body: { action: string; auth_key?: string }) => api("POST", "/api/tailscale", body),
+    mutationFn: (body: { action: string; auth_key?: string; port?: number }) => api("POST", "/api/tailscale", body),
     onSuccess: (_, body) => {
       setWatch(true);
       if (body.action === "connect") setKey("");
@@ -197,6 +205,7 @@ export function TailscaleSetup({ compact = false }: { compact?: boolean }) {
               {t("Download Tailscale")}
             </a>
           </p>
+          <FunnelPanel info={info} st={st!} busy={working || ask.isPending} outside={outside} onAsk={(port) => ask.mutate(port ? { action: "funnel", port } : { action: "funnel_off" })} />
         </div>
       ) : (
         <ol className="ts-steps">
@@ -286,6 +295,142 @@ export function TailscaleSetup({ compact = false }: { compact?: boolean }) {
   );
 }
 
+/** Turns the public listener (remote.funnel_listen) on or off through the
+ *  settings flow. */
+async function saveFunnelListener(on: boolean) {
+  const info = await get<{ settings: SettingsDoc & { remote?: SettingsRemote } }>("/api/settings");
+  if (!info.settings.remote) throw new Error(t("This server does not edit remote access yet: update it first."));
+  await api("PUT", "/api/settings", { ...info.settings, remote: { ...info.settings.remote, funnel: on } });
+}
+
+/** The public Tailscale link (Funnel): the same ts.net address in any browser
+ *  or phone, without the Tailscale app, through the public listener. */
+function FunnelPanel(p: { info: TailscaleInfo; st: TailscaleStatus; busy: boolean; outside: boolean; onAsk: (port: number | null) => void }) {
+  const toast = useToast();
+  const on = (p.st.funnel ?? []).length > 0;
+  const [port, setPort] = useState<number | null>(null);
+  const chosen = port ?? p.st.funnel?.[0] ?? 8443;
+  const [saving, setSaving] = useState(false);
+  const target = p.st.tags?.[0] ?? "autogroup:member";
+  const rule = `"nodeAttrs": [{ "target": ["${target}"], "attr": ["funnel"] }]`;
+  const turnOn = async () => {
+    try {
+      if (!p.info.funnel_listener) {
+        setSaving(true);
+        await saveFunnelListener(true); // the server restarts with the public listener
+        toast(t("Saved. Applying on the server; the panel comes back in a few seconds."));
+      }
+      p.onAsk(chosen);
+    } catch (e) {
+      toast((e as Error).message, true);
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <div className="funnel">
+      <div className="card-head">
+        <h3>{t("Public link (no VPN)")}</h3>
+        <span className={`pill${on ? " ok" : ""}`}>{on ? t("On") : t("Off")}</span>
+      </div>
+      <p className="muted small">
+        {t("With Tailscale Funnel the Tailscale address also opens in any browser or phone, without the Tailscale app. Everything that arrives through it is treated as coming from the internet: sign-in screen, attempt limits and two-step verification where it is on. Live video uses the compatible mode (no WebRTC, no talk).")}
+      </p>
+      {on && p.info.funnel_url ? (
+        <>
+          <CopyField value={p.info.funnel_url} label={t("Public link")} />
+          <span className="muted small">{t("Use this link in the app and in any browser, at home or outside.")}</span>
+        </>
+      ) : (
+        <fieldset className="funnel-ports" disabled={p.busy || p.outside}>
+          <legend className="small">{t("Port of the public link")}</legend>
+          {[
+            [8443, t("8443: https://{name}:8443 is public; the address without a port stays private to your tailnet (recommended)", { name: p.st.dns_name })],
+            [443, t("443: https://{name} itself becomes public (admin changes then only at home)", { name: p.st.dns_name })],
+            [10000, t("10000: https://{name}:10000 is public", { name: p.st.dns_name })],
+          ].map(([n, label]) => (
+            <label key={n} className="check-row">
+              <input type="radio" name="funnel-port" checked={chosen === n} onChange={() => setPort(n as number)} />
+              <span>{label}</span>
+            </label>
+          ))}
+        </fieldset>
+      )}
+      {p.st.message === "funnel_denied" && (
+        <div className="remote-howto">
+          <span className="small">
+            {t("Tailscale admin console → Access controls: add this to the policy file and save.")}{" "}
+            <a href={p.st.enable_url || "https://login.tailscale.com/admin/acls/file"} target="_blank" rel="noreferrer noopener">
+              {t("Open Access controls")}
+            </a>
+          </span>
+          <div className="copy-wrap">
+            <CopyField value={rule} label={t("Policy rule")} />
+          </div>
+        </div>
+      )}
+      <div className="row-gap">
+        {on ? (
+          <>
+            {p.info.funnel_url && <RemoteCheck target="funnel" />}
+            <button className="btn ghost small" disabled={p.busy || p.outside} onClick={() => window.confirm(t("Turn off the public link? Phones and browsers without Tailscale stop reaching it.")) && p.onAsk(null)}>
+              {t("Turn off")}
+            </button>
+          </>
+        ) : (
+          <button className="btn primary small" disabled={p.busy || saving || p.outside} onClick={() => void turnOn()}>
+            {t("Turn on the public link")}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** The Tailscale address typed by hand (servers set up without the agent,
+ *  or a different name). Moved here from Server and disks. */
+function ManualAddress() {
+  const toast = useToast();
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ["settings"], queryFn: () => get<{ settings: SettingsDoc }>("/api/settings") });
+  const saved = q.data?.settings.tailnet_url ?? "";
+  const [v, setV] = useState<string | null>(null);
+  const value = v ?? saved;
+  const ok = value === "" || /^https:\/\/[A-Za-z0-9.-]+(:\d{1,5})?\/?$/.test(value);
+  const save = useMutation({
+    mutationFn: () => saveTailnetURL(value.replace(/\/$/, "")),
+    onSuccess: () => {
+      setV(null);
+      toast(t("Saved. Applying on the server; the panel comes back in a few seconds."));
+      void qc.invalidateQueries({ queryKey: ["settings"] });
+      void qc.invalidateQueries({ queryKey: ["tailscale"] });
+    },
+    onError: (e: Error) => toast(e.message, true),
+  });
+  if (!q.data) return null;
+  return (
+    <details className="ts-manual" open={!saved && v !== null}>
+      <summary className="muted small">{t("Tailscale address (by hand)")}</summary>
+      <div className="ts-key">
+        <input
+          className="input"
+          value={value}
+          spellCheck={false}
+          autoComplete="off"
+          placeholder="https://sentinela.example.ts.net"
+          aria-label={t("Tailscale address")}
+          onChange={(e) => setV(e.target.value.trim())}
+          disabled={isPublicZone()}
+        />
+        <button className="btn small" disabled={!ok || value === saved || save.isPending || isPublicZone()} onClick={() => save.mutate()}>
+          {t("Save")}
+        </button>
+      </div>
+      <span className="muted small">{ok ? t("Offered to the app in the pairing code. Empty = none.") : t("Use https:// and only the name (and port), no path.")}</span>
+    </details>
+  );
+}
+
 /** System -> Server: the Tailscale card. */
 export function TailscaleCard() {
   return (
@@ -297,6 +442,7 @@ export function TailscaleCard() {
         </a>
       </div>
       <TailscaleSetup />
+      <ManualAddress />
     </section>
   );
 }

@@ -39,7 +39,7 @@ func (s *Server) publicCertPin() string {
 }
 
 type pairingOption struct {
-	Kind string `json:"kind"` // tailnet | public | proxy | lan
+	Kind string `json:"kind"` // tailnet | funnel | public | proxy | lan
 	URL  string `json:"url"`
 	Pin  string `json:"pin,omitempty"`
 	// Code is the short form of Pin (homeCode). A phone given only the
@@ -118,7 +118,10 @@ func (s *Server) outsideURL() string {
 	if u := publicOrigin(s.Cfg.Remote.Public); u != "" {
 		return u
 	}
-	return strings.TrimRight(s.Cfg.Remote.Proxy.URL, "/")
+	if u := strings.TrimRight(s.Cfg.Remote.Proxy.URL, "/"); u != "" {
+		return u
+	}
+	return s.funnelURL(s.readTailscale())
 }
 
 // appPairing: GET /api/app/pairing → the ways the app can reach this house.
@@ -138,7 +141,12 @@ func (s *Server) appPairing(w http.ResponseWriter, _ *http.Request) {
 		}
 		opts = append(opts, pairingOption{Kind: kind, URL: origin, Pin: pin, Code: homeCode(pin), Link: link, QRSVG: svg})
 	}
-	add("tailnet", strings.TrimRight(s.Cfg.Remote.TailnetURL, "/"), "")
+	// Funnel on 443 makes the tailnet address itself public: one entry.
+	funnel := s.funnelURL(s.readTailscale())
+	if tn := strings.TrimRight(s.Cfg.Remote.TailnetURL, "/"); funnel == "" || !strings.EqualFold(tn, funnel) {
+		add("tailnet", tn, "")
+	}
+	add("funnel", funnel, "")
 	pin := ""
 	if s.Cfg.Remote.Public.SelfSigned {
 		pin = s.publicCertPin()

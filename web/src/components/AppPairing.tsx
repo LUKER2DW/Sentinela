@@ -8,7 +8,7 @@ import { Icon } from "./Icon";
 import { t } from "../lib/i18n";
 /** GET /api/app/pairing: the ways the Android app can reach this house. */
 interface PairingOption {
-  kind: "tailnet" | "public" | "proxy" | "lan";
+  kind: "tailnet" | "funnel" | "public" | "proxy" | "lan";
   url: string;
   pin?: string;
   /** Short form of the certificate fingerprint, shown by the app too. */
@@ -20,6 +20,7 @@ interface PairingOption {
 const kindLabel = {
   tailnet: { title: t("Over Tailscale"), note: t("Only for devices on your Tailscale network (with the Tailscale app on).") },
   public: { title: t("Over the internet"), note: t("Over the home's public address, from anywhere.") },
+  funnel: { title: t("Tailscale public link"), note: t("The Tailscale address through Funnel: from anywhere, without the Tailscale app.") },
   proxy: { title: t("Over the tunnel"), note: t("Over the domain served by the tunnel or reverse proxy, from anywhere.") },
   lan: { title: t("On the home network"), note: t("At home, over the Wi-Fi: no internet needed. Use it when the internet address does not open at home.") },
 } as const;

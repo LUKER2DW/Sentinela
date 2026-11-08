@@ -67,6 +67,7 @@ func TestApplyRemote(t *testing.T) {
 	err := applyRemote(remote, &SettingsRemote{
 		Public: SettingsPublic{Domain: "203.0.113.7", Port: 18443, URL: "https://203.0.113.7:18443/", SelfSigned: true},
 		Proxy:  SettingsProxy{URL: "https://cam.example.com", Port: 7444, Kind: "cloudflare"},
+		Funnel: true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -76,13 +77,13 @@ func TestApplyRemote(t *testing.T) {
 		t.Fatalf("public: %v", pub)
 	}
 	if remote["funnel_listen"] != "127.0.0.1:8081" {
-		t.Fatal("unknown keys must be kept")
+		t.Fatal("an existing funnel listener must be kept")
 	}
 	if px := remote["proxy"].(map[string]any); px["listen"] != "127.0.0.1:7444" || px["kind"] != "cloudflare" {
 		t.Fatalf("proxy: %v", px)
 	}
 	// Off: both blocks go away.
-	if err := applyRemote(remote, &SettingsRemote{Public: SettingsPublic{Port: 7443}, Proxy: SettingsProxy{Port: 7444}}); err != nil || remote["public"] != nil || remote["proxy"] != nil {
+	if err := applyRemote(remote, &SettingsRemote{Public: SettingsPublic{Port: 7443}, Proxy: SettingsProxy{Port: 7444}}); err != nil || remote["public"] != nil || remote["proxy"] != nil || remote["funnel_listen"] != nil {
 		t.Fatalf("off: %v %v", err, remote)
 	}
 	if err := applyRemote(map[string]any{}, &SettingsRemote{Public: SettingsPublic{Domain: "cam.example.com", Port: 80}}); err == nil {

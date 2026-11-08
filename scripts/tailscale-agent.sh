@@ -13,6 +13,10 @@
 #   serve       publish the web UI again (after HTTPS certificates were
 #               turned on in the admin console)
 #   disconnect  stop publishing and log the server out of the tailnet
+#   funnel PORT make the address public with Tailscale Funnel on PORT (443,
+#               8443 or 10000), proxied to remote.funnel_listen
+#               (127.0.0.1:8081), where every request is in the public zone
+#   funnel_off  stop Funnel (443 goes back to tailnet-only)
 #
 # Same choices as setup-tailscale.sh: no Tailscale SSH, no subnet routes, no
 # exit node, host DNS untouched; nothing opens a port on the router.
@@ -31,10 +35,12 @@ flock -w 120 9 || exit 0
 install -d -m 0755 "$STATE"
 
 action=status
+arg=""
 if [[ -f "$REQ/request" ]]; then
-  read -r action _ < "$REQ/request" || true
+  read -r action arg _ < "$REQ/request" || true
   rm -f "$REQ/request"
 fi
+FUNNEL_TARGET=http://127.0.0.1:8081
 key=""
 if [[ -f "$REQ/authkey" ]]; then
   key="$(mktemp /run/sentinela-tskey.XXXXXX)"   # root only (mktemp: 0600)
@@ -67,8 +73,13 @@ st, serve = load(os.environ.get("ST")), load(os.environ.get("SERVE"))
 me = st.get("Self") or {}
 dns = (me.get("DNSName") or "").rstrip(".")
 ips = me.get("TailscaleIPs") or []
-web = (serve.get("Web") or {}).get(f"{dns}:443", {}) if dns else {}
-proxy = ((web.get("Handlers") or {}).get("/") or {}).get("Proxy", "")
+def proxy_for(port):
+    web = (serve.get("Web") or {}).get(f"{dns}:{port}", {}) if dns else {}
+    return (((web.get("Handlers") or {}).get("/") or {}).get("Proxy", "")).rstrip("/")
+allow = serve.get("AllowFunnel") or {}
+funnel = sorted(int(k.rsplit(":", 1)[1]) for k, v in allow.items()
+                if v and dns and k.startswith(dns + ":") and proxy_for(k.rsplit(":", 1)[1]) == "http://127.0.0.1:8081")
+proxy = proxy_for(443)
 doc = {
     "checked": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     "installed": installed == "true",
@@ -79,7 +90,9 @@ doc = {
     "tags": me.get("Tags") or [],
     "magic_dns": bool((st.get("CurrentTailnet") or {}).get("MagicDNSEnabled")),
     "https": bool(st.get("CertDomains")),
-    "serve": proxy.rstrip("/") == "http://127.0.0.1:8080",
+    # 443 serves the panel: tailnet-only (8080), or public when Funnel is on 443.
+    "serve": proxy == "http://127.0.0.1:8080" or 443 in funnel,
+    "funnel": funnel,
     "busy": busy == "true",
     "action": action,
     "message": message,
@@ -128,7 +141,43 @@ publish() {
   return 1
 }
 
+# funnel_on PORT: the public link (Tailscale Funnel), to the public listener.
+funnel_on() {
+  local out
+  if out="$(timeout 30 tailscale funnel --bg --yes --https="$1" "$FUNNEL_TARGET" 2>&1)"; then
+    message="ok"
+    return 0
+  fi
+  # Funnel not allowed in the tailnet policy: tailscale prints a link.
+  enable_url="$(printf '%s' "$out" | grep -oE 'https://login\.tailscale\.com/[A-Za-z0-9/?=&._-]+' | head -1 || true)"
+  message="funnel_denied"
+  return 1
+}
+
 case "$action" in
+  funnel)
+    if ! command -v tailscale >/dev/null; then
+      message="not_installed"
+    elif [[ ! "$arg" =~ ^(443|8443|10000)$ ]]; then
+      message="bad_port"
+    else
+      # One public port at a time: turn off the others first.
+      for p in 443 8443 10000; do
+        [[ "$p" == "$arg" ]] || timeout 30 tailscale funnel --https="$p" off >/dev/null 2>&1 || true
+      done
+      funnel_on "$arg" || true
+      [[ "$arg" == 443 ]] || publish >/dev/null 2>&1 || true   # 443 stays tailnet-only
+    fi
+    ;;
+  funnel_off)
+    if command -v tailscale >/dev/null; then
+      for p in 443 8443 10000; do
+        timeout 30 tailscale funnel --https="$p" off >/dev/null 2>&1 || true
+      done
+      publish || true   # 443 back to tailnet-only
+      [[ "$message" == ok ]] && message="funnel_off"
+    fi
+    ;;
   connect)
     if [[ -z "$key" ]] || ! grep -qE '^tskey-auth-[A-Za-z0-9_-]{10,200}$' "$key"; then
       message="bad_key"
@@ -149,7 +198,13 @@ case "$action" in
     fi
     ;;
   serve)
-    if command -v tailscale >/dev/null; then publish || true; else message="not_installed"; fi
+    if ! command -v tailscale >/dev/null; then
+      message="not_installed"
+    elif timeout 10 tailscale serve status --json 2>/dev/null | grep -q ':443": true'; then
+      message="ok"   # Funnel on 443 already serves the panel (publicly)
+    else
+      publish || true
+    fi
     ;;
   disconnect)
     if command -v tailscale >/dev/null; then

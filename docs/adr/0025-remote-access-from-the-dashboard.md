@@ -26,6 +26,15 @@ through Cloudflare Tunnel or a reverse proxy they already run.
   (`/var/lib/sentinela/tailscale.json`: installed, connected, MagicDNS,
   HTTPS certificates, serve) that the page shows as a checklist; "Use this
   address" saves `remote.tailnet_url` through the settings flow.
+- **Tailscale public link (Funnel).** Turned on from the Tailscale card:
+  the settings flow sets `remote.funnel_listen` (127.0.0.1:8081, public
+  zone `funnel`) and the agent runs `tailscale funnel --https=PORT` to it,
+  so the ts.net address opens in any browser or the app without Tailscale.
+  Port 8443 (default) keeps `https://<name>.ts.net` tailnet-only for full
+  administration; 443 makes that address itself public (admin changes then
+  only at home); 10000 is the third port Funnel allows. When the tailnet
+  policy lacks the `funnel` node attribute, the page shows the rule to add.
+  The Tailscale address moved from Server and disks to this card.
 - **Public address (port-forward, ADR-0019).** Domain or fixed public IP,
   the server's port, the router's port and the certificate mode are now
   edited in the dashboard (ADR-0024 flow). The firewall opens exactly the

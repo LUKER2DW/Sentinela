@@ -64,7 +64,7 @@ func homePublicIP(ctx context.Context) string {
 	return ""
 }
 
-// checkRemote: GET /api/remote/check?target=public|proxy (admin).
+// checkRemote: GET /api/remote/check?target=public|proxy|funnel (admin).
 func (s *Server) checkRemote(w http.ResponseWriter, r *http.Request) {
 	target := r.URL.Query().Get("target")
 	res := remoteCheck{Target: target}
@@ -77,8 +77,10 @@ func (s *Server) checkRemote(w http.ResponseWriter, r *http.Request) {
 		}
 	case "proxy":
 		res.URL = strings.TrimRight(s.Cfg.Remote.Proxy.URL, "/")
+	case "funnel":
+		res.URL = s.funnelURL(s.readTailscale())
 	default:
-		writeErr(w, http.StatusBadRequest, "target must be public or proxy")
+		writeErr(w, http.StatusBadRequest, "target must be public, proxy or funnel")
 		return
 	}
 	if res.URL == "" {

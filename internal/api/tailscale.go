@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -41,6 +42,7 @@ type tailscaleStatus struct {
 	MagicDNS  bool     `json:"magic_dns"`
 	HTTPS     bool     `json:"https"`
 	Serve     bool     `json:"serve"`
+	Funnel    []int    `json:"funnel"` // Tailscale Funnel ports open to the internet
 	Busy      bool     `json:"busy"`
 	Action    string   `json:"action"`
 	Message   string   `json:"message"`
@@ -72,6 +74,18 @@ func tailnetURLFor(st *tailscaleStatus) string {
 	return "https://" + st.DNSName
 }
 
+// funnelURL is the public Tailscale link (Funnel), when it is on and reaches
+// the public listener; "" otherwise.
+func (s *Server) funnelURL(st *tailscaleStatus) string {
+	if st == nil || st.State != "Running" || st.DNSName == "" || len(st.Funnel) == 0 || s.Cfg.Remote.FunnelListen == "" {
+		return ""
+	}
+	if st.Funnel[0] == 443 {
+		return "https://" + st.DNSName
+	}
+	return "https://" + st.DNSName + ":" + strconv.Itoa(st.Funnel[0])
+}
+
 // tailscaleCheck says whether a configured remote.tailnet_url is this server
 // as Tailscale itself names it: "ok", "mismatch", or "unknown" (no status).
 func tailscaleCheck(configured string, st *tailscaleStatus) string {
@@ -99,11 +113,15 @@ func (s *Server) getTailscale(w http.ResponseWriter, _ *http.Request) {
 		"configured": configured,
 		"suggested":  tailnetURLFor(st),
 		"check":      tailscaleCheck(configured, st),
+		// The public link (Funnel) and whether its listener is configured.
+		"funnel_url":      s.funnelURL(st),
+		"funnel_listener": s.Cfg.Remote.FunnelListen != "",
 	})
 }
 
 // postTailscale: POST /api/tailscale (admin, home or tailnet)
-// {"action": "status"|"connect"|"serve"|"disconnect", "auth_key": "..."}.
+// {"action": "status"|"connect"|"serve"|"disconnect"|"funnel"|"funnel_off",
+// "auth_key": "...", "port": 443|8443|10000}.
 func (s *Server) postTailscale(w http.ResponseWriter, r *http.Request) {
 	if !fileExists(s.hostFile("tailscale-units")) {
 		writeErr(w, http.StatusConflict, "this server cannot set up Tailscale from the dashboard yet (run a deploy or scripts/setup-tailscale.sh units)")
@@ -113,13 +131,21 @@ func (s *Server) postTailscale(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Action  string `json:"action"`
 		AuthKey string `json:"auth_key"`
+		Port    int    `json:"port"`
 	}
 	if err := readJSON(r, &body); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	arg := ""
 	switch body.Action {
-	case "status", "serve", "disconnect":
+	case "status", "serve", "disconnect", "funnel_off":
+	case "funnel":
+		if body.Port != 443 && body.Port != 8443 && body.Port != 10000 {
+			writeErr(w, http.StatusBadRequest, "Funnel works on ports 443, 8443 or 10000")
+			return
+		}
+		arg = " " + strconv.Itoa(body.Port)
 	case "connect":
 		body.AuthKey = strings.TrimSpace(body.AuthKey)
 		if !authKeyRe.MatchString(body.AuthKey) {
@@ -150,7 +176,7 @@ func (s *Server) postTailscale(w http.ResponseWriter, r *http.Request) {
 		err = write("authkey", []byte(body.AuthKey+"\n"), 0o600)
 	}
 	if err == nil {
-		err = write("request", []byte(body.Action+" "+time.Now().UTC().Format(time.RFC3339)+"\n"), 0o644)
+		err = write("request", []byte(body.Action+arg+" "+time.Now().UTC().Format(time.RFC3339)+"\n"), 0o644)
 	}
 	if body.Action != "status" {
 		s.audit(r, "tailscale."+body.Action, "", err == nil, "")

@@ -7,6 +7,25 @@ All notable changes to Sentinela. The format follows
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-11-08
+
+### Added
+- **Tailscale public link (Funnel)**: the Tailscale address also opens in
+  any browser or phone without the Tailscale app, turned on from System →
+  Remote access. Choose the port: 8443 (the address without a port stays
+  private to your tailnet), 443 (the address itself becomes public) or
+  10000. It gets the same protection as the other public ways in, is
+  offered to the app's pairing codes, and *Test from the internet* checks
+  it. If your tailnet policy does not allow Funnel yet, the page shows the
+  rule to add.
+
+### Changed
+- The Tailscale address moved from Server and disks to the Tailscale card
+  in Remote access.
+- System pages adapt to the room they really have (the side menus take
+  part of the screen): one wide column on mid-size screens, two side by
+  side on large ones. Long options wrap instead of being cut.
+
 ## [1.3.0] - 2026-11-08
 
 ### Added
@@ -178,7 +197,8 @@ The first public release. Highlights of what is in it:
   with checksum checks and automatic rollback; System → Updates shows
   the schedule and these notes.
 
-[Unreleased]: https://github.com/LUKER2DW/Sentinela/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/LUKER2DW/Sentinela/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/LUKER2DW/Sentinela/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/LUKER2DW/Sentinela/compare/v1.2.2...v1.3.0
 [1.2.2]: https://github.com/LUKER2DW/Sentinela/compare/v1.2.1...v1.2.2
 [1.2.1]: https://github.com/LUKER2DW/Sentinela/compare/v1.2.0...v1.2.1
