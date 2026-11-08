@@ -463,9 +463,8 @@ export class LivePlayer {
         }
         this.slot = slot;
       }
-      // The reason may come from go2rtc: one line, no control characters.
-      const why = reason.replace(/[\r\n]+/g, " ").replace(/[^\x20-\x7e]/g, "").slice(0, 120);
-      console.info(`[sentinela] H.265 not playable here (${why}); trying ${step}`);
+      // Only our own words in the log: the reason can come from go2rtc.
+      console.info("[sentinela] H.265 not playable in this browser; trying " + step);
       this.hevcMode = how === "convert" ? "convert" : "sub";
       this.streamNow = stream;
       this.convertRestarts = [];
