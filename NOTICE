@@ -25,3 +25,13 @@ YOLO output decoding follows the public output format documented by
 Ultralytics and Frigate's "yolo-generic" model type.
 Bundled web fonts: Barlow and Barlow Semi Condensed (SIL Open Font License 1.1,
 Jeremy Tribby), via @fontsource.
+
+Screenshots (docs/images)
+-------------------------
+The camera pictures in the README screenshots are photos from Unsplash,
+used under the Unsplash License (https://unsplash.com/license), cropped,
+graded and given a camera-style overlay:
+- Front: Michael Kahn, https://unsplash.com/photos/fHLfVg70rBQ
+- Garage: Brian Wangenheim, https://unsplash.com/photos/uZQGEo9DGe8
+- Backyard: Julia A. Keirns, https://unsplash.com/photos/0Dw2xI3GLbI
+- Entrance: Francesca Tosolini, https://unsplash.com/photos/XcVm8mn7NUM

@@ -16,8 +16,8 @@ Android app, in one small Go binary next to go2rtc and FFmpeg.
 [Features](#features) · [Quick start](#quick-start) · [Android app](#android-app) · [Docs](#documentation) · [Contributing](CONTRIBUTING.md)
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/login-dark.jpg" />
-  <img src="docs/images/login-light.jpg" width="800" alt="Sentinela's sign-in page: a hand-drawn lighthouse by the sea next to the login form" />
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/live-grid-dark.jpg" />
+  <img src="docs/images/live-grid.jpg" width="860" alt="Sentinela's live page: four cameras (front, garage, backyard at night, entrance) in a grid" />
 </picture>
 
 </div>
@@ -45,13 +45,16 @@ cameras to someone else's cloud. Sentinela does neither:
 
 **Cameras and live view**
 - Any number of cameras: XMEye/Xiongmai, Hikvision, Dahua, or any RTSP
-  camera with your own stream paths.
+  camera. For ONVIF cameras the editor finds the stream addresses by itself.
+- Each camera says what it has (PTZ, white light, speaker): the live page
+  shows only those controls ([docs/CAMERAS.md](docs/CAMERAS.md)).
 - Low-latency live view over WebRTC, with MSE as fallback; main and sub
   streams, grids, full screen, push-to-talk two-way audio (XMEye).
 - PTZ with press-and-hold controls, saved positions, **preset tours**, white
   light and day/night mode (XMEye, over an allow-listed DVRIP driver).
-- A first-run setup guide: cameras, recording, file share, remote access,
-  the app and two-step login, each step skippable.
+- A first-run setup guide: cameras, recording, file share, self-hosted
+  services, remote access, the app and two-step login. Every step can be
+  skipped, and what you skip stays out of the menu.
 
 **Recording and review**
 - 24/7 copy-only recording in 5-minute fragmented MP4 files.
@@ -90,17 +93,27 @@ cameras to someone else's cloud. Sentinela does neither:
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/images/setup-welcome.jpg" alt="First-run setup guide, welcome step" /><br /><sub><b>First-run guide.</b> After the admin account, a short tour sets up the rest; every step can be skipped.</sub></td>
-    <td width="50%"><img src="docs/images/setup-cameras.jpg" alt="Setup guide, cameras step" /><br /><sub><b>Cameras of any brand.</b> XMEye cameras are found and tested on the LAN; others are added by vendor or RTSP path.</sub></td>
+    <td width="50%"><img src="docs/images/live-camera.jpg" alt="One camera with the PTZ pad, today's timeline and image settings" /><br /><sub><b>One camera.</b> Press-and-hold PTZ, saved positions, light and day/night, and today's timeline. Cameras without PTZ or a light do not show those controls.</sub></td>
+    <td width="50%"><img src="docs/images/settings-cameras.jpg" alt="System, cameras: list and camera editor" /><br /><sub><b>Settings in the browser.</b> Cameras, recording, time zone and disks, validated and rolled back on failure. Passwords stay on the server.</sub></td>
   </tr>
   <tr>
+    <td width="50%"><img src="docs/images/setup-welcome.jpg" alt="First-run setup guide, welcome step" /><br /><sub><b>First-run guide.</b> After the admin account, a short tour sets up the rest. Every step can be skipped.</sub></td>
+    <td width="50%"><img src="docs/images/setup-cameras.jpg" alt="Setup guide, cameras step" /><br /><sub><b>Cameras of any brand.</b> ONVIF finds the streams; Hikvision, Dahua and XMEye have presets; any other RTSP camera works with its paths.</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/images/setup-services.jpg" alt="Setup guide, services step" /><br /><sub><b>Only what you use.</b> Cloud and self-hosted services are optional; skip them and their tabs stay hidden.</sub></td>
     <td width="50%"><img src="docs/images/setup-remote.jpg" alt="Setup guide, remote access step" /><br /><sub><b>Remote access, your choice.</b> Home only, Tailscale, or one HTTPS port, explained in place.</sub></td>
+  </tr>
+  <tr>
     <td width="50%"><img src="docs/images/app-pairing.jpg" alt="Pairing QR codes for the Android app" /><br /><sub><b>One app for every house.</b> Point the phone at a QR code; the app checks the house's certificate.</sub></td>
+    <td width="50%" align="center"><img src="docs/images/phone-live.jpg" width="240" alt="The live page on a phone" /><br /><sub><b>On the phone.</b> The same pages, laid out for one hand.</sub></td>
   </tr>
 </table>
 
-The interface is in Brazilian Portuguese, with light, dark and automatic
-themes and six colour palettes.
+The interface is in English and Brazilian Portuguese, picked from the
+device, with light, dark and automatic themes and six colour palettes. The
+camera pictures in these screenshots are stock photos
+([credits](NOTICE)), not a real installation.
 
 ## How it works
 
@@ -133,7 +146,7 @@ Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 | Server | x86-64, 2 cores (no HEVC hardware decode needed), 1 GB RAM for up to about 3 cameras with detection; 2 GB for more cameras or self-hosted services |
 | OS | Ubuntu Server 22.04+ or Debian 12+, with Docker |
 | Disks | A dedicated disk for recordings at `/data`; optional disks for the file share and backups |
-| Cameras | RTSP (H.264/H.265); XMEye cameras also get PTZ and light control |
+| Cameras | RTSP (H.264/H.265), ONVIF recommended; XMEye cameras also get PTZ and light control |
 | Network | Wired LAN; fixed addresses (DHCP reservations) for the server and cameras |
 
 Measured with one camera and detection on, the whole server (OS, Docker,
@@ -151,10 +164,10 @@ cd /opt/sentinela
 sudo ./scripts/install-server.sh
 ```
 
-The installer asks for the first camera's address and credentials, writes
-`/etc/sentinela/config.yaml` and the root-only `secrets.env`, sets up the
-firewall, starts the containers and prints the address. Open
-`http://<server>:8080`: the first visit creates the admin account.
+The installer installs Docker, writes `/etc/sentinela/config.yaml` and the
+root-only `secrets.env`, sets up the firewall, starts the containers and
+prints the address. Open `http://<server>:8080`: the first visit creates the
+admin account, and the setup guide adds the cameras.
 
 The full guide, from preparing the camera to remote access, backups and
 troubleshooting, is **[docs/INSTALL.md](docs/INSTALL.md)**.
@@ -167,13 +180,27 @@ server then offers to the phones by itself
 
 ## Android app
 
-One APK works with every Sentinela server. Install it from a release, open
-it, and on a computer go to **System → App**: point the phone's
-camera at the QR code and confirm. The code carries the house's address and,
-for a self-signed certificate, its fingerprint, so the app trusts exactly
-that server and nothing else. Notifications arrive through Firebase when you
-build the app with your own Firebase project, or through a direct connection
-otherwise ([INSTALL §10](docs/INSTALL.md#10-android-app)).
+One APK works with every Sentinela server. Install it from a
+[release](https://github.com/LUKER2DW/Sentinela/releases), or from your own
+server, which offers it in System → App. Then connect it to your house:
+
+1. On a computer, open **System → App**. It shows one QR code per way into
+   the house: Tailscale and, if you set it up, the public HTTPS address.
+2. Open the app and point the phone's camera at a code, or paste the
+   pairing code. The app shows the address and asks before connecting.
+3. Sign in as on the web.
+
+The code carries the address and, for a self-signed certificate, its
+fingerprint, so the app talks to exactly that server and nothing else. The
+app remembers every way into the house and switches by itself when you
+leave home. With neither Tailscale nor a public address, it works on the
+home network or over your own VPN.
+
+Notifications reach the phone through **your own** Firebase project: put its
+`google-services.json` and a service-account key in `/data/fcm/` on the
+server and the app picks them up; the APK carries no project of its own.
+Without Firebase the app keeps a direct connection to the house
+([INSTALL §9–10](docs/INSTALL.md#9-notifications)).
 
 ## Configuration
 
@@ -271,6 +298,7 @@ old hardware. Security reports go to the **Security** tab, see
 | [docs/INSTALL.md](docs/INSTALL.md) | Installation, updates, operations, troubleshooting |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Components, flows, ports and storage |
 | [docs/SECURITY.md](docs/SECURITY.md) | Threat model and security rules |
+| [docs/CAMERAS.md](docs/CAMERAS.md) | Supported cameras, stream presets and per-camera features |
 | [docs/CAMERA.md](docs/CAMERA.md) | XMEye protocol facts and the allow-listed commands |
 | [docs/adr/](docs/adr/) | Architecture decision records |
 | [docs/RELEASING.md](docs/RELEASING.md) | Versions, published images and the APK |
