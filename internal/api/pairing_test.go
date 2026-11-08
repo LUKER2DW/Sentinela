@@ -28,6 +28,7 @@ func TestAppPairing(t *testing.T) {
 	srv.Cfg.Remote.TailnetURL = "https://sentinela.example.ts.net/"
 	srv.Cfg.Remote.Public = config.PublicTLS{Domain: "203.0.113.7", Listen: ":7443", URL: "https://203.0.113.7:18443", SelfSigned: true}
 	srv.SetPublicCertPin(strings.Repeat("AB", 32))
+	srv.lanIP = func() string { return "192.168.1.10" }
 	c := newClient(t, ts.URL)
 	if code, _, _ := c.do("GET", "/api/app/pairing", ""); code != 401 {
 		t.Fatalf("anonymous: %d", code)
@@ -38,8 +39,13 @@ func TestAppPairing(t *testing.T) {
 		t.Fatalf("pairing: %d %s", code, body)
 	}
 	opts, _ := m["options"].([]any)
-	if len(opts) != 2 {
+	if len(opts) != 3 {
 		t.Fatalf("options: %s", body)
+	}
+	// The home network: the TLS listener's own port on the LAN address, same pin.
+	lan := opts[2].(map[string]any)
+	if lan["kind"] != "lan" || lan["url"] != "https://192.168.1.10:7443" || lan["pin"] != strings.Repeat("ab", 32) {
+		t.Errorf("lan option: %v", lan)
 	}
 	tail, pub := opts[0].(map[string]any), opts[1].(map[string]any)
 	if tail["link"] != "sentinela://pair?url=https%3A%2F%2Fsentinela.example.ts.net" || tail["pin"] != nil {
@@ -48,5 +54,11 @@ func TestAppPairing(t *testing.T) {
 	want := "sentinela://pair?url=https%3A%2F%2F203.0.113.7%3A18443&pin=" + strings.Repeat("ab", 32)
 	if pub["link"] != want || !strings.HasPrefix(pub["qr_svg"].(string), "<svg") {
 		t.Errorf("public option: %v", pub["link"])
+	}
+
+	// A publicly trusted certificate is checked by name: no LAN address then.
+	srv.Cfg.Remote.Public.SelfSigned = false
+	if _, m, body := c.do("GET", "/api/app/pairing", ""); len(m["options"].([]any)) != 2 || strings.Contains(body, "192.168.1.10") {
+		t.Errorf("LAN offered without a pinned certificate: %s", body)
 	}
 }

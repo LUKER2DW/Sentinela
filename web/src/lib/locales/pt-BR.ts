@@ -1555,4 +1555,6 @@ export const ptBR: Record<string, string> = {
   "From the camera (ONVIF events)": "Da câmera (eventos ONVIF)",
   "From the video": "Do vídeo",
   "Cameras that send no motion events (RTSP only) get it from the video.": "Câmeras que não mandam eventos de movimento (só RTSP) usam o vídeo.",
+  "On the home network": "Pela rede de casa",
+  "At home, over the Wi-Fi: no internet needed. Use it when the internet address does not open at home.": "Em casa, pelo Wi-Fi: não precisa de internet. Use quando o endereço da internet não abrir em casa.",
 };

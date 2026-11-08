@@ -112,6 +112,7 @@
         "Connecting…": "Conectando…",
         "Try over Tailscale: ": "Tentar pelo Tailscale: ",
         "Try over the internet: ": "Tentar pela internet: ",
+        "Try on the home network: ": "Tentar pela rede de casa: ",
         "Try: ": "Tentar: ",
         "Open this in the Android app": "Abra pelo app Android",
         "failed": "falhou",
@@ -186,7 +187,7 @@
         for (const a of s.alternatives || []) {
           const b = document.createElement("button");
           b.className = "ghost";
-          b.textContent = (a.kind === "tailnet" ? tr("Try over Tailscale: ") : a.kind === "public" ? tr("Try over the internet: ") : tr("Try: ")) + a.url;
+          b.textContent = (a.kind === "tailnet" ? tr("Try over Tailscale: ") : a.kind === "public" ? tr("Try over the internet: ") : a.kind === "lan" ? tr("Try on the home network: ") : tr("Try: ")) + a.url;
           b.addEventListener("click", () => {
             b.disabled = true;
             call("useAlternative", { url: a.url }).catch(() => (b.disabled = false));

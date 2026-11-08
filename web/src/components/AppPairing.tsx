@@ -8,7 +8,7 @@ import { Icon } from "./Icon";
 import { t } from "../lib/i18n";
 /** GET /api/app/pairing: the ways the Android app can reach this house. */
 interface PairingOption {
-  kind: "tailnet" | "public";
+  kind: "tailnet" | "public" | "lan";
   url: string;
   pin?: string;
   link: string;
@@ -18,6 +18,7 @@ interface PairingOption {
 const kindLabel = {
   tailnet: { title: t("Over Tailscale"), note: t("Only for devices on your Tailscale network (with the Tailscale app on).") },
   public: { title: t("Over the internet"), note: t("Over the home's public address, from anywhere.") },
+  lan: { title: t("On the home network"), note: t("At home, over the Wi-Fi: no internet needed. Use it when the internet address does not open at home.") },
 } as const;
 
 /** Pairing QR codes for the one Sentinela APK: the phone's camera opens the

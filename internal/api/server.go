@@ -43,11 +43,12 @@ type Server struct {
 	totpPending pendingTOTP
 	go2rtc      *url.URL
 	ctrl        map[string]*dvrip.Controller
-	ptzQuiet    quietWindows // cameras moving under PTZ: their own motion is not an event
-	tours       ptzTours     // preset tours, one per camera
-	pubPin      pinState     // public listener's self-signed certificate (app pairing)
-	tourGoto    tourGoto     // tests replace the camera move
-	evWatch     eventWatch   // ONVIF event subscription health per camera
+	ptzQuiet    quietWindows  // cameras moving under PTZ: their own motion is not an event
+	tours       ptzTours      // preset tours, one per camera
+	pubPin      pinState      // public listener's self-signed certificate (app pairing)
+	lanIP       func() string // the server's home-network address (pairing); tests replace it
+	tourGoto    tourGoto      // tests replace the camera move
+	evWatch     eventWatch    // ONVIF event subscription health per camera
 	hub         *Hub
 	stateMu     sync.Mutex
 	stateTTL    map[string]cachedState
@@ -82,7 +83,7 @@ func New(cfg *config.Config, st *store.Store, web fs.FS, log *slog.Logger) (*Ser
 	if err != nil {
 		return nil, err
 	}
-	s := &Server{Cfg: cfg, Store: st, Log: log, Web: web, Started: time.Now(), FFmpeg: "ffmpeg",
+	s := &Server{Cfg: cfg, Store: st, Log: log, Web: web, Started: time.Now(), FFmpeg: "ffmpeg", lanIP: lanIPv4,
 		tickets: auth.NewTickets(60 * time.Second), loginRL: auth.NewLimiter(5, time.Minute),
 		acctRL: auth.NewLimiter(10, time.Hour), failRL: auth.NewLimiter(20, time.Hour),
 		go2rtc: g, ctrl: map[string]*dvrip.Controller{}, hub: NewHub(), stateTTL: map[string]cachedState{},

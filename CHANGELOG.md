@@ -18,6 +18,12 @@ All notable changes to Sentinela. The format follows
 - The no-connection screen explains a certificate error (pair again with the
   code from System → App) instead of suggesting a network problem.
 
+### Added
+- System → App also offers the home-network address (the HTTPS listener on
+  the server's LAN address, with the same pin), for when the internet
+  address does not open at home. A typed LAN address gets its pin from the
+  home's list.
+
 ## [1.1.0] - 2026-11-08
 
 ### Added

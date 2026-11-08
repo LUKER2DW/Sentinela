@@ -39,11 +39,41 @@ func (s *Server) publicCertPin() string {
 }
 
 type pairingOption struct {
-	Kind  string `json:"kind"` // tailnet | public
+	Kind  string `json:"kind"` // tailnet | public | lan
 	URL   string `json:"url"`
 	Pin   string `json:"pin,omitempty"`
 	Link  string `json:"link"`
 	QRSVG string `json:"qr_svg"`
+}
+
+// lanIPv4 is the server's address on the home network: the first private
+// IPv4 of an interface that is up and not a container, VPN or loopback one.
+func lanIPv4() string {
+	ifs, err := net.Interfaces()
+	if err != nil {
+		return ""
+	}
+	for _, in := range ifs {
+		if in.Flags&net.FlagUp == 0 || in.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		skip := false
+		for _, p := range []string{"docker", "br-", "veth", "tailscale", "sn-", "lo"} {
+			if strings.HasPrefix(in.Name, p) {
+				skip = true
+			}
+		}
+		if skip {
+			continue
+		}
+		addrs, _ := in.Addrs()
+		for _, ad := range addrs {
+			if n, ok := ad.(*net.IPNet); ok && n.IP.To4() != nil && n.IP.IsPrivate() {
+				return n.IP.String()
+			}
+		}
+	}
+	return ""
 }
 
 // publicOrigin is the address people use from outside: remote.public.url,
@@ -85,6 +115,17 @@ func (s *Server) appPairing(w http.ResponseWriter, _ *http.Request) {
 		pin = s.publicCertPin()
 	}
 	add("public", publicOrigin(s.Cfg.Remote.Public), pin)
+	// At home: the same TLS listener on the server's LAN address, with the
+	// same pin. A self-signed certificate is checked by its pin, not by
+	// name, so the LAN address works without internet or the router's NAT
+	// loopback; a typed LAN address gets the pin from this list.
+	if pin != "" && publicOrigin(s.Cfg.Remote.Public) != "" && s.lanIP != nil {
+		if _, port, err := net.SplitHostPort(s.Cfg.Remote.Public.Listen); err == nil {
+			if ip := s.lanIP(); ip != "" {
+				add("lan", "https://"+net.JoinHostPort(ip, port), pin)
+			}
+		}
+	}
 	if opts == nil {
 		opts = []pairingOption{}
 	}
