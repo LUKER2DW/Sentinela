@@ -8,6 +8,7 @@ import { deviceName } from "./Devices";
 import { Icon } from "./Icon";
 
 import { t, translated } from "../lib/i18n";
+import { copyText } from "../lib/clipboard";
 export const roleLabel: Record<Role, string> = translated({ admin: "Administrator", operator: "Operator", viewer: "Viewer" });
 
 const ROLES: { role: Role; icon: string; text: string }[] = [
@@ -391,8 +392,8 @@ function InviteCodeDialog({ user, onClose }: { user: InvitedUser; onClose: () =>
     try {
       if (navigator.share) await navigator.share({ title: t("Sentinela invite"), text });
       else {
-        await navigator.clipboard.writeText(text);
-        toast(t("Invite copied."));
+        const ok = await copyText(text);
+        toast(ok ? t("Invite copied.") : t("Could not copy."), !ok);
       }
     } catch {
       // share sheet closed
@@ -424,7 +425,7 @@ function InviteCodeDialog({ user, onClose }: { user: InvitedUser; onClose: () =>
           </p>
         )}
         <div className="dialog-actions">
-          <button type="button" className="btn" onClick={() => void navigator.clipboard?.writeText(link).then(() => toast(t("Link copied.")))}>
+          <button type="button" className="btn" onClick={() => void copyText(link).then((ok) => (ok ? toast(t("Link copied.")) : toast(t("Could not copy."), true)))}>
             {t("Copy link")}
           </button>
           <button type="button" className="btn" onClick={() => void share()}>

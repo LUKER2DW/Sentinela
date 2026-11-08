@@ -2804,3 +2804,10 @@ textarea.input { height: auto; padding: 9px 12px; resize: vertical; line-height:
 .onvif-discover { display: grid; gap: 6px; justify-items: start; padding: 10px 12px; border-radius: var(--r-md); border: 1px dashed var(--line); }
 .onvif-found { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 4px; font-size: 0.9rem; }
 .onvif-found code { overflow-wrap: anywhere; }
+
+/* Update progress (System → Updates) */
+.update-progress { margin: 12px 0; }
+.update-progress-head { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
+.progress-track { height: 8px; border-radius: 999px; background: var(--surface-2, rgba(127, 127, 127, 0.25)); overflow: hidden; }
+.progress-fill { height: 100%; border-radius: 999px; background: var(--accent, #6aa7e8); transition: width 0.6s ease; }
+@media (prefers-reduced-motion: reduce) { .progress-fill { transition: none; } }

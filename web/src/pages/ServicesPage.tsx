@@ -32,6 +32,7 @@ import {
 } from "../lib/hosting";
 
 import { getLang, t } from "../lib/i18n";
+import { copyText } from "../lib/clipboard";
 // Self-hosted services (ADR-0021): projects from GitHub or a folder on the
 // server, run next to the NVR with their own limits. Admins only.
 
@@ -279,10 +280,7 @@ function ServiceDiagnostics({ svc }: { svc: Service }) {
 }
 
 function copy(text: string, toast: (t: string, e?: boolean) => void) {
-  void navigator.clipboard?.writeText(text).then(
-    () => toast(t("Address copied.")),
-    () => toast(t("Could not copy."), true),
-  );
+  void copyText(text).then((ok) => (ok ? toast(t("Address copied.")) : toast(t("Could not copy."), true)));
 }
 
 function Links({ svc, info }: { svc: Service; info?: HostingInfo }) {

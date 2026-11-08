@@ -79,6 +79,14 @@ status() { # state, current, latest, message
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$2" "$3" "${4//\"/\'}" > "$STATUS.tmp"
   chmod 0644 "$STATUS.tmp" && mv -f "$STATUS.tmp" "$STATUS"
 }
+PROGRESS="$STATE/update-progress.json"
+# progress PERCENT STEP: what the dashboard's progress bar shows while an
+# update installs (STEP is a fixed key the page translates).
+progress() {
+  printf '{"percent":%s,"step":"%s"}
+' "$1" "$2" > "$PROGRESS.tmp"
+  chmod 0644 "$PROGRESS.tmp" && mv -f "$PROGRESS.tmp" "$PROGRESS"
+}
 semver() { [[ "$1" =~ ^v?([0-9]+)\.([0-9]+)\.([0-9]+)$ ]] && printf '%d %d %d' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "${BASH_REMATCH[3]}"; }
 newer() { # newer A B: A > B
   local a b
@@ -91,7 +99,11 @@ newer() { # newer A B: A > B
   return 1
 }
 
-current="$(docker run --rm --network none --entrypoint /usr/local/bin/sentinela sentinela:local version 2>/dev/null || echo unknown)"
+# The running server writes its version at start (instant); an older server
+# does not, so ask the image (a few seconds).
+current="$(head -c 64 "$UPDATES/version" 2>/dev/null | tr -d '[:space:]')"
+[[ "$current" =~ ^[A-Za-z0-9._-]+$ ]] ||
+  current="$(docker run --rm --network none --entrypoint /usr/local/bin/sentinela sentinela:local version 2>/dev/null || echo unknown)"
 api="https://api.github.com/repos/$REPO/releases/latest"
 release="$(curl -fsSL --max-time 30 -H 'Accept: application/vnd.github+json' -A "sentinela-updater/$current" "$api")" ||
   { status error "$current" "" "could not read $api"; exit 1; }
@@ -130,8 +142,9 @@ fi
 
 log "updating $current -> $latest"
 status updating "$current" "$latest" ""
+progress 5 download
 work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
+trap 'rm -rf "$work" "$PROGRESS" "$PROGRESS.tmp"' EXIT
 asset() { # asset NAME -> download URL
   printf '%s' "$release" | python3 -c '
 import json, sys
@@ -142,16 +155,21 @@ for a in json.load(sys.stdin)["assets"]:
 ' "$1"
 }
 bundle="sentinela_${latest}_deploy.tar.gz"
+pct=10
 for f in SHA256SUMS image.txt "$bundle"; do
+  progress "$pct" download
+  pct=$((pct + 8))
   url="$(asset "$f")"
   [[ "$url" == https://* ]] || { status error "$current" "$latest" "release has no $f"; exit 1; }
   curl -fsSL --proto '=https' --max-time 300 -o "$work/$f" "$url" || { status error "$current" "$latest" "download of $f failed"; exit 1; }
 done
+progress 35 verify
 (cd "$work" && grep -E " \./(image\.txt|$bundle)$" SHA256SUMS | sha256sum -c --quiet -) ||
   { status error "$current" "$latest" "checksum mismatch"; exit 1; }
 image="$(head -1 "$work/image.txt")"
 [[ "$image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]] || { status error "$current" "$latest" "bad image reference"; exit 1; }
 
+progress 40 image
 if ! out="$(docker pull -q "$image" 2>&1)"; then
   # A package that is still private on ghcr.io answers "unauthorized".
   case "$out" in
@@ -161,6 +179,7 @@ if ! out="$(docker pull -q "$image" 2>&1)"; then
   log "$out"
   exit 1
 fi
+progress 70 install
 docker tag sentinela:local sentinela:previous
 cp -a "$DIR/deploy" "$work/deploy.previous"
 cp -a "$DIR/scripts" "$work/scripts.previous"
@@ -187,6 +206,7 @@ if ! (cd "$DIR/deploy" && SENTINELA_VERSION="$latest" SENTINELA_DOCKER_GID="$(ge
   exit 1
 fi
 (cd "$DIR/deploy" && docker compose restart go2rtc >/dev/null) || true
+progress 85 restart
 for _ in $(seq 1 45); do
   if (cd "$DIR/deploy" && docker compose exec -T sentinela /usr/local/bin/sentinela healthcheck >/dev/null 2>&1); then
     log "updated to $latest"

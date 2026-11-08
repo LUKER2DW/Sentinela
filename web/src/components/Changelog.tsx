@@ -113,6 +113,8 @@ interface UpdatesInfo {
   last: UpdateLast | null;
   /** A check or install asked for and not yet picked up by the host. */
   pending: boolean;
+  /** Set while the host installs an update: how far it is and what it is doing. */
+  progress?: { percent: number; step: string } | null;
   /** The Android app the server offers to phones, and its last check. */
   app: { offered?: string; checked?: string; error?: string };
   host: boolean;
@@ -127,6 +129,14 @@ const stateText: Record<UpdateLast["state"], string> = {
   major: t("There is a new version with big changes: read the notes and allow major versions to install"),
   failed: t("The last update failed and was rolled back"),
   error: t("Could not check"),
+};
+
+const stepText: Record<string, string> = {
+  download: t("Downloading the update files"),
+  verify: t("Checking the downloads"),
+  image: t("Downloading the server image"),
+  install: t("Installing"),
+  restart: t("Restarting the server and checking it"),
 };
 
 const hours = Array.from({ length: 24 }, (_, h) => `${String(h).padStart(2, "0")}:00`);
@@ -150,14 +160,18 @@ export function UpdatesCard({ s, admin }: { s: SystemInfo; admin: boolean }) {
   const [watching, setWatching] = useState(false);
   useEffect(() => {
     if (!watching) return;
-    const id = window.setTimeout(() => setWatching(false), 120_000);
+    const id = window.setTimeout(() => setWatching(false), 600_000);
     return () => window.clearTimeout(id);
   }, [watching]);
+  // An update running (started here or elsewhere) is followed every second.
+  const running = !!q.data?.progress || q.data?.last?.state === "updating";
+  const following = watching || running;
   const fast = useQuery({
     queryKey: ["updates", "watch"],
     queryFn: () => get<UpdatesInfo>("/api/updates"),
-    enabled: admin && watching,
-    refetchInterval: 3_000,
+    enabled: admin && following,
+    refetchInterval: 1_000,
+    retry: true,
   });
   const check = useMutation({
     mutationFn: (install: boolean) => api("POST", "/api/updates/check", { install }),
@@ -168,7 +182,7 @@ export function UpdatesCard({ s, admin }: { s: SystemInfo; admin: boolean }) {
     onError: (e: Error) => toast(t("Updates: {message}", { message: e.message }), true),
   });
   const [confirmInstall, setConfirmInstall] = useState(false);
-  const info = (watching && fast.data) || q.data;
+  const info = (following && fast.data) || q.data;
   const st = info?.settings;
   const last = (info?.last ?? (s.update?.last as UpdateLast | null | undefined)) || null;
   const set = (patch: Partial<UpdateSettings>) => st && save.mutate({ ...st, ...patch });
@@ -230,6 +244,33 @@ export function UpdatesCard({ s, admin }: { s: SystemInfo; admin: boolean }) {
               </button>
             )}
           </div>
+          {(info?.progress || last?.state === "updating") && (
+            <div className="update-progress" role="status">
+              <div className="update-progress-head">
+                <span>{info?.progress ? stepText[info.progress.step] ?? t("Updating") : fast.isError ? t("Restarting the server and checking it") : t("Updating")}</span>
+                <span className="muted small">{info?.progress ? `${info.progress.percent}%` : ""}</span>
+              </div>
+              <div
+                className="progress-track"
+                role="progressbar"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={info?.progress?.percent ?? 90}
+                aria-label={t("Update progress")}
+              >
+                <div className="progress-fill" style={{ width: `${info?.progress?.percent ?? 90}%` }} />
+              </div>
+              <p className="muted small">{t("Live view and recording pause for a few seconds near the end. This page reconnects by itself.")}</p>
+            </div>
+          )}
+          {last?.state === "updated" && info?.version && info.version !== s.version && (
+            <p className="notice">
+              {t("Updated to {version}.", { version: info.version })}{" "}
+              <button className="btn small" onClick={() => window.location.reload()}>
+                {t("Reload the page")}
+              </button>
+            </p>
+          )}
           {confirmInstall && last?.latest && (
             <div className="dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="upd-title" onClick={(e) => e.target === e.currentTarget && setConfirmInstall(false)}>
               <div className="dialog">

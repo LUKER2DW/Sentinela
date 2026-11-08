@@ -7,6 +7,24 @@ All notable changes to Sentinela. The format follows
 
 ## [Unreleased]
 
+## [1.2.2] - 2026-11-08
+
+### Added
+- System → Updates shows a progress bar while an update installs (download,
+  checks, image, install, restart), follows it every second, survives the
+  server restart and offers to reload the page when it is done.
+
+### Fixed
+- *Check for updates* no longer stays on "Checking…" for minutes: a request
+  the host missed is picked up within seconds (safety-net timer), a request
+  older than two minutes stops counting as pending, and the check is about
+  3 s faster (the server writes its own version instead of the updater
+  starting a container to ask for it).
+- The copy buttons (pairing code, addresses, invite link) did nothing on
+  `http://` pages and inside the Android app, where the browser clipboard is
+  not available; they now fall back to the older copy command and say when
+  copying failed.
+
 ## [1.2.1] - 2026-11-08
 
 ### Added
@@ -131,7 +149,8 @@ The first public release. Highlights of what is in it:
   with checksum checks and automatic rollback; System → Updates shows
   the schedule and these notes.
 
-[Unreleased]: https://github.com/LUKER2DW/Sentinela/compare/v1.2.1...HEAD
+[Unreleased]: https://github.com/LUKER2DW/Sentinela/compare/v1.2.2...HEAD
+[1.2.2]: https://github.com/LUKER2DW/Sentinela/compare/v1.2.1...v1.2.2
 [1.2.1]: https://github.com/LUKER2DW/Sentinela/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/LUKER2DW/Sentinela/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/LUKER2DW/Sentinela/compare/v1.1.0...v1.1.1

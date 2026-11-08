@@ -1,0 +1,13 @@
+[Unit]
+Description=Pick up a "check for updates" the path unit missed (ADR-0023)
+
+[Timer]
+# The path unit answers at once; this is the safety net, so a request never
+# waits more than a few seconds (the service skips when there is no request).
+OnBootSec=1min
+OnUnitInactiveSec=15s
+AccuracySec=1s
+Unit=sentinela-update-request.service
+
+[Install]
+WantedBy=timers.target

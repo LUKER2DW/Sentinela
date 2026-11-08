@@ -3,6 +3,7 @@ Description=Sentinela update check asked from the dashboard (ADR-0023)
 Wants=network-online.target
 After=network-online.target docker.service
 Requires=docker.service
+ConditionPathExists=/data/updates/request
 
 [Service]
 Type=oneshot

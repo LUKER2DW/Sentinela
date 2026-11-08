@@ -77,8 +77,9 @@ func (s *Server) getUpdates(w http.ResponseWriter, _ *http.Request) {
 		"settings": s.updateSettings(),
 		"last":     hostJSON(s.Cfg.UpdateStatusFile),
 		// A check or install asked for and not yet picked up by the host.
-		"pending": fileExists(filepath.Join(s.updatesDir(), "request")),
-		"app":     app,
+		"progress": s.updateProgress(),
+		"pending":  pendingRequest(filepath.Join(s.updatesDir(), "request")),
+		"app":      app,
 		// The host units are installed by install-server.sh / deploy.sh;
 		// without them (dev machines) the settings have no effect.
 		"host": fileExists(s.Cfg.UpdateUnitsMarker),
@@ -86,6 +87,25 @@ func (s *Server) getUpdates(w http.ResponseWriter, _ *http.Request) {
 }
 
 func fileExists(p string) bool { _, err := os.Stat(p); return err == nil }
+
+// updateProgress is what the host's updater reports while it installs
+// ({percent, step}); nil when no update is running (or a stale file, which a
+// killed run could leave).
+func (s *Server) updateProgress() json.RawMessage {
+	p := filepath.Join(filepath.Dir(s.Cfg.UpdateStatusFile), "update-progress.json")
+	if st, err := os.Stat(p); err != nil || time.Since(st.ModTime()) > 15*time.Minute {
+		return nil
+	}
+	return hostJSON(p)
+}
+
+// pendingRequest: a request the host has not picked up yet. One older than
+// two minutes counts as lost (the host would have answered), so the page
+// does not stay on "Checking…" and the person can ask again.
+func pendingRequest(p string) bool {
+	st, err := os.Stat(p)
+	return err == nil && time.Since(st.ModTime()) < 2*time.Minute
+}
 
 // putUpdates: PUT /api/updates (admin, home or tailnet).
 func (s *Server) putUpdates(w http.ResponseWriter, r *http.Request) {

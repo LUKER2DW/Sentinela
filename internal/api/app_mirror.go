@@ -45,6 +45,9 @@ type ghRelease struct {
 
 // MirrorAppReleases runs until ctx ends; off when app_updates.github is "none".
 func (s *Server) MirrorAppReleases(ctx context.Context) {
+	// The host updater reads the running version from here: much faster than
+	// starting a container to ask the binary (a check took 3 s for that alone).
+	_ = s.writeUpdateFile("version", []byte(Version+"\n"))
 	repo := s.Cfg.AppUpdates.GitHub
 	if repo == "" || repo == "none" {
 		return

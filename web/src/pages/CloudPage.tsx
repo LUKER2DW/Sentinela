@@ -6,11 +6,13 @@ import { Icon } from "../components/Icon";
 import { Whale } from "../components/Doodles";
 import { FileBrowser } from "../components/FileBrowser";
 import { navigate } from "../lib/router";
-import { useSession } from "../lib/session";
+import { useSession, useToast } from "../lib/session";
 
 import { t } from "../lib/i18n";
+import { copyText } from "../lib/clipboard";
 export function CopyField({ value, label }: { value: string; label: string }) {
   const [done, setDone] = useState(false);
+  const toast = useToast();
   return (
     <div className="copy-field">
       <code aria-label={label}>{value}</code>
@@ -19,7 +21,8 @@ export function CopyField({ value, label }: { value: string; label: string }) {
         title={t("Copy")}
         aria-label={t("Copy {label}", { label })}
         onClick={() => {
-          void navigator.clipboard?.writeText(value).then(() => {
+          void copyText(value).then((ok) => {
+            if (!ok) return toast(t("Could not copy."), true);
             setDone(true);
             window.setTimeout(() => setDone(false), 1500);
           });
