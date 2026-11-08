@@ -16,6 +16,21 @@ The rules behind every step are in [AGENTS.md](../AGENTS.md),
 [SECURITY.md](SECURITY.md) and the ADRs. Do not skip the security steps:
 camera firmware is untrusted and the server holds the cameras' credentials.
 
+> [!NOTE]
+> **Short version:** mount the recordings disk at `/data`, run
+> `sudo ./scripts/install-server.sh`, open `http://<server>:8080` and follow
+> the setup guide. Sections 1–5 are the long version.
+
+**Contents**
+
+| Getting it running | Day to day | Optional |
+|---|---|---|
+| [1. What you need](#1-what-you-need) | [11. Updating](#11-updating) | [6. LAN file share (Cloud)](#6-lan-file-share-cloud) |
+| [2. Prepare the cameras](#2-prepare-the-cameras) | [12. More cameras](#12-more-cameras) | [8. Remote access](#8-remote-access) |
+| [3. Prepare the server](#3-prepare-the-server) | [14. Backups](#14-backups) | [9. Notifications](#9-notifications) |
+| [4. Install Sentinela](#4-install-sentinela) | [15. Checks and troubleshooting](#15-checks-and-troubleshooting) | [10. Android app](#10-android-app) |
+| [5. First login](#5-first-login) | [7. Reliability and hardening](#7-reliability-and-hardening) | [13. Self-hosted services](#13-self-hosted-services-optional) |
+
 ---
 
 ## 1. What you need
@@ -147,11 +162,13 @@ from releases or are built on a development PC (section 11).
 1. Open `http://192.168.1.10:8080` on the LAN. The first visit creates the
    **admin** account, then a setup guide walks you through adding the
    cameras (any brand; ONVIF finds the streams), recording, the file share,
-   remote access, the app and two-step login. Every step can be skipped.
+   self-hosted services, remote access, the app and two-step login. Every
+   step can be skipped; the Cloud and Services tabs appear only once they
+   are set up.
 2. Two-step login (TOTP) is optional and recommended if you open access from
    the internet; enroll it from home in **System → My account**.
-3. Check **Live** (*Live*): the picture should open in about a second.
-4. After 5–10 minutes, check **Recordings** (*Recordings*): the day ribbon
+3. Check **Live**: the picture should open in about a second.
+4. After 5–10 minutes, check **Recordings**: the day ribbon
    fills and playback works.
 5. Create the other people's accounts in **System → Users** (*System →
    Users*, desktop): *viewer* (cameras, recordings and events),

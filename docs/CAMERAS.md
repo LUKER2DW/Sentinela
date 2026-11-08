@@ -6,7 +6,7 @@ video, so the camera's own stream goes to disk and to your screen as-is.
 
 ## Adding a camera
 
-In the browser: **System → Cameras → Configure cameras → Add camera**
+In the browser: **System → Cameras → Camera settings → Add camera**
 (or the first-run guide). Type the camera's address, user and password, then:
 
 - **Most cameras (ONVIF):** press **Find the streams over ONVIF**. The
@@ -14,8 +14,8 @@ In the browser: **System → Cameras → Configure cameras → Add camera**
   picture becomes the main stream, the next one the light stream used for
   grids and phones. Turn ONVIF on in the camera's own settings if it is off;
   some brands need a separate ONVIF user.
-- **A brand with a preset:** pick it under *Marca* and no paths are needed.
-- **Anything else:** choose *Any camera* and type the stream paths
+- **A brand with a preset:** pick it under *Brand* and no paths are needed.
+- **Anything else:** choose *Any camera (ONVIF / RTSP)* and type the stream paths
   yourself (see the table below or the camera's manual).
 
 Save: the server checks the settings, keeps a backup, applies them and rolls
