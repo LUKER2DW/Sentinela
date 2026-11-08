@@ -4,6 +4,13 @@ import { setZone } from "./access";
 import { LivePlayer, WEBRTC_MAX_DELAY, catchUpRate, persistentlyLate, webrtcRecentlyFailed, type PlayerOptions } from "./player";
 
 vi.mock("./api", () => ({ api: vi.fn() }));
+// The converter is mocked: a test can hand out a conversion slot.
+vi.mock("./hevcFallback", async (orig) => ({
+  ...(await orig<typeof import("./hevcFallback")>()),
+  takeConversionSlot: vi.fn(async () => null),
+  resetConverter: vi.fn(async () => {}),
+}));
+import { takeConversionSlot } from "./hevcFallback";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -112,6 +119,10 @@ function fakeVideo() {
     play: vi.fn(async () => {}),
     load: vi.fn(),
     removeAttribute: vi.fn(),
+    readyState: 0,
+    videoWidth: 0,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
   };
 }
 
@@ -497,6 +508,33 @@ describe("live-edge guard", () => {
 });
 
 describe("H.265 in a browser without it (ADR-0026)", () => {
+  it("does not call a conversion that never shows a frame playing, and moves on to the substream", async () => {
+    const orig = FakeMediaSource.isTypeSupported;
+    FakeMediaSource.isTypeSupported = (t?: string) => !String(t).includes("hvc1");
+    vi.mocked(takeConversionSlot).mockResolvedValueOnce({ release: vi.fn() });
+    try {
+      const { player, status } = createPlayer();
+      const ws = await connect(player);
+      ws.receive(JSON.stringify({ type: "error", value: "codecs not matched" }));
+      await flush();
+      await flush();
+      // Second try: the main stream, converted here; H.265 is asked for.
+      const ws2 = FakeSocket.instances.at(-1)!;
+      ws2.open();
+      await flush();
+      expect(JSON.parse(ws2.sent.at(-1)!).value).toContain("hvc1");
+      ws2.receive(JSON.stringify({ type: "mse", value: 'video/mp4; codecs="hvc1.1.6.L153.B0"' }));
+      FakeMediaSource.instances.at(-1)!.open();
+      expect(status).not.toHaveBeenLastCalledWith(expect.objectContaining({ state: "playing" }));
+      // No converted frame within the deadline: next fallback, the substream.
+      await vi.advanceTimersByTimeAsync(15_000);
+      await flush();
+      expect(vi.mocked(api).mock.calls.at(-1)?.[1]).toContain("stream=sub");
+    } finally {
+      FakeMediaSource.isTypeSupported = orig;
+    }
+  });
+
   it("asks only for what the browser plays, then falls back to the H.264 substream", async () => {
     const orig = FakeMediaSource.isTypeSupported;
     FakeMediaSource.isTypeSupported = (t?: string) => !String(t).includes("hvc1");

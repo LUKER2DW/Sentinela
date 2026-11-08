@@ -68,6 +68,9 @@ export function webrtcSupportsH265(): boolean {
 const transportKey = () => `sentinela.webrtcFailedAt.${getZone()}`;
 const TRANSPORT_TTL = 10 * 60_000;
 const MAX_QUEUE_MS = 2_000;
+/** How long a converted stream may take to show its first frame (the first
+ *  GOP also loads the converter) before the next fallback is tried. */
+const CONVERT_FIRST_FRAME_MS = 15_000;
 const MAX_QUEUE_BYTES = 8 * 1024 * 1024;
 
 // Live-edge guard for WebRTC. The camera's Wi-Fi delivers every 150 KB
@@ -509,8 +512,15 @@ export class LivePlayer {
           this.sb = sb;
           this.pump();
           void this.video.play().catch(() => {});
-          this.retry = 0;
-          this.emit({ state: "playing", transport: "mse" });
+          if (this.hevcMode === "convert") {
+            // Converting: "playing" only once a converted frame is there, so
+            // the view's stall watchdog does not restart the first (slower)
+            // GOP; none within the deadline moves to the next fallback.
+            this.awaitConvertedFrame(ms);
+          } else {
+            this.retry = 0;
+            this.emit({ state: "playing", transport: "mse" });
+          }
         } catch {
           if (this.hevcMode === "convert") void this.hevcFallback(t("conversion failed"));
           else this.scheduleRetry(t("codec not supported"));
@@ -518,6 +528,25 @@ export class LivePlayer {
       },
       { once: true },
     );
+  }
+
+  private convertTimer?: number;
+
+  private awaitConvertedFrame(ms: MediaSource) {
+    const v = this.video;
+    const shown = () => {
+      if (ms !== this.ms) return;
+      window.clearTimeout(this.convertTimer);
+      this.retry = 0;
+      this.emit({ state: "playing", transport: "mse" });
+    };
+    if (v.readyState >= 2 && v.videoWidth > 0) return shown();
+    v.addEventListener("loadeddata", shown, { once: true });
+    window.clearTimeout(this.convertTimer);
+    this.convertTimer = window.setTimeout(() => {
+      v.removeEventListener("loadeddata", shown);
+      if (ms === this.ms && this.hevcMode === "convert") void this.hevcFallback(t("conversion failed"));
+    }, CONVERT_FIRST_FRAME_MS);
   }
 
   /** The buffer fell behind: reopen from a fresh keyframe. While converting,
@@ -638,6 +667,7 @@ export class LivePlayer {
 
   private teardown() {
     this.gen++;
+    window.clearTimeout(this.convertTimer);
     window.clearTimeout(this.fallbackTimer);
     window.clearTimeout(this.lagTimer);
     this.lagSamples = [];

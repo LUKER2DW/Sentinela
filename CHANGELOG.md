@@ -7,6 +7,19 @@ All notable changes to Sentinela. The format follows
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-11-08
+
+### Fixed
+- Live view converted in the browser could stay black ("H.265 → H.264
+  here" with no picture): it said "live" before the first converted frame,
+  so the stall watchdog restarted it every few seconds, before the first
+  (slower) frames of a large main stream were ready. It now shows
+  "connecting" until a converted frame is there, and when none arrives in
+  15 seconds (or the browser's encoder refuses the size), it moves on to
+  the substream.
+- The H.265 fallback's console log no longer includes text from the video
+  server (CodeQL). golang.org/x/net 0.62.0.
+
 ## [1.5.0] - 2026-11-08
 
 ### Added
@@ -214,7 +227,8 @@ The first public release. Highlights of what is in it:
   with checksum checks and automatic rollback; System → Updates shows
   the schedule and these notes.
 
-[Unreleased]: https://github.com/LUKER2DW/Sentinela/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/LUKER2DW/Sentinela/compare/v1.5.1...HEAD
+[1.5.1]: https://github.com/LUKER2DW/Sentinela/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/LUKER2DW/Sentinela/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/LUKER2DW/Sentinela/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/LUKER2DW/Sentinela/compare/v1.2.2...v1.3.0
