@@ -63,7 +63,7 @@ object detection · a file server for the house · one Android app for every hom
 
 ## Features
 
-| | |
+| Area | What you get |
 |---|---|
 | **Live view** | WebRTC with MSE fallback, main and sub streams, grids and full screen, zoom, a delay meter. Push-to-talk on cameras with a speaker. |
 | **Camera control** | PTZ with press-and-hold, saved positions and **preset tours**, white light and day/night (XMEye, over an allow-listed DVRIP driver). Each camera declares what it has; missing controls are hidden. |
