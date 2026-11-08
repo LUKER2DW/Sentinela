@@ -30,6 +30,8 @@ export interface SettingsCamera {
   ptz: boolean;
   light: boolean;
   talk: boolean;
+  /** Where motion comes from: auto (ONVIF events while they flow, else the video), camera or video. */
+  motion: string;
   user?: string;
   password?: string;
 }
@@ -276,6 +278,7 @@ const blankCamera = (n: number): SettingsCamera => ({
   ptz: true,
   light: true,
   talk: false,
+  motion: "auto",
   user: "admin",
   password: "",
 });
@@ -365,6 +368,15 @@ export function CamerasEditor() {
                     <NumField label={t("RTSP port")} min={1} max={65535} value={c.rtsp_port} onChange={(n) => setCam(i, { rtsp_port: n })} />
                     {c.vendor === "xmeye" && <NumField label={t("DVRIP port")} min={1} max={65535} value={c.dvrip_port} onChange={(n) => setCam(i, { dvrip_port: n })} />}
                     <NumField label={t("ONVIF port (events)")} min={0} max={65535} value={c.onvif_port} onChange={(n) => setCam(i, { onvif_port: n })} hint={t("0 = brand default.")} />
+                    <label className="field">
+                      <span>{t("Motion detection")}</span>
+                      <select className="input" value={c.motion || "auto"} onChange={(e) => setCam(i, { motion: e.target.value })}>
+                        <option value="auto">{t("Automatic (the camera, else the video)")}</option>
+                        <option value="camera">{t("From the camera (ONVIF events)")}</option>
+                        <option value="video">{t("From the video")}</option>
+                      </select>
+                      <span className="muted small">{t("Cameras that send no motion events (RTSP only) get it from the video.")}</span>
+                    </label>
                     <NumField label={t("Keep for (days)")} min={0} value={c.retention_days} onChange={(n) => setCam(i, { retention_days: n })} hint={t("0 = until the disk is full.")} />
                   </div>
                   <div className="settings-checks">

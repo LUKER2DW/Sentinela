@@ -1550,4 +1550,9 @@ export const ptBR: Record<string, string> = {
   "Has a white light": "Tem luz branca",
   "Has a speaker (hold to talk)": "Tem alto-falante (aperte para falar)",
   "Has a speaker (hold to talk, over the camera's ONVIF/RTSP two-way audio)": "Tem alto-falante (aperte para falar, pelo áudio bidirecional ONVIF/RTSP da câmera)",
+  "Motion detection": "Detecção de movimento",
+  "Automatic (the camera, else the video)": "Automático (a câmera; se não, o vídeo)",
+  "From the camera (ONVIF events)": "Da câmera (eventos ONVIF)",
+  "From the video": "Do vídeo",
+  "Cameras that send no motion events (RTSP only) get it from the video.": "Câmeras que não mandam eventos de movimento (só RTSP) usam o vídeo.",
 };

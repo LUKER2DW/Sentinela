@@ -3,7 +3,14 @@
 Motion-gated: the camera's own motion events (ONVIF, already in Sentinela)
 wake it up. While a camera has no motion the substream is only demuxed
 (no decoding); when motion starts, each keyframe (one every ~2 s) is
-decoded and run through YOLO26n until 10 s after the motion ends. People,
+decoded and run through YOLO26n until 10 s after the motion ends.
+
+Cameras that report no motion (RTSP only, or ONVIF events not flowing;
+the server says which, "video_motion") get it from the video instead: each
+keyframe is decoded, shrunk to a 64x36 grey picture and compared with a slow
+background (MotionGate). That motion opens "motion" events of its own and
+wakes the object detection the same way. It costs ~2.3 % of one core per
+camera, measured on the minimum host (ADR-0016, 2026-11-08). People,
 vehicles and animals whose feet/base are inside a zone that watches that
 kind of object become events; a tree moving or a car on the street outside
 the zones does not. With zones, only the part of the picture around them
@@ -287,6 +294,83 @@ class Tracker:
         return None
 
 
+# ---------- motion from the video (cameras that report none) ----------
+
+MOTION_GRID = (64, 36)  # width, height of the picture compared for motion
+
+
+def small_gray(frame):
+    """The keyframe as a MOTION_GRID grey picture with its mean brightness
+    removed (a cloud or the evening light shifts every pixel alike)."""
+    w, h = MOTION_GRID
+    g = frame.reformat(width=w, height=h, format="gray", interpolation="AREA").to_ndarray().astype(np.float32)
+    return g - g.mean()
+
+
+def motion_mask(zones, w=MOTION_GRID[0], h=MOTION_GRID[1]):
+    """Cells of the motion grid that matter: the zones' bounding box, with
+    room above for the bodies standing on them (as roi), or None (all)."""
+    if not zones:
+        return None
+    xs = [p[0] for z in zones for p in z["points"]]
+    ys = [p[1] for z in zones for p in z["points"]]
+    x0, x1 = max(0.0, min(xs) - 0.05), min(1.0, max(xs) + 0.05)
+    y0, y1 = max(0.0, min(ys) - HEADROOM), min(1.0, max(ys) + 0.02)
+    m = np.zeros((h, w), dtype=bool)
+    m[int(y0 * h) : max(int(y0 * h) + 1, int(np.ceil(y1 * h))), int(x0 * w) : max(int(x0 * w) + 1, int(np.ceil(x1 * w)))] = True
+    return m
+
+
+class MotionGate:
+    """Motion from keyframes, compared with a slowly updated background.
+
+    A pixel changed by more than `pixel` grey levels counts. Motion starts
+    when `start` of the watched area changed in one keyframe, or `low` in
+    `hits` of the last `window`; it stops after `calm` keyframes below
+    `end`. A change in `flood` of the whole picture is light (the IR
+    switching on, a cloud), not motion: the background is reset instead.
+    Keyframes are ~2 s apart, so a person walking changes plenty."""
+
+    def __init__(self, pixel=18.0, start=0.03, low=0.01, hits=2, window=3, end=0.005, calm=3, rate=0.15, flood=0.5):
+        self.pixel, self.start, self.low, self.hits, self.window = pixel, start, low, hits, window
+        self.end, self.calm, self.rate, self.flood = end, calm, rate, flood
+        self.bg = None
+        self.recent = []
+        self.active = False
+        self.quiet_frames = 0
+        self.last_share = 0.0
+
+    def reset(self):
+        """Forget the background (the camera turned, the stream restarted)."""
+        self.bg, self.recent = None, []
+
+    def update(self, gray, mask=None):
+        """gray: float32 picture of MOTION_GRID with its mean removed.
+        Returns "start", "stop" or None."""
+        if self.bg is None or self.bg.shape != gray.shape:
+            self.bg = gray.copy()
+            return None
+        changed = np.abs(gray - self.bg) > self.pixel
+        whole = float(changed.mean())
+        area = float(changed[mask].mean()) if mask is not None and mask.any() else whole
+        self.last_share = area
+        if whole >= self.flood:
+            self.bg, self.recent = gray.copy(), []
+            return None
+        self.bg += self.rate * (gray - self.bg)
+        self.recent = (self.recent + [area >= self.low])[-self.window :]
+        if not self.active:
+            if area >= self.start or sum(self.recent) >= self.hits:
+                self.active, self.quiet_frames = True, 0
+                return "start"
+            return None
+        self.quiet_frames = self.quiet_frames + 1 if area < self.end else 0
+        if self.quiet_frames >= self.calm:
+            self.active, self.recent = False, []
+            return "stop"
+        return None
+
+
 # ---------- service ----------
 
 
@@ -337,10 +421,25 @@ def encode_jpeg(frame):
     return b"".join(bytes(p) for p in pkts)
 
 
+class Keyframe:
+    """A keyframe packet, decoded at most once and only when someone looks."""
+
+    def __init__(self, cc, pkt):
+        self.cc, self.pkt, self._frame, self._done = cc, pkt, None, False
+
+    def frame(self):
+        if not self._done:
+            self._done = True
+            frames = self.cc.decode(self.pkt)
+            self._frame = frames[-1] if frames else None
+        return self._frame
+
+
 class Camera(threading.Thread):
     def __init__(self, cam, model, api, shared):
         super().__init__(daemon=True, name=cam["id"])
         self.cid, self.model, self.api, self.shared = cam["id"], model, api, shared
+        self.gate = MotionGate()
         self.trackers = {k: Tracker() for k in KINDS}
         self.parked = {k: Parked(DWELL[k]) for k in KINDS}
         self.best = {k: [] for k in KINDS}  # recent (score, frame, hits) for the snapshot
@@ -362,6 +461,7 @@ class Camera(threading.Thread):
                 log.warning("camera %s: %s", self.cid, e)
             self.state["connected"] = self.state["analysing"] = False
             self.close_all()
+            self.end_motion()
             self.stop.wait(backoff)
             backoff = min(backoff * 2, 120)
 
@@ -375,6 +475,7 @@ class Camera(threading.Thread):
             cc.thread_type = "NONE"
             self.state["connected"] = True
             log.info("camera %s: connected", self.cid)
+            self.gate.reset()
             last_key = None
             for pkt in c.demux(st):
                 if self.stop.is_set():
@@ -382,8 +483,18 @@ class Camera(threading.Thread):
                 if not pkt.is_keyframe:
                     continue
                 now = time.time()
+                cfg = self.cfg()
+                key = Keyframe(cc, pkt)
+                self.state["video_motion"] = bool(cfg.get("video_motion"))
+                if cfg.get("video_motion"):
+                    self.watch_motion(key, now, cfg)
+                else:
+                    self.end_motion()  # the camera's own events are back
+                if not cfg.get("detect", True):
+                    self.state["analysing"] = False
+                    continue
                 if not self.learned:  # once: what is already standing there
-                    self.learn(cc, pkt, now)
+                    self.learn(key, now)
                 motion_until = self.shared["motion"].get(self.cid, 0.0)
                 analysing = now <= motion_until + LINGER
                 # Someone is drawing zones: analyse to show the boxes, but
@@ -391,17 +502,41 @@ class Camera(threading.Thread):
                 probing = now <= self.shared["probe"].get(self.cid, 0.0) + 2
                 self.state["analysing"] = analysing or probing
                 if not analysing:
-                    last_key = pkt  # idle: demux only, keep the newest keyframe
+                    last_key = key  # idle: keep the newest keyframe
                     self.close_all()
                     if probing:
-                        self.analyse(cc, pkt, now, events=False)
+                        self.analyse(key, now, events=False)
                     elif self.shown:
                         self.publish(now, [])
                     continue
                 if last_key is not None:  # motion just started: the keyframe before it too
-                    self.analyse(cc, last_key, now)
+                    self.analyse(last_key, now)
                     last_key = None
-                self.analyse(cc, pkt, now)
+                self.analyse(key, now)
+
+    def watch_motion(self, key, now, cfg):
+        """Motion from the video for a camera that reports none: opens and
+        closes "motion" events and wakes the object detection."""
+        frame = key.frame()
+        if frame is None:
+            return
+        if now <= self.shared["quiet"].get(self.cid, 0.0) + 2:
+            self.gate.reset()  # the camera is turning (PTZ): its own movement is not motion
+            return
+        change = self.gate.update(small_gray(frame), motion_mask(cfg.get("zones") or []))
+        self.state["motion_share"] = round(self.gate.last_share, 4)
+        if self.gate.active:
+            self.shared["motion"][self.cid] = now
+        if change:
+            self.report("motion", change, frame if change == "start" else None, [])
+
+    def end_motion(self):
+        """Close a video motion event (stream lost, or the camera's own
+        events took over again)."""
+        if self.gate.active:
+            self.gate.active = False
+            self.report("motion", "stop", None, [])
+        self.gate.reset()
 
     def detect(self, frame, zones, min_score):
         """Objects in the frame, boxes normalised to the whole picture.
@@ -425,14 +560,10 @@ class Camera(threading.Thread):
         objs = self.model.objects(rgb, min_score)
         return [(k, (x0 + x * cw) / fw, (y0 + y * ch) / fh, w * cw / fw, h * ch / fh, s) for k, x, y, w, h, s in objs]
 
-    def decode(self, cc, pkt):
-        frames = cc.decode(pkt)
-        return frames[-1] if frames else None
-
-    def learn(self, cc, pkt, now):
+    def learn(self, key, now):
         """Analyse the first keyframe after connecting: everything already
         standing still there (a parked car) is not news."""
-        frame = self.decode(cc, pkt)
+        frame = key.frame()
         if frame is None:
             return
         self.learned = True
@@ -443,8 +574,8 @@ class Camera(threading.Thread):
             self.parked[kind].learn([o[1:5] for o in objs if o[0] == kind], now)
         self.state["parked"] = sum(len(p.seen) for p in self.parked.values())
 
-    def analyse(self, cc, pkt, now, events=True):
-        frame = self.decode(cc, pkt)
+    def analyse(self, key, now, events=True):
+        frame = key.frame()
         if frame is None:
             return
         cfg = self.cfg()
@@ -546,7 +677,7 @@ def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     api = API(os.environ.get("SENTINELA_API", "http://127.0.0.1:8080"), os.environ.get("TOKEN_FILE", "/data/detector/token"))
     model = Model(os.environ.get("MODEL", "/opt/detector/model.onnx"))
-    shared = {"cams": {}, "motion": {}, "probe": {}}
+    shared = {"cams": {}, "motion": {}, "probe": {}, "quiet": {}}
     threads = {}
     started = time.time()
     next_cfg = 0.0
@@ -561,6 +692,9 @@ def main():
             for cid, active in (m.get("probe") or {}).items():
                 if active:
                     shared["probe"][cid] = now
+            for cid, active in (m.get("quiet") or {}).items():  # PTZ moving the camera
+                if active:
+                    shared["quiet"][cid] = now
             if now >= next_cfg:
                 next_cfg = now + 10  # settings saved in the app apply within 10 s
                 cfg = api.config()

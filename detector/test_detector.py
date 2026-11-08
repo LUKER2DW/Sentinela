@@ -159,5 +159,70 @@ class Stationary(unittest.TestCase):
         self.assertEqual(p.update([self.car], 9), [False])  # left and came back: news
 
 
+class VideoMotion(unittest.TestCase):
+    """MotionGate, on synthetic 64x36 pictures (mean removed, as small_gray)."""
+
+    def scene(self, seed=1):
+        rng = np.random.default_rng(seed)
+        g = rng.normal(0, 30, (36, 64)).astype(np.float32)  # a textured yard
+        return g - g.mean()
+
+    def noisy(self, g, seed):
+        n = g + np.random.default_rng(seed).normal(0, 3, g.shape).astype(np.float32)  # sensor grain
+        return n - n.mean()
+
+    def with_person(self, g, x=30, w=4, h=10):
+        p = g.copy()
+        p[20 : 20 + h, x : x + w] += 120  # ~1.7 % of the picture, much brighter
+        return p - p.mean()
+
+    def test_still_scene_with_grain_is_quiet(self):
+        m, g = d.MotionGate(), self.scene()
+        self.assertEqual([m.update(self.noisy(g, s)) for s in range(20)], [None] * 20)
+
+    def test_person_walking_starts_and_leaving_stops(self):
+        m, g = d.MotionGate(), self.scene()
+        m.update(g)
+        changes = [m.update(self.with_person(g, x=10 + 6 * i)) for i in range(4)]
+        self.assertIn("start", changes[:2])  # two keyframes at most (~4 s)
+        self.assertTrue(m.active)
+        after = [m.update(self.noisy(g, s)) for s in range(6)]
+        self.assertIn("stop", after)
+        self.assertFalse(m.active)
+
+    def test_light_change_everywhere_is_not_motion(self):
+        m, g = d.MotionGate(), self.scene()
+        m.update(g)
+        other = self.scene(seed=99)  # the IR switching: every pixel different
+        self.assertIsNone(m.update(other))
+        self.assertFalse(m.active)
+        self.assertIsNone(m.update(self.noisy(other, 5)))  # the new picture is the background now
+
+    def test_motion_outside_the_zones_is_ignored(self):
+        m, g = d.MotionGate(), self.scene()
+        mask = d.motion_mask([{"points": [[0.7, 0.6], [0.95, 0.6], [0.95, 0.95], [0.7, 0.95]]}])
+        m.update(g, mask)
+        for i in range(4):  # a tree swaying on the left
+            self.assertIsNone(m.update(self.with_person(g, x=2 + i), mask))
+        self.assertFalse(m.active)
+        changes = [m.update(self.with_person(g, x=50 + i, h=12), mask) for i in range(2)]
+        self.assertIn("start", changes)
+
+    def test_reset_relearns(self):
+        m, g = d.MotionGate(), self.scene()
+        m.update(g)
+        m.reset()  # the camera turned (PTZ)
+        self.assertIsNone(m.update(self.scene(seed=7)))  # first picture after a reset only teaches
+        self.assertFalse(m.active)
+
+    def test_mask_geometry(self):
+        self.assertIsNone(d.motion_mask([]))
+        m = d.motion_mask([{"points": [[0.5, 0.5], [0.6, 0.5], [0.6, 0.6]]}])
+        self.assertEqual(m.shape, (36, 64))
+        self.assertTrue(m[int(0.55 * 36), int(0.55 * 64)])  # the zone
+        self.assertTrue(m[int(0.2 * 36), int(0.55 * 64)])  # room above it for a body
+        self.assertFalse(m[int(0.55 * 36), 2])  # far left
+
+
 if __name__ == "__main__":
     unittest.main()

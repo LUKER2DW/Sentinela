@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -239,6 +240,10 @@ type Camera struct {
 	// Features says what the camera has; the UI hides the controls of
 	// what it lacks and the API refuses them. Unset ones follow the vendor.
 	Features CameraFeatures `yaml:"features"`
+	// Motion says where motion comes from: "camera" (its ONVIF events),
+	// "video" (the detector compares keyframes) or "auto" (default: the
+	// camera's events while they flow, the video otherwise).
+	Motion string `yaml:"motion"`
 
 	User     string `yaml:"-"`
 	Password string `yaml:"-"`
@@ -470,6 +475,9 @@ func (c *Config) validate() error {
 			errs = append(errs, fmt.Errorf("camera %s: credentials missing (set %s and %s)", cam.ID, cam.UserEnv, cam.PasswordEnv))
 		}
 		errs = append(errs, cam.validateStream()...)
+		if !slices.Contains([]string{"", MotionAuto, MotionCamera, MotionVideo}, cam.Motion) {
+			errs = append(errs, fmt.Errorf("camera %s: motion must be auto, camera or video", cam.ID))
+		}
 	}
 	return errors.Join(errs...)
 }

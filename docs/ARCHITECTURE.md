@@ -10,7 +10,7 @@ from their original runs; they are not new hardware measurements.
 | `sentinela` | `sentinela serve` container | Auth, SPA/API, camera control, stream proxy, events, Cloud, notification sending and APK feed |
 | `recorder` | `sentinela record`, same image | Separate ffmpeg supervisor, indexing, retention and heartbeat |
 | `go2rtc` | Pinned container | Live WebRTC/MSE, RTSP restream and talk backchannel |
-| `detector` | Motion-gated sidecar, ADR-0016 | Substream keyframes, YOLO26n, zones and event snapshots; CPU capped at 0.15 core, memory 192 MB |
+| `detector` | Motion-gated sidecar, ADR-0016 | Substream keyframes while there is motion (the camera's ONVIF events, or a keyframe motion gate for cameras that send none), YOLO26n (ONNX, 640×352), zones and event snapshots; lowest CPU priority (`cpu_shares: 128`) with a one-core ceiling, memory 192 MB |
 | `apps` | `sentinela apps`, same image, profile `apps` | Self-hosted services agent (ADR-0021): the only container with the Docker socket; loopback API with a token; 0.5 CPU, 128 MB |
 | Tailscale | Host package | Optional private access/administration through HTTPS serve |
 | Samba, wsdd, Avahi | Host packages | LAN shares/discovery, independent of the web user's role model |

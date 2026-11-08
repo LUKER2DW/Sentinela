@@ -45,6 +45,8 @@ type SettingsCamera struct {
 	PTZ   bool `json:"ptz"`
 	Light bool `json:"light"`
 	Talk  bool `json:"talk"`
+	// Motion: auto, camera or video (Camera.Motion).
+	Motion string `json:"motion"`
 	// Credentials: only sent to change them (or for a new camera); the
 	// server never returns them.
 	User     string `json:"user,omitempty"`
@@ -91,7 +93,7 @@ func (s *Server) currentSettings() SettingsDoc {
 			Channel: cam.Channel, RTSPMain: cam.RTSPMain, RTSPSub: cam.RTSPSub, RTSPPort: cam.RTSPPort, DVRIPPort: cam.DVRIPPort,
 			ONVIFPort: cam.ONVIFPort, RetentionDays: cam.RetentionDays, Record: cam.Recording(), RecordAudio: cam.AudioRecording(),
 			Preload: cam.Preload == nil || *cam.Preload, InvertPanTilt: cam.InvertPanTilt,
-			PTZ: cam.HasPTZ(), Light: cam.HasLight(), Talk: cam.HasTalk()})
+			PTZ: cam.HasPTZ(), Light: cam.HasLight(), Talk: cam.HasTalk(), Motion: cam.MotionSource()})
 	}
 	for _, v := range c.Volumes {
 		doc.Volumes = append(doc.Volumes, SettingsVolume{ID: v.ID, Name: v.Name, Path: v.Path, Kind: v.Kind, Share: v.Share})
@@ -200,6 +202,9 @@ func (s *Server) buildCandidate(doc SettingsDoc) ([]byte, map[string]string, err
 			"user_env": userEnv, "password_env": passEnv, "record": c.Record, "record_audio": c.RecordAudio,
 			"preload": c.Preload, "invert_pan_tilt": c.InvertPanTilt, "retention_days": c.RetentionDays,
 			"features": map[string]any{"ptz": c.PTZ, "light": c.Light, "talk": c.Talk}}
+		if c.Motion != "" && c.Motion != config.MotionAuto {
+			cm["motion"] = c.Motion
+		}
 		for k, v := range map[string]int{"channel": c.Channel, "rtsp_port": c.RTSPPort, "dvrip_port": c.DVRIPPort, "onvif_port": c.ONVIFPort} {
 			if v > 0 {
 				cm[k] = v

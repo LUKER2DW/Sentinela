@@ -13,7 +13,7 @@ Android app, in one small Go binary next to go2rtc and FFmpeg.
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Go](https://img.shields.io/github/go-mod/go-version/LUKER2DW/Sentinela)](go.mod)
 
-[Features](#features) · [Screenshots](#screenshots) · [Quick start](#quick-start) · [Cameras](#supported-cameras) · [Android app](#android-app) · [Docs](#documentation) · [Contributing](CONTRIBUTING.md)
+[Features](#features) · [Screenshots](#screenshots) · [Quick start](#quick-start) · [Cameras](#supported-cameras) · [Detection](#motion-and-object-detection) · [Android app](#android-app) · [Docs](#documentation) · [Contributing](CONTRIBUTING.md)
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/live-grid-dark.jpg" />
@@ -65,8 +65,11 @@ cameras to someone else's cloud. Sentinela does neither:
   mount.
 
 **Events, detection and notifications**
-- ONVIF motion and camera alarms; optional object detection (people,
-  vehicles, animals) on the sub stream, inside zones you draw.
+- Motion from the camera's ONVIF events or, for cameras that send none
+  (RTSP only), from the video; tamper alarms; and optional object detection
+  with **YOLO26n** (people, vehicles, animals) on sub-stream keyframes, only
+  while there is motion and inside zones you draw
+  ([how it works](#motion-and-object-detection)).
 - Review queue with snapshots, unseen markers and severities.
 - Web push and Android notifications, per user, with home/away modes and
   an automatic night schedule.
@@ -186,13 +189,81 @@ server then offers to the phones by itself
 |---|:---:|:---:|:---:|
 | Live view, 24/7 recording, timeline, export | ✓ | ✓ | ✓ |
 | Streams found automatically | – | ✓ | ✓ (preset) |
-| Motion and tamper events | – | ✓ | ✓ |
+| Motion events | ✓ (from the video) | ✓ | ✓ |
+| Tamper events | – | ✓ | ✓ |
 | Object detection | ✓ | ✓ | ✓ |
 | PTZ, positions, tours, white light, day/night | – | – | ✓ |
 | Two-way audio | if it has a speaker | if it has a speaker | ✓ |
 
 Hikvision and Dahua/Amcrest also have stream presets. Stream paths for
 common brands and per-camera features are in [docs/CAMERAS.md](docs/CAMERAS.md).
+
+## Motion and object detection
+
+The camera's own motion detection fires on trees, shadows, rain and
+headlights. Sentinela uses it only as a trigger, and an object detector
+decides whether the motion matters.
+
+1. **Motion wakes it.** The camera reports motion over ONVIF. While nothing
+   moves, the detector only reads the sub stream from go2rtc without
+   decoding it, so it costs almost nothing. A camera that sends no motion
+   events (RTSP only, or ONVIF events that stopped) gets motion from the
+   video instead (below).
+2. **Keyframes only.** While motion lasts, and for 10 s after it ends, each
+   keyframe of the sub stream (about one every 2 s) is decoded and analysed,
+   including the keyframe just before the motion began. The main stream is
+   never decoded.
+3. **YOLO26n looks for objects.** People, vehicles (bicycle, car,
+   motorcycle, bus, truck) and animals (cat, dog).
+4. **Zones decide.** An object counts when the bottom centre of its box (the
+   feet or the wheels) is inside a zone that watches its kind. With zones,
+   only the area around them is analysed, enlarged for small objects.
+   Without zones, the whole picture watches people.
+5. **Steady, not jumpy.** With sensitivity *s* (High 0.35, Normal 0.45,
+   Low 0.6), one frame at *s* + 0.15, or two of the last three at
+   *s* − 0.1, start an event; *s* − 0.1 keeps it going. It ends after 12 s
+   without the object. Something that stays in the same place stops counting
+   (vehicles after 30 s, animals after 60 s, people after 5 min), so a
+   parked car does not keep alerting.
+6. **One alert, with a picture.** A person is an alert; vehicles and
+   animals are detections. The analysed frame becomes the event snapshot.
+   While the detector is healthy, plain motion stays on the timeline but no
+   longer notifies.
+
+The live view can draw the boxes over the picture, and the zone editor shows
+whether each object would count before you save.
+
+| | |
+|---|---|
+| Model | [YOLO26n](https://docs.ultralytics.com/models/yolo26/) by Ultralytics, nano size (2.4 M parameters, 40.9 mAP on COCO) |
+| Weights | `yolo26n.pt` from Ultralytics assets v8.4.0, pinned by SHA-256 and downloaded while the image builds |
+| Export | ONNX, opset 17, 640×352 input (the sub stream's 16:9, no padding), with Ultralytics 8.4.165 in a build-only stage |
+| Runtime | ONNX Runtime 1.23.2 on the CPU, one thread; PyAV 18.1.0 for RTSP and HEVC; NumPy 2.5.3; Python 3.12 |
+| Cost | About 0.3 s per analysis, ~15 % of one core while something moves, almost nothing when idle |
+| Limits | Lowest CPU priority (`cpu_shares: 128`, one-core ceiling), 192 MB of memory, read-only, no capabilities |
+
+Good to know:
+
+- A person who crosses the picture in under 2 s can fall between two
+  keyframes, and the sub stream's resolution limits how far away an object
+  can be seen.
+- **Motion from the video.** For a camera that sends no motion events, the
+  detector decodes each sub-stream keyframe, shrinks it to a 64×36 grey
+  picture and compares it with a slowly updated background. Enough change
+  (inside the zones, when there are any) opens a motion event, with a
+  snapshot, and wakes the object detection as above. A change across the
+  whole picture (the IR switching on, a cloud) and the camera's own PTZ
+  moves do not count. It costs about 2.3 % of one core per camera, measured
+  on the minimum host. System → Cameras → *Motion detection* chooses:
+  Automatic (the default: the camera's events while they flow, the video
+  otherwise), From the camera, or From the video.
+- Recording and the API never depend on the detector: if it stops, the
+  camera keeps recording and plain motion alerts come back.
+- The YOLO26 weights are AGPL-3.0. They are not in this repository: the
+  image build downloads and exports them, and the repository stays MIT.
+
+Design, measurements and the models that were compared:
+[ADR-0016](docs/adr/0016-server-person-detector.md).
 
 ## Android app
 
@@ -258,7 +329,7 @@ list is generated from this file, so there is nothing else to keep in sync.
 |---|---|
 | Remote access (Tailscale, public HTTPS) | [INSTALL §8](docs/INSTALL.md#8-remote-access) |
 | Notifications and the Android app | [INSTALL §9–10](docs/INSTALL.md#9-notifications) |
-| Object detection | [ADR-0016](docs/adr/0016-server-person-detector.md) |
+| Object detection | [Motion and object detection](#motion-and-object-detection), [ADR-0016](docs/adr/0016-server-person-detector.md) |
 | Self-hosted services | [INSTALL §13](docs/INSTALL.md#13-self-hosted-services-optional) |
 | Backups and the restore drill | [INSTALL §14](docs/INSTALL.md#14-backups) |
 

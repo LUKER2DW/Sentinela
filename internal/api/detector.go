@@ -167,11 +167,15 @@ func (s *Server) detectorOnly(h http.HandlerFunc) http.Handler {
 }
 
 // detectorConfig: cameras to watch, their substream on go2rtc's loopback
-// RTSP restream, zones and sensitivity.
+// RTSP restream, zones and sensitivity. A camera is listed when object
+// detection is on for it, or when its motion must come from the video
+// (detect false: motion events only).
 func (s *Server) detectorConfig(w http.ResponseWriter, r *http.Request) {
 	type camDTO struct {
 		ID           string   `json:"id"`
 		Stream       string   `json:"stream"`
+		Detect       bool     `json:"detect"`
+		VideoMotion  bool     `json:"video_motion"`
 		MinScore     float64  `json:"min_score"`
 		Zones        []Zone   `json:"zones"`
 		Objects      []string `json:"objects"`
@@ -179,14 +183,16 @@ func (s *Server) detectorConfig(w http.ResponseWriter, r *http.Request) {
 		MinSize      float64  `json:"min_size"`
 	}
 	out := []camDTO{}
-	for _, c := range s.Cfg.Cameras {
+	for i := range s.Cfg.Cameras {
+		c := &s.Cfg.Cameras[i]
 		d := s.detection(r.Context(), c.ID)
-		if !d.Enabled {
+		video := s.videoMotion(c)
+		if !d.Enabled && !video {
 			continue
 		}
 		out = append(out, camDTO{
-			ID: c.ID, Stream: "rtsp://127.0.0.1:8554/" + c.ID + "_sub", MinScore: d.MinScore, Zones: d.Zones,
-			Objects: d.Objects, IgnoreParked: d.IgnoreParked, MinSize: d.MinSize,
+			ID: c.ID, Stream: "rtsp://127.0.0.1:8554/" + c.ID + "_sub", Detect: d.Enabled, VideoMotion: video,
+			MinScore: d.MinScore, Zones: d.Zones, Objects: d.Objects, IgnoreParked: d.IgnoreParked, MinSize: d.MinSize,
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"cameras": out})
@@ -208,7 +214,15 @@ func (s *Server) detectorMotion(w http.ResponseWriter, _ *http.Request) {
 		}
 	}
 	s.det.mu.Unlock()
-	writeJSON(w, http.StatusOK, map[string]any{"motion": m, "probe": probe})
+	// Cameras turning on a PTZ command: motion from their video is the
+	// camera's own movement, so the detector ignores it meanwhile.
+	quiet := map[string]bool{}
+	for _, c := range s.Cfg.Cameras {
+		if s.ptzQuiet.Quiet(c.ID) {
+			quiet[c.ID] = true
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"motion": m, "probe": probe, "quiet": quiet})
 }
 
 // detectorObjects relays what the detector sees in each analysis to the
@@ -254,6 +268,10 @@ func (s *Server) detectorEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	typ, ok := detectorKinds[body.Kind]
+	source := "detector"
+	if body.Kind == "motion" { // motion found in the video (cameras that report none)
+		typ, ok, source = "motion", true, "video"
+	}
 	if !ok || s.Cfg.Camera(body.Camera) == nil || len(body.Objects) > 50 {
 		writeErr(w, http.StatusBadRequest, "unknown camera or kind")
 		return
@@ -265,8 +283,10 @@ func (s *Server) detectorEvent(w http.ResponseWriter, r *http.Request) {
 	id, isOpen := s.det.open[key]
 	s.det.mu.Unlock()
 	switch {
+	case body.Active && !isOpen && typ == "motion" && s.ptzQuiet.Quiet(body.Camera):
+		// The camera is turning: not motion in the scene.
 	case body.Active && !isOpen:
-		meta, _ := json.Marshal(map[string]any{"source": "detector", "objects": body.Objects})
+		meta, _ := json.Marshal(map[string]any{"source": source, "objects": body.Objects})
 		var err error
 		if id, err = s.Store.OpenEvent(ctx, body.Camera, typ, now, string(meta)); err != nil {
 			writeErr(w, http.StatusInternalServerError, "database error")

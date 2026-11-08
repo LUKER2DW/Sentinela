@@ -87,6 +87,9 @@ cameras: []
 #     user_env: GARAGE_USER
 #     password_env: GARAGE_PASS
 #     # invert_pan_tilt: true     # for a unit mounted upside down
+#     # motion: auto             # auto | camera (ONVIF events) | video (the detector
+#     #                          # compares keyframes); auto = the camera's events
+#     #                          # while they flow, the video otherwise
 #     # features:                # what it has; unset = vendor default
 #     #   ptz: false              # fixed camera: no motor (XMEye default true)
 #     #   light: false            # no white light (XMEye default true)

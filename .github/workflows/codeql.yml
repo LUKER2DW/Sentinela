@@ -31,7 +31,9 @@ jobs:
           - {language: go, build-mode: autobuild}
           - {language: javascript-typescript, build-mode: none}
           - {language: python, build-mode: none}
-          - {language: java-kotlin, build-mode: none}
+          # Manual: CodeQL needs the Gradle classpath (Android SDK, Capacitor) to
+          # resolve calls; without a build it reported low analysis quality.
+          - {language: java-kotlin, build-mode: manual}
           - {language: actions, build-mode: none}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -41,6 +43,18 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+      - if: matrix.language == 'java-kotlin'
+        uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+      - if: matrix.language == 'java-kotlin'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
       - uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
           languages: ${{ matrix.language }}
@@ -48,6 +62,14 @@ jobs:
           queries: security-extended
       - if: matrix.build-mode == 'autobuild'
         uses: github/codeql-action/autobuild@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+      # The Android app's Java, compiled with its real dependencies (the
+      # runner image ships the Android SDK). Debug: no signing key needed.
+      - if: matrix.language == 'java-kotlin'
+        working-directory: mobile
+        run: |
+          npm ci --no-audit --no-fund
+          npx cap sync android
+          cd android && ./gradlew :app:compileDebugJavaWithJavac --no-daemon --no-build-cache
       - uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
           category: /language:${{ matrix.language }}

@@ -137,3 +137,48 @@ Detection logic:
   (`objects`, default people), `ignore_parked` (default on) and `min_size`
   (objects shorter than this share of the picture height are ignored).
   Fields an older app does not send keep their stored values.
+
+## Revision (2026-11-08): motion from the video
+
+Cameras that send no ONVIF motion events (RTSP only), and ONVIF cameras
+whose events stop (2026-11-03: three days without motion), never woke the
+detector, so they had neither motion events nor object detection.
+
+**Decision.** A camera's motion source is `motion: auto | camera | video`
+(System → Cameras → Motion detection). Auto, the default, uses the camera's
+ONVIF events while the event watcher reports them flowing, and the video
+when it reports them not flowing or has said nothing two minutes after the
+server started. The server tells the detector per camera (`video_motion`,
+and `detect` for object detection, so a camera with detection off still
+gets motion). For those cameras the detector decodes every sub-stream
+keyframe, shrinks it to 64×36 grey with its mean removed, and compares it
+with a background updated at 15 % per keyframe:
+
+- a pixel counts when it changed by more than 18 grey levels;
+- motion starts at 3 % of the watched area in one keyframe, or 1 % in two
+  of the last three; it ends after three keyframes below 0.5 %;
+- the watched area is the zones' bounding box with room above for bodies
+  (as the detection crop), or the whole picture without zones;
+- 50 % of the whole picture changing is light (IR switching, clouds): the
+  background is reset instead;
+- while a PTZ command moves the camera (`quiet` in the motion poll), the
+  background is reset and nothing counts.
+
+Motion found this way opens `motion` events (`"source": "video"`, with the
+keyframe as snapshot) through the same event endpoint, and wakes the object
+detection exactly like ONVIF motion. The notification rules are unchanged:
+with detection healthy, plain motion stays on the timeline only.
+
+**Budget (measured 2026-11-08, server, 60 s of this camera's sub stream,
+HEVC 800×448, one keyframe every 1.9 s).** Keyframe decode 30.6 ms average
+(34.2 ms max), downscale and comparison 3.0 ms: 2.3 % of one core per
+camera including the demux the detector already did, at the detector's
+lowest CPU priority. Cameras with working ONVIF events are unchanged (no
+decode while idle). A 4-minute dry run of the gate on the same stream (nothing
+stored): 122 keyframes, 2.25 % of one core, 3 motion events of 8–22 s.
+
+**Consequences.** + Any RTSP camera gets motion events and object
+detection; a camera whose ONVIF events break keeps working. − 2.3 % of one
+core per such camera, all the time. − Motion from the video is more
+sensitive than a camera's own: trees inside the watched area can open
+motion events (object detection still decides what alerts).

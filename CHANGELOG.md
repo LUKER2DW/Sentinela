@@ -7,6 +7,15 @@ All notable changes to Sentinela. The format follows
 
 ## [Unreleased]
 
+### Added
+- Motion from the video for cameras that send no motion events (RTSP only,
+  or ONVIF events that stopped): the detector compares sub-stream keyframes,
+  opens motion events and wakes object detection, about 2.3 % of one core per
+  camera. Choose per camera: Motion detection Automatic, From the camera or
+  From the video (`motion` in config.yaml).
+- README: how motion and object detection work, the YOLO26n model and the
+  exact versions used.
+
 ### Fixed
 - A camera that stops answering control requests (for example after a burst of
   PTZ) is no longer hit by every queued request: the server pauses its logins

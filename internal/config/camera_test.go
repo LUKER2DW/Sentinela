@@ -112,3 +112,20 @@ cameras:
 		t.Error("XMEye with talk: backchannel expected")
 	}
 }
+
+func TestCameraMotionSource(t *testing.T) {
+	base := "cameras:\n  - {id: x, host: 10.0.0.2, user_env: U, password_env: P%s}\n"
+	creds := env(map[string]string{"U": "admin", "P": "Pa55word"})
+	c, err := Parse([]byte(strings.Replace(base, "%s", "", 1)), creds)
+	if err != nil || c.Camera("x").MotionSource() != MotionAuto {
+		t.Fatalf("default: %v %v", err, c)
+	}
+	for _, m := range []string{"auto", "camera", "video"} {
+		if c, err := Parse([]byte(strings.Replace(base, "%s", ", motion: "+m, 1)), creds); err != nil || c.Camera("x").MotionSource() != m {
+			t.Errorf("motion %s: %v", m, err)
+		}
+	}
+	if _, err := Parse([]byte(strings.Replace(base, "%s", ", motion: sometimes", 1)), creds); err == nil {
+		t.Error("an unknown motion source was accepted")
+	}
+}

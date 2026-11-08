@@ -72,6 +72,21 @@ func (cam *Camera) HasLight() bool { return cam.HasDVRIP() && orDefault(cam.Feat
 // HasTalk reports whether the camera has a speaker for push-to-talk.
 func (cam *Camera) HasTalk() bool { return orDefault(cam.Features.Talk, cam.HasDVRIP()) }
 
+// Where a camera's motion comes from (Camera.Motion).
+const (
+	MotionAuto   = "auto"
+	MotionCamera = "camera"
+	MotionVideo  = "video"
+)
+
+// MotionSource is Motion with its default (auto).
+func (cam *Camera) MotionSource() string {
+	if cam.Motion == "" {
+		return MotionAuto
+	}
+	return cam.Motion
+}
+
 // HasSubstream reports whether a second, lighter stream is known.
 func (cam *Camera) HasSubstream() bool { return cam.streamPath(1) != "" }
 

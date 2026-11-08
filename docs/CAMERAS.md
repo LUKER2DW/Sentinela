@@ -30,10 +30,17 @@ From a shell instead: `sudo /opt/sentinela/scripts/add-camera.sh` (see
 |---|---|---|---|
 | Live view, 24/7 recording, timeline, export | ✓ | ✓ | ✓ |
 | Streams found automatically | – | ✓ | ✓ (preset) |
-| Motion and tamper events | – | ✓ (ONVIF events) | ✓ |
-| Object detection (people, vehicles, animals) | ✓ (sub stream) | ✓ | ✓ |
+| Motion events | ✓ (from the video) | ✓ (ONVIF events) | ✓ |
+| Tamper events | – | ✓ (ONVIF events) | ✓ |
+| Object detection (people, vehicles, animals) | ✓ | ✓ | ✓ |
 | PTZ, saved positions, tours, white light, day/night | – | – | ✓ (DVRIP) |
 | Two-way audio | ✓ (if `talk: true`) | ✓ (if `talk: true`) | ✓ |
+
+A camera that sends no ONVIF motion events (RTSP only, or events that
+stopped) gets its motion from the video, so it still gets motion events and
+object detection. Choose per camera in System → Cameras → *Motion
+detection* (`motion: auto | camera | video` in config.yaml; see
+[Motion and object detection](../README.md#motion-and-object-detection)).
 
 Each camera says what it has under `features` (System → Cameras: "Has PTZ",
 "Has a white light", "Has a speaker"). The live page shows only those

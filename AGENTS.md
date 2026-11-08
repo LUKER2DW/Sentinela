@@ -23,7 +23,9 @@ holds on that host.
    copy/remux only. Any change that
    decodes video must come with a measured CPU budget and an ADR. Existing
    substream exceptions are event snapshots (ADR-0015) and the motion-gated
-   detector (ADR-0016); timeline previews remain copy-only.
+   detector (ADR-0016), including its keyframe motion gate for cameras that
+   send no motion events (~2.3 % of one core per camera, measured);
+   timeline previews remain copy-only.
 2. **Recording is independent of everything else.** If the API, web UI,
    go2rtc or the database crashes, recording must continue. Recorders are
    supervised ffmpeg processes pulling RTSP directly from the camera.
