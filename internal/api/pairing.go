@@ -39,7 +39,7 @@ func (s *Server) publicCertPin() string {
 }
 
 type pairingOption struct {
-	Kind string `json:"kind"` // tailnet | public | lan
+	Kind string `json:"kind"` // tailnet | public | proxy | lan
 	URL  string `json:"url"`
 	Pin  string `json:"pin,omitempty"`
 	// Code is the short form of Pin (homeCode). A phone given only the
@@ -112,6 +112,15 @@ func publicOrigin(p config.PublicTLS) string {
 	return "https://" + net.JoinHostPort(p.Domain, port)
 }
 
+// outsideURL is the address people use from outside the home: the
+// port-forward's address, else the tunnel's; "" when neither is set.
+func (s *Server) outsideURL() string {
+	if u := publicOrigin(s.Cfg.Remote.Public); u != "" {
+		return u
+	}
+	return strings.TrimRight(s.Cfg.Remote.Proxy.URL, "/")
+}
+
 // appPairing: GET /api/app/pairing → the ways the app can reach this house.
 func (s *Server) appPairing(w http.ResponseWriter, _ *http.Request) {
 	var opts []pairingOption
@@ -135,6 +144,8 @@ func (s *Server) appPairing(w http.ResponseWriter, _ *http.Request) {
 		pin = s.publicCertPin()
 	}
 	add("public", publicOrigin(s.Cfg.Remote.Public), pin)
+	// A tunnel or reverse proxy serves a publicly trusted certificate.
+	add("proxy", strings.TrimRight(s.Cfg.Remote.Proxy.URL, "/"), "")
 	// At home: the same TLS listener on the server's LAN address, with the
 	// same pin. A self-signed certificate is checked by its pin, not by
 	// name, so the LAN address works without internet or the router's NAT

@@ -27,9 +27,9 @@ things. The API container must still not write to `/etc` or hold root
   streams, recreates the services and rolls back when the health check
   fails. The pending files are always removed. The result is shown on the
   page.
-- Not editable here, because they change what is exposed to the internet or
-  what code runs: the public listener (`remote.public`), the services
-  platform (`apps`) and where updates come from.
+- Not editable here, because they change what code runs: the services
+  platform (`apps`) and where updates come from. (Remote access,
+  `remote.public` and `remote.proxy`, became editable with ADR-0025.)
 
 ## Consequences
 

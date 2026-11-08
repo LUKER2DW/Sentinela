@@ -375,7 +375,7 @@ type invitedUser struct {
 
 func (s *Server) invited(u *store.User, code string) invitedUser {
 	out := invitedUser{User: u, InviteCode: code}
-	if base := strings.TrimRight(s.Cfg.Remote.Public.URL, "/"); base != "" && code != "" {
+	if base := s.outsideURL(); base != "" && code != "" {
 		login := u.Username
 		if u.Email != "" {
 			login = u.Email

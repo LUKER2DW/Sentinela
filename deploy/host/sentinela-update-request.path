@@ -2,7 +2,7 @@
 Description=Watch for "check for updates now" from the dashboard
 
 [Path]
-PathChanged=/data/updates/request
+PathExists=/data/updates/request
 Unit=sentinela-update-request.service
 
 [Install]

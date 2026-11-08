@@ -21,13 +21,19 @@ STATE=/var/lib/sentinela
 install_units() {
   install -m 0644 "$DIR"/deploy/host/sentinela-update.service "$DIR"/deploy/host/sentinela-update.timer \
     "$DIR"/deploy/host/sentinela-update-request.service "$DIR"/deploy/host/sentinela-update-request.path \
-    "$DIR"/deploy/host/sentinela-update-request.timer /etc/systemd/system/
+    /etc/systemd/system/
   rm -rf /etc/systemd/system/sentinela-update.timer.d   # old per-hour drop-in
+  # 1.2.2's safety-net timer: the path unit now uses PathExists instead.
+  if [[ -f /etc/systemd/system/sentinela-update-request.timer ]]; then
+    systemctl disable -q --now sentinela-update-request.timer || true
+    rm -f /etc/systemd/system/sentinela-update-request.timer
+  fi
   install -d -o 1000 -g 1000 -m 0755 "$UPDATES"
   install -d -m 0755 "$STATE"
   touch "$STATE/update-units"   # tells the dashboard the units exist
   systemctl daemon-reload
-  systemctl enable -q --now sentinela-update.timer sentinela-update-request.path sentinela-update-request.timer
+  systemctl enable -q --now sentinela-update.timer sentinela-update-request.path
+  systemctl restart sentinela-update-request.path   # picks up PathExists
 }
 
 settings() { # settings ENABLED AT (keeps the other preferences)

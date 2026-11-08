@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/LUKER2DW/sentinela/internal/auth"
 )
@@ -50,6 +51,7 @@ func (s *Server) getOnboarding(w http.ResponseWriter, r *http.Request) {
 		"zone":             zoneFrom(r),
 		"tailnet_url":      s.Cfg.Remote.TailnetURL,
 		"public_url":       publicOrigin(s.Cfg.Remote.Public),
+		"proxy_url":        strings.TrimRight(s.Cfg.Remote.Proxy.URL, "/"),
 		"public_pinned":    s.Cfg.Remote.Public.SelfSigned,
 	})
 }

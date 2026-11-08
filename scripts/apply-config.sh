@@ -81,6 +81,15 @@ if ! (cd "$DIR/deploy" && docker compose up -d --no-build --force-recreate senti
 fi
 for _ in $(seq 1 45); do
   if (cd "$DIR/deploy" && docker compose exec -T sentinela /usr/local/bin/sentinela healthcheck >/dev/null 2>&1); then
+    # The public address follows the settings (ADR-0019): open its ports
+    # when it is on, close them when it is off or its port changed.
+    if docker run --rm --network none -v "$ETC/config.yaml:/etc/sentinela/config.yaml:ro" \
+        --entrypoint /usr/local/bin/sentinela sentinela:local public-ports 2>/dev/null | grep -q .; then
+      touch "$ETC/public-access"
+    else
+      rm -f "$ETC/public-access"
+    fi
+    "$DIR/scripts/firewall.sh" >/dev/null 2>&1 || true
     status applied "backup: config.yaml.bak-$ts"
     exit 0
   fi

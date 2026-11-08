@@ -14,6 +14,8 @@ import { HouseModeCard } from "../components/Notifications";
 import { AppCard } from "../components/AppUpdate";
 import { AppPairingCard } from "../components/AppPairing";
 import { CamerasEditor, RecordingEditor, ServerEditor } from "../components/SettingsEditor";
+import { TailscaleCard } from "../components/TailscaleSetup";
+import { PublicAccessCard, TunnelCard } from "../components/RemoteAccess";
 import { DetectionCard, OverlayCard } from "../components/Detection";
 import { useCompact } from "../lib/viewport";
 import { MoreMenu } from "../components/MoreMenu";
@@ -49,7 +51,7 @@ export function recordingDays(s: SystemInfo): number | null {
   return daily > 0 && s.disk.total > 0 ? Math.max(0, Math.floor(budget / daily)) : null;
 }
 
-type HouseSection = "overview" | "recording" | "cameras" | "detection" | "app" | "server" | "updates" | "users" | "audit";
+type HouseSection = "overview" | "recording" | "cameras" | "detection" | "app" | "remote" | "server" | "updates" | "users" | "audit";
 // The signed-in user's own settings (t("My account")) are one entry of the
 // same menu on computers, all on one page.
 type Section = HouseSection | "me";
@@ -62,6 +64,7 @@ const SECTIONS: { id: Section; label: string; icon: string; admin?: boolean }[] 
   { id: "cameras", label: t("Cameras"), icon: "video" },
   { id: "detection", label: t("Detection"), icon: "scan" },
   { id: "app", label: t("App"), icon: "app" },
+  { id: "remote", label: t("Remote access"), icon: "network", admin: true },
   { id: "server", label: t("Server and disks"), icon: "server" },
   { id: "updates", label: t("Updates"), icon: "refresh" },
   { id: "users", label: t("Users"), icon: "users", admin: true },
@@ -150,14 +153,14 @@ function SectionBody({ section, s, admin }: { section: HouseSection; s: SystemIn
       );
     case "app":
       return (
-        <div className="set-grid single">
+        <div className="sys-cols">
           <AppPairingCard />
           <AppCard />
         </div>
       );
     case "updates":
       return (
-        <div className="stack">
+        <div className="sys-cols even">
           <UpdatesCard s={s} admin={admin} />
           <ChangelogCard />
         </div>
@@ -185,10 +188,12 @@ function SectionBody({ section, s, admin }: { section: HouseSection; s: SystemIn
       );
     case "detection":
       return (
-        <div className="stack">
-          <HouseModeCard />
+        <div className="sys-cols">
           <DetectionCard s={s} />
-          <OverlayCard />
+          <div className="stack">
+            <HouseModeCard />
+            <OverlayCard />
+          </div>
         </div>
       );
     case "server":
@@ -198,6 +203,21 @@ function SectionBody({ section, s, admin }: { section: HouseSection; s: SystemIn
           <div className="grid-2">
             <Server s={s} />
             <Disks s={s} />
+          </div>
+        </div>
+      );
+    case "remote":
+      return (
+        <div className="stack">
+          <p className="muted small remote-intro">
+            {t("Sentinela answers only on the home network until you choose a way in. Tailscale is the simplest and most private; a public address or a tunnel lets any phone in, behind the sign-in screen (turn on two-step verification). You can use more than one.")}
+          </p>
+          <div className="sys-cols even">
+            <TailscaleCard />
+            <div className="stack">
+              <TunnelCard />
+              <PublicAccessCard />
+            </div>
           </div>
         </div>
       );

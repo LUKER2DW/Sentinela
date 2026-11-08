@@ -1,0 +1,9 @@
+[Unit]
+Description=Sentinela Cloudflare Tunnel agent: status, connect (ADR-0025)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/sentinela/scripts/cloudflared-agent.sh
+TimeoutStartSec=15min

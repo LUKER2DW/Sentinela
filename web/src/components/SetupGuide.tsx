@@ -8,6 +8,7 @@ import { CamerasEditor } from "./SettingsEditor";
 import { DeviceNotifyCard } from "./Notifications";
 import { SecurityCard } from "./Security";
 import { AppPairingCard } from "./AppPairing";
+import { TailscaleSetup } from "./TailscaleSetup";
 import { Icon } from "./Icon";
 import { LighthouseMark } from "./Lighthouse";
 
@@ -26,6 +27,7 @@ export interface Onboarding {
   totp: boolean;
   zone: string;
   tailnet_url: string;
+  proxy_url?: string;
   public_url: string;
   public_pinned: boolean;
 }
@@ -282,7 +284,7 @@ function ServicesStep({ o }: { o: Onboarding }) {
 }
 
 function Remote({ o }: { o: Onboarding }) {
-  const none = !o.tailnet_url && !o.public_url;
+  const none = !o.tailnet_url && !o.public_url && !o.proxy_url;
   return (
     <Step title={t("Access from outside the home")}>
       <p className="muted small">
@@ -293,18 +295,22 @@ function Remote({ o }: { o: Onboarding }) {
           <strong>{t("Home only")}</strong>
           <span className="muted small">{t("Nothing exposed. The app only works if the phone is on a VPN to home.")}</span>
         </div>
-        <div className={`remote-choice${o.tailnet_url ? " on" : ""}`}>
+        <div className={`remote-choice wide${o.tailnet_url ? " on" : ""}`}>
           <strong>{t("Tailscale (recommended)")}</strong>
+          <span className="muted small">{t("Private network between your devices, with HTTPS and without opening ports. Set it up here in a few steps, or later in System → Server and disks.")}</span>
+          <TailscaleSetup compact />
+        </div>
+        <div className={`remote-choice${o.proxy_url ? " on" : ""}`}>
+          <strong>{t("Domain with Cloudflare Tunnel or a reverse proxy")}</strong>
           <span className="muted small">
-            {t("Private VPN, without opening ports. On the server:")}{" "}<code>sudo /opt/sentinela/scripts/setup-tailscale.sh</code>{t(", then put the address in")}{" "}<code>remote.tailnet_url</code>.
+            {t("Your own domain, from any phone, without opening ports (works behind CGNAT). Set it up in System → Remote access. Only the sign-in screen is visible from outside; turn on two-step verification.")}
           </span>
-          {o.tailnet_url && <code>{o.tailnet_url}</code>}
+          {o.proxy_url && <code>{o.proxy_url}</code>}
         </div>
         <div className={`remote-choice${o.public_url ? " on" : ""}`}>
           <strong>{t("Router port")}</strong>
           <span className="muted small">
-            {t("Public address with HTTPS, from any phone. On the server:")}{" "}
-            <code>sudo /opt/sentinela/scripts/setup-public.sh</code>{" "}{t("and forward the port on the router. Only the sign-in screen is visible from outside; turn on two-step verification.")}
+            {t("Public address with HTTPS, from any phone: a domain or the home's fixed IP, and a port forwarded on the router. Set it up in System → Remote access. Only the sign-in screen is visible from outside; turn on two-step verification.")}
           </span>
           {o.public_url && (
             <code>

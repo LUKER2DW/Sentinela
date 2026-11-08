@@ -81,10 +81,18 @@ func main() {
 		if cfg, err = config.LoadLayout(*cfgPath); err == nil {
 			err = cfg.WriteGo2RTC(os.Stdout)
 		}
+	case "public-ports":
+		// For scripts/firewall.sh: the internet-facing ports, one per line.
+		var cfg *config.Config
+		if cfg, err = config.LoadLayout(*cfgPath); err == nil {
+			for _, p := range cfg.PublicPorts() {
+				fmt.Println(p)
+			}
+		}
 	case "version":
 		fmt.Println(version)
 	default:
-		err = fmt.Errorf("unknown command %q (serve|record|apps|user|healthcheck|check-config|go2rtc-config|version)", cmd)
+		err = fmt.Errorf("unknown command %q (serve|record|apps|user|healthcheck|check-config|go2rtc-config|public-ports|version)", cmd)
 	}
 	if err != nil {
 		log.Error("fatal", "cmd", cmd, "err", err)
@@ -160,6 +168,11 @@ func serve(ctx context.Context, log *slog.Logger, cfgPath string) error {
 	// ADR-0019 trial: public listeners, mandatory 2FA and the closed door.
 	if l := cfg.Remote.FunnelListen; l != "" {
 		servers = append(servers, &http.Server{Addr: l, Handler: srv.PublicHandler(api.ZoneFunnel)})
+	}
+	// ADR-0025: a reverse proxy or tunnel on this host (Cloudflare Tunnel,
+	// Caddy, nginx...) forwards a domain here; same rules as the port-forward.
+	if p := cfg.Remote.Proxy; p.URL != "" {
+		servers = append(servers, &http.Server{Addr: p.Listen, Handler: srv.PublicHandler(api.ZoneProxy)})
 	}
 	if p := cfg.Remote.Public; p.Domain != "" {
 		var tc *tls.Config

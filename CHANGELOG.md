@@ -7,6 +7,35 @@ All notable changes to Sentinela. The format follows
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-11-08
+
+### Added
+- **System → Remote access**: every way in from outside, set up and checked
+  from the browser (also linked from the welcome guide).
+  - **Tailscale**: step by step with links (account, MagicDNS and HTTPS
+    certificates, auth key). Paste the auth key and the server installs
+    Tailscale, joins your tailnet and publishes the panel over HTTPS; a
+    live checklist shows what is missing, and one click saves the address.
+  - **Public address**: domain or the home's fixed IP, the server's port,
+    the router's port and the certificate, with the router and DNS steps
+    for your values. The firewall opens exactly the chosen ports and closes
+    the old ones.
+  - **Tunnel or reverse proxy** (ADR-0025): your own domain through
+    Cloudflare Tunnel (paste the tunnel's install command; the server
+    installs and runs cloudflared) or any proxy on the server (Caddy, nginx,
+    ngrok...). Everything that arrives through it gets the same protection
+    as the public address. Works behind CGNAT, without opening ports.
+  - *Test from the internet* checks that an address really reaches this
+    server and explains DNS, router, certificate or "another server"
+    problems, with the home's public IP.
+- The app pairing codes and invite links also offer the tunnel's address.
+
+### Changed
+- System pages use the screen's width: cards side by side on wide screens,
+  one column on narrow ones.
+- "Check for updates" requests are watched with `PathExists`, which does
+  not lose a request (1.2.2's 15-second safety-net timer is removed).
+
 ## [1.2.2] - 2026-11-08
 
 ### Added
@@ -149,7 +178,8 @@ The first public release. Highlights of what is in it:
   with checksum checks and automatic rollback; System → Updates shows
   the schedule and these notes.
 
-[Unreleased]: https://github.com/LUKER2DW/Sentinela/compare/v1.2.2...HEAD
+[Unreleased]: https://github.com/LUKER2DW/Sentinela/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/LUKER2DW/Sentinela/compare/v1.2.2...v1.3.0
 [1.2.2]: https://github.com/LUKER2DW/Sentinela/compare/v1.2.1...v1.2.2
 [1.2.1]: https://github.com/LUKER2DW/Sentinela/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/LUKER2DW/Sentinela/compare/v1.1.1...v1.2.0

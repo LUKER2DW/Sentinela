@@ -111,8 +111,9 @@ function rememberWebrtc(ok: boolean) {
 }
 
 export function canTalk(): boolean {
-  // Talk rides WebRTC, which Tailscale Funnel cannot carry (ADR-0019).
-  return window.isSecureContext && !!navigator.mediaDevices?.getUserMedia && getZone() !== "funnel";
+  // Talk rides WebRTC, which Tailscale Funnel and HTTP tunnels cannot carry
+  // (ADR-0019, ADR-0025).
+  return window.isSecureContext && !!navigator.mediaDevices?.getUserMedia && getZone() !== "funnel" && getZone() !== "proxy";
 }
 
 export class LivePlayer {
@@ -192,8 +193,8 @@ export class LivePlayer {
   private pickTransport(): Transport {
     if (this.opts.talk) return "webrtc";
     if (this.opts.prefer) return this.opts.prefer;
-    // Tailscale Funnel carries TCP only: no path for WebRTC media (ADR-0019).
-    if (getZone() === "funnel") return "mse";
+    // Tailscale Funnel and HTTP tunnels carry no WebRTC media (ADR-0019, ADR-0025).
+    if (getZone() === "funnel" || getZone() === "proxy") return "mse";
     const sinceFailure = Date.now() - this.webrtcFailedAt;
     const coolingDown = this.webrtcFailedAt > 0 && sinceFailure >= 0 && sinceFailure < TRANSPORT_TTL;
     if (!coolingDown && !webrtcRecentlyFailed() && webrtcSupportsH265()) return "webrtc";

@@ -1,0 +1,10 @@
+[Unit]
+Description=Refresh the Cloudflare Tunnel status the dashboard shows
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=10min
+Unit=sentinela-cloudflared-agent.service
+
+[Install]
+WantedBy=timers.target

@@ -38,20 +38,22 @@ ufw allow in on tailscale0 to any port 22 proto tcp comment 'tailnet ssh' >/dev/
 # SMB over the tailnet only after per-user passwords >= 12 chars and the
 # owner's approval (PLAN Phase 9):
 #   ufw allow in on tailscale0 to any port 445 proto tcp comment 'tailnet smb'
-# Remote access trial P1 (ADR-0019): only while scripts/setup-public.sh has
-# left its marker. 7443 = the port-forwarded TLS listener (any router WAN
-# port), 7080 = the HTTP-01 answer for the IP certificate, only when
-# remote.public.http01_listen is set (404 for anything else), 8555 = WebRTC
-# media. Any source: internet-facing.
+# Public address (ADR-0019): only while the marker exists (setup-public.sh,
+# or the dashboard's settings via apply-config.sh). The ports come from the
+# config (`sentinela public-ports`): the port-forwarded TLS listener, the
+# HTTP-01 answer when remote.public.http01_listen is set, and 8555 for WebRTC
+# media. Any source: internet-facing. Earlier public rules are removed first,
+# so a changed port or a switched-off address closes the old one. A tunnel or
+# reverse proxy (ADR-0025) needs no rule: it connects to loopback.
+mapfile -t old < <(ufw status numbered | grep 'ADR-0019 P1' | sed -E 's/^\[ *([0-9]+)\].*/\1/' | sort -rn)
+for n in "${old[@]}"; do ufw --force delete "$n" >/dev/null; done
 if [[ -f /etc/sentinela/public-access ]]; then
-  ufw allow 7443/tcp comment 'public https (ADR-0019 P1)' >/dev/null
-  if grep -q '^[[:space:]]*http01_listen:' /etc/sentinela/config.yaml 2>/dev/null; then
-    ufw allow 7080/tcp comment 'public acme http-01 (ADR-0019 P1)' >/dev/null
-  else
-    ufw delete allow 7080/tcp >/dev/null 2>&1 || true
-  fi
-  ufw allow 8555/tcp comment 'public webrtc (ADR-0019 P1)' >/dev/null
-  ufw allow 8555/udp comment 'public webrtc (ADR-0019 P1)' >/dev/null
+  ports="$(docker run --rm --network none -v /etc/sentinela/config.yaml:/etc/sentinela/config.yaml:ro \
+    --entrypoint /usr/local/bin/sentinela sentinela:local public-ports 2>/dev/null || true)"
+  [[ -n "$ports" ]] || ports=$'7443/tcp\n8555/tcp\n8555/udp'   # older image: the defaults
+  while read -r p; do
+    [[ "$p" =~ ^[0-9]{1,5}/(tcp|udp)$ ]] && ufw allow "$p" comment 'public (ADR-0019 P1)' >/dev/null
+  done <<< "$ports"
 fi
 # Quiet unmatched multicast discovery after the explicit LAN allowances.
 # Drops remain in place; these packets simply stop filling the kernel log.

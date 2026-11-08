@@ -12,6 +12,24 @@ set -euo pipefail
 [[ $EUID -eq 0 ]] || { echo "run with sudo" >&2; exit 1; }
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# `setup-tailscale.sh units` (install-server.sh, deploy.sh): only the host
+# units that let the dashboard set Tailscale up and show its status
+# (scripts/tailscale-agent.sh). Installs nothing else and joins nothing.
+install_units() {
+  install -m 0644 "$HERE"/deploy/host/sentinela-tailscale.service "$HERE"/deploy/host/sentinela-tailscale.path \
+    "$HERE"/deploy/host/sentinela-tailscale.timer /etc/systemd/system/
+  install -d -o 1000 -g 1000 -m 0700 "${SENTINELA_DATA:-/data}/tailscale"
+  install -d -m 0755 /var/lib/sentinela
+  touch /var/lib/sentinela/tailscale-units   # tells the dashboard the agent exists
+  systemctl daemon-reload
+  systemctl enable -q --now sentinela-tailscale.path sentinela-tailscale.timer
+  systemctl start --no-block sentinela-tailscale.service || true   # first status
+}
+if [[ "${1:-}" == units ]]; then
+  install_units
+  exit 0
+fi
+
 if ! command -v tailscale >/dev/null; then
   . /etc/os-release
   base="https://pkgs.tailscale.com/stable/${ID}/${VERSION_CODENAME}"
@@ -49,3 +67,4 @@ name="$(tailscale status --json | python3 -c 'import json,sys; print(json.load(s
 echo "Tailscale IPv4: $(tailscale ip -4)"
 echo "Web UI:         https://${name}"
 tailscale serve status
+install_units   # the dashboard shows this status from now on

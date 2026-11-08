@@ -1,0 +1,10 @@
+[Unit]
+Description=Refresh the Tailscale status the dashboard shows
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=10min
+Unit=sentinela-tailscale.service
+
+[Install]
+WantedBy=timers.target

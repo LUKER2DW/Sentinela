@@ -37,9 +37,13 @@ holds on that host.
 4. **Secrets never leave the server.** Camera credentials, RTSP URLs with
    userinfo, session tokens: never in logs, API responses, frontend bundles,
    git, or error messages. Use `internal/auth/redact` helpers.
-5. **No additional public exposure.** Tailscale is the private remote path.
-   Do not add port-forwarding, DDNS or Cloudflare tunnels. **Exception
-   (ADR-0019):** the port-forwarded TLS listener (and the Tailscale Funnel
+5. **Public exposure only through the public zones.** Tailscale is the
+   private remote path. Anything reachable from the internet goes through a
+   listener whose zone is public (closed door, login limits, optional 2FA):
+   the port-forwarded TLS listener (ADR-0019) or the loopback listener for a
+   tunnel or reverse proxy on the host, such as Cloudflare Tunnel, Caddy or
+   nginx (ADR-0025). Never expose another port or bypass that zone.
+   **ADR-0019:** the port-forwarded TLS listener (and the Tailscale Funnel
    listener, currently switched off), behind the closed-door rule, login
    limits and optional per-account 2FA (ADR-0019 amendment, 2026-11-06).
    This is the accepted household path after the trial.

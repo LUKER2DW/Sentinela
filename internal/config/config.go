@@ -144,6 +144,22 @@ type Remote struct {
 	// (e.g. https://sentinela.tail0.ts.net), offered to the Android app's
 	// pairing QR. Optional.
 	TailnetURL string `yaml:"tailnet_url"`
+	// Proxy is a reverse proxy or tunnel on this server (Cloudflare Tunnel,
+	// ngrok, Caddy, nginx...) that forwards a domain to Listen (ADR-0025).
+	// Requests on it are in a public zone, like the port-forward. Optional.
+	Proxy ProxyListener `yaml:"proxy"`
+}
+
+// ProxyListener is where a local reverse proxy or tunnel connects. Empty
+// URL = off.
+type ProxyListener struct {
+	// URL is the public address the proxy serves (https://cam.example.com).
+	URL string `yaml:"url"`
+	// Listen is plain HTTP on loopback; the proxy terminates TLS.
+	Listen string `yaml:"listen"`
+	// Kind is "cloudflare" (the dashboard installs and runs cloudflared) or
+	// "other" (the owner runs the proxy). Informative only.
+	Kind string `yaml:"kind"`
 }
 
 // PublicTLS is the port-forwarded HTTPS listener (P1). Empty Domain = off.
@@ -335,6 +351,10 @@ func (c *Config) applyDefaults() {
 	if c.Remote.Public.Domain != "" {
 		def(&c.Remote.Public.Listen, ":7443")
 	}
+	if c.Remote.Proxy.URL != "" {
+		def(&c.Remote.Proxy.Listen, "127.0.0.1:7444")
+		def(&c.Remote.Proxy.Kind, "other")
+	}
 	def(&c.Apps.Agent, "127.0.0.1:7091")
 	def(&c.Apps.StateDir, "/var/lib/sentinela-apps")
 	def(&c.Apps.Docker, "/var/run/docker.sock")
@@ -423,6 +443,21 @@ func (c *Config) validate() error {
 		// Funnel traffic arrives from tailscaled on this host only.
 		if h, _, err := net.SplitHostPort(l); err != nil || net.ParseIP(h) == nil || !net.ParseIP(h).IsLoopback() {
 			errs = append(errs, errors.New("remote.funnel_listen must be a loopback host:port, e.g. 127.0.0.1:8081"))
+		}
+	}
+	if p := c.Remote.Proxy; p.URL != "" {
+		if u, err := url.Parse(p.URL); err != nil || u.Scheme != "https" || u.Host == "" || (u.Path != "" && u.Path != "/") {
+			errs = append(errs, errors.New("remote.proxy.url must be https://host[:port]"))
+		}
+		// Only a proxy on this server may reach it; the zone stays public.
+		if h, _, err := net.SplitHostPort(p.Listen); err != nil || net.ParseIP(h) == nil || !net.ParseIP(h).IsLoopback() {
+			errs = append(errs, errors.New("remote.proxy.listen must be a loopback host:port, e.g. 127.0.0.1:7444"))
+		}
+		if p.Listen == c.Listen || p.Listen == c.Remote.FunnelListen {
+			errs = append(errs, errors.New("remote.proxy.listen must be a port of its own"))
+		}
+		if p.Kind != "cloudflare" && p.Kind != "other" {
+			errs = append(errs, errors.New("remote.proxy.kind must be cloudflare or other"))
 		}
 	}
 	if u := c.Remote.TailnetURL; u != "" {

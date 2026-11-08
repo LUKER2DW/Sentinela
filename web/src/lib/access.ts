@@ -2,17 +2,17 @@
 import { t } from "./i18n";// How this page reached the server (ADR-0019): the zone comes from the
 // server, by the listener the request arrived on.
 
-export type Zone = "lan" | "tailnet" | "funnel" | "public";
+export type Zone = "lan" | "tailnet" | "funnel" | "public" | "proxy";
 
 let zone: Zone = "lan";
 
 export const setZone = (z: string | undefined) => {
-  if (z === "lan" || z === "tailnet" || z === "funnel" || z === "public") zone = z;
+  if (z === "lan" || z === "tailnet" || z === "funnel" || z === "public" || z === "proxy") zone = z;
 };
 export const getZone = () => zone;
 
 /** Anyone on the internet can reach this path: two-step login applies. */
-export const isPublicZone = (z: Zone = zone) => z === "funnel" || z === "public";
+export const isPublicZone = (z: Zone = zone) => z === "funnel" || z === "public" || z === "proxy";
 
 export function zoneLabel(z: Zone = zone): string {
   switch (z) {
@@ -24,6 +24,8 @@ export function zoneLabel(z: Zone = zone): string {
       return t("Tailscale Funnel (public)");
     case "public":
       return t("Public address of the home");
+    case "proxy":
+      return t("Tunnel or reverse proxy (public)");
   }
 }
 

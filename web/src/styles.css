@@ -2751,9 +2751,9 @@ textarea.input { height: auto; padding: 9px 12px; resize: vertical; line-height:
 .setup-step code { overflow-wrap: anywhere; }
 
 /* App pairing (components/AppPairing.tsx) and remote access choices */
-.pairing-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); margin-top: 12px; }
+.pairing-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); margin-top: 12px; }
 .pairing { margin: 0; display: grid; gap: 10px; justify-items: start; }
-.pairing img { width: 200px; height: 200px; border-radius: var(--r-md); background: #fff; padding: 8px; }
+.pairing img { width: min(180px, 100%); height: auto; aspect-ratio: 1; border-radius: var(--r-md); background: #fff; padding: 8px; }
 .pairing figcaption { display: grid; gap: 6px; width: 100%; }
 .pairing-url { overflow-wrap: anywhere; }
 .remote-choices { display: grid; gap: 10px; margin: 12px 0; }
@@ -2811,3 +2811,38 @@ textarea.input { height: auto; padding: 9px 12px; resize: vertical; line-height:
 .progress-track { height: 8px; border-radius: 999px; background: var(--surface-2, rgba(127, 127, 127, 0.25)); overflow: hidden; }
 .progress-fill { height: 100%; border-radius: 999px; background: var(--accent, #6aa7e8); transition: width 0.6s ease; }
 @media (prefers-reduced-motion: reduce) { .progress-fill { transition: none; } }
+
+/* System pages use the width: a main column and a side column on wide
+   screens, one column below. */
+.sys-cols { display: grid; gap: 24px; grid-template-columns: minmax(0, 3fr) minmax(320px, 2fr); align-items: start; }
+.sys-cols.even { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.sys-cols > .stack { gap: 24px; }
+@media (max-width: 1200px) { .sys-cols, .sys-cols.even { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 760px) { .sys-cols { gap: 16px; } }
+.set-grid.single { grid-template-columns: minmax(0, 1fr); }
+
+/* Tailscale step by step */
+.ts-setup { display: grid; gap: 12px; }
+.ts-checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.ts-check { display: flex; align-items: flex-start; gap: 8px; color: var(--muted); }
+.ts-check svg { width: 16px; height: 16px; flex: none; margin-top: 3px; }
+.ts-check.ok { color: var(--text); }
+.ts-check.ok svg { color: var(--ok, #3fb67b); }
+.ts-check.no svg { color: var(--danger, #e5534b); }
+.ts-check code { overflow-wrap: anywhere; }
+.ts-steps { margin: 0; padding-left: 1.3em; display: grid; gap: 12px; }
+.ts-steps li { display: grid; gap: 4px; }
+.ts-steps a, .ts-done a { overflow-wrap: anywhere; }
+.ts-key { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; margin-top: 4px; }
+@media (max-width: 520px) { .ts-key { grid-template-columns: 1fr; } }
+.ts-error { color: var(--danger, #e5534b); }
+.remote-choice.wide { gap: 8px; }
+
+/* Remote access (System) */
+.remote-intro { max-width: 90ch; margin: 0; }
+.remote-check { display: grid; gap: 8px; justify-items: start; }
+.remote-check .notice { margin: 0; }
+.remote-facts { display: block; margin-top: 4px; }
+.remote-howto { display: grid; gap: 6px; padding: 12px; border-radius: var(--r-md); border: 1px dashed var(--line); margin: 8px 0; }
+.remote-howto ul { margin: 0; padding-left: 1.2em; display: grid; gap: 2px; }
+.remote-snippet { display: block; white-space: pre; overflow-x: auto; padding: 8px 10px; border-radius: var(--r-sm); background: var(--surface-2); font-size: 0.85rem; }

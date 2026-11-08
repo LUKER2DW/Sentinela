@@ -115,6 +115,8 @@ else
 fi
 "${REPO_DIR}/scripts/setup-auto-update.sh" install   # off until turned on in System -> Atualizações
 "${REPO_DIR}/scripts/setup-config-apply.sh"          # settings edited in System
+"${REPO_DIR}/scripts/setup-tailscale.sh" units       # Tailscale from the dashboard (not joined until asked)
+"${REPO_DIR}/scripts/setup-cloudflared.sh" units     # Cloudflare Tunnel from the dashboard (off until asked)
 if [[ "$("${REPO_DIR}/scripts/gen-go2rtc-cameras.sh")" == changed ]]; then
   docker compose restart go2rtc >/dev/null
 fi

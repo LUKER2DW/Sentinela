@@ -43,6 +43,8 @@ export interface SettingsVolume {
   share: string;
 }
 export interface SettingsDoc {
+  /** Remote access (System → Remote access); kept as is by this editor. */
+  remote?: import("./RemoteAccess").SettingsRemote;
   timezone: string;
   nas_host: string;
   tailnet_url: string;

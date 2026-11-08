@@ -22,10 +22,11 @@ const (
 	ZoneTailnet = "tailnet" // listen, peer = `tailscale serve` on loopback
 	ZoneFunnel  = "funnel"  // remote.funnel_listen (Tailscale Funnel), public
 	ZonePublic  = "public"  // remote.public.listen (port-forward + TLS), public
+	ZoneProxy   = "proxy"   // remote.proxy.listen (local reverse proxy or tunnel), public
 )
 
 // PublicZone reports whether anyone on the internet can reach zone z.
-func PublicZone(z string) bool { return z == ZoneFunnel || z == ZonePublic }
+func PublicZone(z string) bool { return z == ZoneFunnel || z == ZonePublic || z == ZoneProxy }
 
 func zoneFrom(r *http.Request) string {
 	if z, _ := r.Context().Value(zoneKey).(string); z != "" {
@@ -242,8 +243,11 @@ func (s *Server) alertOutsideLogin(u *store.User, ip, zone string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	how := "via the domain"
-	if zone == ZoneFunnel {
-		how = "pelo Funnel"
+	switch zone {
+	case ZoneFunnel:
+		how = "via Tailscale Funnel"
+	case ZoneProxy:
+		how = "via the tunnel / reverse proxy"
 	}
 	msg := map[string]any{
 		"title": "Novo acesso de fora de casa",

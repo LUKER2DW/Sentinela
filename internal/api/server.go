@@ -47,6 +47,7 @@ type Server struct {
 	tours       ptzTours      // preset tours, one per camera
 	pubPin      pinState      // public listener's self-signed certificate (app pairing)
 	lanIP       func() string // the server's home-network address (pairing); tests replace it
+	instance    string        // random per process: /.well-known/sentinela (reachability checks)
 	mirrorKick  chan struct{} // "check now" for the app mirror
 	mirrorMu    sync.Mutex
 	mirrorAt    time.Time // last app check (Updates page)
@@ -87,7 +88,7 @@ func New(cfg *config.Config, st *store.Store, web fs.FS, log *slog.Logger) (*Ser
 	if err != nil {
 		return nil, err
 	}
-	s := &Server{Cfg: cfg, Store: st, Log: log, Web: web, Started: time.Now(), FFmpeg: "ffmpeg", lanIP: lanIPv4, mirrorKick: make(chan struct{}, 1),
+	s := &Server{Cfg: cfg, Store: st, Log: log, Web: web, Started: time.Now(), FFmpeg: "ffmpeg", lanIP: lanIPv4, instance: newInstanceID(), mirrorKick: make(chan struct{}, 1),
 		tickets: auth.NewTickets(60 * time.Second), loginRL: auth.NewLimiter(5, time.Minute),
 		acctRL: auth.NewLimiter(10, time.Hour), failRL: auth.NewLimiter(20, time.Hour),
 		go2rtc: g, ctrl: map[string]*dvrip.Controller{}, hub: NewHub(), stateTTL: map[string]cachedState{},
@@ -165,6 +166,7 @@ func (s *Server) handler(zone string) http.Handler {
 	admin := func(h http.HandlerFunc) http.Handler { return s.require(auth.RoleAdmin, h) }
 
 	mux.HandleFunc("GET /healthz", s.healthz)
+	mux.HandleFunc("GET /.well-known/sentinela", s.wellKnown)
 
 	// Auth
 	mux.HandleFunc("GET /api/setup", s.setupStatus)
@@ -198,6 +200,11 @@ func (s *Server) handler(zone string) http.Handler {
 	mux.Handle("GET /api/updates", admin(s.getUpdates))
 	mux.Handle("PUT /api/updates", admin(privateOnly(s.putUpdates)))
 	mux.Handle("POST /api/updates/check", admin(privateOnly(s.checkUpdates)))
+	mux.Handle("GET /api/tailscale", admin(s.getTailscale))
+	mux.Handle("GET /api/remote/check", admin(s.checkRemote))
+	mux.Handle("GET /api/cloudflared", admin(s.getCloudflared))
+	mux.Handle("POST /api/cloudflared", admin(privateOnly(s.postCloudflared)))
+	mux.Handle("POST /api/tailscale", admin(privateOnly(s.postTailscale)))
 	mux.Handle("PUT /api/onboarding", admin(s.putOnboarding))
 	mux.Handle("POST /api/cameras/discover", admin(s.discoverCameras))
 	mux.Handle("POST /api/cameras/test", admin(s.testCamera))

@@ -215,7 +215,15 @@ from crashes and hangs. Also:
 
 ## 8. Remote access
 
+Everything in this section can be done from the dashboard: **System →
+Remote access** (or the welcome guide) walks through Tailscale, a public
+address and a tunnel, shows what is missing and tests each address from the
+internet (ADR-0025). The commands below are the manual way.
+
 ### 8.1 Tailscale (private administration)
+
+In the dashboard: create an auth key in the Tailscale admin console
+(Settings → Keys) and paste it. By hand:
 
 ```bash
 sudo /opt/sentinela/scripts/setup-tailscale.sh
@@ -265,7 +273,36 @@ and the "closed door" hides everything before authentication.
 
 Never forward the camera's ports, SMB, RTSP or go2rtc's API.
 `setup-public.sh disable` closes the ports again (remove the router
-forwards too).
+forwards too). From the dashboard, the domain, both ports and the
+certificate are edited in System → Remote access; the firewall follows.
+
+### 8.3 Your domain through a tunnel or reverse proxy (ADR-0025)
+
+For homes without a public IP (CGNAT), or to avoid opening ports. Requests
+from the tunnel get the same protection as the public address.
+
+- **Cloudflare Tunnel**: in Cloudflare Zero Trust → Networks → Tunnels,
+  create a tunnel (Cloudflared, Debian) and paste its install command in
+  System → Remote access; the server installs and runs `cloudflared`. Add a
+  public hostname (e.g. `cam.example.com`) with service
+  `http://127.0.0.1:7444`, type the address in the dashboard and press
+  *Test from the internet*.
+- **Another proxy** (Caddy, nginx, ngrok…) on the same server: send the
+  domain to `http://127.0.0.1:7444`, keep the Host header, add
+  `X-Forwarded-For` and `X-Forwarded-Proto: https`, allow WebSockets. In
+  `config.yaml`:
+
+  ```yaml
+  remote:
+    proxy:
+      url: https://cam.example.com
+      listen: 127.0.0.1:7444
+      kind: other
+  ```
+
+Live video through a tunnel uses the compatible mode (no WebRTC, no talk).
+Cloudflare decrypts the traffic it carries; Tailscale and the port-forward
+keep TLS end to end.
 
 ---
 

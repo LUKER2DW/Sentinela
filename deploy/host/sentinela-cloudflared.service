@@ -1,0 +1,27 @@
+[Unit]
+Description=Cloudflare Tunnel for Sentinela (ADR-0025)
+Wants=network-online.target
+After=network-online.target
+ConditionPathExists=/etc/sentinela/cloudflared.env
+
+[Service]
+# The token comes from this root-only file, never from the command line.
+EnvironmentFile=/etc/sentinela/cloudflared.env
+ExecStart=/usr/bin/cloudflared tunnel --no-autoupdate --metrics 127.0.0.1:20241 run
+Restart=on-failure
+RestartSec=5
+DynamicUser=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target

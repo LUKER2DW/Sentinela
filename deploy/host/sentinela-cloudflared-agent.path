@@ -1,0 +1,9 @@
+[Unit]
+Description=Watch for Cloudflare Tunnel requests from the dashboard (ADR-0025)
+
+[Path]
+PathExists=/data/cloudflared/request
+Unit=sentinela-cloudflared-agent.service
+
+[Install]
+WantedBy=multi-user.target

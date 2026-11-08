@@ -3,10 +3,12 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -55,12 +57,134 @@ type SettingsCamera struct {
 
 // SettingsDoc is everything the editor may change.
 type SettingsDoc struct {
-	Timezone   string            `json:"timezone"`
-	NASHost    string            `json:"nas_host"`
-	TailnetURL string            `json:"tailnet_url"`
-	Recording  SettingsRecording `json:"recording"`
-	Cameras    []SettingsCamera  `json:"cameras"`
-	Volumes    []SettingsVolume  `json:"volumes"`
+	Timezone   string `json:"timezone"`
+	NASHost    string `json:"nas_host"`
+	TailnetURL string `json:"tailnet_url"`
+	// Remote: the port-forwarded address and the tunnel / reverse proxy
+	// (ADR-0019, ADR-0025). Absent = leave them as they are.
+	Remote    *SettingsRemote   `json:"remote,omitempty"`
+	Recording SettingsRecording `json:"recording"`
+	Cameras   []SettingsCamera  `json:"cameras"`
+	Volumes   []SettingsVolume  `json:"volumes"`
+}
+
+// SettingsRemote is the editable part of remote access.
+type SettingsRemote struct {
+	Public SettingsPublic `json:"public"`
+	Proxy  SettingsProxy  `json:"proxy"`
+}
+
+// SettingsPublic is the port-forwarded HTTPS listener. Domain "" = off.
+type SettingsPublic struct {
+	// Domain is a DNS name pointing at the home, or its fixed public IP.
+	Domain string `json:"domain"`
+	// Port is the server's port the router forwards to (listen).
+	Port int `json:"port"`
+	// URL is what people type from outside (router's WAN port); "" = derived.
+	URL        string `json:"url"`
+	SelfSigned bool   `json:"self_signed"`
+	// HTTP01Port, for an IP certificate when the ISP blocks inbound 443.
+	HTTP01Port int    `json:"http01_port"`
+	Email      string `json:"email"`
+}
+
+// SettingsProxy is a reverse proxy or tunnel on this server. URL "" = off.
+type SettingsProxy struct {
+	URL  string `json:"url"`
+	Port int    `json:"port"`
+	Kind string `json:"kind"` // cloudflare | other
+}
+
+func listenPort(listen string) int {
+	if _, p, err := net.SplitHostPort(listen); err == nil {
+		if n, err := strconv.Atoi(p); err == nil {
+			return n
+		}
+	}
+	return 0
+}
+
+func (s *Server) currentRemote() *SettingsRemote {
+	p, x := s.Cfg.Remote.Public, s.Cfg.Remote.Proxy
+	r := &SettingsRemote{
+		Public: SettingsPublic{Domain: p.Domain, Port: listenPort(p.Listen), URL: p.URL, SelfSigned: p.SelfSigned,
+			HTTP01Port: listenPort(p.HTTP01Listen), Email: p.Email},
+		Proxy: SettingsProxy{URL: x.URL, Port: listenPort(x.Listen), Kind: x.Kind},
+	}
+	if r.Public.Port == 0 {
+		r.Public.Port = 7443
+	}
+	if r.Proxy.Port == 0 {
+		r.Proxy.Port = 7444
+	}
+	if r.Proxy.Kind == "" {
+		r.Proxy.Kind = "cloudflare"
+	}
+	return r
+}
+
+// applyRemote writes doc's remote access into the config map, keeping keys
+// the editor does not know (funnel_listen...).
+func applyRemote(remote map[string]any, r *SettingsRemote) error {
+	if r == nil {
+		return nil
+	}
+	sub := func(key string) map[string]any {
+		v, _ := remote[key].(map[string]any)
+		if v == nil {
+			v = map[string]any{}
+		}
+		return v
+	}
+	port := func(n int, what string) (string, error) {
+		if n < 1024 || n > 65535 {
+			return "", fmt.Errorf("%s must be between 1024 and 65535", what)
+		}
+		return strconv.Itoa(n), nil
+	}
+	p := r.Public
+	if d := strings.TrimSpace(p.Domain); d == "" {
+		delete(remote, "public")
+	} else {
+		pub := sub("public")
+		lp, err := port(p.Port, "the public port")
+		if err != nil {
+			return err
+		}
+		pub["domain"] = d
+		pub["listen"] = ":" + lp
+		set := func(k string, v any, on bool) {
+			if on {
+				pub[k] = v
+			} else {
+				delete(pub, k)
+			}
+		}
+		set("url", strings.TrimRight(strings.TrimSpace(p.URL), "/"), strings.TrimSpace(p.URL) != "")
+		set("self_signed", true, p.SelfSigned)
+		set("email", strings.TrimSpace(p.Email), strings.TrimSpace(p.Email) != "")
+		if p.HTTP01Port != 0 {
+			hp, err := port(p.HTTP01Port, "the certificate (HTTP-01) port")
+			if err != nil {
+				return err
+			}
+			pub["http01_listen"] = ":" + hp
+		} else {
+			delete(pub, "http01_listen")
+		}
+		remote["public"] = pub
+	}
+	x := r.Proxy
+	if u := strings.TrimRight(strings.TrimSpace(x.URL), "/"); u == "" {
+		delete(remote, "proxy")
+	} else {
+		lp, err := port(x.Port, "the tunnel port")
+		if err != nil {
+			return err
+		}
+		remote["proxy"] = map[string]any{"url": u, "listen": "127.0.0.1:" + lp, "kind": x.Kind}
+	}
+	return nil
 }
 
 type SettingsRecording struct {
@@ -83,7 +207,7 @@ func (s *Server) settingsDir() string { return filepath.Join(s.Cfg.DataDir, "con
 
 func (s *Server) currentSettings() SettingsDoc {
 	c := s.Cfg
-	doc := SettingsDoc{Timezone: c.Timezone, NASHost: c.NASHost, TailnetURL: c.Remote.TailnetURL,
+	doc := SettingsDoc{Timezone: c.Timezone, NASHost: c.NASHost, TailnetURL: c.Remote.TailnetURL, Remote: s.currentRemote(),
 		Recording: SettingsRecording{SegmentSeconds: c.Recording.SegmentSeconds, MaxDiskPercent: c.Recording.MaxDiskPercent,
 			DefaultRetentionDays: c.Recording.DefaultRetentionDays, AlertRetentionDays: c.Recording.AlertRetentionDays,
 			VolumeMarker: c.Recording.VolumeMarker},
@@ -162,6 +286,9 @@ func (s *Server) buildCandidate(doc SettingsDoc) ([]byte, map[string]string, err
 		remote["tailnet_url"] = doc.TailnetURL
 	} else {
 		delete(remote, "tailnet_url")
+	}
+	if err := applyRemote(remote, doc.Remote); err != nil {
+		return nil, nil, err
 	}
 	if len(remote) > 0 {
 		m["remote"] = remote

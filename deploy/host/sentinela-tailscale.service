@@ -1,0 +1,9 @@
+[Unit]
+Description=Sentinela Tailscale agent: status, connect, publish (ADR-0004)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/sentinela/scripts/tailscale-agent.sh
+TimeoutStartSec=15min
