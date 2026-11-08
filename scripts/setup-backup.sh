@@ -11,15 +11,15 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OLD=/srv/nas/Extra
 NEW=/srv/backup
 
-if grep -qE "[[:space:]]$OLD[[:space:]]" /etc/fstab; then
+if grep -qE "[[:space:]]${OLD}[[:space:]]" /etc/fstab; then
   if mountpoint -q "$OLD"; then
     left="$(find "$OLD" -mindepth 1 -maxdepth 1 ! -name lost+found | head -n 3)"
     [[ -z "$left" ]] || { echo "$OLD is not empty; move its files first:" >&2; echo "$left" >&2; exit 1; }
     umount "$OLD"
   fi
   cp -a /etc/fstab "/etc/fstab.bak-$(date +%Y%m%d%H%M%S)"
-  sed -i -E "s#[[:space:]]$OLD[[:space:]]+ext4[[:space:]]+defaults,noatime,nofail,x-systemd.requires-mounts-for=/srv/nas#\t$NEW ext4 defaults,noatime,nofail,x-systemd.device-timeout=15s#" /etc/fstab
-  grep -qE "[[:space:]]$NEW[[:space:]]" /etc/fstab || { echo "fstab edit failed; restore the .bak" >&2; exit 1; }
+  sed -i -E "s#[[:space:]]${OLD}[[:space:]]+ext4[[:space:]]+defaults,noatime,nofail,x-systemd.requires-mounts-for=/srv/nas#\t$NEW ext4 defaults,noatime,nofail,x-systemd.device-timeout=15s#" /etc/fstab
+  grep -qE "[[:space:]]${NEW}[[:space:]]" /etc/fstab || { echo "fstab edit failed; restore the .bak" >&2; exit 1; }
   # The old mount point lives on the Cloud disk (immutable while empty).
   chattr -i "$OLD" 2>/dev/null || true
   rmdir "$OLD" 2>/dev/null || true

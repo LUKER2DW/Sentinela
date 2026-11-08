@@ -10,7 +10,7 @@ import { t } from "../lib/i18n";
 
 type Op = "move" | "zoom" | "focus";
 
-/** Press-and-hold: start, repeat every 400 ms (server deadman is 1 s), stop on release. */
+/** Press-and-hold: start, repeat every 400 ms while the last one finished (server deadman is 1 s), stop on release. */
 function useHold(cameraId: string, speed: number, onError: (m: string) => void) {
   const timer = useRef<number | undefined>(undefined);
   const active = useRef<string | null>(null);
@@ -38,12 +38,19 @@ function useHold(cameraId: string, speed: number, onError: (m: string) => void) 
       active.current = key;
       setPressed(key);
       const body = { action: "start", op, dir, speed };
-      send(body).catch((e: Error) => {
+      // One request at a time: a slow camera must not get a pile of them (each
+      // one a new login on its side). A failure ends the hold and says why.
+      let inflight = true;
+      const fail = (e: Error) => {
+        if (active.current !== key) return;
         onError(e.message);
         stop();
-      });
+      };
+      send(body).catch(fail).finally(() => (inflight = false));
       timer.current = window.setInterval(() => {
-        if (active.current === key) send(body).catch(() => {});
+        if (active.current !== key || inflight) return;
+        inflight = true;
+        send(body).catch(fail).finally(() => (inflight = false));
       }, 400);
     },
     [send, speed, stop, onError],

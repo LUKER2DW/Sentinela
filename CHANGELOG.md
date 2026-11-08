@@ -7,6 +7,13 @@ All notable changes to Sentinela. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- A camera that stops answering control requests (for example after a burst of
+  PTZ) is no longer hit by every queued request: the server pauses its logins
+  for a few seconds (growing up to 30 s) and answers 503 meanwhile, and the
+  live page sends one hold request at a time and stops with a message when it
+  fails. Stopping a movement is always tried.
+
 ## [1.0.0] - 2026-11-07
 
 The first public release. Highlights of what is in it:

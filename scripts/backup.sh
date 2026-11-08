@@ -56,7 +56,10 @@ chmod -R go-rwx "$DEST/etc"
 # 3. restic (off-box copy). Skipped until the owner provides the disk.
 restic_state=off restic_at=""
 if [[ -f "$RESTIC_ENV" ]]; then
-  set -a; . "$RESTIC_ENV"; set +a
+  set -a
+  # shellcheck source=/dev/null
+  . "$RESTIC_ENV"
+  set +a
   if [[ -z "${RESTIC_MOUNT:-}" ]] || ! mountpoint -q "$RESTIC_MOUNT"; then
     restic_state=disk_missing
     log "restic: ${RESTIC_MOUNT:-RESTIC_MOUNT unset} is not mounted; skipped"

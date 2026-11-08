@@ -17,8 +17,8 @@ cores of the 4 GB host for minutes. The owner deploys from the LAN anyway.
 - Removed: `sentinela-autodeploy.{service,timer}`,
   `/usr/local/sbin/sentinela-autodeploy`, the runner setup and its sudoers
   rule, and `/etc/sentinela/deploy_key` (the owner revokes the key in
-  GitHub → Settings → Deploy keys). `scripts/uninstall-autodeploy.sh`
-  removes them from an existing host.
+  GitHub → Settings → Deploy keys). A host that still has them is cleaned
+  by hand.
 - GitHub Actions stays as **CI only** (`.github/workflows/ci.yml`):
   `go vet`, `go test`, `staticcheck`, `govulncheck`, web lint and tests on
   GitHub-hosted runners. No workflow may use a self-hosted runner, hold

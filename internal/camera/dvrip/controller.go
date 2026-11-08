@@ -36,6 +36,11 @@ type Controller struct {
 	idleTimer *time.Timer
 	model     string
 
+	// A camera that does not accept a login (overloaded, rebooting) is left
+	// alone for a growing pause instead of being hit by every queued request.
+	failures  int
+	coolUntil time.Time
+
 	moving    *activeMove
 	moveTimer *time.Timer
 }
@@ -49,6 +54,15 @@ type activeMove struct {
 var (
 	ErrUnsupportedModel = errors.New("camera model is not approved for DVRIP control")
 	ErrInvalidCommand   = errors.New("invalid PTZ command")
+	// ErrUnresponsive: the camera did not accept the last login(s); further
+	// requests fail at once until the pause ends (it needs a moment).
+	ErrUnresponsive = errors.New("camera is not answering control requests")
+)
+
+const (
+	// coolMin..coolMax bound the pause after failed logins (doubling).
+	coolMin = 2 * time.Second
+	coolMax = 30 * time.Second
 )
 
 // approvedModels lists models whose control surface is verified (docs/CAMERA.md).
@@ -68,12 +82,38 @@ func (c *Controller) with(ctx context.Context, fn func(*Conn) error) error {
 }
 
 func (c *Controller) withLocked(ctx context.Context, fn func(*Conn) error) error {
+	return c.withConn(ctx, fn, false)
+}
+
+// cool records a failed login and starts (or lengthens) the pause.
+func (c *Controller) cool() {
+	c.failures++
+	d := coolMin << min(c.failures-1, 4)
+	if d > coolMax {
+		d = coolMax
+	}
+	c.coolUntil = time.Now().Add(d)
+}
+
+// withConn is withLocked; force skips the pause (stopping a movement must
+// always be tried).
+func (c *Controller) withConn(ctx context.Context, fn func(*Conn) error, force bool) error {
 	for attempt := 0; ; attempt++ {
+		fresh := false
 		if c.conn == nil {
+			if !force && time.Now().Before(c.coolUntil) {
+				return ErrUnresponsive
+			}
 			conn, err := c.dial(ctx, c.Addr, c.User, c.Password)
 			if err != nil {
+				// A caller that gave up (ctx) says nothing about the camera.
+				if ctx.Err() == nil && isNetErr(err) {
+					c.cool()
+				}
 				return err
 			}
+			c.failures, c.coolUntil = 0, time.Time{}
+			fresh = true
 			c.conn = conn
 			if c.model == "" {
 				info, err := conn.SystemInfo(ctx)
@@ -92,9 +132,11 @@ func (c *Controller) withLocked(ctx context.Context, fn func(*Conn) error) error
 		}
 		// A timeout or I/O error leaves the session in an unknown state: the
 		// camera's late reply would be read as the answer to the next
-		// request. Never reuse it; retry once with a fresh login.
+		// request. Never reuse it; retry once with a fresh login, but only
+		// when the session was an old one: a failure on a login that just
+		// succeeded would only be repeated (and the camera hit twice).
 		c.drop()
-		if attempt == 1 || ctx.Err() != nil {
+		if fresh || attempt == 1 || ctx.Err() != nil {
 			return err
 		}
 	}
@@ -393,7 +435,7 @@ func (c *Controller) stopLocked(ctx context.Context) error {
 	if c.moveTimer != nil {
 		c.moveTimer.Stop()
 	}
-	err := c.withLocked(ctx, func(conn *Conn) error { return conn.ptz(ctx, m.command, m.speed, -1) })
+	err := c.withConn(ctx, func(conn *Conn) error { return conn.ptz(ctx, m.command, m.speed, -1) }, true)
 	if err == nil {
 		c.moving = nil
 	}

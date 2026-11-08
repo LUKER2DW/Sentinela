@@ -314,8 +314,7 @@ Issues and pull requests are welcome. Please read
 [CONTRIBUTING.md](CONTRIBUTING.md) first: Sentinela has a few hard rules
 (no transcoding, recording first, a small footprint) that keep it running on
 old hardware. Security reports go to the **Security** tab, see
-[SECURITY.md](SECURITY.md). Everyone is expected to follow the
-[code of conduct](CODE_OF_CONDUCT.md).
+[SECURITY.md](SECURITY.md).
 
 ## Documentation
 

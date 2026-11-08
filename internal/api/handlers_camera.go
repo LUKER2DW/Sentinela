@@ -65,6 +65,8 @@ func (s *Server) camErr(w http.ResponseWriter, cam *config.Camera, err error) {
 		writeErr(w, http.StatusBadRequest, "invalid command")
 	case errors.Is(err, dvrip.ErrUnsupportedModel):
 		writeErr(w, http.StatusForbidden, "control not approved for this camera model")
+	case errors.Is(err, dvrip.ErrUnresponsive):
+		writeErr(w, http.StatusServiceUnavailable, "camera is busy or not answering, try again in a few seconds")
 	case errors.Is(err, dvrip.ErrRejected):
 		writeErr(w, http.StatusBadGateway, "camera rejected the command")
 	case errors.Is(err, context.DeadlineExceeded):
