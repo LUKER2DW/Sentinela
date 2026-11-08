@@ -88,7 +88,7 @@ public class UpdatePlugin extends Plugin {
             return;
         }
         busy = true;
-        final String url = server.replaceAll("/+$", "") + "/api/app/sentinela.apk";
+        final String url = Connection.trimSlashes(server) + "/api/app/sentinela.apk";
         new Thread(() -> {
             try {
                 File f = apk();

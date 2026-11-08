@@ -151,7 +151,7 @@ public class MainActivity extends BridgeActivity {
             return true;
         }
         String host = android.net.Uri.parse(url).getHost();
-        String msg = getString(pin == null || pin.isEmpty() ? R.string.pair_message : R.string.pair_message_pin, url.replaceAll("/+$", ""))
+        String msg = getString(pin == null || pin.isEmpty() ? R.string.pair_message : R.string.pair_message_pin, Connection.trimSlashes(url))
                 + "\n\n" + getString(R.string.pair_warning);
         new android.app.AlertDialog.Builder(this)
                 .setTitle(getString(R.string.pair_title, host))
@@ -189,7 +189,7 @@ public class MainActivity extends BridgeActivity {
         if (rendererGone) return;
         String server = getBridge().getServerUrl();
         if (server == null) return; // start screen: no server chosen yet
-        getBridge().getWebView().loadUrl(server.replaceAll("/+$", "") + path);
+        getBridge().getWebView().loadUrl(Connection.trimSlashes(server) + path);
     }
 
     @Override
@@ -238,6 +238,10 @@ public class MainActivity extends BridgeActivity {
         // The phone's font size setting would break the layout; the pages
         // are sized for touch already.
         ws.setTextZoom(100);
+        // Only the paired house and the app's own pages load here: no content://
+        // or file:// URLs (uploads go through the file chooser, which still works).
+        ws.setAllowContentAccess(false);
+        ws.setAllowFileAccess(false);
         getBridge().setWebViewClient(new BridgeWebViewClient(getBridge()) {
             @Override
             public void onPageFinished(WebView view, String url) {
@@ -442,7 +446,7 @@ public class MainActivity extends BridgeActivity {
     private void refreshPairing(String server) {
         if (pairingRefreshed) return;
         pairingRefreshed = true;
-        final String base = server.replaceAll("/+$", "");
+        final String base = Connection.trimSlashes(server);
         final String cookie = CookieManager.getInstance().getCookie(base);
         if (cookie == null) {
             pairingRefreshed = false; // not signed in yet: try on a later page

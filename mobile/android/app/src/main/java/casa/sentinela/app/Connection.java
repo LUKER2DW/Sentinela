@@ -52,12 +52,12 @@ final class Connection {
      */
     static String pin(Context c) {
         SharedPreferences p = prefs(c);
-        String saved = p.getString("url." + MODE, "").replaceAll("/+$", "");
+        String saved = trimSlashes(p.getString("url." + MODE, ""));
         String savedPin = p.getString("pin." + MODE, "");
         if (!savedPin.isEmpty()) return savedPin;
         // Installs from before pairing codes saved the address without a
         // pin: the build's pin still applies to the build's own address.
-        if (saved.isEmpty() || saved.equals(BuildConfig.DOMAIN_URL.replaceAll("/+$", ""))) {
+        if (saved.isEmpty() || saved.equals(trimSlashes(BuildConfig.DOMAIN_URL))) {
             return BuildConfig.PUBLIC_CERT_SHA256;
         }
         return "";
@@ -65,6 +65,13 @@ final class Connection {
 
     static final java.util.regex.Pattern URL = java.util.regex.Pattern.compile("https://[A-Za-z0-9.-]+(:\\d{1,5})?/?");
     static final java.util.regex.Pattern PIN = java.util.regex.Pattern.compile("[0-9a-fA-F]{64}");
+
+    /** s without its trailing slashes; a loop, so no regex can run slow on a long address. */
+    static String trimSlashes(String s) {
+        int end = s.length();
+        while (end > 0 && s.charAt(end - 1) == '/') end--;
+        return s.substring(0, end);
+    }
 
     /**
      * The house's other ways in (Tailscale, public address...), as the house
@@ -122,14 +129,14 @@ final class Connection {
         org.json.JSONArray alts = alternatives(c);
         for (int i = 0; i < alts.length(); i++) {
             org.json.JSONObject o = alts.optJSONObject(i);
-            if (o != null && o.optString("url").equals(url.replaceAll("/+$", ""))) known = true;
+            if (o != null && o.optString("url").equals(trimSlashes(url))) known = true;
         }
         SharedPreferences.Editor ed = prefs(c).edit();
         if (!known) ed.remove("alts");
         ed.apply();
         prefs(c).edit()
                 .putString("mode", MODE)
-                .putString("url." + MODE, url.replaceAll("/+$", ""))
+                .putString("url." + MODE, trimSlashes(url))
                 .putString("pin." + MODE, pin.toLowerCase(java.util.Locale.ROOT))
                 .apply();
         return null;
@@ -139,7 +146,7 @@ final class Connection {
     static String savedUrl(Context c) {
         if (!MODE.equals(prefs(c).getString("mode", ""))) return null;
         String u = url(c);
-        return u.startsWith("https://") ? u.replaceAll("/+$", "") : null;
+        return u.startsWith("https://") ? trimSlashes(u) : null;
     }
 
     /** The server URL for this launch, or null for the start screen. */
@@ -161,10 +168,10 @@ final class Connection {
             SharedPreferences.Editor e = p.edit().putBoolean("migrated.v18", true);
             String url = p.getString("url." + MODE, "");
             if (MODE.equals(p.getString("mode", "")) && url.isEmpty() && !BuildConfig.DOMAIN_URL.isEmpty()) {
-                e.putString("url." + MODE, BuildConfig.DOMAIN_URL.replaceAll("/+$", ""))
+                e.putString("url." + MODE, trimSlashes(BuildConfig.DOMAIN_URL))
                         .putString("pin." + MODE, BuildConfig.PUBLIC_CERT_SHA256);
             } else if (!url.isEmpty() && p.getString("pin." + MODE, "").isEmpty()
-                    && url.equals(BuildConfig.DOMAIN_URL.replaceAll("/+$", ""))) {
+                    && url.equals(trimSlashes(BuildConfig.DOMAIN_URL))) {
                 e.putString("pin." + MODE, BuildConfig.PUBLIC_CERT_SHA256);
             }
             e.apply();

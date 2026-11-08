@@ -55,6 +55,16 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: mobile/package-lock.json
+      # Third-party Java (the Capacitor library, compiled from node_modules)
+      # is built before CodeQL starts watching, so only the app's own code is
+      # traced and analysed; Gradle then finds those modules up to date.
+      - if: matrix.language == 'java-kotlin'
+        name: Build the app's dependencies (not analysed)
+        working-directory: mobile
+        run: |
+          npm ci --no-audit --no-fund
+          npx cap sync android
+          cd android && ./gradlew :capacitor-android:compileDebugJavaWithJavac :capacitor-cordova-android-plugins:compileDebugJavaWithJavac --no-daemon
       - uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
           languages: ${{ matrix.language }}
@@ -62,14 +72,12 @@ jobs:
           queries: security-extended
       - if: matrix.build-mode == 'autobuild'
         uses: github/codeql-action/autobuild@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
-      # The Android app's Java, compiled with its real dependencies (the
+      # The Android app's own Java, compiled with its real classpath (the
       # runner image ships the Android SDK). Debug: no signing key needed.
       - if: matrix.language == 'java-kotlin'
-        working-directory: mobile
-        run: |
-          npm ci --no-audit --no-fund
-          npx cap sync android
-          cd android && ./gradlew :app:compileDebugJavaWithJavac --no-daemon --no-build-cache
+        name: Build the app (analysed)
+        working-directory: mobile/android
+        run: ./gradlew :app:compileDebugJavaWithJavac --no-daemon
       - uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
           category: /language:${{ matrix.language }}
