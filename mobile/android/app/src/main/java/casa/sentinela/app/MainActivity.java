@@ -189,7 +189,7 @@ public class MainActivity extends BridgeActivity {
         if (rendererGone) return;
         String server = getBridge().getServerUrl();
         if (server == null) return; // start screen: no server chosen yet
-        getBridge().getWebView().loadUrl(Connection.trimSlashes(server) + path);
+        web().loadUrl(Connection.trimSlashes(server) + path);
     }
 
     @Override
@@ -226,8 +226,21 @@ public class MainActivity extends BridgeActivity {
 
     // ---------- WebView as an app ----------
 
+    /**
+     * The app's WebView. It loads only the paired house and the app's own
+     * pages, so content:// and file:// URLs are off (uploads go through the
+     * file chooser, which still works). Set on every use: cheap and idempotent.
+     */
+    private WebView web() {
+        WebView w = getBridge().getWebView();
+        WebSettings s = w.getSettings();
+        s.setAllowContentAccess(false);
+        s.setAllowFileAccess(false);
+        return w;
+    }
+
     private void tuneWebView() {
-        WebView web = getBridge().getWebView();
+        WebView web = web();
         web.setVerticalScrollBarEnabled(false);
         web.setHorizontalScrollBarEnabled(false);
         web.setOverScrollMode(View.OVER_SCROLL_NEVER);
@@ -238,10 +251,6 @@ public class MainActivity extends BridgeActivity {
         // The phone's font size setting would break the layout; the pages
         // are sized for touch already.
         ws.setTextZoom(100);
-        // Only the paired house and the app's own pages load here: no content://
-        // or file:// URLs (uploads go through the file chooser, which still works).
-        ws.setAllowContentAccess(false);
-        ws.setAllowFileAccess(false);
         getBridge().setWebViewClient(new BridgeWebViewClient(getBridge()) {
             @Override
             public void onPageFinished(WebView view, String url) {
@@ -312,7 +321,7 @@ public class MainActivity extends BridgeActivity {
                     return;
                 }
                 if (rendererGone) return;
-                WebView web = getBridge().getWebView();
+                WebView web = web();
                 boolean can = web.canGoBack();
                 web.evaluateJavascript("(window.sentinelaBack ? window.sentinelaBack(" + can + ") : false) === true", v -> {
                     if ("true".equals(v)) return;
@@ -392,7 +401,7 @@ public class MainActivity extends BridgeActivity {
     // ---------- downloads ----------
 
     private void installDownloads() {
-        WebView web = getBridge().getWebView();
+        WebView web = web();
         final String server = getBridge().getServerUrl();
         final Uri serverUri = server == null ? null : Uri.parse(server);
         web.setDownloadListener((url, userAgent, disposition, mime, length) -> {
