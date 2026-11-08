@@ -152,7 +152,15 @@ done
 image="$(head -1 "$work/image.txt")"
 [[ "$image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]] || { status error "$current" "$latest" "bad image reference"; exit 1; }
 
-docker pull -q "$image" >/dev/null || { status error "$current" "$latest" "docker pull failed"; exit 1; }
+if ! out="$(docker pull -q "$image" 2>&1)"; then
+  # A package that is still private on ghcr.io answers "unauthorized".
+  case "$out" in
+    *unauthorized*|*denied*) status error "$current" "$latest" "the server image is not public on ghcr.io (package settings: change visibility to public)" ;;
+    *) status error "$current" "$latest" "could not download the server image" ;;
+  esac
+  log "$out"
+  exit 1
+fi
 docker tag sentinela:local sentinela:previous
 cp -a "$DIR/deploy" "$work/deploy.previous"
 cp -a "$DIR/scripts" "$work/scripts.previous"

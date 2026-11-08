@@ -174,8 +174,10 @@ jobs:
         run: |
           prev="$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)"
           # Release notes: this version's section of CHANGELOG.md (the
-          # patch notes people read), then the full comparison link.
-          awk -v v="${TAG#v}" 'index($0, "## [" v "]") == 1 {f = 1; next} f && /^## \[/ {exit} f' CHANGELOG.md > notes.md
+          # patch notes people read), then the full comparison link. The
+          # release page keeps line breaks, so wrapped items are joined.
+          awk -v v="${TAG#v}" 'index($0, "## [" v "]") == 1 {f = 1; next} f && /^## \[/ {exit} f' CHANGELOG.md |
+            awk '/^[[:space:]]*$/ && !started {next} /^  [^ ]/ {sub(/^ +/, " "); line = line $0; next} {if (started) print line; line = $0; started = 1} END {if (started) print line}' > notes.md
           if grep -q '[^[:space:]]' notes.md; then
             [ -n "$prev" ] && printf '\n**Full changelog**: %s/%s/compare/%s...%s\n' \
               "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$prev" "$TAG" >> notes.md
