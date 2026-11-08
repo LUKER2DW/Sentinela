@@ -14,8 +14,10 @@ import (
 	"time"
 )
 
-// Android app updates from the project's GitHub releases (ADR-0022). Every
-// few hours the server reads the latest release of app_updates.github and,
+// Android app updates from the project's GitHub releases (ADR-0022). Two
+// minutes after start, then every day at the update time chosen in System ->
+// Updates, and right away when someone presses "Check for updates", the
+// server reads the latest release of app_updates.github and,
 // when its app.json is newer than the APK it offers, downloads the APK,
 // checks its size and SHA-256 against app.json, and offers it through
 // /api/app/latest like a hand-published one. Phones keep updating from
@@ -23,7 +25,6 @@ import (
 
 const (
 	mirrorFirst    = 2 * time.Minute
-	mirrorEvery    = 6 * time.Hour
 	maxAPKBytes    = 200 << 20
 	maxAppJSON     = 64 << 10
 	maxReleaseJSON = 1 << 20
@@ -54,14 +55,59 @@ func (s *Server) MirrorAppReleases(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-time.After(wait):
+		case <-s.mirrorKick: // "Check for updates" in System -> Updates
 		}
-		wait = mirrorEvery
-		if rel, err := s.mirrorAppOnce(ctx, repo); err != nil {
+		rel, err := s.mirrorAppOnce(ctx, repo)
+		s.noteMirror(err)
+		if err != nil {
 			s.Log.Warn("app update check failed", "repo", repo, "err", err)
 		} else if rel != nil {
 			s.Log.Info("new Android app offered", "version", rel.VersionName, "code", rel.VersionCode)
 		}
+		wait = untilDaily(time.Now(), s.updateSettings().At, s.location())
 	}
+}
+
+// KickAppMirror asks the mirror loop to check now (never blocks).
+func (s *Server) KickAppMirror() {
+	select {
+	case s.mirrorKick <- struct{}{}:
+	default: // a check is already queued
+	}
+}
+
+// noteMirror records the last app check for the Updates page.
+func (s *Server) noteMirror(err error) {
+	s.mirrorMu.Lock()
+	defer s.mirrorMu.Unlock()
+	s.mirrorAt = time.Now().UTC()
+	s.mirrorErr = ""
+	if err != nil {
+		s.mirrorErr = err.Error()
+	}
+}
+
+// location is the configured time zone (schedules), UTC when unknown.
+func (s *Server) location() *time.Location {
+	if loc, err := time.LoadLocation(s.Cfg.Timezone); err == nil {
+		return loc
+	}
+	return time.UTC
+}
+
+// untilDaily is the wait from now until the next at (HH:MM) in loc; at least
+// a minute, so a check that ran at that very minute waits for tomorrow.
+func untilDaily(now time.Time, at string, loc *time.Location) time.Duration {
+	h, m := 4, 0
+	if hhmm.MatchString(at) {
+		h, m = int(at[0]-'0')*10+int(at[1]-'0'), int(at[3]-'0')*10+int(at[4]-'0')
+	}
+	n := now.In(loc)
+	next := time.Date(n.Year(), n.Month(), n.Day(), h, m, 0, 0, loc)
+	if !next.After(n.Add(time.Minute)) {
+		next = next.AddDate(0, 0, 1)
+	}
+	return next.Sub(now)
 }
 
 func (s *Server) mirrorClient() *http.Client {

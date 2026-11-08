@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import changelog from "../../../CHANGELOG.md?raw";
 import { api, get, type SystemInfo } from "../lib/api";
@@ -6,7 +6,7 @@ import { useToast } from "../lib/session";
 import { isPublicZone } from "../lib/access";
 import { Icon } from "./Icon";
 
-import { t } from "../lib/i18n";
+import { t, getLang } from "../lib/i18n";
 /** One version of CHANGELOG.md: its title and its "### group" lists. */
 export interface ChangelogVersion {
   title: string;
@@ -96,7 +96,7 @@ export function ChangelogCard() {
 
 interface UpdateLast {
   checked: string;
-  state: "current" | "updated" | "updating" | "manual" | "major" | "failed" | "error";
+  state: "current" | "available" | "updated" | "updating" | "manual" | "major" | "failed" | "error";
   current: string;
   latest: string;
   message: string;
@@ -111,14 +111,19 @@ interface UpdatesInfo {
   version: string;
   settings: UpdateSettings;
   last: UpdateLast | null;
+  /** A check or install asked for and not yet picked up by the host. */
+  pending: boolean;
+  /** The Android app the server offers to phones, and its last check. */
+  app: { offered?: string; checked?: string; error?: string };
   host: boolean;
 }
 
 const stateText: Record<UpdateLast["state"], string> = {
   current: t("Up to date"),
+  available: t("A new version is available"),
   updated: t("Updated"),
   updating: t("Updating now"),
-  manual: t("Version installed from a computer: only replaced if you allow it below"),
+  manual: t("Version installed from a computer: the automatic update leaves it alone unless you allow it below"),
   major: t("There is a new version with big changes: read the notes and allow major versions to install"),
   failed: t("The last update failed and was rolled back"),
   error: t("Could not check"),
@@ -140,12 +145,30 @@ export function UpdatesCard({ s, admin }: { s: SystemInfo; admin: boolean }) {
     },
     onError: (e: Error) => toast(t("Updates: {message}", { message: e.message }), true),
   });
+  // After a request, the card refreshes every few seconds until the host
+  // has answered it (or two minutes passed).
+  const [watching, setWatching] = useState(false);
+  useEffect(() => {
+    if (!watching) return;
+    const id = window.setTimeout(() => setWatching(false), 120_000);
+    return () => window.clearTimeout(id);
+  }, [watching]);
+  const fast = useQuery({
+    queryKey: ["updates", "watch"],
+    queryFn: () => get<UpdatesInfo>("/api/updates"),
+    enabled: admin && watching,
+    refetchInterval: 3_000,
+  });
   const check = useMutation({
-    mutationFn: () => api("POST", "/api/updates/check"),
-    onSuccess: () => toast(t("Checking now; the page shows the result in a moment")),
+    mutationFn: (install: boolean) => api("POST", "/api/updates/check", { install }),
+    onSuccess: (_, install) => {
+      setWatching(true);
+      toast(install ? t("Updating: the server restarts in a moment and this page reconnects") : t("Checking for updates…"));
+    },
     onError: (e: Error) => toast(t("Updates: {message}", { message: e.message }), true),
   });
-  const info = q.data;
+  const [confirmInstall, setConfirmInstall] = useState(false);
+  const info = (watching && fast.data) || q.data;
   const st = info?.settings;
   const last = (info?.last ?? (s.update?.last as UpdateLast | null | undefined)) || null;
   const set = (patch: Partial<UpdateSettings>) => st && save.mutate({ ...st, ...patch });
@@ -198,10 +221,39 @@ export function UpdatesCard({ s, admin }: { s: SystemInfo; admin: boolean }) {
             {t("Replace a version installed from a computer")}
           </label>
           <div className="row-gap" style={{ marginTop: 10 }}>
-            <button className="btn small" disabled={check.isPending || outside || !info?.host} onClick={() => check.mutate()}>
-              <Icon name="refresh" />{" "}{t("Check now")}
+            <button className="btn small" disabled={check.isPending || outside || !info?.host || info?.pending} onClick={() => check.mutate(false)}>
+              <Icon name="refresh" />{" "}{info?.pending ? t("Checking…") : t("Check for updates")}
             </button>
+            {last?.latest && (last.state === "available" || last.state === "manual" || last.state === "major") && (
+              <button className="btn small primary" disabled={check.isPending || outside || !info?.host || info?.pending} onClick={() => setConfirmInstall(true)}>
+                {t("Update now to {version}", { version: last.latest })}
+              </button>
+            )}
           </div>
+          {confirmInstall && last?.latest && (
+            <div className="dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="upd-title" onClick={(e) => e.target === e.currentTarget && setConfirmInstall(false)}>
+              <div className="dialog">
+                <h2 id="upd-title">{t("Update to {version} now?", { version: last.latest })}</h2>
+                <p className="muted">
+                  {t("The server downloads the published version, checks it and restarts. Live view and recording pause for a few seconds; if anything fails it goes back to the current version.")}
+                </p>
+                <div className="dialog-actions">
+                  <button className="btn ghost" onClick={() => setConfirmInstall(false)}>
+                    {t("Cancel")}
+                  </button>
+                  <button
+                    className="btn primary"
+                    onClick={() => {
+                      setConfirmInstall(false);
+                      check.mutate(true);
+                    }}
+                  >
+                    {t("Update now")}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
           {outside && <p className="muted small">{t("Change this at home or over Tailscale.")}</p>}
           {info && !info.host && (
             <p className="notice">
@@ -211,22 +263,42 @@ export function UpdatesCard({ s, admin }: { s: SystemInfo; admin: boolean }) {
           )}
         </>
       )}
-      {last && (
-        <dl className="setup-facts">
-          <dt>{t("Last check")}</dt>
-          <dd>{new Date(last.checked).toLocaleString()}</dd>
-          <dt>{t("Status")}</dt>
-          <dd>
-            {stateText[last.state] ?? last.state}
-            {last.message && last.state !== "manual" && last.state !== "major" ? ` (${last.message})` : ""}
-          </dd>
-          {last.latest && (
-            <>
-              <dt>{t("Latest published version")}</dt>
-              <dd>{last.latest}</dd>
-            </>
-          )}
-        </dl>
+      <dl className="setup-facts">
+        <dt>{t("This server")}</dt>
+        <dd>{last?.current && last.current !== "unknown" ? last.current : s.version}</dd>
+        {last?.latest && (
+          <>
+            <dt>{t("Latest published version")}</dt>
+            <dd>{last.latest}</dd>
+          </>
+        )}
+        {last && (
+          <>
+            <dt>{t("Status")}</dt>
+            <dd>
+              {stateText[last.state] ?? last.state}
+              {last.message && last.state !== "manual" && last.state !== "major" ? ` (${last.message})` : ""}
+            </dd>
+            <dt>{t("Last check")}</dt>
+            <dd>{new Date(last.checked).toLocaleString(getLang())}</dd>
+          </>
+        )}
+        {admin && info?.app && (
+          <>
+            <dt>{t("App offered to phones")}</dt>
+            <dd>
+              {info.app.offered ?? "—"}
+              {info.app.error ? <span className="muted small">{" "}{t("(could not check: {message})", { message: info.app.error })}</span> : null}
+            </dd>
+          </>
+        )}
+      </dl>
+      {admin && st && (
+        <p className="muted small">
+          {st.enabled
+            ? t("Every day at {at} the server checks for a new version and installs it; the app for phones is checked at the same time. Check for updates and Update now act right away.", { at: st.at })
+            : t("Every day at {at} the app for phones is checked. Turn on Update automatically to install server versions at that time too. Check for updates and Update now act right away.", { at: st.at })}
+        </p>
       )}
       <p className="muted small">
         {t("The server only downloads ready versions (nothing is compiled on it), checks the SHA-256 sums, restarts in seconds and goes back to the previous version if anything fails.")}

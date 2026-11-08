@@ -7,6 +7,18 @@ All notable changes to Sentinela. The format follows
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-11-08
+
+### Added
+- System → Updates: *Check for updates* shows this server's version, the
+  latest published one and the app offered to phones; *Update now* installs
+  the latest release right away (also over a version deployed from a
+  computer or a new major version: the person asked for it).
+- The app for phones is checked every day at the chosen update time, and
+  right away with *Check for updates* (it was every six hours).
+- The Android app reads the home's pairing QR code from its start screen
+  (Google Play services code scanner; no camera permission).
+
 ## [1.1.1] - 2026-11-08
 
 ### Fixed
@@ -107,7 +119,8 @@ The first public release. Highlights of what is in it:
   with checksum checks and automatic rollback; System → Updates shows
   the schedule and these notes.
 
-[Unreleased]: https://github.com/LUKER2DW/Sentinela/compare/v1.1.1...HEAD
+[Unreleased]: https://github.com/LUKER2DW/Sentinela/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/LUKER2DW/Sentinela/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/LUKER2DW/Sentinela/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/LUKER2DW/Sentinela/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/LUKER2DW/Sentinela/releases/tag/v1.0.0

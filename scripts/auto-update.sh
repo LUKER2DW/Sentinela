@@ -3,7 +3,9 @@
 #   --scheduled  by sentinela-update.timer every hour; acts only when the
 #                dashboard (System -> Atualizações) turned updates on and
 #                this is the chosen hour;
-#   --request    by sentinela-update.path when the dashboard asks to check now;
+#   --request    by sentinela-update.path when the dashboard asks: "check"
+#                only looks the latest release up and reports it; "install"
+#                installs it now, past the guards below (the person asked);
 #   --now        by hand.
 # Preferences come from <data>/updates/settings.json (written by the
 # dashboard or setup-auto-update.sh); where releases come from only from the
@@ -45,11 +47,19 @@ print("yes" if s.get("enabled") is True else "no", at,
       "replace" if s.get("replace_manual") is True else "keep")
 PY
 )
+ACTION=install # what this run does: install, or only check and report
+FORCE=no       # a person asked to install: past the manual-build and major guards
 case "${1:---scheduled}" in
   --now) ;;
   --request)
     [[ -f "$UPDATES/request" ]] || exit 0
+    read -r req _ < "$UPDATES/request" || true
     rm -f "$UPDATES/request"
+    case "$req" in
+      check) ACTION=check ;;
+      install) FORCE=yes ;;
+      *) ;; # an older dashboard's request: check and install with the guards
+    esac
     ;;
   --scheduled)
     [[ "$ENABLED" == yes ]] || exit 0
@@ -88,7 +98,17 @@ release="$(curl -fsSL --max-time 30 -H 'Accept: application/vnd.github+json' -A 
 latest="$(printf '%s' "$release" | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"])')"
 [[ -n "$(semver "$latest")" ]] || { status error "$current" "$latest" "latest tag is not a version"; exit 1; }
 
-if [[ -z "$(semver "$current")" && "$MANUAL" != replace ]]; then
+if [[ "$ACTION" == check ]]; then
+  if [[ -z "$(semver "$current")" ]]; then
+    status manual "$current" "$latest" "running a build deployed from a computer; Update now installs $latest"
+  elif newer "$latest" "$current"; then
+    status available "$current" "$latest" ""
+  else
+    status current "$current" "$latest" ""
+  fi
+  exit 0
+fi
+if [[ -z "$(semver "$current")" && "$MANUAL" != replace && "$FORCE" != yes ]]; then
   log "running $current, built on a computer: left alone (SENTINELA_UPDATE_MANUAL=replace to change)"
   status manual "$current" "$latest" "running a build deployed from a computer"
   exit 0
@@ -98,7 +118,7 @@ if [[ -n "$(semver "$current")" ]] && ! newer "$latest" "$current"; then
   status current "$current" "$latest" ""
   exit 0
 fi
-if [[ -n "$(semver "$current")" && "$MAJOR" != yes ]]; then
+if [[ -n "$(semver "$current")" && "$MAJOR" != yes && "$FORCE" != yes ]]; then
   read -r cmaj _ <<< "$(semver "$current")"
   read -r lmaj _ <<< "$(semver "$latest")"
   if ((lmaj > cmaj)); then

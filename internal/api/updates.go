@@ -56,12 +56,29 @@ func (s *Server) writeUpdateFile(name string, b []byte) error {
 	return os.Rename(tmp, filepath.Join(s.updatesDir(), name))
 }
 
-// getUpdates: GET /api/updates (admin).
+// getUpdates: GET /api/updates (admin). The server's version, the last
+// check of the host's updater (current and latest release, state), what is
+// queued, and the Android app the server offers to phones.
 func (s *Server) getUpdates(w http.ResponseWriter, _ *http.Request) {
+	app := map[string]any{}
+	if rel := s.appRelease(); rel != nil {
+		app["offered"] = rel.VersionName
+	}
+	s.mirrorMu.Lock()
+	if !s.mirrorAt.IsZero() {
+		app["checked"] = s.mirrorAt
+	}
+	if s.mirrorErr != "" {
+		app["error"] = s.mirrorErr
+	}
+	s.mirrorMu.Unlock()
 	writeJSON(w, http.StatusOK, map[string]any{
 		"version":  Version,
 		"settings": s.updateSettings(),
 		"last":     hostJSON(s.Cfg.UpdateStatusFile),
+		// A check or install asked for and not yet picked up by the host.
+		"pending": fileExists(filepath.Join(s.updatesDir(), "request")),
+		"app":     app,
 		// The host units are installed by install-server.sh / deploy.sh;
 		// without them (dev machines) the settings have no effect.
 		"host": fileExists(s.Cfg.UpdateUnitsMarker),
@@ -92,17 +109,35 @@ func (s *Server) putUpdates(w http.ResponseWriter, r *http.Request) {
 }
 
 // checkUpdates: POST /api/updates/check (admin, home or tailnet) asks the
-// host to check (and install) the latest release now.
+// host to look up the latest release. {"install": false} (default) only
+// checks and reports it (the app mirror checks too); {"install": true}
+// installs it now, whatever the schedule and past the automatic guards (a
+// build deployed from a computer, a new major version): the person asked.
+// The daily automatic run is unchanged.
 func (s *Server) checkUpdates(w http.ResponseWriter, r *http.Request) {
-	if !s.loginRL.Allow("update-check") {
-		writeErr(w, http.StatusTooManyRequests, "wait a minute before checking again")
+	var body struct {
+		Install bool `json:"install"`
+	}
+	if r.ContentLength != 0 {
+		if err := readJSON(r, &body); err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+	mode := "check"
+	if body.Install {
+		mode = "install"
+	}
+	if !s.loginRL.Allow("update-" + mode) {
+		writeErr(w, http.StatusTooManyRequests, "wait a minute before asking again")
 		return
 	}
-	err := s.writeUpdateFile("request", []byte(strconv.FormatInt(time.Now().Unix(), 10)+"\n"))
-	s.audit(r, "updates.check", "", err == nil, "")
+	err := s.writeUpdateFile("request", []byte(mode+" "+strconv.FormatInt(time.Now().Unix(), 10)+"\n"))
+	s.audit(r, "updates."+mode, "", err == nil, "")
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "could not ask the server")
 		return
 	}
-	writeJSON(w, http.StatusAccepted, map[string]bool{"requested": true})
+	s.KickAppMirror()
+	writeJSON(w, http.StatusAccepted, map[string]any{"requested": mode})
 }

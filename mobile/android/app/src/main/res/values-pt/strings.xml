@@ -11,6 +11,7 @@
     <string name="pair_warning">Só confirme se este código veio de Sistema → App, no Sentinela da sua casa.</string>
     <string name="cancel">Cancelar</string>
     <string name="connect">Conectar</string>
+    <string name="scan_unavailable">O leitor de QR code não está disponível neste celular (ele precisa do Google Play Services). Aponte o app de câmera do celular para o código, ou cole o código de pareamento.</string>
 
     <string name="back_again">Toque em voltar de novo para sair</string>
     <string name="locked">Sentinela bloqueado\nToque para desbloquear</string>

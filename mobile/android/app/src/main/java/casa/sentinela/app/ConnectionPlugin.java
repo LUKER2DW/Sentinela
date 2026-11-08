@@ -7,6 +7,9 @@ import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import com.google.mlkit.vision.barcode.common.Barcode;
+import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions;
+import com.google.mlkit.vision.codescanner.GmsBarcodeScanning;
 
 /**
  * The start screen's bridge ({@code Capacitor.Plugins.SentinelaConnection}):
@@ -15,6 +18,31 @@ import com.getcapacitor.annotation.CapacitorPlugin;
  */
 @CapacitorPlugin(name = "SentinelaConnection")
 public class ConnectionPlugin extends Plugin {
+
+    /**
+     * Reads the home's pairing QR code (System -> App) with Google's code
+     * scanner and returns its text ({code}, "" when cancelled). The page puts
+     * it in the address field, so the person sees the address and presses
+     * Connect, as with a pasted code.
+     */
+    @PluginMethod
+    public void scan(PluginCall call) {
+        GmsBarcodeScannerOptions opts = new GmsBarcodeScannerOptions.Builder()
+                .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
+                .build();
+        GmsBarcodeScanning.getClient(getActivity(), opts).startScan()
+                .addOnSuccessListener(b -> {
+                    JSObject r = new JSObject();
+                    r.put("code", b.getRawValue() == null ? "" : b.getRawValue());
+                    call.resolve(r);
+                })
+                .addOnCanceledListener(() -> {
+                    JSObject r = new JSObject();
+                    r.put("code", "");
+                    call.resolve(r);
+                })
+                .addOnFailureListener(e -> call.reject(getContext().getString(R.string.scan_unavailable)));
+    }
 
     @PluginMethod
     public void get(PluginCall call) {

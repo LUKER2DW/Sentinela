@@ -77,6 +77,7 @@
       </section>
 
       <form class="card rise" id="choose" autocomplete="off">
+        <button type="button" id="scan" data-i18n="Scan the QR code">Scan the QR code</button>
         <label style="text-align:left"><span data-i18n="Pairing code or address">Pairing code or address</span>
           <input id="u-domain" inputmode="url" autocapitalize="none" spellcheck="false" placeholder="sentinela://pair?… or https://home:port" />
         </label>
@@ -100,6 +101,8 @@
         "Try again": "Tentar de novo",
         "Change the address": "Trocar o endereço",
         "Pairing code or address": "Código de pareamento ou endereço",
+        "Scan the QR code": "Ler o QR code",
+        "Code read: check the address and press Connect.": "Código lido: confira o endereço e toque em Conectar.",
         "Connect": "Conectar",
         "The pairing code carries the home's address and certificate, so the connection is checked even with a private certificate. A typed address only works with a public certificate (domain or Tailscale). You can change it later in My account.":
           "O código de pareamento traz o endereço e o certificado da casa, então a conexão é verificada mesmo com certificado próprio. Um endereço digitado só funciona com certificado público (domínio ou Tailscale). Dá para trocar depois em Minha conta.",
@@ -205,6 +208,25 @@
         });
       });
       $("off-change").addEventListener("click", () => showOffline({ offline: false }));
+
+      // The home's QR code (System -> App), read by the phone: it fills the
+      // field and the person presses Connect after seeing the address.
+      $("scan").addEventListener("click", async () => {
+        $("err").textContent = "";
+        $("scan").disabled = true;
+        try {
+          const r = await call("scan");
+          if (r && r.code) {
+            $("u-domain").value = r.code;
+            $("err").textContent = tr("Code read: check the address and press Connect.");
+            $("go").focus();
+          }
+        } catch (e) {
+          $("err").textContent = msg(e);
+        } finally {
+          $("scan").disabled = false;
+        }
+      });
 
       $("choose").addEventListener("submit", async (ev) => {
         ev.preventDefault();
