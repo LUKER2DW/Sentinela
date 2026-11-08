@@ -67,7 +67,7 @@ func (s LocalSource) open(rel string) (*os.Root, error) {
 	defer base.Close()
 	r, err := base.OpenRoot(rel)
 	if err != nil {
-		return nil, fmt.Errorf("pasta %q: %w", rel, errors.Unwrap(err))
+		return nil, fmt.Errorf("folder %q: %w", rel, errors.Unwrap(err))
 	}
 	return r, nil
 }
@@ -140,7 +140,7 @@ func (s LocalSource) Snapshot(ctx context.Context, app *App, _ Version, dir stri
 			return nil
 		}
 		if n++; n > maxEntries {
-			return errors.New("a pasta tem arquivos demais")
+			return errors.New("the folder has too many files")
 		}
 		switch {
 		case d.IsDir():
@@ -160,7 +160,7 @@ func (s LocalSource) Snapshot(ctx context.Context, app *App, _ Version, dir stri
 				return err
 			}
 			if total += info.Size(); total > maxExtract {
-				return errors.New("a pasta tem mais de 1 GB")
+				return errors.New("the folder is larger than 1 GB")
 			}
 			return copyFile(src, dst, p, info.Mode())
 		}

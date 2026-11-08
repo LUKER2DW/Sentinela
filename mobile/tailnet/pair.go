@@ -100,9 +100,9 @@ func pairError(code int, msg string) string {
 	case code == http.StatusForbidden:
 		return "pairing is only possible when at home"
 	case code == http.StatusBadGateway:
-		return "o Tailscale recusou criar a chave (confira a tag e o escopo do cliente OAuth)"
+		return "Tailscale refused to create the key (check the tag and the OAuth client scope)"
 	case msg != "":
 		return msg
 	}
-	return fmt.Sprintf("erro %d", code)
+	return fmt.Sprintf("error %d", code)
 }

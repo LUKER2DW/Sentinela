@@ -73,7 +73,7 @@ func (a *Agent) fileRoot(r *http.Request, write bool) (*App, *os.Root, string, e
 		return nil, nil, "", errors.New("invalid file area")
 	}
 	if scope == "project" && !app.Managed {
-		return nil, nil, "", errors.New("implante um projeto local ou ZIP para abrir seus arquivos protegidos")
+		return nil, nil, "", errors.New("deploy a local project or ZIP to open its protected files")
 	}
 	if write {
 		a.mu.Lock()
@@ -145,7 +145,7 @@ func readProjectText(root *os.Root, rel string) ([]byte, error) {
 	defer f.Close()
 	st, err := f.Stat()
 	if err != nil || !st.Mode().IsRegular() {
-		return nil, errors.New("escolha um arquivo de texto")
+		return nil, errors.New("choose a text file")
 	}
 	if st.Size() > maxTextFile {
 		return nil, errors.New("the editor accepts files up to 1 MB")
@@ -347,7 +347,7 @@ func (a *Agent) hWriteFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if exists && doc.Revision != fileRevision(old) || !exists && doc.Revision != "" {
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "o arquivo mudou; abra novamente antes de salvar"})
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "the file changed; open it again before saving"})
 		return
 	}
 	content := doc.Content
@@ -443,7 +443,7 @@ func (a *Agent) hUploadFile(w http.ResponseWriter, r *http.Request) {
 	closeErr := f.Close()
 	if err != nil || closeErr != nil {
 		_ = root.Remove(rel)
-		reply(w, nil, errors.New("envio incompleto ou arquivo maior que 50 MB"))
+		reply(w, nil, errors.New("incomplete upload or file larger than 50 MB"))
 		return
 	}
 	reply(w, map[string]bool{"ok": true}, a.markFileChange(app.ID, scope))

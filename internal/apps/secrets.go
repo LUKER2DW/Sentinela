@@ -39,7 +39,7 @@ func (a *Agent) openVaultKey() error {
 		}
 		b = make([]byte, 32)
 		if _, err := rand.Read(b); err != nil {
-			return fmt.Errorf("criar chave dos secrets: %w", err)
+			return fmt.Errorf("create the secrets key: %w", err)
 		}
 		f, err := os.OpenFile(p, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 		if err != nil {
@@ -99,11 +99,11 @@ func (a *Agent) writeVault(p, identity string, v secretVault) error {
 	}
 	nonce := make([]byte, a.vaultCipher.NonceSize())
 	if _, err := rand.Read(nonce); err != nil {
-		return fmt.Errorf("criar nonce dos secrets: %w", err)
+		return fmt.Errorf("create the secrets nonce: %w", err)
 	}
 	ciphertext := a.vaultCipher.Seal(nonce, nonce, b, []byte(identity))
 	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
-		return fmt.Errorf("criar pasta dos secrets: %w", err)
+		return fmt.Errorf("create the secrets folder: %w", err)
 	}
 	if err := os.WriteFile(p+".tmp", ciphertext, 0o600); err != nil {
 		return errors.New("could not save the secrets")

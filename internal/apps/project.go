@@ -51,7 +51,7 @@ func (a *Agent) importProject(ctx context.Context, app *App, logf func(string, .
 	}
 	base, err := os.OpenRoot(rootDir)
 	if err != nil {
-		return fmt.Errorf("abrir fonte do projeto: %w", err)
+		return fmt.Errorf("open the project source: %w", err)
 	}
 	defer base.Close()
 	// Reject links even if they point inside local_root: transferring a link
@@ -60,12 +60,12 @@ func (a *Agent) importProject(ctx context.Context, app *App, logf func(string, .
 	for i := range parts {
 		st, err := base.Lstat(strings.Join(parts[:i+1], "/"))
 		if err != nil || st.Mode()&fs.ModeSymlink != 0 {
-			return errors.New("a fonte deve ser uma pasta real dentro da raiz local")
+			return errors.New("the source must be a real folder inside the local root")
 		}
 	}
 	src, err := base.OpenRoot(rel)
 	if err != nil {
-		return fmt.Errorf("abrir pasta do projeto: %w", err)
+		return fmt.Errorf("open the project folder: %w", err)
 	}
 	partial := project + ".partial"
 	defer os.RemoveAll(partial)
@@ -95,7 +95,7 @@ func (a *Agent) importProject(ctx context.Context, app *App, logf func(string, .
 		return err
 	}
 	if err := os.Rename(partial, project); err != nil {
-		return fmt.Errorf("guardar projeto protegido: %w", err)
+		return fmt.Errorf("store the protected project: %w", err)
 	}
 	a.mu.Lock()
 	live := a.find(app.ID)
@@ -147,7 +147,7 @@ func copyProject(ctx context.Context, src *os.Root, dir string) error {
 		}
 		count++
 		if count > maxEntries {
-			return errors.New("o projeto tem arquivos demais")
+			return errors.New("the project has too many files")
 		}
 		if d.IsDir() {
 			return dst.MkdirAll(p, 0o700)
@@ -169,7 +169,7 @@ func copyProject(ctx context.Context, src *os.Root, dir string) error {
 		}
 		total += st.Size()
 		if total > maxExtract {
-			return errors.New("o projeto tem mais de 1 GB")
+			return errors.New("the project is larger than 1 GB")
 		}
 		if err := copyFile(src, dst, p, st.Mode()); err != nil {
 			return err

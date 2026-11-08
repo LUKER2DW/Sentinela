@@ -150,7 +150,7 @@ func planCompose(raw []byte, allowed []string) (*composePlan, error) {
 			case "volume", "tmpfs", "":
 			case "bind":
 				if strings.Contains(src, "docker.sock") || !inside(src) {
-					bad(name, "a pasta %q fica fora do projeto; use um volume nomeado", src)
+					bad(name, "folder %q is outside the project; use a named volume", src)
 				} else {
 					p.hostPaths = append(p.hostPaths, src)
 				}
@@ -221,7 +221,7 @@ func planCompose(raw []byte, allowed []string) (*composePlan, error) {
 		for name, v := range items {
 			m, _ := v.(map[string]any)
 			if f, _ := m["file"].(string); f != "" && !inside(f) {
-				bad(top, "%q aponta para fora do projeto", name)
+				bad(top, "%q points outside the project", name)
 			} else if f != "" {
 				p.hostPaths = append(p.hostPaths, f)
 			}
@@ -245,7 +245,7 @@ func checkHostPaths(root string, paths []string) error {
 	for _, src := range paths {
 		rel, err := filepath.Rel(root, filepath.Clean(filepath.FromSlash(src)))
 		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			return fmt.Errorf("a pasta %q fica fora do projeto", src)
+			return fmt.Errorf("folder %q is outside the project", src)
 		}
 		cur := root
 		for _, part := range strings.Split(rel, string(filepath.Separator)) {
@@ -450,7 +450,7 @@ func composeFile(work, chosen string) (string, error) {
 			return n, nil
 		}
 	}
-	return "", errors.New("nenhum compose.yaml / docker-compose.yml na pasta")
+	return "", errors.New("no compose.yaml / docker-compose.yml in the folder")
 }
 
 // renderedCompose is the rewritten file the agent runs, kept in the release.

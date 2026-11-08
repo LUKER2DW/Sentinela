@@ -2,6 +2,9 @@ package casa.sentinela.app;
 
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
+import android.content.pm.Signature;
 import android.net.Uri;
 import android.os.Build;
 import android.provider.Settings;
@@ -23,15 +26,20 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.security.MessageDigest;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.Locale;
+import java.util.Set;
 
 /**
  * In-app updates ({@code Capacitor.Plugins.SentinelaUpdate}). The APK is not
  * on the Play Store: the server publishes the newest one
  * ({@code GET /api/app/latest}, scripts/publish-apk.sh) and this plugin
  * downloads it over the same pinned HTTPS connection, checks its SHA-256
- * and hands it to Android's installer. Android itself refuses an APK
- * signed with another key, so a tampered file cannot replace the app.
+ * and, only if it is this app signed with this app's own key and not older
+ * than the installed version, hands it to Android's installer. Android itself
+ * also refuses an APK signed with another key, so a tampered file cannot
+ * replace the app; this check keeps any other app from reaching the installer.
  */
 @CapacitorPlugin(name = "SentinelaUpdate")
 public class UpdatePlugin extends Plugin {
@@ -90,6 +98,11 @@ public class UpdatePlugin extends Plugin {
                     f.delete();
                     throw new IOException("checksum");
                 }
+                if (!isOwnUpdate(f)) {
+                    //noinspection ResultOfMethodCallIgnored
+                    f.delete();
+                    throw new IOException("foreign");
+                }
                 JSObject r = new JSObject();
                 if (!canInstall()) {
                     // One-time switch: "Permitir desta fonte" for Sentinela.
@@ -104,7 +117,7 @@ public class UpdatePlugin extends Plugin {
                 }
                 call.resolve(r);
             } catch (Exception e) {
-                call.reject(getContext().getString("checksum".equals(e.getMessage())
+                call.reject(getContext().getString("checksum".equals(e.getMessage()) || "foreign".equals(e.getMessage())
                         ? R.string.update_mismatch
                         : R.string.update_failed));
             } finally {
@@ -143,6 +156,39 @@ public class UpdatePlugin extends Plugin {
             if (!tmp.renameTo(f)) throw new IOException("rename");
         } finally {
             c.disconnect();
+        }
+    }
+
+    /** The signing certificates of a package, as raw bytes (empty when unknown). */
+    @SuppressWarnings("deprecation")
+    private static Set<String> signers(PackageInfo p) {
+        Set<String> out = new HashSet<>();
+        Signature[] sigs = null;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            if (p.signingInfo != null) sigs = p.signingInfo.getApkContentsSigners();
+        } else {
+            sigs = p.signatures;
+        }
+        if (sigs != null) for (Signature sg : sigs) out.add(Arrays.toString(sg.toByteArray()));
+        return out;
+    }
+
+    /** True only for an APK of this very app, signed with its key, and not older. */
+    @SuppressWarnings("deprecation")
+    private boolean isOwnUpdate(File f) {
+        Context ctx = getContext();
+        PackageManager pm = ctx.getPackageManager();
+        int flags = Build.VERSION.SDK_INT >= Build.VERSION_CODES.P
+                ? PackageManager.GET_SIGNING_CERTIFICATES : PackageManager.GET_SIGNATURES;
+        try {
+            PackageInfo mine = pm.getPackageInfo(ctx.getPackageName(), flags);
+            PackageInfo apk = pm.getPackageArchiveInfo(f.getPath(), flags);
+            if (apk == null || !ctx.getPackageName().equals(apk.packageName)) return false;
+            if (apk.versionCode < mine.versionCode) return false;
+            Set<String> a = signers(apk);
+            return !a.isEmpty() && a.equals(signers(mine));
+        } catch (Exception e) {
+            return false;
         }
     }
 

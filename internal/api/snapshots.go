@@ -58,7 +58,9 @@ func (s *Server) eventStarted(cameraID, typ string, eventID int64, at time.Time,
 }
 
 func (s *Server) snapshotPath(cameraID string, eventID int64) string {
-	return filepath.Join(s.Cfg.DataDir, "snapshots", cameraID, strconv.FormatInt(eventID, 10)+".jpg")
+	// Camera ids come from the configuration (validated when it loads);
+	// Base keeps the id a single path element whatever the caller passes.
+	return filepath.Join(s.Cfg.DataDir, "snapshots", filepath.Base(cameraID), strconv.FormatInt(eventID, 10)+".jpg")
 }
 
 func (s *Server) takeSnapshot(ctx context.Context, cameraID string, eventID int64) {

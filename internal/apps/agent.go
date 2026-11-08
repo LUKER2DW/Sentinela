@@ -114,10 +114,19 @@ func NewAgent(cfg config.Apps, eng Engine, sources map[string]Source, log *slog.
 		run: map[string]*svcState{}, jobs: make(chan string, 64), vaults: map[string]secretVault{}}
 }
 
-func (a *Agent) stateFile() string       { return filepath.Join(a.Cfg.StateDir, "state.json") }
-func (a *Agent) appDir(id string) string { return filepath.Join(a.Cfg.StateDir, "apps", id) }
-func (a *Agent) tokenFile() string       { return filepath.Join(a.Cfg.StateDir, "github-token") }
-func containerName(id string) string     { return "sapp-" + id }
+func (a *Agent) stateFile() string { return filepath.Join(a.Cfg.StateDir, "state.json") }
+
+// appDir is the state folder of one app. Ids are checked when an app is
+// created and looked up in the registry before use; the pattern is checked
+// again here so a bad id can never name a path outside the apps folder.
+func (a *Agent) appDir(id string) string {
+	if !idPattern.MatchString(id) {
+		id = "invalid"
+	}
+	return filepath.Join(a.Cfg.StateDir, "apps", id)
+}
+func (a *Agent) tokenFile() string   { return filepath.Join(a.Cfg.StateDir, "github-token") }
+func containerName(id string) string { return "sapp-" + id }
 
 func (a *Agent) releaseDir(id, rel string) string {
 	return filepath.Join(a.appDir(id), "releases", rel)
@@ -453,9 +462,9 @@ func (a *Agent) deploy(ctx context.Context, id string, job *Job, logf func(strin
 		return fmt.Errorf("little free memory on the server (%d MB): deploy postponed to protect the recordings", free)
 	}
 	if app.Managed {
-		logf("Lendo o projeto protegido de %s", app.Name)
+		logf("Reading the protected project of %s", app.Name)
 	} else if app.Source == SourceLocal {
-		logf("Lendo a pasta %s", app.Path)
+		logf("Reading the folder %s", app.Path)
 	} else {
 		logf("Buscando %s @ %s", app.Repo, app.Ref)
 	}

@@ -105,7 +105,7 @@ func parseDotEnv(b []byte) ([]EnvVar, error) {
 func readDotEnv(work string) ([]EnvVar, error) {
 	root, err := os.OpenRoot(work)
 	if err != nil {
-		return nil, fmt.Errorf("abrir pasta da .env: %w", err)
+		return nil, fmt.Errorf("open the .env folder: %w", err)
 	}
 	defer root.Close()
 	f, err := root.Open(".env")
