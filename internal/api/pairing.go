@@ -39,11 +39,31 @@ func (s *Server) publicCertPin() string {
 }
 
 type pairingOption struct {
-	Kind  string `json:"kind"` // tailnet | public | lan
-	URL   string `json:"url"`
-	Pin   string `json:"pin,omitempty"`
+	Kind string `json:"kind"` // tailnet | public | lan
+	URL  string `json:"url"`
+	Pin  string `json:"pin,omitempty"`
+	// Code is the short form of Pin (homeCode). A phone given only the
+	// address reads the certificate itself and asks the person to confirm it
+	// matches this code.
+	Code  string `json:"code,omitempty"`
 	Link  string `json:"link"`
 	QRSVG string `json:"qr_svg"`
+}
+
+// homeCode is the first 80 bits of a certificate's SHA-256 as
+// XXXX-XXXX-XXXX-XXXX-XXXX, "" when pin is not a 64-digit hex string. The
+// app shows the same code for the certificate it reads from an address.
+func homeCode(pin string) string {
+	if len(pin) != 64 {
+		return ""
+	}
+	for _, c := range pin {
+		if !strings.ContainsRune("0123456789abcdefABCDEF", c) {
+			return ""
+		}
+	}
+	h := strings.ToUpper(pin[:20])
+	return h[0:4] + "-" + h[4:8] + "-" + h[8:12] + "-" + h[12:16] + "-" + h[16:20]
 }
 
 // lanIPv4 is the server's address on the home network: the first private
@@ -107,7 +127,7 @@ func (s *Server) appPairing(w http.ResponseWriter, _ *http.Request) {
 		if err != nil {
 			return
 		}
-		opts = append(opts, pairingOption{Kind: kind, URL: origin, Pin: pin, Link: link, QRSVG: svg})
+		opts = append(opts, pairingOption{Kind: kind, URL: origin, Pin: pin, Code: homeCode(pin), Link: link, QRSVG: svg})
 	}
 	add("tailnet", strings.TrimRight(s.Cfg.Remote.TailnetURL, "/"), "")
 	pin := ""

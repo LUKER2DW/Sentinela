@@ -82,8 +82,15 @@
           <input id="u-domain" inputmode="url" autocapitalize="none" spellcheck="false" placeholder="sentinela://pair?… or https://home:port" />
         </label>
         <button id="go" type="submit">Connect</button>
+        <!-- Address typed without a pairing code and the home uses its own certificate. -->
+        <div id="confirm" hidden style="text-align:left">
+          <p id="confirm-text">This home uses its own certificate. Check that this code is the one shown in Sentinela on the computer, in System → App (Home code).</p>
+          <p><code id="confirm-code" style="font-size:1.15em;letter-spacing:.04em"></code></p>
+          <button id="confirm-yes" type="button">It matches: connect</button>
+          <button id="confirm-no" type="button" class="ghost">Cancel</button>
+        </div>
         <p class="err" id="err" role="alert"></p>
-        <p class="note">The pairing code carries the home's address and certificate, so the connection is checked even with a private certificate. A typed address only works with a public certificate (domain or Tailscale). You can change it later in My account.</p>
+        <p class="note">Type the home's address, or use the pairing code. With its own certificate, the app shows a code to compare with System → App on the computer. You can change it later in My account.</p>
       </form>
 
       <footer class="rise" id="ver"></footer>
@@ -104,14 +111,20 @@
         "Scan the QR code": "Ler o QR code",
         "Code read: check the address and press Connect.": "Código lido: confira o endereço e toque em Conectar.",
         "Connect": "Conectar",
-        "The pairing code carries the home's address and certificate, so the connection is checked even with a private certificate. A typed address only works with a public certificate (domain or Tailscale). You can change it later in My account.":
-          "O código de pareamento traz o endereço e o certificado da casa, então a conexão é verificada mesmo com certificado próprio. Um endereço digitado só funciona com certificado público (domínio ou Tailscale). Dá para trocar depois em Minha conta.",
+        "Type the home's address, or use the pairing code. With its own certificate, the app shows a code to compare with System → App on the computer. You can change it later in My account.":
+          "Digite o endereço da casa, ou use o código de pareamento. Com certificado próprio, o app mostra um código para comparar com Sistema → App no computador. Dá para trocar depois em Minha conta.",
+        "This home uses its own certificate. Check that this code is the one shown in Sentinela on the computer, in System → App (Home code).":
+          "Esta casa usa um certificado próprio. Confira se este código é o mesmo mostrado no Sentinela do computador, em Sistema → App (Código da casa).",
+        "It matches: connect": "Conectar",
+        "Connect to this home?": "Conectar a esta casa?",
+        "Cancel": "Cancelar",
+        "Reading the home's certificate…": "Lendo o certificado da casa…",
         "No connection to the home": "Sem conexão com a casa",
         "The home server did not respond. Check this phone's internet connection. On home Wi-Fi, if the router does not allow its own public IP from inside, try over 4G.":
           "O servidor da casa não respondeu. Confira a internet deste celular. No Wi-Fi de casa, se o roteador não aceitar o próprio IP de fora, teste no 4G.",
         "Detail: ": "Detalhe: ",
-        "This home uses its own certificate, and this app does not have it (or the home's certificate changed). Pair again: on a computer open System → App and point this phone's camera at the QR code, or copy the pairing code into Change the address.":
-          "Esta casa usa um certificado próprio, e este app não o tem (ou o certificado da casa mudou). Pareie de novo: no computador abra Sistema → App e aponte a câmera deste celular para o QR code, ou copie o código de pareamento em Trocar o endereço.",
+        "This home uses its own certificate, and this app does not have it (or the home's certificate changed). Tap Change the address, type the home's address and confirm its code, or point the camera at the QR code in System → App.":
+          "Esta casa usa um certificado próprio, e este app não o tem (ou o certificado da casa mudou). Toque em Trocar o endereço, digite o endereço da casa e confirme o código, ou aponte a câmera para o QR code em Sistema → App.",
         "Connecting…": "Conectando…",
         "Try over Tailscale: ": "Tentar pelo Tailscale: ",
         "Try over the internet: ": "Tentar pela internet: ",
@@ -131,7 +144,7 @@
       if (LANG_PT) {
         document.getElementById("title").textContent = tr("Where is the home?");
         document.getElementById("lede").textContent = tr(document.getElementById("lede").textContent);
-        for (const id of ["off-text", "off-retry", "off-change", "go"]) {
+        for (const id of ["off-text", "off-retry", "off-change", "go", "confirm-text", "confirm-yes", "confirm-no"]) {
           const el = document.getElementById(id);
           el.textContent = tr(el.textContent);
         }
@@ -181,7 +194,7 @@
         // only pairing again (the code carries the certificate) fixes it.
         $("off-text").textContent = tr(
           s.offlineWhy === "invalid HTTPS certificate"
-            ? "This home uses its own certificate, and this app does not have it (or the home's certificate changed). Pair again: on a computer open System → App and point this phone's camera at the QR code, or copy the pairing code into Change the address."
+            ? "This home uses its own certificate, and this app does not have it (or the home's certificate changed). Tap Change the address, type the home's address and confirm its code, or point the camera at the QR code in System → App."
             : "The home server did not respond. Check this phone's internet connection. On home Wi-Fi, if the router does not allow its own public IP from inside, try over 4G.",
         );
         $("off-why").textContent = s.offlineWhy ? tr("Detail: ") + s.offlineWhy : "";
@@ -218,8 +231,13 @@
           const r = await call("scan");
           if (r && r.code) {
             $("u-domain").value = r.code;
-            $("err").textContent = tr("Code read: check the address and press Connect.");
-            $("go").focus();
+            const t = parseCode(r.code.trim());
+            if (t.pin) {
+              askPair(t); // a home's QR code: confirm the address and pair
+            } else {
+              $("err").textContent = tr("Code read: check the address and press Connect.");
+              $("go").focus();
+            }
           }
         } catch (e) {
           $("err").textContent = msg(e);
@@ -234,12 +252,62 @@
         $("err").textContent = "";
         b.disabled = true;
         try {
-          await call("choose", parseCode($("u-domain").value.trim()));
+          const target = parseCode($("u-domain").value.trim());
+          if (target.pin) {
+            await call("choose", target); // the pairing code carries the certificate
+          } else {
+            // Address only: read the certificate the server presents. A publicly
+            // trusted one needs nothing more; a private one is saved only after
+            // the person confirms its code is the one System -> App shows.
+            $("err").textContent = tr("Reading the home's certificate…");
+            const r = await call("inspect", { url: target.url });
+            $("err").textContent = "";
+            if (r.trusted || !r.pin) {
+              await call("choose", { url: target.url, pin: "" });
+            } else {
+              askConfirm(target.url, r);
+            }
+          }
         } catch (e) {
           $("err").textContent = msg(e);
         } finally {
           b.disabled = false;
         }
+      });
+
+      // A scanned pairing QR code: show the address, pair on confirmation.
+      function askPair(t) {
+        $("confirm-text").textContent = tr("Connect to this home?");
+        $("confirm-code").textContent = t.url;
+        showConfirm(() => call("choose", t));
+      }
+
+      // The certificate code to compare with System -> App.
+      function askConfirm(url, r) {
+        $("confirm-text").textContent = tr("This home uses its own certificate. Check that this code is the one shown in Sentinela on the computer, in System → App (Home code).");
+        $("confirm-code").textContent = r.code;
+        showConfirm(() => call("choose", { url, pin: r.pin }));
+      }
+
+      function showConfirm(go) {
+        $("confirm-yes").disabled = false;
+        $("confirm").hidden = false;
+        $("go").hidden = true;
+        $("scan").hidden = true;
+        $("confirm-yes").onclick = async () => {
+          $("confirm-yes").disabled = true;
+          try {
+            await go();
+          } catch (e) {
+            $("err").textContent = msg(e);
+            $("confirm-yes").disabled = false;
+          }
+        };
+      }
+      $("confirm-no").addEventListener("click", () => {
+        $("confirm").hidden = true;
+        $("go").hidden = false;
+        $("scan").hidden = false;
       });
 
       load();

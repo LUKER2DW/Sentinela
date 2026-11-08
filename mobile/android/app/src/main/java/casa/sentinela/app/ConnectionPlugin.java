@@ -44,6 +44,36 @@ public class ConnectionPlugin extends Plugin {
                 .addOnFailureListener(e -> call.reject(getContext().getString(R.string.scan_unavailable)));
     }
 
+    /**
+     * First connection by address only: reads the certificate the server
+     * presents and returns {trusted, pin, code}. {@code trusted} means the
+     * system already trusts it (nothing to confirm); otherwise the page shows
+     * {@code code} (the first 80 bits of the fingerprint, the same code that
+     * System -> App shows) and saves {@code pin} only after the person
+     * confirms they match. Nothing is sent to the server.
+     */
+    @PluginMethod
+    public void inspect(PluginCall call) {
+        String url = call.getString("url", "");
+        if (url == null || !Connection.URL.matcher(url).matches()) {
+            call.reject(getContext().getString(R.string.err_https_address));
+            return;
+        }
+        final String target = Connection.trimSlashes(url);
+        new Thread(() -> {
+            try {
+                Pin.Probe p = Pin.probe(target);
+                JSObject r = new JSObject();
+                r.put("trusted", p.trusted);
+                r.put("pin", p.pin);
+                r.put("code", Connection.homeCode(p.pin));
+                call.resolve(r);
+            } catch (Exception e) {
+                call.reject(getContext().getString(R.string.err_no_answer));
+            }
+        }, "inspect").start();
+    }
+
     @PluginMethod
     public void get(PluginCall call) {
         android.content.Context c = getContext();

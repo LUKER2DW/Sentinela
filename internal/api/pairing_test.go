@@ -62,3 +62,15 @@ func TestAppPairing(t *testing.T) {
 		t.Errorf("LAN offered without a pinned certificate: %s", body)
 	}
 }
+
+func TestHomeCode(t *testing.T) {
+	pin := "c1d9719aca1eb59f2b8febf6b764fe1aa4028905fdc1f132a22b6504562c6ea9"
+	if got, want := homeCode(pin), "C1D9-719A-CA1E-B59F-2B8F"; got != want {
+		t.Fatalf("homeCode = %q, want %q", got, want)
+	}
+	for _, bad := range []string{"", "abc", pin[:63], pin + "0", strings.Repeat("g", 64)} {
+		if got := homeCode(bad); got != "" {
+			t.Errorf("homeCode(%q) = %q, want empty", bad, got)
+		}
+	}
+}

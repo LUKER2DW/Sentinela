@@ -10,6 +10,7 @@
     <string name="err_unknown_address">Unknown address.</string>
     <string name="err_https_address">Use an https:// address (only the IP or the name and port, no path).</string>
     <string name="err_bad_pin">Invalid certificate code: use the home\'s pairing code.</string>
+    <string name="err_no_answer">Could not reach that address. Check it and this phone\'s internet connection.</string>
     <string name="pair_invalid_link">Invalid pairing link.</string>
     <string name="pair_title">Connect to %1$s?</string>
     <string name="pair_message">The app will connect to %1$s.</string>

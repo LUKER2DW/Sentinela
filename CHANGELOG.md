@@ -7,6 +7,18 @@ All notable changes to Sentinela. The format follows
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-11-08
+
+### Added
+- The app connects with just the home's address, no pairing link needed. For
+  a home with its own certificate, the app reads the certificate the address
+  presents (sending nothing) and shows its *home code*; once the person
+  confirms it is the code shown in System → App, the certificate is saved
+  with the address. Publicly trusted addresses connect straight away.
+- Scanning the home's QR code in the app now shows the address and pairs on one
+  tap (it was filled into the field first).
+- System → App shows each address's home code next to its QR code.
+
 ## [1.2.0] - 2026-11-08
 
 ### Added
@@ -119,7 +131,8 @@ The first public release. Highlights of what is in it:
   with checksum checks and automatic rollback; System → Updates shows
   the schedule and these notes.
 
-[Unreleased]: https://github.com/LUKER2DW/Sentinela/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/LUKER2DW/Sentinela/compare/v1.2.1...HEAD
+[1.2.1]: https://github.com/LUKER2DW/Sentinela/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/LUKER2DW/Sentinela/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/LUKER2DW/Sentinela/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/LUKER2DW/Sentinela/compare/v1.0.0...v1.1.0

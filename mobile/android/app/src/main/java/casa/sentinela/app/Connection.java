@@ -86,6 +86,16 @@ final class Connection {
     static final java.util.regex.Pattern URL = java.util.regex.Pattern.compile("https://[A-Za-z0-9.-]+(:\\d{1,5})?/?");
     static final java.util.regex.Pattern PIN = java.util.regex.Pattern.compile("[0-9a-fA-F]{64}");
 
+    /**
+     * The short "home code" of a certificate pin: its first 80 bits as
+     * XXXX-XXXX-XXXX-XXXX-XXXX (what System -> App shows), "" for no pin.
+     */
+    static String homeCode(String pin) {
+        if (pin == null || !PIN.matcher(pin).matches()) return "";
+        String h = pin.substring(0, 20).toUpperCase(java.util.Locale.ROOT);
+        return h.substring(0, 4) + "-" + h.substring(4, 8) + "-" + h.substring(8, 12) + "-" + h.substring(12, 16) + "-" + h.substring(16, 20);
+    }
+
     /** s without its trailing slashes; a loop, so no regex can run slow on a long address. */
     static String trimSlashes(String s) {
         int end = s.length();

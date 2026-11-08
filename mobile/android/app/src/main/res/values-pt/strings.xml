@@ -4,6 +4,7 @@
     <string name="err_unknown_address">Endereço desconhecido.</string>
     <string name="err_https_address">Use um endereço https:// (só o IP ou o nome e a porta, sem caminho).</string>
     <string name="err_bad_pin">Código de certificado inválido: use o código de pareamento da casa.</string>
+    <string name="err_no_answer">Não foi possível alcançar esse endereço. Confira-o e a internet deste celular.</string>
     <string name="pair_invalid_link">Link de pareamento inválido.</string>
     <string name="pair_title">Conectar a %1$s?</string>
     <string name="pair_message">O app vai se conectar a %1$s.</string>

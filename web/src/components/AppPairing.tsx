@@ -11,6 +11,8 @@ interface PairingOption {
   kind: "tailnet" | "public" | "lan";
   url: string;
   pin?: string;
+  /** Short form of the certificate fingerprint, shown by the app too. */
+  code?: string;
   link: string;
   qr_svg: string;
 }
@@ -61,7 +63,7 @@ function PairingCodes() {
         <h2>{t("Connect the Android app")}</h2>
       </div>
       <p className="muted small">
-        {t("Install the Sentinela app on the phone, open it and point the phone's camera at the code. The app shows the address and asks before connecting. Or copy the pairing code and paste it on the app's start screen.")}
+        {t("Install the Sentinela app on the phone, open it and point the phone's camera at the code. The app shows the address and asks before connecting. Or copy the pairing code and paste it on the app's start screen. You can also type just the address: the app shows the home code of the address it reached, and you confirm that it is the one shown here.")}
       </p>
       {q.isLoading && <p className="muted">{t("Loading…")}</p>}
       {q.isError && <p className="notice error">{t("Could not read the home addresses.")}</p>}
@@ -79,6 +81,11 @@ function PairingCodes() {
               <span className="muted small">{kindLabel[o.kind].note}</span>
               <code className="pairing-url">{o.url}</code>
               {o.pin && <span className="muted small">{t("The home's own certificate: the app checks its fingerprint.")}</span>}
+              {o.code && (
+                <span className="muted small">
+                  {t("Home code")}: <code>{o.code}</code>
+                </span>
+              )}
               <CopyField value={o.link} label={t("Pairing code")} />
             </figcaption>
           </figure>
