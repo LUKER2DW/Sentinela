@@ -173,5 +173,15 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           prev="$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)"
-          gh release create "$TAG" dist/* --verify-tag --generate-notes \
-            --title "Sentinela $TAG" ${prev:+--notes-start-tag "$prev"}
+          # Release notes: this version's section of CHANGELOG.md (the
+          # patch notes people read), then the full comparison link.
+          awk -v v="${TAG#v}" 'index($0, "## [" v "]") == 1 {f = 1; next} f && /^## \[/ {exit} f' CHANGELOG.md > notes.md
+          if grep -q '[^[:space:]]' notes.md; then
+            [ -n "$prev" ] && printf '\n**Full changelog**: %s/%s/compare/%s...%s\n' \
+              "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$prev" "$TAG" >> notes.md
+            gh release create "$TAG" dist/* --verify-tag --title "Sentinela $TAG" --notes-file notes.md
+          else
+            # No CHANGELOG section for this tag: GitHub's own list of changes.
+            gh release create "$TAG" dist/* --verify-tag --generate-notes \
+              --title "Sentinela $TAG" ${prev:+--notes-start-tag "$prev"}
+          fi

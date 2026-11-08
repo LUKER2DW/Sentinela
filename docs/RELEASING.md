@@ -4,7 +4,9 @@ Maintainers only. Releases follow [Semantic Versioning](https://semver.org/)
 and are made on the public repository (ADR-0022).
 
 1. Make sure `main` is green in CI and `CHANGELOG.md` has a section for the
-   new version (move the *Unreleased* items under it).
+   new version (move the *Unreleased* items under it). That section becomes
+   the release notes on GitHub, so keep it short: what changed for people,
+   in a few lines per item.
 2. Tag and push:
 
    ```bash
@@ -17,7 +19,10 @@ and are made on the public repository (ADR-0022).
    and provenance, builds the Linux binary and creates the GitHub release.
    The same run builds and signs the generic Android app (`sentinela.apk`
    and `app.json`) and attaches them. Every Sentinela server whose
-   `app_updates.github` points here offers it to its phones within 6 hours.
+   `app_updates.github` points here offers it to its phones at its daily
+   update time, or right away after *Check for updates* in System → Updates.
+   The release page shows that version's CHANGELOG section and a link to the
+   full comparison.
 
 ## One-time setup: the app signing key
 
