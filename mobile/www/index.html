@@ -107,6 +107,9 @@
         "The home server did not respond. Check this phone's internet connection. On home Wi-Fi, if the router does not allow its own public IP from inside, try over 4G.":
           "O servidor da casa não respondeu. Confira a internet deste celular. No Wi-Fi de casa, se o roteador não aceitar o próprio IP de fora, teste no 4G.",
         "Detail: ": "Detalhe: ",
+        "This home uses its own certificate, and this app does not have it (or the home's certificate changed). Pair again: on a computer open System → App and point this phone's camera at the QR code, or copy the pairing code into Change the address.":
+          "Esta casa usa um certificado próprio, e este app não o tem (ou o certificado da casa mudou). Pareie de novo: no computador abra Sistema → App e aponte a câmera deste celular para o QR code, ou copie o código de pareamento em Trocar o endereço.",
+        "Connecting…": "Conectando…",
         "Try over Tailscale: ": "Tentar pelo Tailscale: ",
         "Try over the internet: ": "Tentar pela internet: ",
         "Try: ": "Tentar: ",
@@ -170,8 +173,12 @@
         $("title").textContent = off ? tr("No connection to the home") : tr("Where is the home?");
         $("lede").hidden = off;
         if (!off) return;
+        // A certificate the app cannot check is not a network problem:
+        // only pairing again (the code carries the certificate) fixes it.
         $("off-text").textContent = tr(
-          "The home server did not respond. Check this phone's internet connection. On home Wi-Fi, if the router does not allow its own public IP from inside, try over 4G.",
+          s.offlineWhy === "invalid HTTPS certificate"
+            ? "This home uses its own certificate, and this app does not have it (or the home's certificate changed). Pair again: on a computer open System → App and point this phone's camera at the QR code, or copy the pairing code into Change the address."
+            : "The home server did not respond. Check this phone's internet connection. On home Wi-Fi, if the router does not allow its own public IP from inside, try over 4G.",
         );
         $("off-why").textContent = s.offlineWhy ? tr("Detail: ") + s.offlineWhy : "";
         const box = $("off-alts");
@@ -190,10 +197,10 @@
 
       $("off-retry").addEventListener("click", () => {
         $("off-retry").disabled = true;
-        $("off-retry").textContent = "Conectando…";
+        $("off-retry").textContent = tr("Connecting…");
         call("retry").catch(() => {
           $("off-retry").disabled = false;
-          $("off-retry").textContent = "Tentar de novo";
+          $("off-retry").textContent = tr("Try again");
         });
       });
       $("off-change").addEventListener("click", () => showOffline({ offline: false }));

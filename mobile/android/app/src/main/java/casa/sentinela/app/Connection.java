@@ -55,10 +55,30 @@ final class Connection {
         String saved = trimSlashes(p.getString("url." + MODE, ""));
         String savedPin = p.getString("pin." + MODE, "");
         if (!savedPin.isEmpty()) return savedPin;
-        // Installs from before pairing codes saved the address without a
-        // pin: the build's pin still applies to the build's own address.
-        if (saved.isEmpty() || saved.equals(trimSlashes(BuildConfig.DOMAIN_URL))) {
+        if (saved.isEmpty()) return BuildConfig.PUBLIC_CERT_SHA256; // the build's own address
+        return knownPin(c, saved);
+    }
+
+    /**
+     * A pin this app already trusts for url, or "": the build's default pin
+     * for the build's own address, else the pin the house itself listed for
+     * that address over a verified connection (alternatives). So an address
+     * saved without its pin (typed, or saved before pairing codes) keeps its
+     * certificate, also after an update to the generic APK, which has no
+     * default. Never a pin learned from the server being contacted.
+     */
+    static String knownPin(Context c, String url) {
+        url = trimSlashes(url);
+        if (url.isEmpty()) return "";
+        if (url.equals(trimSlashes(BuildConfig.DOMAIN_URL)) && !BuildConfig.PUBLIC_CERT_SHA256.isEmpty()) {
             return BuildConfig.PUBLIC_CERT_SHA256;
+        }
+        org.json.JSONArray alts = alternatives(c);
+        for (int i = 0; i < alts.length(); i++) {
+            org.json.JSONObject o = alts.optJSONObject(i);
+            if (o != null && trimSlashes(o.optString("url", "")).equals(url) && !o.optString("pin", "").isEmpty()) {
+                return o.optString("pin", "");
+            }
         }
         return "";
     }
@@ -124,6 +144,9 @@ final class Connection {
         if (!pin.isEmpty() && !PIN.matcher(pin).matches()) {
             return c.getString(R.string.err_bad_pin);
         }
+        // An address typed without a pin: keep the one already trusted for it,
+        // so it is saved with the address and survives any later update.
+        if (pin.isEmpty()) pin = knownPin(c, url);
         offline = null;
         boolean known = false;
         org.json.JSONArray alts = alternatives(c);
@@ -161,6 +184,18 @@ final class Connection {
      */
     static void migrate(Context c) {
         SharedPreferences p = prefs(c);
+        // Every launch: a pin in use but not saved (the build's default, or
+        // the house's own listing) is saved with its address. A household
+        // build's pin otherwise lived only in the APK, and updating to the
+        // generic release APK (no default) made the home's own certificate
+        // look invalid (2026-11-08).
+        if (MODE.equals(p.getString("mode", "")) && p.getString("pin." + MODE, "").isEmpty()) {
+            String url = trimSlashes(url(c));
+            String pin = url.isEmpty() ? "" : pin(c);
+            if (!pin.isEmpty()) {
+                p.edit().putString("url." + MODE, url).putString("pin." + MODE, pin.toLowerCase(java.util.Locale.ROOT)).apply();
+            }
+        }
         // Pairing codes (v18): a phone that uses the build's default server
         // keeps it, with its pin, so a later generic APK (no default) still
         // knows the house.

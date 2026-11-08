@@ -7,6 +7,17 @@ All notable changes to Sentinela. The format follows
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-11-08
+
+### Fixed
+- Updating from a household build (with the home's address and certificate
+  built in) to the release APK could lose the certificate pin, so the app
+  called the home's own certificate invalid. The app now saves the pin in use
+  with its address on every launch, keeps it when an address is typed again,
+  and falls back to the pin the home itself listed for that address.
+- The no-connection screen explains a certificate error (pair again with the
+  code from System → App) instead of suggesting a network problem.
+
 ## [1.1.0] - 2026-11-08
 
 ### Added
@@ -90,6 +101,7 @@ The first public release. Highlights of what is in it:
   with checksum checks and automatic rollback; System → Updates shows
   the schedule and these notes.
 
-[Unreleased]: https://github.com/LUKER2DW/Sentinela/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/LUKER2DW/Sentinela/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/LUKER2DW/Sentinela/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/LUKER2DW/Sentinela/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/LUKER2DW/Sentinela/releases/tag/v1.0.0
