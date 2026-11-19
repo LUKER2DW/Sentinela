@@ -164,7 +164,7 @@ func (s *Server) setup(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, "setup already completed")
 		return
 	}
-	s.Log.Info("first admin created", "user", c.Username)
+	s.Log.Info("first admin created", "user", logSafe(c.Username))
 	_ = s.Store.Audit(r.Context(), id, auditField(c.Username), "setup", auditField(c.Username), true, "")
 	// A new install: the admin is guided through the rest of the setup.
 	if err := s.Store.SetSetting(r.Context(), onboardingKey, "pending"); err != nil {

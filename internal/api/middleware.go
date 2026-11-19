@@ -215,7 +215,7 @@ const maxLoggedPath = 256
 // logPath is the redacted request URI, cut to maxLoggedPath bytes (on a rune
 // boundary).
 func logPath(r *http.Request) string {
-	p := redact.URL(r.URL.RequestURI())
+	p := logSafe(redact.URL(r.URL.RequestURI()))
 	if len(p) <= maxLoggedPath {
 		return p
 	}
@@ -224,6 +224,13 @@ func logPath(r *http.Request) string {
 		p = p[:len(p)-1]
 	}
 	return p + "…"
+}
+
+// logSafe makes a client-supplied string one line: line breaks cannot start a
+// forged log entry whatever the log handler does with them.
+func logSafe(s string) string {
+	s = strings.ReplaceAll(s, "\n", " ")
+	return strings.ReplaceAll(s, "\r", " ")
 }
 
 func (s *Server) logRequests(next http.Handler) http.Handler {

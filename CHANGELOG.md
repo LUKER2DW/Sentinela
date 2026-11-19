@@ -7,6 +7,68 @@ All notable changes to Sentinela. The format follows
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-11-19
+
+Security release: the result of a full audit of the server, the remote-access
+paths, the services agent and the host scripts. Update with the usual
+`./scripts/deploy.sh`; read **Changed** first.
+
+### Security
+- **Login from outside can no longer be used to lock the owner out.** Failed
+  outside logins count per account and per source (10 an hour), with a
+  300-an-hour backstop across sources for a guess spread over many
+  addresses. The pre-login limiters cap their memory and count an IPv6
+  client per /64; password hashing has a short, bounded queue and answers
+  "busy" (503) instead of piling up; failed-login audit rows are capped and
+  pruned after 180 days.
+- **A session is tied to the host it was created on.** A cookie that a
+  service on another port of the same address received can no longer be
+  replayed at the public address.
+- A tunnel or reverse proxy that forwards a public client to the dashboard
+  port (instead of `remote.proxy.listen`) is treated as the public zone, and
+  the reachability check reports that mistake.
+- Anonymous requests on public listeners have read and write deadlines, and
+  the listeners facing the internet cap open connections. Secure cookies and
+  HSTS in every public zone; logged request paths are one line and bounded;
+  the build version is not sent to the internet.
+- Live event, notification and video streams re-check the session every
+  45 seconds; revoking a device, disabling an account or narrowing a user's
+  cameras now reaches streams that are already open.
+- Camera probes and the services' file, secret and folder views are
+  LAN/tailnet only. `/api/system` shows only the cameras a user may see (and
+  the share and disk details only to admins). Web Push subscriptions end
+  with the session that created them.
+- **Self-hosted services:** the helper that holds the Docker socket gets a
+  fixed environment and runs `docker` by absolute path; the rendered Compose
+  file lives where no service can write; source inspection, folder browsing
+  and the disk sampler are bounded, so a hostile repository or folder cannot
+  take the agent down. Builds that run outside the services firewall are
+  flagged (limits documented in ADR-0021).
+- **Host:** the recorder, which parses camera data, mounts only the
+  recordings, the database folder and the volume marker, not all of `/data`.
+  The root config applier re-checks every dashboard change
+  (`sentinela check-config -against`), and the setup, deploy and backup
+  scripts no longer follow symlinks under `/data` or read the database as
+  root. `firewall.sh` always turns the firewall back on.
+- Camera stream paths reject `${…}` (go2rtc would expand it from
+  `secrets.env`); export and timelapse release their slot when the client
+  stops reading; prepared timelapses are capped.
+- Releases are made only from a plain `vX.Y.Z` tag whose commit is on `main`.
+  Go 1.26.11 (GO-2026-6859, an HTTP/1 server crash).
+- The Android app has no cleartext exception and its file provider exposes
+  only the update APK.
+
+### Changed
+- Someone signed in at the home address who opens the public address must
+  sign in again there (sessions are per host).
+- From the internet, the Services page shows status and logs and can start,
+  stop, restart or redeploy; files, secrets and folders need home or the
+  tailnet.
+- New Samba installs need a password of at least 8 characters and lock an
+  account for 30 minutes after 5 wrong ones.
+- Two-step login stays optional per account; INSTALL.md and the examples now
+  say so, and add router and SSH checks for public access.
+
 ## [1.5.1] - 2026-11-08
 
 ### Fixed

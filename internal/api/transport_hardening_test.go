@@ -221,3 +221,21 @@ func TestLimitConnsReleaseIsIdempotent(t *testing.T) {
 type nopConn struct{ net.Conn }
 
 func (nopConn) Close() error { return nil }
+
+func TestLogSafeIsOneLine(t *testing.T) {
+	for in, want := range map[string]string{
+		"plain":                "plain",
+		"a\nb":                 "a b",
+		"a\r\nINFO forged":     "a  INFO forged",
+		"/x?q=1\n{\"fake\":1}": "/x?q=1 {\"fake\":1}",
+	} {
+		if got := logSafe(in); got != want {
+			t.Errorf("logSafe(%q) = %q, want %q", in, got, want)
+		}
+	}
+	r := httptest.NewRequest("GET", "/x", nil)
+	r.URL.RawQuery = "a=1\nINFO forged"
+	if p := logPath(r); strings.ContainsAny(p, "\r\n") {
+		t.Fatalf("logged path has a line break: %q", p)
+	}
+}
