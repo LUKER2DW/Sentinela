@@ -12,7 +12,8 @@
 # e.g. 8443/tcp -> <server>:7443, for the site. If 80 is blocked too:
 # remote.public.self_signed: true (no Let's Encrypt; the app pins the
 # certificate, whose SHA-256 "status" prints; browsers warn).
-# Nobody can log in from outside before enrolling two-step login at home.
+# Two-step login is optional per account (ADR-0019 amendment): enrol it at home
+# for every account that will log in from outside.
 set -euo pipefail
 [[ $EUID -eq 0 ]] || { echo "run with sudo" >&2; exit 1; }
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

@@ -19,7 +19,7 @@ interface RemoteCheckResult {
   target: string;
   url: string;
   ok: boolean;
-  reason?: "off" | "dns" | "connect" | "tls" | "other" | "http";
+  reason?: "off" | "dns" | "connect" | "tls" | "other" | "http" | "zone";
   detail?: string;
   ips?: string[];
   home_ip?: string;

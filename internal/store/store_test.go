@@ -3,8 +3,10 @@ package store
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func openTest(t *testing.T) *Store {
@@ -205,7 +207,7 @@ func TestFCMTokenFollowsSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	hash := []byte("test-session-hash")
-	if err := s.CreateSession(ctx, hash, userID, "csrf", time.Now().Add(time.Hour), "Android", true, true); err != nil {
+	if err := s.CreateSession(ctx, hash, userID, "csrf", time.Now().Add(time.Hour), "Android", true, true, ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.SaveFCMToken(ctx, userID, hash, "a-very-long-valid-device-token", "SentinelaApp/1"); err != nil {
@@ -221,5 +223,170 @@ func TestFCMTokenFollowsSession(t *testing.T) {
 	tokens, err = s.FCMTokens(ctx, userID)
 	if err != nil || len(tokens) != 0 {
 		t.Fatalf("token after logout: %v, %v", tokens, err)
+	}
+}
+
+func TestPushSubscriptionSessionBinding(t *testing.T) {
+	ctx := context.Background()
+	s := openTest(t)
+	uid, err := s.CreateFirstUser(ctx, "ana", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h1, h2 := []byte("session-one-hash"), []byte("session-two-hash")
+	for _, h := range [][]byte{h1, h2} {
+		if err := s.CreateSession(ctx, h, uid, "csrf", time.Now().Add(time.Hour), "ua", false, false, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.SavePushSub(ctx, uid, h1, "https://push/1", "k", "a", "ua"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SavePushSub(ctx, uid, h2, "https://push/2", "k", "a", "ua"); err != nil {
+		t.Fatal(err)
+	}
+	// A subscription from before the session column (no session).
+	if err := s.SavePushSub(ctx, uid, nil, "https://push/legacy", "k", "a", "ua"); err != nil {
+		t.Fatal(err)
+	}
+	count := func() int {
+		subs, err := s.PushSubs(ctx, uid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(subs)
+	}
+	if count() != 3 {
+		t.Fatalf("subs = %d", count())
+	}
+	// Ending a session removes its subscription (and only that one).
+	if err := s.DeleteSession(ctx, h1); err != nil {
+		t.Fatal(err)
+	}
+	subs, _ := s.PushSubs(ctx, uid)
+	if len(subs) != 2 {
+		t.Fatalf("after session end: %+v", subs)
+	}
+	for _, p := range subs {
+		if p.Endpoint == "https://push/1" {
+			t.Fatal("subscription outlived its session")
+		}
+	}
+	// An expired session's subscription is not used even before the purge.
+	if err := s.ExtendSession(ctx, h2, time.Now().Add(-time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if count() != 1 {
+		t.Fatalf("expired session's subscription still listed: %d", count())
+	}
+	// Re-subscribing the same endpoint moves it to the new session.
+	if err := s.CreateSession(ctx, []byte("session-three-hash"), uid, "csrf", time.Now().Add(time.Hour), "ua", false, false, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SavePushSub(ctx, uid, []byte("session-three-hash"), "https://push/2", "k", "a", "ua"); err != nil {
+		t.Fatal(err)
+	}
+	if count() != 2 {
+		t.Fatalf("re-subscribe: %d", count())
+	}
+}
+
+func TestPushSubscriptionsDroppedWithAccess(t *testing.T) {
+	ctx := context.Background()
+	for name, drop := range map[string]func(*Store, int64) error{
+		"password": func(s *Store, id int64) error { return s.UpdateUserPassword(ctx, id, "new-hash") },
+		"disable":  func(s *Store, id int64) error { return s.SetUserDisabled(ctx, id, true) },
+		"reinvite": func(s *Store, id int64) error {
+			return s.SetInvite(ctx, id, []byte("invite"), time.Now().Add(time.Hour))
+		},
+		"delete": func(s *Store, id int64) error { return s.DeleteUser(ctx, id) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := openTest(t)
+			uid, _ := s.CreateFirstUser(ctx, "ana", "hash")
+			other, err := s.CreateUser(ctx, "bia", "hash", "viewer")
+			if err != nil {
+				t.Fatal(err)
+			}
+			h := []byte("session-hash-ana")
+			_ = s.CreateSession(ctx, h, uid, "c", time.Now().Add(time.Hour), "ua", false, false, "")
+			_ = s.SavePushSub(ctx, uid, h, "https://push/ana", "k", "a", "ua")
+			_ = s.SavePushSub(ctx, uid, nil, "https://push/ana-legacy", "k", "a", "ua")
+			_ = s.SavePushSub(ctx, other, nil, "https://push/bia", "k", "a", "ua")
+			if err := drop(s, uid); err != nil {
+				t.Fatal(err)
+			}
+			if subs, _ := s.PushSubs(ctx, uid); len(subs) != 0 {
+				t.Fatalf("subscriptions kept: %+v", subs)
+			}
+			if subs, _ := s.PushSubs(ctx, other); len(subs) != 1 {
+				t.Fatalf("another user's subscription affected: %+v", subs)
+			}
+		})
+	}
+}
+
+func TestAuditClipAndPrune(t *testing.T) {
+	ctx := context.Background()
+	s := openTest(t)
+	long := strings.Repeat("é", 300) // 2 bytes each
+	if err := s.Audit(ctx, 0, long, "login", long, false, strings.Repeat("x", 5000)+"\xff"); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := s.ListAudit(ctx, 10)
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("rows = %v %v", rows, err)
+	}
+	r := rows[0]
+	if len(r.Username) > auditMaxUser || !utf8.ValidString(r.Username) || len(r.Target) > auditMaxTarget || !utf8.ValidString(r.Target) || len(r.Detail) > auditMaxDetail {
+		t.Fatalf("fields not clipped: %d %d %d", len(r.Username), len(r.Target), len(r.Detail))
+	}
+	if short := clip("abc", 10); short != "abc" {
+		t.Fatalf("short text changed: %q", short)
+	}
+
+	// Retention: by age and by count; upload records stay.
+	old := FormatTime(time.Now().Add(-200 * 24 * time.Hour))
+	for i := 0; i < 5; i++ {
+		if _, err := s.DB().ExecContext(ctx, `INSERT INTO audit(at,username,action,target,ok,detail) VALUES(?,?,?,?,1,'')`, old, "u", "login", ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.DB().ExecContext(ctx, `INSERT INTO audit(at,username,action,target,ok,detail) VALUES(?,?,?,?,1,'')`, old, "u", "nas.upload", "a/b.txt"); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 6; i++ {
+		_ = s.Audit(ctx, 0, "u", "login", "", true, "")
+	}
+	if err := s.PruneAudit(ctx, 180*24*time.Hour, 4); err != nil {
+		t.Fatal(err)
+	}
+	var logins, uploads int
+	_ = s.DB().QueryRowContext(ctx, `SELECT count(*) FROM audit WHERE action<>'nas.upload'`).Scan(&logins)
+	_ = s.DB().QueryRowContext(ctx, `SELECT count(*) FROM audit WHERE action='nas.upload'`).Scan(&uploads)
+	if logins != 4 || uploads != 1 {
+		t.Fatalf("after prune: %d rows, %d uploads", logins, uploads)
+	}
+}
+
+func TestSessionKeepsItsHost(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	uid, err := s.CreateFirstUser(ctx, "ana", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, host := range []string{"nvr.example.org:8443", ""} { // "" = a session from before 0012
+		hash := []byte("host-session-" + host)
+		if err := s.CreateSession(ctx, hash, uid, "csrf", time.Now().Add(time.Hour), "ua", false, false, host); err != nil {
+			t.Fatal(err)
+		}
+		sess, _, err := s.SessionByHash(ctx, hash)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if sess.Host != host {
+			t.Errorf("session host = %q, want %q", sess.Host, host)
+		}
 	}
 }

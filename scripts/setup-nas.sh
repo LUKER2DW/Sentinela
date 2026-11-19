@@ -53,9 +53,16 @@ systemctl enable -q --now sentinela-trash.timer
 
 systemctl enable -q --now smbd nmbd wsdd avahi-daemon
 systemctl restart smbd nmbd wsdd avahi-daemon
-# Owner's choice: 4-digit PINs allowed for the share (Samba's default minimum
-# is 5). LAN-only share behind the firewall; see ADR-0008.
-pdbedit -P "min password length" -C 4 >/dev/null
+# The share password is guessable from any device on the LAN (a guest phone,
+# an IoT gadget, the camera), so a short PIN is not enough: 8 characters by
+# default (SENTINELA_SMB_MIN_PASSWORD overrides; Samba's own floor is 5), and
+# an account is locked for 30 minutes after 5 wrong passwords. See ADR-0008.
+min_pw="${SENTINELA_SMB_MIN_PASSWORD:-8}"
+[[ "$min_pw" =~ ^[0-9]{1,2}$ ]] || { echo "SENTINELA_SMB_MIN_PASSWORD must be a number" >&2; exit 1; }
+pdbedit -P "min password length" -C "$min_pw" >/dev/null
+pdbedit -P "bad lockout attempt" -C 5 >/dev/null
+pdbedit -P "lockout duration" -C 30 >/dev/null
+pdbedit -P "reset count minutes" -C 30 >/dev/null
 
 if command -v ufw >/dev/null && ufw status | grep -q active; then
   ufw allow from "$LAN" to any port 445 proto tcp comment 'smb lan' >/dev/null

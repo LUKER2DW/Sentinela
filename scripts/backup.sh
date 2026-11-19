@@ -25,16 +25,21 @@ install -d -m 0755 "$DEST"
 install -d -m 0700 "$DEST/db" "$DEST/etc"
 
 # 1. Database. sqlite3 runs as the DB owner so it can never leave root-owned
-# -wal/-shm files the container (UID 1000) could not open afterwards.
+# -wal/-shm files the container (UID 1000) could not open afterwards. The
+# file is controlled by uid 1000 (the containers), so every sqlite3 call,
+# the integrity check of the copy too, drops root and turns trusted_schema
+# off: nothing in the file's schema (views, triggers, functions) can run
+# with root's rights.
+sq() { setpriv --reuid="$uid" --regid="$gid" --clear-groups sqlite3 -cmd 'PRAGMA trusted_schema=OFF' "$@"; }
 db_at="" db_file="" db_bytes=0 db_ok=false
 if [[ -f "$DB" ]]; then
   uid="$(stat -c %u "$DB")" gid="$(stat -c %g "$DB")"
   tmp="$(mktemp -d)"
   chown "$uid:$gid" "$tmp"
   name="sentinela-$(date -u +%Y%m%d).db"
-  if setpriv --reuid="$uid" --regid="$gid" --clear-groups \
-      sqlite3 "$DB" ".timeout 10000" "VACUUM INTO '$tmp/$name'" &&
-     [[ "$(sqlite3 "$tmp/$name" 'PRAGMA integrity_check')" == ok ]]; then
+  if sq "$DB" ".timeout 10000" "VACUUM INTO '$tmp/$name'" &&
+     [[ -f "$tmp/$name" && ! -L "$tmp/$name" ]] &&
+     [[ "$(sq "$tmp/$name" 'PRAGMA integrity_check')" == ok ]]; then
     chown root:root "$tmp/$name" && chmod 0600 "$tmp/$name"
     mv -f "$tmp/$name" "$DEST/db/$name"
     db_at="$(now)" db_file="$name" db_bytes="$(stat -c %s "$DEST/db/$name")" db_ok=true

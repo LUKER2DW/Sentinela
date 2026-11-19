@@ -10,7 +10,7 @@ COPY web/ ./
 COPY CHANGELOG.md /src/CHANGELOG.md
 RUN npm run build
 
-FROM golang:1.26.10-trixie@sha256:fd9a91f0ece5664556f4851d06dce5e5b505a71166dffd385a03ba9d200b6983 AS go
+FROM golang:1.26.11-trixie@sha256:cff05dd6b81c901f2e8249eb6f91c69a60451d0f12c26bfef08e476a85b32d4d AS go
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download

@@ -45,19 +45,22 @@ type Status struct {
 	Error     string     `json:"error,omitempty"`
 	Job       *Job       `json:"job,omitempty"`
 	// Containers of a compose service, running/total.
-	Running  int            `json:"running,omitempty"`
-	Total    int            `json:"total,omitempty"`
-	CPU      float64        `json:"cpu_pct"`
-	Mem      uint64         `json:"mem_bytes"`
-	MemMax   uint64         `json:"mem_limit"`
-	NetRx    uint64         `json:"net_rx"`
-	NetTx    uint64         `json:"net_tx"`
-	Pids     uint64         `json:"pids"`
-	Disk     int64          `json:"disk_bytes"`
-	LastExit *ServiceExit   `json:"last_exit,omitempty"`
-	Restarts int            `json:"restarts"`
-	RetryAt  *time.Time     `json:"retry_at,omitempty"`
-	Events   []ServiceEvent `json:"events,omitempty"`
+	Running int     `json:"running,omitempty"`
+	Total   int     `json:"total,omitempty"`
+	CPU     float64 `json:"cpu_pct"`
+	Mem     uint64  `json:"mem_bytes"`
+	MemMax  uint64  `json:"mem_limit"`
+	NetRx   uint64  `json:"net_rx"`
+	NetTx   uint64  `json:"net_tx"`
+	Pids    uint64  `json:"pids"`
+	Disk    int64   `json:"disk_bytes"`
+	// DiskPartial: disk_bytes is a lower bound (the folder is too big or too
+	// slow to walk in full).
+	DiskPartial bool           `json:"disk_partial,omitempty"`
+	LastExit    *ServiceExit   `json:"last_exit,omitempty"`
+	Restarts    int            `json:"restarts"`
+	RetryAt     *time.Time     `json:"retry_at,omitempty"`
+	Events      []ServiceEvent `json:"events,omitempty"`
 }
 
 // Link is an address the service answers on.
@@ -85,6 +88,7 @@ func (a *Agent) view(app *App, r *svcState) View {
 	running := false
 	if r != nil {
 		st.Error, st.Disk, st.Restarts = r.err, r.disk, r.restartCount
+		st.DiskPartial = r.diskPartial
 		st.Events = slices.Clone(r.events)
 		if r.job != nil {
 			j := *r.job
@@ -445,6 +449,9 @@ func (a *Agent) Delete(ctx context.Context, id string) error {
 	if rerr := os.RemoveAll(a.appDir(id)); err == nil {
 		err = rerr
 	}
+	if rerr := os.RemoveAll(a.composeDir(id)); err == nil {
+		err = rerr
+	}
 	return err
 }
 
@@ -552,6 +559,12 @@ func (a *Agent) Check(ctx context.Context, id string) (map[string]any, error) {
 // run it, which version it is at. GitHub sources are downloaded to a
 // temporary folder for this.
 func (a *Agent) Inspect(ctx context.Context, in App) (Detection, error) {
+	select {
+	case a.inspectSem <- struct{}{}:
+		defer func() { <-a.inspectSem }()
+	default:
+		return Detection{}, errors.New("other source inspections are running; try again in a moment")
+	}
 	in.ID, in.Name, in.Mode, in.Runtime, in.Start = "inspect", "inspect", ModeScript, "shell", "true"
 	in.MemoryMB, in.CPUs = a.Cfg.MemoryMB, a.Cfg.CPUs
 	if err := in.Validate(a.limits()); err != nil {
@@ -816,8 +829,8 @@ func (a *Agent) hLocal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p := r.URL.Query().Get("path")
-	dirs, err := src.Browse(p)
-	reply(w, map[string]any{"root": src.Root, "path": cleanRel(p), "folders": dirs}, err)
+	dirs, truncated, err := src.BrowseLimited(p)
+	reply(w, map[string]any{"root": src.Root, "path": cleanRel(p), "folders": dirs, "truncated": truncated}, err)
 }
 
 func (a *Agent) hAction(w http.ResponseWriter, r *http.Request) {

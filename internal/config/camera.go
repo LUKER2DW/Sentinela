@@ -144,6 +144,16 @@ func (cam *Camera) Go2RTCBackchannel() string {
 		cam.UserEnv, cam.PasswordEnv, net.JoinHostPort(cam.Host, strconv.Itoa(cam.DVRIPPort)), cam.Channel-1)
 }
 
+// pathPlaceholders are the only braces a configured stream path may carry
+// (rtspURL replaces them).
+var pathPlaceholders = strings.NewReplacer("{channel}", "", "{user}", "", "{password}", "")
+
+// pathPlaceholdersOnly reports whether p has no '$', '{' or '}' once the
+// known placeholders are taken out.
+func pathPlaceholdersOnly(p string) bool {
+	return !strings.ContainsAny(pathPlaceholders.Replace(p), "${}")
+}
+
 // validateStream checks vendor, channel, paths and the credential
 // characters each URL layout can carry.
 func (cam *Camera) validateStream() []error {
@@ -161,6 +171,12 @@ func (cam *Camera) validateStream() []error {
 	for _, p := range []string{cam.RTSPMain, cam.RTSPSub} {
 		if p != "" && (!strings.HasPrefix(p, "/") || strings.ContainsAny(p, " @\\\"'\n\r\t")) {
 			errs = append(errs, fmt.Errorf("camera %s: rtsp paths start with '/' and carry no spaces, quotes or '@'", cam.ID))
+		}
+		if !pathPlaceholdersOnly(p) {
+			// go2rtc expands ${VAR} from secrets.env in the generated
+			// streams file, so a path must never carry "$", "{" or "}"
+			// (apart from the {channel}, {user}, {password} placeholders).
+			errs = append(errs, fmt.Errorf("camera %s: rtsp paths must not contain '$', '{' or '}' (only {channel})", cam.ID))
 		}
 	}
 	if l.inPath {

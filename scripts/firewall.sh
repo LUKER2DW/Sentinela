@@ -12,6 +12,10 @@ LAN="${1:-$(lan_cidr)}"
 command -v ufw >/dev/null || DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 install -y -qq ufw
 
 ufw --force reset >/dev/null
+# `reset` switches ufw off. Whatever happens below (a failed command under
+# set -e, a signal), turn it back on rather than leave the host unfiltered:
+# the rules built so far already deny inbound by default.
+trap 'ufw --force enable >/dev/null 2>&1 || true' EXIT
 ufw default deny incoming >/dev/null
 ufw default allow outgoing >/dev/null
 # SSH first, so enabling never locks us out.

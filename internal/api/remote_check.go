@@ -31,9 +31,11 @@ func newInstanceID() string {
 	return hex.EncodeToString(b)
 }
 
-func (s *Server) wellKnown(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) wellKnown(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, http.StatusOK, map[string]any{"sentinela": true, "id": s.instance})
+	// The zone lets a reachability check tell "reaches the public listener"
+	// from "a tunnel pointed at the private port" (which gets LAN rights).
+	writeJSON(w, http.StatusOK, map[string]any{"sentinela": true, "id": s.instance, "zone": zoneFrom(r)})
 }
 
 type remoteCheck struct {
@@ -158,12 +160,17 @@ func (s *Server) checkRemote(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Sentinela bool   `json:"sentinela"`
 		ID        string `json:"id"`
+		Zone      string `json:"zone"`
 	}
 	switch {
 	case resp.StatusCode != http.StatusOK || json.NewDecoder(io.LimitReader(resp.Body, 4<<10)).Decode(&body) != nil || !body.Sentinela:
 		res.Reason, res.Detail = "http", "something else answered (HTTP "+resp.Status+")"
 	case body.ID != s.instance:
 		res.Reason, res.Detail = "other", "another Sentinela answered"
+	case body.Zone != "" && !PublicZone(body.Zone):
+		// Reached, but on the private listener: the closed door, the admin
+		// limits and the outside-login rules would not apply to this address.
+		res.Reason, res.Detail = "zone", "this address reaches the private dashboard port; point the tunnel or proxy at remote.proxy.listen"
 	default:
 		res.OK = true
 	}

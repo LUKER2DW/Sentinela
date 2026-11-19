@@ -509,6 +509,12 @@ func (c *Config) validate() error {
 		if cam.User == "" || cam.Password == "" {
 			errs = append(errs, fmt.Errorf("camera %s: credentials missing (set %s and %s)", cam.ID, cam.UserEnv, cam.PasswordEnv))
 		}
+		for _, n := range []string{cam.UserEnv, cam.PasswordEnv} {
+			// Names reach go2rtc's ${VAR} placeholders and secrets.env.
+			if n != "" && !envName.MatchString(n) {
+				errs = append(errs, fmt.Errorf("camera %s: user_env/password_env must match %s", cam.ID, envName))
+			}
+		}
 		errs = append(errs, cam.validateStream()...)
 		if !slices.Contains([]string{"", MotionAuto, MotionCamera, MotionVideo}, cam.Motion) {
 			errs = append(errs, fmt.Errorf("camera %s: motion must be auto, camera or video", cam.ID))
@@ -518,6 +524,7 @@ func (c *Config) validate() error {
 }
 
 var (
+	envName      = regexp.MustCompile(`^[A-Z0-9_]{1,64}$`)
 	runtimeName  = regexp.MustCompile(`^[a-z][a-z0-9-]{0,19}$`)
 	imagePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._/-]*(:[A-Za-z0-9._-]+)?(@sha256:[0-9a-f]{64})?$`)
 )

@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- The only file this provider hands to the package installer is the update
+     APK that UpdatePlugin downloads into cache/update/. Nothing else in the
+     app's cache or in external storage is shareable through it. -->
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
-    <external-path name="my_images" path="." />
-    <cache-path name="my_cache_images" path="." />
+    <cache-path name="update" path="update/" />
 </paths>

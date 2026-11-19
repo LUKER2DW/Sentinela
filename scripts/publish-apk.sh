@@ -34,7 +34,13 @@ json="$(printf '{"version_code":%s,"version_name":"%s","size":%s,"sha256":"%s","
   "$code" "$name" "$size" "$sha" "${notes//\"/\'}")"
 
 echo "==> publish app ${name} (${code}), $((size / 1024 / 1024)) MB"
-"${SSH[@]}" 'sudo install -d -o 1000 -g 1000 -m 0755 /data/app'
+# /data belongs to uid 1000: root writes only into a plain directory, never
+# through a link found there (install itself replaces a link at the file name).
+"${SSH[@]}" 'sudo bash -s' <<'REMOTE'
+[[ ! -L /data/app ]] || { echo "refusing: /data/app is a symbolic link" >&2; exit 1; }
+install -d -o 1000 -g 1000 -m 0755 /data/app
+[[ ! -L /data/app ]] || { echo "refusing: /data/app is a symbolic link" >&2; exit 1; }
+REMOTE
 "${SSH[@]}" 'sudo install -o 1000 -g 1000 -m 0644 /dev/stdin /data/app/sentinela.apk' <"$APK"
 printf '%s' "$json" | "${SSH[@]}" 'sudo install -o 1000 -g 1000 -m 0644 /dev/stdin /data/app/app.json'
 echo "Published. Phones on an older version see \"Atualizar o app\"."

@@ -25,6 +25,13 @@ import (
 // the tailnet, like account administration.
 var hostingPublicActions = regexp.MustCompile(`^apps/[a-z][a-z0-9-]{1,30}/(start|stop|restart|deploy|check)$`)
 
+// hostingPublicReads are the only reads allowed from the internet: what the
+// Services page needs to show status, logs and deploy progress. Project and
+// data files, file contents, secrets and the host's folder browser reveal
+// code, configuration and the server's layout, so they are for home or the
+// tailnet only (an allow-list: a new read route is closed by default).
+var hostingPublicReads = regexp.MustCompile(`^(info|apps|apps/[a-z][a-z0-9-]{1,30}(/(logs|deploy-log))?)$`)
+
 // loadToken reads or creates a shared secret file (0640, same uid as the
 // sidecar that reads it).
 func loadToken(p string) (string, error) {
@@ -99,9 +106,15 @@ func (s *Server) hostingProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	write := r.Method != http.MethodGet && r.Method != http.MethodHead
-	if write && PublicZone(zoneFrom(r)) && !hostingPublicActions.MatchString(rest) {
-		writeErr(w, http.StatusForbidden, "only available at home or over Tailscale")
-		return
+	if PublicZone(zoneFrom(r)) {
+		allowed := hostingPublicReads.MatchString(rest)
+		if write {
+			allowed = hostingPublicActions.MatchString(rest)
+		}
+		if !allowed {
+			writeErr(w, http.StatusForbidden, "only available at home or over Tailscale")
+			return
+		}
 	}
 	limit := int64(512 << 10)
 	switch {

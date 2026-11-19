@@ -76,15 +76,30 @@ func markers(names []string) []string {
 
 // Detect inspects dir (a snapshot of the source, at its subfolder).
 func Detect(dir string) Detection {
-	entries, _ := os.ReadDir(dir)
-	names := make([]string, 0, len(entries))
-	for _, e := range entries {
-		names = append(names, e.Name())
+	// The snapshot comes from an untrusted source: read it through os.Root,
+	// never follow a link, and bound every file and listing before reading.
+	root, err := os.OpenRoot(dir)
+	var names []string
+	if err == nil {
+		defer root.Close()
+		if f, err := root.Open("."); err == nil {
+			entries, _, _ := readDirCapped(f, maxDetectNames)
+			f.Close()
+			for _, e := range entries {
+				names = append(names, e.Name())
+			}
+		}
 	}
 	has := func(n string) bool { return slices.Contains(names, n) }
 	read := func(n string) string {
-		b, err := os.ReadFile(filepath.Join(dir, n))
-		if err != nil || len(b) > 1<<20 {
+		if root == nil {
+			return ""
+		}
+		if st, err := root.Lstat(n); err != nil || !st.Mode().IsRegular() {
+			return "" // missing, a link or a special file
+		}
+		b, err := readCapped(root, n, maxDetectFile)
+		if err != nil {
 			return ""
 		}
 		return string(b)

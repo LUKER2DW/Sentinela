@@ -27,3 +27,7 @@ detector/.export/
 dev-config.yaml
 # Local agent/editor state (dev-server paths of this machine)
 .claude/
+
+# Python bytecode embeds the path of the machine that ran the tests
+__pycache__/
+*.pyc

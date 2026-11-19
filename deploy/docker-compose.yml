@@ -81,9 +81,34 @@ services:
       options: { max-size: "10m", max-file: "3" }
 
   # Independent of the API and go2rtc (ADR-0007): pulls RTSP from the camera.
+  # It parses untrusted camera data, so it sees only what `sentinela record`
+  # uses of the data disk, not all of /data (which also holds the request
+  # folders root agents act on, the apps agent and detector tokens and the TLS
+  # keys): the recordings, the database folder (read-write: WAL files) and
+  # the volume marker (a file, read-only). A path that is missing makes
+  # Compose refuse to start the recorder instead of creating it on the system
+  # disk, which is what the marker exists to prevent. The database folder is
+  # data_dir/db (the default db_path) and the marker is the default
+  # .sentinela-volume: change these lines if config.yaml moves them (with
+  # volume_marker: none, still keep an empty marker file there).
   recorder:
     <<: *sentinela
     command: ["record"]
+    volumes:
+      - /etc/sentinela/config.yaml:/etc/sentinela/config.yaml:ro
+      - type: bind
+        source: /data/recordings
+        target: /data/recordings
+        bind: { create_host_path: false }
+      - type: bind
+        source: /data/db
+        target: /data/db
+        bind: { create_host_path: false }
+      - type: bind
+        source: /data/.sentinela-volume
+        target: /data/.sentinela-volume
+        read_only: true
+        bind: { create_host_path: false }
     environment:
       TZ: UTC
       GOMEMLIMIT: 48MiB

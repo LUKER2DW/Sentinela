@@ -36,9 +36,13 @@ base64 -w0 ~/.sentinela-android/release.jks | gh secret set ANDROID_KEYSTORE_B64
 gh secret set ANDROID_KEYSTORE_PASSWORD --env release -R LUKER2DW/Sentinela < ~/.sentinela-android/keystore.pass
 ```
 
-When the repository is public, protect the environment: Settings →
-Environments → release → *Required reviewers* (yourself) and *Deployment
-branches and tags* → tags `v*`.
+Protect the environment before the first release and keep it protected:
+Settings → Environments → release → *Required reviewers* (yourself) and
+*Deployment branches and tags* → tags `v*`. Also add a tag ruleset (Settings →
+Rules) so only maintainers can create `v*` tags. The workflow itself refuses a
+tag that is not a plain `vX.Y.Z` or whose commit is not on `main`, but the
+signing key is only as safe as these hosted settings: anyone who can push a
+tag runs the workflow file at that commit.
 
 ## Using a published image on a server
 

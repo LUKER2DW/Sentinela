@@ -120,6 +120,10 @@ type Deployment struct {
 	Image    string    `json:"image"`
 	Release  string    `json:"release"` // directory under releases/
 	At       time.Time `json:"at"`
+	// BuildOutsideFirewall: an image build of this deployment (BuildKit or
+	// Compose `build:`) ran outside the sn-* networks the host firewall
+	// filters (ADR-0021, Consequences).
+	BuildOutsideFirewall bool `json:"build_outside_firewall,omitempty"`
 	// FileEnv is private deployment configuration, never returned to clients.
 	FileEnv []EnvVar `json:"-"`
 }

@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -41,10 +42,36 @@ func (s *Server) streamWS(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusForbidden, "invalid or expired stream ticket")
 		return
 	}
+	// The ticket may be up to 60 s old: the camera must still be allowed now.
+	if !userFrom(r).CanSee(tk.CameraID) {
+		writeErr(w, http.StatusForbidden, "invalid or expired stream ticket")
+		return
+	}
 	src := tk.CameraID
 	if tk.Stream == "sub" {
 		src += "_sub"
 	}
+	// The WebSocket outlives this check: re-read the session while it is open
+	// and cancel the proxied request (which closes both sides) once the user is
+	// signed out, revoked, disabled or no longer allowed to see the camera.
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+	r = r.WithContext(ctx)
+	go func() {
+		t := time.NewTicker(streamRecheckEvery)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				if u, ok := s.reloadUser(ctx, r); !ok || !u.CanSee(tk.CameraID) {
+					cancel()
+					return
+				}
+			}
+		}
+	}()
 	target := *s.go2rtc
 	proxy := &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
@@ -250,15 +277,61 @@ func (s *Server) export(w http.ResponseWriter, r *http.Request) {
 		"-ss", fmt.Sprintf("%.3f", offset.Seconds()), "-i", tmp.Name(),
 		"-t", fmt.Sprintf("%.3f", to.Sub(from).Seconds()),
 		"-map", "0", "-c", "copy", "-movflags", "frag_keyframe+empty_moov+default_base_moof", "-f", "mp4", "pipe:1"}
-	cmd := exec.CommandContext(r.Context(), s.FFmpeg, args...)
-	cmd.Stdout = w
+	// A client that stops reading must not hold the slot (and ffmpeg) for ever:
+	// each write has an idle deadline, and the whole export a ceiling.
+	ctx, cancel := context.WithTimeout(r.Context(), exportMaxTime)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, s.FFmpeg, args...)
+	iw := newIdleWriter(w, streamWriteIdle, cancel)
+	defer iw.Close()
+	cmd.Stdout = iw
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	name := fmt.Sprintf("%s_%s.mp4", cam.ID, from.Local().Format("20060102-150405"))
 	w.Header().Set("Content-Type", "video/mp4")
 	w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)
 	s.audit(r, "recording.export", cam.ID, true, from.Format(time.RFC3339)+"/"+to.Sub(from).String())
-	if err := cmd.Run(); err != nil && r.Context().Err() == nil {
+	if err := cmd.Run(); err != nil && ctx.Err() == nil {
 		s.Log.Warn("export failed", "err", err, "stderr", stderr.String())
 	}
+}
+
+// Streaming responses fed by ffmpeg (export, live timelapse).
+const (
+	// streamWriteIdle is how long one write to the client may block.
+	streamWriteIdle = 60 * time.Second
+	// exportMaxTime caps one export, however slowly the client reads.
+	exportMaxTime = time.Hour
+)
+
+// idleWriter gives every write to a response its own deadline, so a client
+// that stops reading (the connection stays open) makes the write fail instead
+// of blocking ffmpeg and the slot it holds for ever. onErr runs on the first
+// failed write (it cancels the command).
+type idleWriter struct {
+	w     http.ResponseWriter
+	rc    *http.ResponseController
+	idle  time.Duration
+	onErr func()
+}
+
+func newIdleWriter(w http.ResponseWriter, idle time.Duration, onErr func()) *idleWriter {
+	return &idleWriter{w: w, rc: http.NewResponseController(w), idle: idle, onErr: onErr}
+}
+
+func (d *idleWriter) Write(p []byte) (int, error) {
+	// Not supported by every writer (tests): then there is just no deadline.
+	_ = d.rc.SetWriteDeadline(time.Now().Add(d.idle))
+	n, err := d.w.Write(p)
+	if err != nil && d.onErr != nil {
+		d.onErr()
+	}
+	return n, err
+}
+
+// Close flushes what is buffered (still under the deadline) and lifts the
+// deadline, so it does not linger on a kept-alive connection.
+func (d *idleWriter) Close() {
+	_ = d.rc.Flush()
+	_ = d.rc.SetWriteDeadline(time.Time{})
 }

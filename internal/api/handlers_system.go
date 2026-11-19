@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -108,6 +110,27 @@ func (h *Hub) unsubscribe(c chan hubMsg) {
 	h.mu.Unlock()
 }
 
+// streamRecheckEvery is how often a long-lived stream (live events, live
+// video) re-reads its session: a signed-out, revoked, disabled or narrowed
+// account stops receiving within this time. A variable so tests can shorten it.
+var streamRecheckEvery = 45 * time.Second
+
+// reloadUser re-reads the session behind a long-lived request. It returns the
+// current user, so changes to the cameras they may see apply to a stream that is
+// already open, and false once the session is gone, expired or the account is
+// disabled or pending.
+func (s *Server) reloadUser(ctx context.Context, r *http.Request) (*store.User, bool) {
+	sess := sessionFrom(r)
+	if sess == nil {
+		return nil, false
+	}
+	fresh, u, err := s.Store.SessionByHash(ctx, sess.IDHash)
+	if err != nil || (PublicZone(zoneFrom(r)) && u.TOTP && !fresh.MFA) {
+		return nil, false
+	}
+	return u, true
+}
+
 func (s *Server) eventStream(w http.ResponseWriter, r *http.Request) {
 	fl, ok := w.(http.Flusher)
 	if !ok {
@@ -121,8 +144,11 @@ func (s *Server) eventStream(w http.ResponseWriter, r *http.Request) {
 	defer s.hub.unsubscribe(c)
 	fmt.Fprint(w, "retry: 5000\n\n")
 	fl.Flush()
+	user := userFrom(r)
 	ping := time.NewTicker(25 * time.Second)
 	defer ping.Stop()
+	recheck := time.NewTicker(streamRecheckEvery)
+	defer recheck.Stop()
 	for {
 		select {
 		case <-r.Context().Done():
@@ -130,8 +156,16 @@ func (s *Server) eventStream(w http.ResponseWriter, r *http.Request) {
 		case <-ping.C:
 			fmt.Fprint(w, ": ping\n\n")
 			fl.Flush()
+		case <-recheck.C:
+			// Signed out, revoked or disabled meanwhile: end the stream. The
+			// fresh user also carries any change to the cameras they may see.
+			u, ok := s.reloadUser(r.Context(), r)
+			if !ok {
+				return
+			}
+			user = u
 		case m := <-c:
-			if !s.canSee(r, m.cameraID) {
+			if user == nil || !user.CanSee(m.cameraID) {
 				continue
 			}
 			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", m.event, m.data)
@@ -191,18 +225,25 @@ func (s *Server) system(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	root := filepath.Join(s.Cfg.DataDir, "recordings")
 	disk, _ := sysinfo.DiskUsage(root)
+	// Per-camera data is limited to the cameras this user may see; host and
+	// volume data is not per camera and stays whole.
 	stats, err := s.Store.Stats(ctx)
 	if err != nil {
 		stats = []store.SegmentStats{}
 	}
+	stats = slices.DeleteFunc(stats, func(x store.SegmentStats) bool { return !s.canSee(r, x.CameraID) })
 	recs, err := s.Store.ListRecorderStatus(ctx)
 	if err != nil {
 		recs = []store.RecorderStatus{}
 	}
+	recs = slices.DeleteFunc(recs, func(x store.RecorderStatus) bool { return !s.canSee(r, x.CameraID) })
 	// Bytes per day per camera, from the real rate of the last 24 h. Needs
 	// at least 10 min of recording to be meaningful.
 	daily := map[string]int64{}
 	for _, c := range s.Cfg.Cameras {
+		if !s.canSee(r, c.ID) {
+			continue
+		}
 		b, secs, err := s.Store.RateSince(ctx, c.ID, time.Now().Add(-24*time.Hour))
 		if err == nil && secs >= 600 {
 			daily[c.ID] = int64(float64(b) / secs * 86400)
@@ -216,7 +257,7 @@ func (s *Server) system(w http.ResponseWriter, r *http.Request) {
 	}
 	gaps := map[string]gapsDTO{}
 	for _, c := range s.Cfg.Cameras {
-		if !c.Recording() {
+		if !c.Recording() || !s.canSee(r, c.ID) {
 			continue
 		}
 		g, err := s.Store.GapsSince(ctx, c.ID, time.Now().Add(-24*time.Hour), gapAlert)
@@ -241,12 +282,26 @@ func (s *Server) system(w http.ResponseWriter, r *http.Request) {
 	}
 	// Optional host snapshots (absent on dev machines): SMART and backups.
 	health := hostJSON(s.Cfg.DiskHealthFile)
+	// Network names, share names and mount paths are for admins; everyone
+	// else keeps the usage numbers.
+	nasHost := s.Cfg.NASHost
+	if u := userFrom(r); u == nil || u.Role != "admin" {
+		nasHost, health = "", nil
+		for i := range volumes {
+			volumes[i].Share = ""
+		}
+	}
 	backup := hostJSON(s.Cfg.BackupStatusFile)
 	update := map[string]any{
 		"last":     hostJSON(s.Cfg.UpdateStatusFile),
 		"settings": s.updateSettings(),
 	}
 	g2r, gerr := s.go2rtcStatus(ctx)
+	for name := range g2r {
+		if !s.canSeeStream(r, name) {
+			delete(g2r, name)
+		}
+	}
 	g2rErr := ""
 	if gerr != nil {
 		g2rErr = "go2rtc unreachable"
@@ -266,13 +321,74 @@ func (s *Server) system(w http.ResponseWriter, r *http.Request) {
 		"go2rtc":       g2r,
 		"go2rtc_error": g2rErr,
 		"volumes":      volumes,
-		"nas_host":     s.Cfg.NASHost,
+		"nas_host":     nasHost,
 		"disk_health":  health,
 		"backup":       backup,
 		"update":       update,
-		"detector":     s.detectorInfo(),
-		"event_watch":  s.eventWatchInfo(),
+		"detector":     s.visibleDetector(r, s.detectorInfo()),
+		"event_watch":  s.visibleEventWatch(r, s.eventWatchInfo()),
 	})
+}
+
+// canSeeStream reports whether the user may see a go2rtc stream: a camera's
+// main stream is its id and the substream is "<id>_sub". A user not limited to
+// some cameras sees every stream, including any that is not a camera's.
+func (s *Server) canSeeStream(r *http.Request, name string) bool {
+	u := userFrom(r)
+	if u == nil {
+		return false
+	}
+	if u.Role == "admin" || len(u.Cameras) == 0 {
+		return true
+	}
+	if s.Cfg.Camera(name) == nil {
+		name = strings.TrimSuffix(name, "_sub")
+	}
+	return u.CanSee(name)
+}
+
+// visibleEventWatch keeps the ONVIF watcher state of the cameras the user may see.
+func (s *Server) visibleEventWatch(r *http.Request, in map[string]eventWatchState) map[string]eventWatchState {
+	for id := range in {
+		if !s.canSee(r, id) {
+			delete(in, id)
+		}
+	}
+	return in
+}
+
+// visibleDetector drops the per-camera state of the detector's status for
+// cameras the user may not see; the sidecar-wide fields stay.
+func (s *Server) visibleDetector(r *http.Request, in map[string]any) map[string]any {
+	raw, ok := in["status"].(json.RawMessage)
+	if !ok {
+		return in
+	}
+	var st map[string]json.RawMessage
+	if json.Unmarshal(raw, &st) != nil {
+		delete(in, "status")
+		return in
+	}
+	if cams, ok := st["cameras"]; ok {
+		var m map[string]json.RawMessage
+		if json.Unmarshal(cams, &m) != nil {
+			delete(st, "cameras")
+		} else {
+			for id := range m {
+				if !s.canSee(r, id) {
+					delete(m, id)
+				}
+			}
+			st["cameras"], _ = json.Marshal(m)
+		}
+	}
+	filtered, err := json.Marshal(st)
+	if err != nil {
+		delete(in, "status")
+		return in
+	}
+	in["status"] = json.RawMessage(filtered)
+	return in
 }
 
 // gapAlert is the shortest recording hole reported on the System page.

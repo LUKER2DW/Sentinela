@@ -24,23 +24,38 @@ RESTIC_ENV=/etc/sentinela/restic.env
 [[ $EUID -eq 0 ]] || { echo "run with sudo" >&2; exit 1; }
 command -v sqlite3 >/dev/null || { echo "sqlite3 is missing (apt install sqlite3)" >&2; exit 1; }
 WORK="$(mktemp -d)"
-trap 'rm -rf "$WORK"' EXIT
+# STAGE is where a database copy is opened, by an unprivileged user (sq below).
+STAGE="$(mktemp -d)"
+trap 'rm -rf "$WORK" "$STAGE"' EXIT
 chmod 0700 "$WORK"
+chown 65534:65534 "$STAGE"
+chmod 0700 "$STAGE"
 fail=0
 pass() { printf 'PASS  %s\n' "$*"; }
 bad() { printf 'FAIL  %s\n' "$*"; fail=1; }
 skip() { printf 'SKIP  %s\n' "$*"; }
 
+# sq FILE SQL: read-only query on a database copy. The copy comes from a
+# disk the containers (uid 1000) can write, so sqlite3 does not run as root:
+# it runs as an unprivileged user (on a copy staged by check_db) with
+# trusted_schema off, so nothing in the file's schema runs with root's rights.
+sq() {
+  setpriv --reuid=65534 --regid=65534 --clear-groups \
+    sqlite3 -cmd 'PRAGMA trusted_schema=OFF' -readonly "$1" "$2"
+}
+
 # check_db FILE LABEL: integrity, schema and users of a database copy.
 check_db() {
-  local db="$1" label="$2" integrity users migrations
-  integrity="$(sqlite3 -readonly "$db" 'PRAGMA integrity_check' 2>&1 || true)"
+  local label="$2" integrity users migrations db="$STAGE/check.db"
+  rm -f "$STAGE"/check.db*
+  cp "$1" "$db" && chown 65534:65534 "$db" && chmod 0600 "$db" || { bad "$label: could not stage the copy"; return; }
+  integrity="$(sq "$db" 'PRAGMA integrity_check' 2>&1 || true)"
   if [[ "$integrity" != ok ]]; then
     bad "$label: integrity_check: $integrity"
     return
   fi
-  migrations="$(sqlite3 -readonly "$db" 'SELECT count(*) FROM schema_migrations' 2>/dev/null || echo 0)"
-  users="$(sqlite3 -readonly "$db" 'SELECT count(*) FROM users' 2>/dev/null || echo 0)"
+  migrations="$(sq "$db" 'SELECT count(*) FROM schema_migrations' 2>/dev/null || echo 0)"
+  users="$(sq "$db" 'SELECT count(*) FROM users' 2>/dev/null || echo 0)"
   if ((migrations < 1 || users < 1)); then
     bad "$label: schema migrations=$migrations users=$users"
     return

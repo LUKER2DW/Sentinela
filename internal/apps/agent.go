@@ -38,6 +38,17 @@ const (
 	// minFreeMB: builds and starts are refused below this much free RAM,
 	// so a service can never push the recorder into swap.
 	minFreeMB = 400
+	// Disk usage of a service folder is measured every diskEvery, the first
+	// time firstDiskDelay after the service is first seen. The walk reads
+	// at most diskMaxEntries entries in diskBatch-sized batches within diskLimit.
+	diskEvery      = 10 * time.Minute
+	firstDiskDelay = 2 * time.Minute
+	diskLimit      = 3 * time.Second
+	diskBatch      = 256
+	diskMaxEntries = 200_000
+	// maxInspect bounds concurrent source inspections (each may extract up
+	// to 1 GiB into the system disk and read it back).
+	maxInspect = 2
 )
 
 // Agent owns the services: their state file, the Docker containers and a
@@ -58,6 +69,7 @@ type Agent struct {
 	lanIP      func() string
 	settleTime time.Duration
 	fileMu     sync.Mutex // source imports, uploads and editor mutations
+	inspectSem chan struct{}
 
 	mu          sync.Mutex
 	apps        []*App
@@ -85,6 +97,7 @@ type svcState struct {
 	cpu          float64
 	mem          Sample
 	disk         int64
+	diskPartial  bool // disk is a lower bound: the walk hit its time or entry cap
 	diskAt       time.Time
 	restarts     []time.Time
 	pauseTill    time.Time
@@ -111,7 +124,8 @@ type Job struct {
 func NewAgent(cfg config.Apps, eng Engine, sources map[string]Source, log *slog.Logger) *Agent {
 	return &Agent{Cfg: cfg, Eng: eng, Sources: sources, Log: log, now: time.Now, memFreeMB: memAvailableMB,
 		bootID: hostBootID, uptime: hostUptime, portFree: portFree, tailnetIP: tailnetIPv4, lanIP: lanIPv4, settleTime: 10 * time.Second,
-		run: map[string]*svcState{}, jobs: make(chan string, 64), vaults: map[string]secretVault{}}
+		run: map[string]*svcState{}, jobs: make(chan string, 64), vaults: map[string]secretVault{},
+		inspectSem: make(chan struct{}, maxInspect)}
 }
 
 func (a *Agent) stateFile() string { return filepath.Join(a.Cfg.StateDir, "state.json") }
@@ -167,6 +181,7 @@ func (a *Agent) Load() error {
 	if err := os.MkdirAll(filepath.Join(a.Cfg.StateDir, "apps"), 0o750); err != nil {
 		return err
 	}
+	a.sweepInspectTemp()
 	if err := a.openVaultKey(); err != nil {
 		return err
 	}
@@ -238,6 +253,18 @@ func (a *Agent) Load() error {
 	return a.saveLocked()
 }
 
+// sweepInspectTemp removes the temporary source snapshots of inspections that
+// an agent restart (for example an out-of-memory kill) interrupted; at start
+// no inspection is running, and each can hold up to 1 GiB on the system disk.
+func (a *Agent) sweepInspectTemp() {
+	matches, _ := filepath.Glob(filepath.Join(a.Cfg.StateDir, "tmp", "inspect-*"))
+	for _, m := range matches {
+		if err := os.RemoveAll(m); err != nil {
+			a.Log.Warn("apps: stale inspection folder not removed", "err", err)
+		}
+	}
+}
+
 // saveLocked writes the state file atomically (0600: it holds env values).
 func (a *Agent) saveLocked() error {
 	apps := make([]*App, len(a.apps))
@@ -259,7 +286,10 @@ func (a *Agent) saveLocked() error {
 func (a *Agent) rt(id string) *svcState {
 	r := a.run[id]
 	if r == nil {
-		r = &svcState{log: newRing(3000), samples: map[string]*Sample{}, lastStops: map[string]time.Time{}}
+		// The first disk walk waits firstDiskDelay (not at once), so a folder a
+		// service filled cannot make every agent start begin with a big walk.
+		r = &svcState{log: newRing(3000), samples: map[string]*Sample{}, lastStops: map[string]time.Time{},
+			diskAt: a.now().Add(firstDiskDelay - diskEvery)}
 		a.run[id] = r
 	}
 	return r
@@ -531,8 +561,13 @@ func (a *Agent) deploy(ctx context.Context, id string, job *Job, logf func(strin
 		if _, err := os.Stat(filepath.Join(work, "Dockerfile")); err != nil {
 			return fail(errors.New("there is no Dockerfile in this folder"))
 		}
-		if err := a.build(ctx, dep.Image, work, logf); err != nil {
+		outside, err := a.build(ctx, dep.Image, work, logf)
+		dep.BuildOutsideFirewall = outside
+		if err != nil {
 			return fail(err)
+		}
+		if outside {
+			a.noteUnfilteredBuild(id)
 		}
 	}
 	a.setPhase(id, "start")
@@ -544,9 +579,13 @@ func (a *Agent) deploy(ctx context.Context, id string, job *Job, logf func(strin
 		if err := a.canStart(cur); err != nil {
 			return fail(err)
 		}
-		services, ports, err := a.composeUp(ctx, cur, work, true, logf)
+		services, ports, built, err := a.composeRun(ctx, cur, work, true, logf)
 		if err != nil {
 			return fail(err)
+		}
+		if len(built) > 0 {
+			dep.BuildOutsideFirewall = true
+			a.noteUnfilteredBuild(id)
 		}
 		dep.Services = services
 		cur.Ports = ports
@@ -583,6 +622,14 @@ func (a *Agent) deploy(ctx context.Context, id string, job *Job, logf func(strin
 	a.mu.Unlock()
 	a.cleanup(ctx, id, dep, old)
 	return err
+}
+
+// noteUnfilteredBuild records, in the service's events, that an image build
+// ran outside the sn-* networks that the host firewall filters.
+func (a *Agent) noteUnfilteredBuild(id string) {
+	a.mu.Lock()
+	a.eventLocked(id, "warning", "An image build ran on Docker's own network, outside the sn-* egress firewall: its steps could reach private addresses.")
+	a.mu.Unlock()
 }
 
 // cleanup drops releases and images other than the current deployment.
@@ -657,14 +704,17 @@ func (a *Agent) runSetup(ctx context.Context, app *App, dep *Deployment, logf fu
 }
 
 // build builds a Dockerfile service with the classic builder (capped); a
-// Dockerfile that needs BuildKit syntax is retried with BuildKit.
-func (a *Agent) build(ctx context.Context, image, work string, logf func(string, ...any)) error {
+// Dockerfile that needs BuildKit syntax is retried with BuildKit. The
+// first result reports a build that ran outside the sn-* network (BuildKit
+// accepts no custom network through the Engine API), which the host
+// firewall does not filter.
+func (a *Agent) build(ctx context.Context, image, work string, logf func(string, ...any)) (bool, error) {
 	var buf bytes.Buffer
 	if err := TarDir(work, &buf); err != nil {
-		return err
+		return false, err
 	}
 	if buf.Len() > maxExtract {
-		return errors.New("contexto de build grande demais")
+		return false, errors.New("contexto de build grande demais")
 	}
 	logf("Construindo a imagem (Dockerfile, %.1f MB de contexto)", float64(buf.Len())/(1<<20))
 	opt := BuildOptions{MemoryBytes: int64(a.Cfg.BuildMemoryMB) << 20, CPUs: a.Cfg.BuildCPUs, Network: networkName}
@@ -673,9 +723,11 @@ func (a *Agent) build(ctx context.Context, image, work string, logf func(string,
 	err := a.Eng.Build(tctx, image, bytes.NewReader(buf.Bytes()), opt, func(s string) { logf("  %s", s) })
 	if err != nil && strings.Contains(strings.ToLower(err.Error()), "buildkit") {
 		logf("Este Dockerfile precisa do BuildKit: construindo de novo com ele (sem limite de CPU)")
+		logf("Warning: BuildKit builds run on Docker's own network, outside the sn-* egress firewall (ADR-0021)")
 		err = a.Eng.Build(tctx, image, bytes.NewReader(buf.Bytes()), BuildOptions{BuildKit: true}, func(s string) { logf("  %s", s) })
+		return true, err
 	}
-	return err
+	return false, err
 }
 
 // recreate applies new settings to the current deployment.
@@ -1147,15 +1199,15 @@ func (a *Agent) sample(ctx context.Context, id string, names []string) {
 		sum.Pids += s.Pids
 	}
 	r.samples, r.cpu, r.mem = cur, cpu, sum
-	due := a.now().Sub(r.diskAt) > 10*time.Minute
+	due := a.now().Sub(r.diskAt) > diskEvery
 	if due {
 		r.diskAt = a.now()
 	}
 	a.mu.Unlock()
 	if due {
-		n := dirSize(a.appDir(id), 3*time.Second)
+		n, complete := dirSizeBounded(a.appDir(id), diskLimit, diskMaxEntries)
 		a.mu.Lock()
-		r.disk = n
+		r.disk, r.diskPartial = n, !complete
 		a.mu.Unlock()
 	}
 }
@@ -1280,23 +1332,54 @@ func lanIPv4() string {
 
 // dirSize sums file sizes under dir, giving up after limit.
 func dirSize(dir string, limit time.Duration) int64 {
-	var n int64
+	n, _ := dirSizeBounded(dir, limit, diskMaxEntries)
+	return n
+}
+
+// dirSizeBounded sums file sizes under dir without following links. Each
+// folder is read in batches of diskBatch entries (never whole, so a folder a
+// service filled with millions of names cannot exhaust the agent's memory),
+// the deadline and the entry cap are checked per batch, and complete is
+// false when either stopped the walk early (the sum is then a lower bound).
+func dirSizeBounded(dir string, limit time.Duration, maxEntries int) (total int64, complete bool) {
 	deadline := time.Now().Add(limit)
-	_ = filepath.WalkDir(dir, func(_ string, d fs.DirEntry, err error) error {
+	entries := 0
+	stack := []string{dir}
+	for len(stack) > 0 {
+		cur := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		f, err := os.Open(cur)
 		if err != nil {
-			return nil
+			continue
 		}
-		if time.Now().After(deadline) {
-			return fs.SkipAll
-		}
-		if !d.IsDir() {
-			if info, err := d.Info(); err == nil {
-				n += info.Size()
+		for {
+			if time.Now().After(deadline) {
+				f.Close()
+				return total, false
+			}
+			batch, err := f.ReadDir(diskBatch)
+			for _, e := range batch {
+				if entries++; entries > maxEntries {
+					f.Close()
+					return total, false
+				}
+				switch {
+				case e.IsDir():
+					stack = append(stack, filepath.Join(cur, e.Name()))
+				case e.Type()&fs.ModeSymlink != 0:
+				default:
+					if info, err := e.Info(); err == nil {
+						total += info.Size()
+					}
+				}
+			}
+			if err != nil { // io.EOF or a read error: this folder is done
+				break
 			}
 		}
-		return nil
-	})
-	return n
+		f.Close()
+	}
+	return total, true
 }
 
 func firstLine(s string) string {

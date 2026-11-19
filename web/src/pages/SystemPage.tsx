@@ -23,6 +23,7 @@ import { Icon } from "../components/Icon";
 import { NoticesPanel, useSystemNotices } from "../components/Notices";
 import { UsersAdmin, auditLabel } from "../components/UsersAdmin";
 import { href, navigate } from "../lib/router";
+import { isPublicZone } from "../lib/access";
 
 const stateLabel: Record<string, string> = {
   recording: t("Recording now"),
@@ -183,7 +184,7 @@ function SectionBody({ section, s, admin }: { section: HouseSection; s: SystemIn
             <LiveService s={s} />
           </div>
           {admin && <CamerasEditor />}
-          {admin && <AddCameraCard />}
+          {admin && !isPublicZone() && <AddCameraCard />}
         </div>
       );
     case "detection":

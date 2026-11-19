@@ -95,7 +95,7 @@ package.json/bun/deno, requirements/pyproject, go.mod, index.html):
   deploy in a throwaway container, start on every run, uid 1000 unless
   the owner asks for root (still without capabilities);
 - *dockerfile*: the classic builder with the build caps; a Dockerfile that
-  needs BuildKit syntax is rebuilt with BuildKit (uncapped, logged);
+  needs BuildKit syntax is rebuilt with BuildKit (uncapped, logged, outside the `sn-*` firewall: see Consequences);
 - *compose*: `docker compose config` normalizes the file in a throwaway
   `docker:29-cli` container (agent's uid, socket group, no network); the
   agent refuses privileged mode, host namespaces, devices, extra
@@ -148,6 +148,41 @@ rule 6 (one container with the Docker socket) and the threat-model entry
 "build pipeline competes with recording" (builds now happen on the
 server, capped and serialized).
 
+## Hardening of the agent and the Compose helper (2026-11-17)
+Added after a security review; none of it changes the model above.
+- **Compose helper environment.** The throwaway `docker compose` container
+  holds the Docker socket, so it gets a fixed environment (`PATH`, `HOME`,
+  `DOCKER_CONFIG`) plus the service's variables for interpolation, minus
+  reserved names (`PATH`, `HOME`, `SHELL`, `IFS`, `ENV`, `BASH_ENV`, `LD_*`,
+  `DOCKER_*`, `COMPOSE_*` except `COMPOSE_PROFILES`, `BUILDKIT_*`, `BUILDX_*`,
+  `XDG_*` and a few more). It runs `/usr/local/bin/docker` by absolute path.
+  The names skipped are logged (never values); the service itself still
+  receives every variable. Names are not refused at import: a legitimate
+  project may carry `PATH` or `LD_LIBRARY_PATH` for its own use.
+- **Rendered Compose file.** The file the agent validated and then runs is
+  written to `<state>/compose/<id>/rendered.json`, outside the service's
+  folder (the only place a bind may come from) and mounted read-only into the
+  helper, so no service can rewrite it between validation and `up`.
+- **Bind sources.** Missing bind folders are created by the agent as real
+  folders before `up`, so the daemon no longer creates or resolves a path
+  that a service could still turn into a link; links are re-checked right
+  before `up`. **Residual race:** a service with write access to a parent
+  folder (for example the `.:/app` pattern, or `data`) can still replace a
+  bind folder with a link in the short time between that check and the
+  daemon creating the container. Closing it needs the daemon to refuse
+  links itself (not offered by Docker) or services not to share folders
+  with a sibling that mounts a deeper path; it is accepted for owner-
+  authored projects and is why a public service should not be given
+  Compose binds of its own parents.
+- **Agent memory.** Source files read for detection are limited to 1 MiB,
+  opened through `os.Root` without following links; `.git` files, listings
+  of the local picker and of the service explorer, and the disk-usage walk
+  of a service's folder read in bounded batches with entry caps. The first
+  disk walk waits two minutes after start, and a folder too big to walk is
+  reported as a lower bound (`disk_partial`). At most two source
+  inspections run at once, and their temporary folders are removed at start.
+  FIFOs planted in a service's `data` are not opened blocking.
+
 ## Alternatives considered
 - *Docker socket in the API container*: refused — the internet-facing
   process would become root-equivalent.
@@ -170,6 +205,18 @@ server, capped and serialized).
   Sentinela login in front: it must protect itself.
 − Builds use the server's CPU (capped at one core, one at a time) and
   images use the system disk; BuildKit-only Dockerfiles are not capped.
+− **Build steps are not behind the egress firewall everywhere.** The host
+  rules in `scripts/apps-firewall.sh` match only the `sn-*` bridges. The
+  classic builder runs on `sn-apps`, but BuildKit (the retry of a Dockerfile
+  that needs it) and the `build:` of a Compose project run on Docker's own
+  network: the Engine API accepts no custom network for BuildKit, and a
+  `build.network` of `none` would break builds that download packages. A
+  `RUN` step from a hostile repository could therefore reach private
+  addresses (camera, router, LAN) while it builds; runtime containers still
+  cannot. The agent cannot close this itself: it marks the deployment
+  (`build_outside_firewall`), logs a warning and records a service event.
+  Deploy only sources you trust to services that need BuildKit or Compose
+  builds, or extend the host firewall to the builder's network.
 − Runtime and CLI images are referenced by tag (pin digests in
   `apps.runtimes` / `apps.compose_image` if wanted).
 − Tailnet access needs the ACL to allow `tag:nvr:20000-20099` for the

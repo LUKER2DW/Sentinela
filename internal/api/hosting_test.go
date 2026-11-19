@@ -103,8 +103,22 @@ func TestHostingZonePolicy(t *testing.T) {
 			t.Errorf("%s %s from outside = %d, want 403", c[0], c[1], code)
 		}
 	}
-	if n := len(seen()); n != 3 {
-		t.Fatalf("agent got %d requests, want 3", n)
+	// Reads from outside: the Services page's status and logs only. Project
+	// files, file contents, secrets and the folder browser stay at home.
+	for _, p := range []string{"/api/hosting/info", "/api/hosting/apps", "/api/hosting/apps/bot",
+		"/api/hosting/apps/bot/logs", "/api/hosting/apps/bot/deploy-log"} {
+		if code := call("GET", p); code != 200 {
+			t.Errorf("GET %s from outside = %d, want 200", p, code)
+		}
+	}
+	for _, p := range []string{"/api/hosting/apps/bot/files", "/api/hosting/apps/bot/files/text",
+		"/api/hosting/apps/bot/secrets", "/api/hosting/local", "/api/hosting/github-token", "/api/hosting/apps/bot/other"} {
+		if code := call("GET", p); code != 403 {
+			t.Errorf("GET %s from outside = %d, want 403", p, code)
+		}
+	}
+	if n := len(seen()); n != 8 {
+		t.Fatalf("agent got %d requests, want 8", n)
 	}
 }
 

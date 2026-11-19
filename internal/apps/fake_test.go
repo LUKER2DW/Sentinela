@@ -2,6 +2,7 @@ package apps
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"os"
@@ -34,6 +35,15 @@ type fakeEngine struct {
 	composeConfig string
 	members       []Summary
 	builds        []BuildOptions
+	// buildKitOnly: the classic builder fails with a BuildKit error.
+	buildKitOnly bool
+	// created records every container spec, even of containers removed later.
+	created []createdSpec
+}
+
+type createdSpec struct {
+	name string
+	spec Spec
 }
 
 type fakeContainer struct {
@@ -96,9 +106,12 @@ func (f *fakeEngine) Pull(_ context.Context, ref string, _ func(string)) error {
 func (f *fakeEngine) Build(_ context.Context, tag string, _ io.Reader, opt BuildOptions, _ func(string)) error {
 	f.log("build " + tag)
 	f.mu.Lock()
-	f.images[tag] = true
+	defer f.mu.Unlock()
 	f.builds = append(f.builds, opt)
-	f.mu.Unlock()
+	if f.buildKitOnly && !opt.BuildKit {
+		return errors.New("this Dockerfile needs BuildKit (RUN --mount)")
+	}
+	f.images[tag] = true
 	return nil
 }
 func (f *fakeEngine) RemoveImage(_ context.Context, ref string) error {
@@ -110,6 +123,7 @@ func (f *fakeEngine) Create(_ context.Context, name string, s Spec) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.containers[name] = &fakeContainer{spec: s}
+	f.created = append(f.created, createdSpec{name, s})
 	return nil
 }
 func (f *fakeEngine) Start(_ context.Context, name string) error {

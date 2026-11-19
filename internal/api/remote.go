@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/netip"
 	"strconv"
 	"strings"
 	"sync"
@@ -44,10 +45,56 @@ func withZone(fixed string, next http.Handler) http.Handler {
 			z = ZoneLAN
 			if fromLoopback(r) {
 				z = ZoneTailnet
+				// A tunnel or reverse proxy on this host pointed at this port
+				// (instead of remote.proxy.listen) would get the tailnet's
+				// rights from the internet: no closed door, no privateOnly,
+				// first-admin setup. Traffic that says it comes from a public
+				// address is treated as the public zone it is.
+				if forwardedFromPublicAddr(r) {
+					z = ZoneProxy
+				}
 			}
 		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), zoneKey, z)))
 	})
+}
+
+// tailnetNets are the Tailscale address ranges (CGNAT and the ULA prefix):
+// `tailscale serve` forwards peers with these addresses.
+var tailnetNets = []netip.Prefix{netip.MustParsePrefix("100.64.0.0/10"), netip.MustParsePrefix("fd7a:115c:a1e0::/48")}
+
+// publicAddr reports whether a is a globally routable address: not loopback,
+// private, link-local, multicast, unspecified or a tailnet address.
+func publicAddr(a netip.Addr) bool {
+	a = a.Unmap()
+	if !a.IsValid() || a.IsLoopback() || a.IsPrivate() || a.IsLinkLocalUnicast() || a.IsLinkLocalMulticast() ||
+		a.IsMulticast() || a.IsUnspecified() {
+		return false
+	}
+	for _, p := range tailnetNets {
+		if p.Contains(a) {
+			return false
+		}
+	}
+	return true
+}
+
+// forwardedFromPublicAddr: a loopback proxy says (X-Forwarded-For last hop,
+// X-Real-IP or CF-Connecting-IP) that the client has a public address.
+func forwardedFromPublicAddr(r *http.Request) bool {
+	check := func(v string) bool {
+		if i := strings.LastIndex(v, ","); i >= 0 {
+			v = v[i+1:]
+		}
+		a, err := netip.ParseAddr(strings.TrimSpace(v))
+		return err == nil && publicAddr(a)
+	}
+	for _, h := range r.Header.Values("X-Forwarded-For") {
+		if check(h) {
+			return true
+		}
+	}
+	return check(r.Header.Get("X-Real-IP")) || check(r.Header.Get("CF-Connecting-IP"))
 }
 
 // closedDoor: in public zones, a request without a 2FA session sees only
@@ -64,12 +111,39 @@ func (s *Server) closedDoor(next http.Handler) http.Handler {
 			r.Method == http.MethodPost && (p == "/api/login" || p == "/api/logout" || p == "/api/invite/accept") ||
 			(r.Method == http.MethodGet || r.Method == http.MethodHead) && p != "/healthz" &&
 				!strings.HasPrefix(p, "/api/") && !strings.HasPrefix(p, "/stream/") && !strings.HasPrefix(p, "/internal/")
+		// net/http reads up to 256 KB of an unread body before it can answer,
+		// and the server has no Read/WriteTimeout (long streams need that), so
+		// a client could hold the connection open for ever by sending nothing.
+		// Give requests with no session a bounded time.
+		anonDeadlines(w)
+		defer clearDeadlines(w)
 		if !open {
 			writeErr(w, http.StatusNotFound, "not found")
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// Deadlines for requests with no session on a public listener: the body is
+// at most 64 KiB (readJSON) and the largest static file a few MB.
+const (
+	anonReadTimeout  = 15 * time.Second
+	anonWriteTimeout = 2 * time.Minute
+)
+
+func anonDeadlines(w http.ResponseWriter) {
+	rc := http.NewResponseController(w)
+	now := time.Now()
+	_ = rc.SetReadDeadline(now.Add(anonReadTimeout))
+	_ = rc.SetWriteDeadline(now.Add(anonWriteTimeout))
+}
+
+// clearDeadlines leaves a kept-alive connection as it was found.
+func clearDeadlines(w http.ResponseWriter) {
+	rc := http.NewResponseController(w)
+	_ = rc.SetReadDeadline(time.Time{})
+	_ = rc.SetWriteDeadline(time.Time{})
 }
 
 // privateOnly refuses h in public zones: actions that grant access (users,

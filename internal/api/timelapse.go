@@ -31,6 +31,12 @@ const (
 	timelapseKeep     = 6 * time.Hour
 	timelapseKeepN    = 6
 	timelapseJobLimit = 15 * time.Minute
+	// Prepared jobs waiting or running, in all and per user: the rest is
+	// refused (429), so a client cannot queue goroutines behind the one slot.
+	timelapseMaxActive     = 6
+	timelapseMaxActiveUser = 2
+	// A finished job's record is kept this long, for the client's last poll.
+	timelapseJobTTL = 2 * time.Minute
 )
 
 // timelapseList builds an ffmpeg concat list that samples one instant every
@@ -209,8 +215,13 @@ func (s *Server) timelapse(w http.ResponseWriter, r *http.Request) {
 	}
 	defer cleanup()
 	args = append(args, "-movflags", "frag_keyframe+empty_moov+default_base_moof", "-f", "mp4", "pipe:1")
-	cmd := exec.CommandContext(r.Context(), s.FFmpeg, args...)
-	cmd.Stdout = w
+	// Like export: a client that stops reading must not hold the slot.
+	ctx, cancel := context.WithTimeout(r.Context(), timelapseJobLimit)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, s.FFmpeg, args...)
+	iw := newIdleWriter(w, streamWriteIdle, cancel)
+	defer iw.Close()
+	cmd.Stdout = iw
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	w.Header().Set("Content-Type", "video/mp4")
@@ -219,7 +230,7 @@ func (s *Server) timelapse(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Disposition", `attachment; filename="`+s.timelapseName(p)+`"`)
 	}
 	s.audit(r, "recording.timelapse", p.cam.ID, true, fmt.Sprintf("%s/%s every %s", p.from.Format(time.RFC3339), p.to.Sub(p.from), p.every))
-	if err := cmd.Run(); err != nil && r.Context().Err() == nil {
+	if err := cmd.Run(); err != nil && ctx.Err() == nil {
 		s.Log.Warn("timelapse failed", "err", err, "stderr", stderr.String())
 	}
 }
@@ -233,7 +244,12 @@ type tlJob struct {
 	Total int    `json:"total"`
 	Bytes int64  `json:"bytes,omitempty"`
 	path  string
+	user  int64     // who started it
+	ended time.Time // when it reached a final state
 }
+
+// active reports whether the job still waits or runs.
+func (j *tlJob) active() bool { return j.State == "queued" || j.State == "running" }
 
 type tlJobs struct {
 	mu   sync.Mutex
@@ -256,6 +272,9 @@ func (t *tlJobs) update(key string, f func(j *tlJob)) {
 	defer t.mu.Unlock()
 	if j, ok := t.jobs[key]; ok {
 		f(j)
+		if !j.active() && j.ended.IsZero() {
+			j.ended = time.Now()
+		}
 	}
 }
 
@@ -275,13 +294,20 @@ func (s *Server) timelapsePrepare(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	uid := userFrom(r).ID
 	s.tl.mu.Lock()
 	if s.tl.jobs == nil {
 		s.tl.jobs = map[string]*tlJob{}
 	}
+	s.tl.pruneLocked(timelapseJobTTL)
 	j, running := s.tl.jobs[key]
 	if !running || j.State == "failed" || j.State == "ready" {
-		j = &tlJob{State: "queued", path: filepath.Join(dir, key+".mp4")}
+		if msg := s.tl.admitLocked(uid); msg != "" {
+			s.tl.mu.Unlock()
+			writeErr(w, http.StatusTooManyRequests, msg)
+			return
+		}
+		j = &tlJob{State: "queued", path: filepath.Join(dir, key+".mp4"), user: uid}
 		s.tl.jobs[key] = j
 		running = false
 	}
@@ -421,15 +447,42 @@ func (s *Server) keyframeTimelapse(ctx context.Context, picks []recording.Pick, 
 	return nil
 }
 
-// pruneJobs forgets finished jobs (their files, if any, answer by themselves).
-func (t *tlJobs) pruneJobs() {
-	t.mu.Lock()
-	defer t.mu.Unlock()
+// admitLocked says why a new job for user may not start now ("" = it may).
+// t.mu must be held.
+func (t *tlJobs) admitLocked(user int64) string {
+	all, own := 0, 0
+	for _, j := range t.jobs {
+		if j.active() {
+			all++
+			if j.user == user {
+				own++
+			}
+		}
+	}
+	switch {
+	case own >= timelapseMaxActiveUser:
+		return "you already have timelapses being prepared, wait for them to finish"
+	case all >= timelapseMaxActive:
+		return "too many timelapses are being prepared, try again shortly"
+	}
+	return ""
+}
+
+// pruneLocked forgets jobs that ended more than ttl ago (their files, if any,
+// answer by themselves). t.mu must be held.
+func (t *tlJobs) pruneLocked(ttl time.Duration) {
 	for k, j := range t.jobs {
-		if j.State == "ready" || j.State == "failed" || j.State == "empty" {
+		if !j.active() && time.Since(j.ended) > ttl {
 			delete(t.jobs, k)
 		}
 	}
+}
+
+// pruneJobs forgets finished jobs (called hourly; prepare also does it).
+func (t *tlJobs) pruneJobs() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.pruneLocked(0)
 }
 
 // pruneTimelapses drops prepared files older than timelapseKeep and keeps

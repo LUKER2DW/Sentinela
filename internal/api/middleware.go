@@ -7,11 +7,13 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"runtime/debug"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/LUKER2DW/sentinela/internal/auth"
 	"github.com/LUKER2DW/sentinela/internal/auth/redact"
@@ -78,6 +80,11 @@ func (s *Server) session(next http.Handler) http.Handler {
 			// Outside, an account with two-step login only counts with a
 			// session made with the code.
 			if err == nil && PublicZone(zoneFrom(r)) && u.TOTP && !sess.MFA {
+				err = store.ErrNotFound
+			}
+			// Cookies are not isolated by port: in a public zone a session
+			// counts on the Host it was created on only.
+			if err == nil && !sessionHostOK(r, sess) {
 				err = store.ErrNotFound
 			}
 			if err == nil && sess.Remember {
@@ -201,6 +208,24 @@ func (w *statusWriter) Flush() {
 	}
 }
 
+// maxLoggedPath bounds what one request can write to the log: the header
+// limit lets a client send tens of KB of URL, and the log rotates by size.
+const maxLoggedPath = 256
+
+// logPath is the redacted request URI, cut to maxLoggedPath bytes (on a rune
+// boundary).
+func logPath(r *http.Request) string {
+	p := redact.URL(r.URL.RequestURI())
+	if len(p) <= maxLoggedPath {
+		return p
+	}
+	p = p[:maxLoggedPath]
+	for len(p) > 0 && !utf8.ValidString(p) {
+		p = p[:len(p)-1]
+	}
+	return p + "…"
+}
+
 func (s *Server) logRequests(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -210,7 +235,7 @@ func (s *Server) logRequests(next http.Handler) http.Handler {
 		if r.URL.Path == "/healthz" || strings.HasPrefix(r.URL.Path, "/assets/") {
 			return
 		}
-		s.Log.Info("http", "method", r.Method, "path", redact.URL(r.URL.RequestURI()), "status", sw.code,
+		s.Log.Info("http", "method", r.Method, "path", logPath(r), "status", sw.code,
 			"bytes", sw.bytes, "ms", time.Since(start).Milliseconds(), "ip", clientIP(r), "zone", zoneFrom(r))
 	})
 }
@@ -256,11 +281,57 @@ func clientIP(r *http.Request) string {
 	return host
 }
 
+// effectiveHost is the Host (with port, as sent) the browser addressed:
+// r.Host, or the last X-Forwarded-Host value from the loopback proxy (same
+// trust rule as clientIP and isHTTPS). Lower-cased.
+func effectiveHost(r *http.Request) string {
+	h := r.Host
+	if xfh := r.Header.Values("X-Forwarded-Host"); len(xfh) > 0 && fromLoopback(r) {
+		hops := strings.Split(xfh[len(xfh)-1], ",")
+		if last := strings.TrimSpace(hops[len(hops)-1]); last != "" {
+			h = last
+		}
+	}
+	return strings.ToLower(strings.TrimSpace(h))
+}
+
+// sessionHostOK reports whether sess may be used for r. Browsers do not
+// isolate cookies by port, so a service on another port of the same machine
+// could replay a session at a public listener: there a session works only on
+// the Host it was created on. Sessions made before 0012 (empty host) and
+// requests from LAN or tailnet zones are not bound.
+func sessionHostOK(r *http.Request, sess *store.Session) bool {
+	if sess.Host == "" || !PublicZone(zoneFrom(r)) {
+		return true
+	}
+	return sess.Host == effectiveHost(r)
+}
+
+// limiterKey is the part of an address that rate limits count. IPv4 is kept
+// as is. An IPv6 address becomes its /64: one subscriber normally owns a
+// whole /64, so counting the full address would let one source mint endless
+// fresh keys. Logs and audit rows keep the exact address (clientIP).
+func limiterKey(ip string) string {
+	a, err := netip.ParseAddr(ip)
+	if err != nil {
+		return ip
+	}
+	a = a.WithZone("")
+	if a.Is4() || a.Is4In6() {
+		return a.Unmap().String()
+	}
+	return netip.PrefixFrom(a, 64).Masked().String()
+}
+
 // isHTTPS reports whether the browser reached us over HTTPS: TLS here, or
 // `tailscale serve` on loopback saying so. Session cookies get Secure then,
 // while plain-HTTP LAN logins keep working (PLAN Phase 9 D6).
 func isHTTPS(r *http.Request) bool {
-	return r.TLS != nil || fromLoopback(r) && strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+	// A public zone is HTTPS by construction (the TLS listener, Funnel, or a
+	// tunnel/proxy domain): never depend on a proxy header there to mark the
+	// session cookie Secure or to send HSTS.
+	return r.TLS != nil || PublicZone(zoneFrom(r)) ||
+		fromLoopback(r) && strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
 }
 
 func hostPort(host string, port int) string { return net.JoinHostPort(host, strconv.Itoa(port)) }

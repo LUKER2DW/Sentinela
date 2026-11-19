@@ -69,6 +69,8 @@ GO2RTC_CHANGED="$("${SSH[@]}" 'sudo /opt/sentinela/scripts/gen-go2rtc-cameras.sh
 # The recorder writes only while /data holds its marker (volume_marker).
 "${SSH[@]}" 'sudo bash -s' <<'REMOTE'
 m=/data/.sentinela-volume
+# /data belongs to uid 1000: root never writes through a link found there.
+[[ -L "$m" ]] && { echo "!! refusing: $m is a symbolic link" >&2; exit 1; }
 [[ -e "$m" ]] && exit 0
 if mountpoint -q /data; then
   touch "$m" && echo "created $m"
@@ -76,7 +78,15 @@ else
   echo "!! /data is not a mount point: recording stays paused until the disk is mounted" >&2
 fi
 REMOTE
-"${SSH[@]}" 'sudo install -d -o 1000 -g 1000 -m 0750 /data/detector /data/apps-agent'
+"${SSH[@]}" 'sudo bash -s' <<'REMOTE'
+for d in /data/detector /data/apps-agent; do
+  [[ ! -L "$d" ]] || { echo "!! refusing: $d is a symbolic link" >&2; exit 1; }
+done
+install -d -o 1000 -g 1000 -m 0750 /data/detector /data/apps-agent
+for d in /data/detector /data/apps-agent; do
+  [[ ! -L "$d" && -d "$d" ]] || { echo "!! refusing: $d is not a plain directory" >&2; exit 1; }
+done
+REMOTE
 # Host units behind System -> Atualizações (they do nothing until turned on).
 "${SSH[@]}" 'sudo /opt/sentinela/scripts/setup-auto-update.sh install && sudo /opt/sentinela/scripts/setup-config-apply.sh && sudo /opt/sentinela/scripts/setup-tailscale.sh units && sudo /opt/sentinela/scripts/setup-cloudflared.sh units'
 # The self-hosted services agent (ADR-0021) runs only while

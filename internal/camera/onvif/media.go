@@ -96,8 +96,12 @@ func splitRTSP(uri string) (int, string) {
 	if u.RawQuery != "" {
 		path += "?" + u.RawQuery
 	}
-	return port, path
+	// go2rtc expands ${VAR} in the stream URLs it is given; a device must not
+	// be able to plant one (config refuses '$', '{' and '}' in stream paths).
+	return port, rtspUnsafe.Replace(path)
 }
+
+var rtspUnsafe = strings.NewReplacer("$", "%24", "{", "%7B", "}", "%7D")
 
 // Streams lists the camera's profiles with their RTSP addresses, the
 // largest picture first (main stream), then the smaller ones (sub streams).

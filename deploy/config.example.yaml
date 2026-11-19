@@ -29,8 +29,9 @@ volumes:
   - {id: nuvem, name: Cloud, path: /srv/nas, kind: nas, share: Nuvem}
   - {id: backup, name: Backups, path: /srv/backup, kind: backup}
 
-# Remote access trial (ADR-0019). Everything off unless set. Requests on these
-# listeners need two-step login (enrolled at home) and see nothing else.
+# Remote access trial (ADR-0019). Everything off unless set. Without a session,
+# requests on these listeners see only the login page; two-step login is
+# optional per account (turn it on for every account used from outside).
 remote:
   # P3 Tailscale Funnel: scripts/setup-funnel.sh proxies :10000 to here.
   # funnel_listen: 127.0.0.1:8081

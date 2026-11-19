@@ -57,6 +57,7 @@ func main() {
 	fl := flag.NewFlagSet(cmd, flag.ExitOnError)
 	cfgPath := fl.String("config", envOr("SENTINELA_CONFIG", "/etc/sentinela/config.yaml"), "config file")
 	role := fl.String("role", "viewer", "role for `user add` (admin|operator|viewer)")
+	against := fl.String("against", "", "check-config: installed config; the change must stay within what the dashboard may edit")
 	_ = fl.Parse(args)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -75,7 +76,7 @@ func main() {
 	case "healthcheck":
 		err = healthcheck(*cfgPath)
 	case "check-config":
-		err = checkConfig(*cfgPath)
+		err = checkConfig(*cfgPath, *against)
 	case "go2rtc-config":
 		var cfg *config.Config
 		if cfg, err = config.LoadLayout(*cfgPath); err == nil {
@@ -102,10 +103,25 @@ func main() {
 
 // checkConfig loads the config with its secrets and prints the cameras
 // (scripts/add-camera.sh runs it on a candidate config before installing it).
-func checkConfig(path string) error {
+// With against (scripts/apply-config.sh passes the installed config) the
+// candidate must also stay within what the dashboard may change (ADR-0024).
+func checkConfig(path, against string) error {
 	cfg, err := config.Load(path)
 	if err != nil {
 		return err
+	}
+	if against != "" {
+		old, err := os.ReadFile(against)
+		if err != nil {
+			return fmt.Errorf("read installed config: %w", err)
+		}
+		cand, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("read config: %w", err)
+		}
+		if err := config.CheckDashboardChange(old, cand); err != nil {
+			return fmt.Errorf("policy: %w", err)
+		}
 	}
 	for _, c := range cfg.Cameras {
 		fmt.Printf("%s\t%s\t%d\t%d\t%s\n", c.ID, c.Host, c.RTSPPort, c.DVRIPPort, c.Name)
@@ -165,6 +181,9 @@ func serve(ctx context.Context, log *slog.Logger, cfgPath string) error {
 	go func() { defer wg.Done(); srv.MirrorAppReleases(ctx) }()
 
 	servers := []*http.Server{{Addr: cfg.Listen, Handler: srv.Handler()}}
+	// Listeners that face the internet directly get a cap on open connections
+	// (total and per source); the ones behind a local proxy cannot tell sources apart.
+	limits := map[*http.Server]connCaps{}
 	// ADR-0019 trial: public listeners, mandatory 2FA and the closed door.
 	if l := cfg.Remote.FunnelListen; l != "" {
 		servers = append(servers, &http.Server{Addr: l, Handler: srv.PublicHandler(api.ZoneFunnel)})
@@ -190,7 +209,10 @@ func serve(ctx context.Context, log *slog.Logger, cfgPath string) error {
 			m := &publiccert.Manager{IP: ip.String(), Email: p.Email, Dir: filepath.Join(cfg.DataDir, "acme", "ip"), Log: log, HTTP01: p.HTTP01Listen != ""}
 			if p.HTTP01Listen != "" {
 				// Plain HTTP that only answers Let's Encrypt (router WAN 80 -> here).
-				servers = append(servers, &http.Server{Addr: p.HTTP01Listen, Handler: m.HTTPHandler()})
+				// Facing the internet with nothing to stream: short Read/Write timeouts.
+				hs := &http.Server{Addr: p.HTTP01Listen, Handler: m.HTTPHandler(), ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second}
+				servers = append(servers, hs)
+				limits[hs] = connCaps{total: 256, perIP: 16}
 			}
 			wg.Add(1)
 			go func() { defer wg.Done(); m.Run(ctx) }()
@@ -198,7 +220,9 @@ func serve(ctx context.Context, log *slog.Logger, cfgPath string) error {
 		} else {
 			tc = publicTLS(cfg.DataDir, p.Domain, p.Email)
 		}
-		servers = append(servers, &http.Server{Addr: p.Listen, Handler: srv.PublicHandler(api.ZonePublic), TLSConfig: tc})
+		pub := &http.Server{Addr: p.Listen, Handler: srv.PublicHandler(api.ZonePublic), TLSConfig: tc}
+		servers = append(servers, pub)
+		limits[pub] = connCaps{total: 2048, perIP: 64}
 	}
 	errc := make(chan error, len(servers))
 	for _, hs := range servers {
@@ -211,6 +235,20 @@ func serve(ctx context.Context, log *slog.Logger, cfgPath string) error {
 		hs.HTTP2 = &http.HTTP2Config{MaxReceiveBufferPerStream: h2Window, MaxReceiveBufferPerConnection: h2Window}
 		go func() {
 			log.Info("sentinela serving", "addr", hs.Addr, "tls", hs.TLSConfig != nil, "version", version, "cameras", len(cfg.Cameras))
+			if c, ok := limits[hs]; ok {
+				ln, err := net.Listen("tcp", hs.Addr)
+				if err != nil {
+					errc <- err
+					return
+				}
+				ln = api.LimitConns(ln, c.total, c.perIP)
+				if hs.TLSConfig != nil {
+					errc <- hs.ServeTLS(ln, "", "")
+				} else {
+					errc <- hs.Serve(ln)
+				}
+				return
+			}
 			if hs.TLSConfig != nil {
 				errc <- hs.ListenAndServeTLS("", "")
 			} else {
@@ -233,6 +271,9 @@ func serve(ctx context.Context, log *slog.Logger, cfgPath string) error {
 	wg.Wait()
 	return nil
 }
+
+// connCaps are the open-connection limits of a listener that faces the internet.
+type connCaps struct{ total, perIP int }
 
 // publicTLS gets and renews a Let's Encrypt certificate for domain only
 // (TLS-ALPN-01 on the same port, so the router forwards just 443 → listen).
@@ -257,11 +298,17 @@ func snapshotMaxAge(ctx context.Context, st *store.Store) time.Duration {
 	return 30 * 24 * time.Hour
 }
 
+// Audit log retention (nightly).
+const (
+	auditMaxAge  = 180 * 24 * time.Hour
+	auditMaxRows = 200000
+)
+
 // maintenance purges sessions hourly and writes a nightly DB backup.
 func maintenance(ctx context.Context, log *slog.Logger, cfg *config.Config, st *store.Store, srv *api.Server) {
 	t := time.NewTicker(time.Hour)
 	defer t.Stop()
-	lastBackup := ""
+	lastBackup, lastAuditPrune := "", ""
 	for {
 		_ = st.PurgeExpiredSessions(ctx)
 		// Event snapshots live as long as their events, which retention
@@ -270,6 +317,14 @@ func maintenance(ctx context.Context, log *slog.Logger, cfg *config.Config, st *
 		srv.PruneCaches()
 		_ = st.PurgeSeenBefore(ctx, time.Now().Add(-31*24*time.Hour))
 		day := time.Now().UTC().Format("20060102")
+		if day != lastAuditPrune {
+			// The audit log keeps 180 days and at most 200 000 rows.
+			if err := st.PruneAudit(ctx, auditMaxAge, auditMaxRows); err != nil {
+				log.Warn("audit prune failed", "err", err)
+			} else {
+				lastAuditPrune = day
+			}
+		}
 		if day != lastBackup {
 			dir := filepath.Join(cfg.DataDir, "backup")
 			if err := os.MkdirAll(dir, 0o750); err == nil {

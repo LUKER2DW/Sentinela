@@ -419,7 +419,12 @@ func (s *Server) pushSubscribe(w http.ResponseWriter, r *http.Request) {
 	if len(ua) > 200 {
 		ua = ua[:200]
 	}
-	if err := s.Store.SavePushSub(r.Context(), userFrom(r).ID, body.Endpoint, body.Keys.P256dh, body.Keys.Auth, ua); err != nil {
+	// Bound to this session: the subscription ends when the session does.
+	var sessHash []byte
+	if sess := sessionFrom(r); sess != nil {
+		sessHash = sess.IDHash
+	}
+	if err := s.Store.SavePushSub(r.Context(), userFrom(r).ID, sessHash, body.Endpoint, body.Keys.P256dh, body.Keys.Auth, ua); err != nil {
 		writeErr(w, http.StatusInternalServerError, "database error")
 		return
 	}

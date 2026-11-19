@@ -240,8 +240,19 @@ the router.
 
 ### 8.2 Public HTTPS (household access, ADR-0019)
 
-This is the only accepted internet exposure. It requires two-step login,
-and the "closed door" hides everything before authentication.
+This is the only accepted internet exposure. Two-step login (TOTP) is
+**optional per account** (ADR-0019 amendment): an account without it signs in
+from outside with its password alone, so a leaked or guessed password is
+enough for that account. Turn it on for every account that will be used
+remotely, above all admins. The "closed door" hides everything before
+authentication.
+
+Before opening anything, on the router: switch UPnP off (the camera's own
+UPnP switch is not enough), set no DMZ, forward only the ports below, and
+check the router's IPv6 inbound policy (the host firewall rules for these
+ports also cover IPv6, where no forward is involved). On the server, key-only
+SSH and rate limiting for failed logins (for example fail2ban) are your
+setup: the scripts do not change `sshd_config`.
 
 1. Make sure every remote user has enrolled two-step login at home.
 2. In `/etc/sentinela/config.yaml`:

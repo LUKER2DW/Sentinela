@@ -5,6 +5,7 @@ import { Buoy } from "../components/Buoy";
 import { ServiceFiles } from "../components/ServiceFiles";
 import { ServiceSecrets } from "../components/ServiceSecrets";
 import { navigate } from "../lib/router";
+import { isPublicZone } from "../lib/access";
 import { useToast } from "../lib/session";
 import { useCompact } from "../lib/viewport";
 import { fmtBytes, relative } from "../lib/time";
@@ -250,7 +251,10 @@ function ServiceDetail({ svc, info }: { svc: Service; info?: HostingInfo }) {
             ["secrets", "Secrets"],
             ["config", t("Settings")],
           ] as const
-        ).map(([id, label]) => (
+        )
+          // Project files and secrets are for home or Tailscale only.
+          .filter(([id]) => !isPublicZone() || (id !== "files" && id !== "secrets"))
+          .map(([id, label]) => (
           <button key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id)}>
             {label}
           </button>

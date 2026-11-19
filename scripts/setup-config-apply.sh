@@ -5,8 +5,10 @@ set -euo pipefail
 [[ $EUID -eq 0 ]] || { echo "run with sudo" >&2; exit 1; }
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DATA="${SENTINELA_DATA:-/data}"
+# shellcheck source=scripts/lib/safe.sh
+source "$DIR/scripts/lib/safe.sh"
 install -m 0644 "$DIR/deploy/host/sentinela-config.service" "$DIR/deploy/host/sentinela-config.path" /etc/systemd/system/
-install -d -o 1000 -g 1000 -m 0700 "$DATA/config"
+safe_install_d "$DATA" 0700 "$DATA/config"
 install -d -m 0755 /var/lib/sentinela
 touch /var/lib/sentinela/config-units   # tells the dashboard it can apply settings
 systemctl daemon-reload

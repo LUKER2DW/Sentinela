@@ -8,11 +8,13 @@
 set -euo pipefail
 [[ $EUID -eq 0 ]] || { echo "run with sudo" >&2; exit 1; }
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=scripts/lib/safe.sh
+source "$HERE/scripts/lib/safe.sh"
 case "${1:-units}" in
   units)
     install -m 0644 "$HERE"/deploy/host/sentinela-cloudflared.service "$HERE"/deploy/host/sentinela-cloudflared-agent.service \
       "$HERE"/deploy/host/sentinela-cloudflared-agent.path "$HERE"/deploy/host/sentinela-cloudflared-agent.timer /etc/systemd/system/
-    install -d -o 1000 -g 1000 -m 0700 "${SENTINELA_DATA:-/data}/cloudflared"
+    safe_install_d "${SENTINELA_DATA:-/data}" 0700 "${SENTINELA_DATA:-/data}/cloudflared"
     install -d -m 0755 /var/lib/sentinela
     touch /var/lib/sentinela/cloudflared-units   # tells the dashboard the agent exists
     systemctl daemon-reload

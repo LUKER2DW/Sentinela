@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // ---------- users ----------
@@ -153,8 +154,25 @@ func (s *Store) UpdateUserPassword(ctx context.Context, id int64, pwHash string)
 	if err := s.execOne(ctx, `UPDATE users SET pw_hash=?, invite_hash=NULL, invite_expires='' WHERE id=?`, pwHash, id); err != nil {
 		return err
 	}
-	_, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE user_id=?`, id)
-	return err
+	return s.dropUserAccess(ctx, id)
+}
+
+// dropUserAccess ends every session of a user and forgets their Web Push
+// subscriptions, including ones saved before subscriptions were tied to a
+// session (they would otherwise outlive the sessions). One transaction.
+func (s *Store) dropUserAccess(ctx context.Context, id int64) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE user_id=?`, id); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM push_subscriptions WHERE user_id=?`, id); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // SetUserTOTP turns two-step login on (secret) or off (”); off also
@@ -182,8 +200,7 @@ func (s *Store) SetUserDisabled(ctx context.Context, id int64, disabled bool) er
 		return err
 	}
 	if disabled {
-		_, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE user_id=?`, id)
-		return err
+		return s.dropUserAccess(ctx, id)
 	}
 	return nil
 }
@@ -206,8 +223,7 @@ func (s *Store) SetInvite(ctx context.Context, id int64, inviteHash []byte, expi
 		inviteHash, FormatTime(expires), id); err != nil {
 		return err
 	}
-	_, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE user_id=?`, id)
-	return err
+	return s.dropUserAccess(ctx, id)
 }
 
 // RedeemInvite sets the password (and 2FA secret, may be "") of a pending
@@ -269,12 +285,17 @@ type Session struct {
 	MFA bool
 	// Remember: "keep me signed in" (long session, persistent cookie).
 	Remember bool
+	// Host is the Host (with port) the session was created on; '' for a
+	// session made before 0012. Public zones accept the session on that
+	// Host only.
+	Host string
 }
 
-// CreateSession stores a session keyed by the token hash.
-func (s *Store) CreateSession(ctx context.Context, idHash []byte, userID int64, csrf string, expires time.Time, ua string, mfa, remember bool) error {
-	_, err := s.db.ExecContext(ctx, `INSERT INTO sessions(id_hash,user_id,csrf,created_at,expires_at,user_agent,mfa,remember) VALUES(?,?,?,?,?,?,?,?)`,
-		idHash, userID, csrf, Now(), FormatTime(expires), ua, mfa, remember)
+// CreateSession stores a session keyed by the token hash, bound to host (the
+// Host it was created on).
+func (s *Store) CreateSession(ctx context.Context, idHash []byte, userID int64, csrf string, expires time.Time, ua string, mfa, remember bool, host string) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO sessions(id_hash,user_id,csrf,created_at,expires_at,user_agent,mfa,remember,host) VALUES(?,?,?,?,?,?,?,?,?)`,
+		idHash, userID, csrf, Now(), FormatTime(expires), ua, mfa, remember, host)
 	return err
 }
 
@@ -282,9 +303,9 @@ func (s *Store) CreateSession(ctx context.Context, idHash []byte, userID int64, 
 func (s *Store) SessionByHash(ctx context.Context, idHash []byte) (*Session, *User, error) {
 	var sess Session
 	var exp string
-	err := s.db.QueryRowContext(ctx, `SELECT s.id_hash,s.user_id,s.csrf,s.expires_at,s.mfa,s.remember
+	err := s.db.QueryRowContext(ctx, `SELECT s.id_hash,s.user_id,s.csrf,s.expires_at,s.mfa,s.remember,s.host
 		FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.id_hash=? AND s.expires_at>? AND u.disabled=0 AND u.pw_hash<>''`, idHash, Now()).
-		Scan(&sess.IDHash, &sess.UserID, &sess.CSRF, &exp, &sess.MFA, &sess.Remember)
+		Scan(&sess.IDHash, &sess.UserID, &sess.CSRF, &exp, &sess.MFA, &sess.Remember, &sess.Host)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil, ErrNotFound
 	}
@@ -784,11 +805,16 @@ type PushSub struct {
 	Auth     string
 }
 
-// SavePushSub inserts or refreshes a subscription (keyed by endpoint).
-func (s *Store) SavePushSub(ctx context.Context, userID int64, endpoint, p256dh, auth, ua string) error {
-	_, err := s.db.ExecContext(ctx, `INSERT INTO push_subscriptions(user_id,endpoint,p256dh,auth,user_agent,created_at) VALUES(?,?,?,?,?,?)
-		ON CONFLICT(endpoint) DO UPDATE SET user_id=excluded.user_id, p256dh=excluded.p256dh, auth=excluded.auth, user_agent=excluded.user_agent`,
-		userID, endpoint, p256dh, auth, ua, FormatTime(time.Now()))
+// SavePushSub inserts or refreshes a subscription (keyed by endpoint) and
+// binds it to the session that made it: it ends with that session.
+func (s *Store) SavePushSub(ctx context.Context, userID int64, sessionHash []byte, endpoint, p256dh, auth, ua string) error {
+	var sh any // a nil session stores NULL (a subscription not tied to one)
+	if len(sessionHash) > 0 {
+		sh = sessionHash
+	}
+	_, err := s.db.ExecContext(ctx, `INSERT INTO push_subscriptions(user_id,session_hash,endpoint,p256dh,auth,user_agent,created_at) VALUES(?,?,?,?,?,?,?)
+		ON CONFLICT(endpoint) DO UPDATE SET user_id=excluded.user_id, session_hash=excluded.session_hash, p256dh=excluded.p256dh, auth=excluded.auth, user_agent=excluded.user_agent`,
+		userID, sh, endpoint, p256dh, auth, ua, FormatTime(time.Now()))
 	return err
 }
 
@@ -804,9 +830,12 @@ func (s *Store) DeletePushSub(ctx context.Context, userID int64, endpoint string
 
 // PushSubs lists subscriptions, all users when userID is 0.
 func (s *Store) PushSubs(ctx context.Context, userID int64) ([]PushSub, error) {
-	q, args := `SELECT id,user_id,endpoint,p256dh,auth FROM push_subscriptions`, []any{}
+	// A subscription of an expired session (not purged yet) is not used.
+	q, args := `SELECT p.id,p.user_id,p.endpoint,p.p256dh,p.auth FROM push_subscriptions p
+		LEFT JOIN sessions s ON s.id_hash=p.session_hash
+		WHERE (p.session_hash IS NULL OR s.expires_at>?)`, []any{Now()}
 	if userID != 0 {
-		q += ` WHERE user_id=?`
+		q += ` AND p.user_id=?`
 		args = append(args, userID)
 	}
 	rows, err := s.db.QueryContext(ctx, q, args...)
@@ -902,14 +931,52 @@ type AuditEntry struct {
 	Detail   string `json:"detail"`
 }
 
-// Audit records an action. Detail must already be redacted.
+// Audit field limits, in bytes. Audit text can come from a client (login
+// names, paths), so each field is capped to keep the table small.
+const (
+	auditMaxUser   = 64
+	auditMaxAction = 64
+	auditMaxTarget = 512
+	auditMaxDetail = 512
+)
+
+// clip shortens s to at most n bytes without cutting a UTF-8 character and
+// replaces invalid UTF-8, so the stored text is always valid.
+func clip(s string, n int) string {
+	s = strings.ToValidUTF8(s, "�")
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
+}
+
+// Audit records an action. Detail must already be redacted. Fields are capped
+// (auditMax*) so a long login name or path cannot grow the log.
 func (s *Store) Audit(ctx context.Context, userID int64, username, action, target string, ok bool, detail string) error {
 	var uid any
 	if userID > 0 {
 		uid = userID
 	}
 	_, err := s.db.ExecContext(ctx, `INSERT INTO audit(at,user_id,username,action,target,ok,detail) VALUES(?,?,?,?,?,?,?)`,
-		Now(), uid, username, action, target, ok, detail)
+		Now(), uid, clip(username, auditMaxUser), clip(action, auditMaxAction), clip(target, auditMaxTarget), ok, clip(detail, auditMaxDetail))
+	return err
+}
+
+// PruneAudit deletes audit rows older than maxAge and, beyond that, the oldest
+// ones above maxRows. Upload and folder rows (nas.*) are kept: they are the
+// only record of who put a file in a shared folder (see Authors).
+func (s *Store) PruneAudit(ctx context.Context, maxAge time.Duration, maxRows int) error {
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM audit WHERE at<? AND action NOT LIKE 'nas.%'`, FormatTime(time.Now().Add(-maxAge))); err != nil {
+		return err
+	}
+	if maxRows <= 0 {
+		return nil
+	}
+	_, err := s.db.ExecContext(ctx, `DELETE FROM audit WHERE action NOT LIKE 'nas.%' AND id <= (
+		SELECT id FROM audit WHERE action NOT LIKE 'nas.%' ORDER BY id DESC LIMIT 1 OFFSET ?)`, maxRows)
 	return err
 }
 

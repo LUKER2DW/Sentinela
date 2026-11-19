@@ -50,3 +50,26 @@ func TestStreams(t *testing.T) {
 		}
 	}
 }
+
+func TestSplitRTSPNeutralisesEnvExpansion(t *testing.T) {
+	cases := []struct {
+		uri, path string
+		port      int
+	}{
+		{"rtsp://10.0.0.2:554/stream1", "/stream1", 554},
+		{"rtsp://10.0.0.2/live?channel=1&subtype=0", "/live?channel=1&subtype=0", 554},
+		{"rtsp://10.0.0.2:8554/${SECRET}", "/%24%7BSECRET%7D", 8554},
+		{"rtsp://10.0.0.2/a?token=${P}&x=$y", "/a?token=%24%7BP%7D&x=%24y", 554},
+		{"rtsp://10.0.0.2/a%7BX%7D?q={Z}", "/a%7BX%7D?q=%7BZ%7D", 554},
+		{"http://10.0.0.2/x", "", 0},
+	}
+	for _, c := range cases {
+		port, path := splitRTSP(c.uri)
+		if port != c.port || path != c.path {
+			t.Errorf("%s = %d %q, want %d %q", c.uri, port, path, c.port, c.path)
+		}
+		if strings.ContainsAny(path, "${}") {
+			t.Errorf("%s: path %q still carries $, { or }", c.uri, path)
+		}
+	}
+}

@@ -29,7 +29,14 @@ are superseded where noted by ADR-0019 and ADR-0020.
    or calls the camera directly.
 3. go2rtc's API/restream are loopback-only. Stream tickets are random,
    single-use, 60-second, stored hashed, user/camera-bound, and require an
-   authenticated session when consumed.
+   authenticated session when consumed. Loopback keeps the network out, but
+   every container uses the host network and shares that loopback, and go2rtc's
+   API has no credential of its own: a compromised detector (it decodes camera
+   video) could talk to it. Giving the API a credential or a private network
+   namespace is still open work. Live streams (`/stream/ws`, event and
+   notification streams) re-check the session every 45 s and end when it is
+   revoked or the account is disabled; a narrowed camera list applies to open
+   streams too.
 4. Passwords use argon2id (64 MiB, 3 iterations, one lane). Policy is at
    least 10 characters mixing two kinds, or a 16-character passphrase;
    common passwords are rejected. Remembered browser sessions last 30 days
@@ -37,23 +44,37 @@ are superseded where noted by ADR-0019 and ADR-0020.
    over 1 year from last use and also end on sign-out, revocation, password change or disable. Cookies are HttpOnly, SameSite=Strict and Secure
    for HTTPS. Unsafe requests require CSRF and a valid Origin. Forwarded
    headers are trusted only from loopback. Limits include 5 requests/minute
-   per IP, 10 outside-login attempts/account/hour and 20 failed sign-ins or
-   invite codes/IP/hour. Setup works only before the first user exists.
+   per IP, 10 failed outside logins/account/source/hour (300 from all sources
+   together) and 20 failed sign-ins or invite codes/IP/hour (IPv6 clients count per /64). The limiters track at
+   most 20 000 keys and refuse new ones when full; at most 2 password hashes
+   run at once with a short, bounded queue behind them, and a busy server
+   answers 503 instead of piling up work. Audit entries are length-capped and
+   pruned after 180 days. Setup works only before the first user exists.
 5. Camera writes are allow-listed and audited. Persistent writes use
    read/modify/read-back/restore. User access changes and file API writes
    are audited. Do not put secret token values in audit targets or details.
-6. Containers run without root, with read-only roots, dropped capabilities,
-   no Docker socket, host PID or privileged mode. The API's NAS mount is
-   separate from the recorder; detection cannot become a recording dependency.
-   The one exception to "no Docker socket" is the `apps` agent (ADR-0021):
-   uid 1000 in the docker group, no camera secrets, Cloud read-only,
-   loopback API with `/data/apps-agent/token`.
+6. Containers run without root (go2rtc runs its image's default user; a
+   pinned non-root user is still open work), with read-only roots, dropped
+   capabilities, no Docker socket, host PID or privileged mode. The API's NAS
+   mount is separate from the recorder; detection cannot become a recording
+   dependency. The recorder, which parses untrusted camera data, mounts only
+   the recordings, the database folder and the volume marker, not all of
+   `/data` (which holds the request folders root agents act on, the agent and
+   detector tokens and the TLS keys). The one exception to "no Docker socket"
+   is the `apps` agent (ADR-0021): uid 1000 in the docker group, no camera
+   secrets, loopback API with `/data/apps-agent/token`, and read-write access
+   to the Cloud share (importing a local folder moves it into the service).
 7. Images and model downloads are pinned; check dependency vulnerabilities
    through the existing tooling. No new service or decode path without an
    accepted ADR and the applicable measured resource budget.
-8. SSH is key-only and limited to LAN/tailnet administration. Sensitive
-   go2rtc/internal APIs remain loopback-only. Samba binds to the LAN and
-   uses its own account; web roles do not restrict that SMB account.
+8. SSH should be key-only and is limited to LAN/tailnet administration: the
+   scripts open port 22 to those ranges but do not edit `sshd_config`, so
+   key-only login and rate limiting (fail2ban) are the operator's setup.
+   Sensitive go2rtc/internal APIs remain loopback-only. Samba binds to the LAN
+   and uses its own account, with a minimum password of 8 characters and a
+   30-minute lock after 5 wrong passwords (`setup-nas.sh`); web roles do not
+   restrict that SMB account, and the camera and any other device on the LAN
+   can reach it.
    Remote SMB needs explicit approval and stronger per-user credentials.
    The earlier ntfy relay and its tailnet port 8443 were removed on
    2026-10-01 (FCM replaced it). API Cloud access uses `os.Root`, personal/
@@ -92,7 +113,12 @@ are superseded where noted by ADR-0019 and ADR-0020.
     guarantee until a restore drill succeeds. Runtime keys under
     `/data/acme`, `/data/push`, `/data/fcm` and the development PC's Android
     signing directory need separate protected recovery copies; the current
-    backup script copies only the DB and `/etc/sentinela`.
+    backup script copies the DB and `/etc/sentinela` to `/srv/backup`; when
+    `restic.env` exists it also sends `/srv/nas` (every user's Cloud files and
+    recycle bin) and `/srv/backup` (including the copied secrets) to the
+    encrypted restic repository. Backup and restore-drill read the database
+    with an unprivileged uid and `trusted_schema=OFF`, since the container
+    that writes it is not trusted with root.
 12. Browser push uses allow-listed HTTPS services and encrypted RFC 8291
     payloads; the picture is fetched from the house. Android FCM uses fixed
     Google OAuth/FCM endpoints and an opaque random id (ADR-0020). The private
@@ -104,9 +130,14 @@ are superseded where noted by ADR-0019 and ADR-0020.
     The sidecar consumes only the loopback substream restream, never camera
     credentials. Its accepted decode budget is ADR-0016; snapshot decoding
     is separately limited by ADR-0015.
-14. Public access is the accepted P1 path (ADR-0019). The current household
-    forwards WAN 18443 to TLS 7443, with the approved WebRTC 8555 allowance.
-    Funnel is disabled; embedded tailnet enrollment/app keys were removed.
+14. Public access is the accepted P1 path (ADR-0019): a WAN port forwarded
+    to TLS 7443, with the approved WebRTC 8555 allowance. Funnel
+    (`remote.funnel_listen`) and the loopback proxy listener
+    (`remote.proxy.listen`, for Cloudflare Tunnel, Caddy or nginx; ADR-0025)
+    are also public zones when the owner turns them on from the dashboard;
+    point a tunnel only at that listener, never at the dashboard port.
+    Embedded tailnet enrollment/app keys were removed (`mobile/tailnet` is
+    parked source that no build uses).
     Public zones are determined by listener, never by a client header:
     - TOTP is optional (ADR-0019 amendment, 2026-11-06). For an account
       with TOTP, a public session must be created with the code; its
@@ -117,6 +148,19 @@ are superseded where noted by ADR-0019 and ADR-0020.
     - Access-granting account administration and ordinary TOTP management
       require LAN/tailnet; invited first access can enroll TOTP through its
       one-time invite flow.
+    - A session is tied to the host it was created on (`sessions.host`); in a
+      public zone a token presented under another host is refused, so a
+      cookie that a service on another port of the same address (browsers
+      share cookies across ports) or the LAN panel received cannot be replayed
+      at the public address. Camera probes (`/api/cameras/test`, `discover`)
+      and the service file/secret/folder reads are LAN/tailnet only; from the
+      internet the Services page shows status and logs and starts, stops,
+      restarts or redeploys. Version strings are not sent to the internet.
+    - A tunnel or proxy on this host that forwards a public client address to
+      the dashboard port (instead of `remote.proxy.listen`) is treated as the
+      public zone it is. Anonymous requests on public listeners have a 15 s
+      read and 2 min write deadline, and the listeners facing the internet
+      cap open connections (2048 total, 64 per source).
     - TOTP is RFC 6238 with single-use steps, and outside login is audited.
     - The household currently uses a self-signed IP certificate because
       normal ACME challenge ports are unavailable. Do not disable TLS
@@ -149,6 +193,15 @@ are superseded where noted by ADR-0019 and ADR-0020.
     use privileged mode, host namespaces, devices, extra capabilities, the
     Docker socket, binds outside their folder, or external/non-bridge
     networks and volumes.
+
+18. Root host agents never trust files the containers write. `apply-config.sh`
+    re-checks every dashboard-applied config with `sentinela check-config
+    -against <installed>` (non-editable keys unchanged, public ports in
+    1024..65535), refuses symlinked request files, and the setup/deploy scripts
+    refuse symlinks under `/data` (`scripts/lib/safe.sh`). Releases are made
+    only from a plain `vX.Y.Z` tag whose commit is on `main`; the signing key
+    additionally needs the `release` environment protections in
+    `docs/RELEASING.md`, which only GitHub settings can enforce.
 
 ## Reporting and verification
 

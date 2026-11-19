@@ -102,13 +102,19 @@ func (a *Agent) hFiles(w http.ResponseWriter, r *http.Request) {
 		reply(w, nil, err)
 		return
 	}
-	file, err := root.Open(rel)
+	// A service can plant a FIFO or a huge folder in its data: open without
+	// blocking and list at most maxListing entries.
+	file, err := root.OpenFile(rel, os.O_RDONLY|openNonblock, 0)
 	if err != nil {
 		reply(w, nil, sanitizeFileError(err))
 		return
 	}
 	defer file.Close()
-	entries, err := file.ReadDir(-1)
+	if st, err := file.Stat(); err != nil || !st.IsDir() {
+		reply(w, nil, errors.New("choose a folder"))
+		return
+	}
+	entries, truncated, err := readDirCapped(file, maxListing)
 	if err != nil {
 		reply(w, nil, sanitizeFileError(err))
 		return
@@ -134,19 +140,19 @@ func (a *Agent) hFiles(w http.ResponseWriter, r *http.Request) {
 		}
 		return strings.Compare(strings.ToLower(x.Name), strings.ToLower(y.Name))
 	})
-	writeJSON(w, http.StatusOK, map[string]any{"entries": out})
+	writeJSON(w, http.StatusOK, map[string]any{"entries": out, "truncated": truncated})
 }
 
 func readProjectText(root *os.Root, rel string) ([]byte, error) {
-	f, err := root.Open(rel)
+	// Never block on a FIFO a service planted (callers may hold fileMu).
+	f, st, err := openRegular(root, rel)
+	if errors.Is(err, errNotRegular) {
+		return nil, errors.New("choose a text file")
+	}
 	if err != nil {
 		return nil, sanitizeFileError(err)
 	}
 	defer f.Close()
-	st, err := f.Stat()
-	if err != nil || !st.Mode().IsRegular() {
-		return nil, errors.New("choose a text file")
-	}
 	if st.Size() > maxTextFile {
 		return nil, errors.New("the editor accepts files up to 1 MB")
 	}

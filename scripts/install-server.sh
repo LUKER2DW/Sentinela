@@ -12,6 +12,8 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=scripts/lib/lan.sh
 source "${REPO_DIR}/scripts/lib/lan.sh"
+# shellcheck source=scripts/lib/safe.sh
+source "${REPO_DIR}/scripts/lib/safe.sh"
 ETC=/etc/sentinela
 DATA="${SENTINELA_DATA:-/data}"
 
@@ -75,8 +77,10 @@ fi
 # The recorder writes only while this marker exists: if the disk ever fails
 # to mount, the empty mount point has no marker and recording pauses
 # instead of filling the system disk (recording.volume_marker).
+# The disk is owned by uid 1000: never write through a link found on it.
+refuse_symlink_below "${DATA}" "${DATA}/.sentinela-volume"
 touch "${DATA}/.sentinela-volume"
-install -d -m 0750 -o 1000 -g 1000 "${DATA}/recordings" "${DATA}/db" "${DATA}/backup" "${DATA}/detector"
+safe_install_d "${DATA}" 0750 "${DATA}/recordings" "${DATA}/db" "${DATA}/backup" "${DATA}/detector"
 chown 1000:1000 "${DATA}"   # top level only: never walk every recording
 df -h "${DATA}" | tail -1
 

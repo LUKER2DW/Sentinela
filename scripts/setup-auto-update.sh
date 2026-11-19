@@ -17,6 +17,8 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DATA="${SENTINELA_DATA:-/data}"
 UPDATES="$DATA/updates"
 STATE=/var/lib/sentinela
+# shellcheck source=scripts/lib/safe.sh
+source "$DIR/scripts/lib/safe.sh"
 
 install_units() {
   install -m 0644 "$DIR"/deploy/host/sentinela-update.service "$DIR"/deploy/host/sentinela-update.timer \
@@ -28,7 +30,7 @@ install_units() {
     systemctl disable -q --now sentinela-update-request.timer || true
     rm -f /etc/systemd/system/sentinela-update-request.timer
   fi
-  install -d -o 1000 -g 1000 -m 0755 "$UPDATES"
+  safe_install_d "$DATA" 0755 "$UPDATES"
   install -d -m 0755 "$STATE"
   touch "$STATE/update-units"   # tells the dashboard the units exist
   systemctl daemon-reload
@@ -37,21 +39,47 @@ install_units() {
 }
 
 settings() { # settings ENABLED AT (keeps the other preferences)
+  # <data>/updates belongs to uid 1000: never follow a link planted there.
+  refuse_symlink_below "$DATA" "$UPDATES/settings.json" || return 1
   python3 - "$UPDATES/settings.json" "$1" "$2" <<'PY'
-import json, sys
+import json, os, stat, sys
 p, enabled, at = sys.argv[1], sys.argv[2] == "true", sys.argv[3]
+# O_NOFOLLOW: a symbolic link in place of the file fails instead of being
+# read or overwritten. The file is made plain (regular, one link) before and
+# after, and chown/chmod go through the descriptor, never through the name.
+def plain(fd):
+    st = os.fstat(fd)
+    if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1:
+        sys.exit("refusing: settings.json is not a plain file")
+s = {}
 try:
-    s = json.load(open(p))
-except Exception:
-    s = {}
+    fd = os.open(p, os.O_RDONLY | os.O_NOFOLLOW)
+except FileNotFoundError:
+    fd = None
+if fd is not None:
+    with os.fdopen(fd) as f:
+        plain(f.fileno())
+        try:
+            s = json.load(f)
+        except Exception:
+            s = {}
+    if not isinstance(s, dict):
+        s = {}
 s["enabled"] = enabled
 if at:
     s["at"] = at
 s.setdefault("at", "04:00")
-json.dump(s, open(p, "w"))
+fd = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW, 0o644)
+try:
+    plain(fd)
+    os.ftruncate(fd, 0)
+    os.fchown(fd, 1000, 1000)
+    os.fchmod(fd, 0o644)
+    with os.fdopen(os.dup(fd), "w") as f:
+        json.dump(s, f)
+finally:
+    os.close(fd)
 PY
-  chown 1000:1000 "$UPDATES/settings.json"
-  chmod 0644 "$UPDATES/settings.json"
 }
 
 case "${1:-status}" in
@@ -74,7 +102,7 @@ case "${1:-status}" in
     exec "$DIR/scripts/auto-update.sh" --now
     ;;
   status)
-    cat "$UPDATES/settings.json" 2>/dev/null || echo "no settings (off)"
+    if [[ -f "$UPDATES/settings.json" && ! -L "$UPDATES/settings.json" ]]; then cat "$UPDATES/settings.json"; else echo "no settings (off)"; fi
     echo
     systemctl list-timers sentinela-update.timer --no-pager 2>/dev/null | head -2 || true
     cat "$STATE/update.json" 2>/dev/null || true

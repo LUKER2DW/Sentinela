@@ -478,7 +478,7 @@ func TestComposeDeploy(t *testing.T) {
 	if !slices.Equal(got.Deployed.Services, []string{"db", "web"}) || got.Status.State != "running" || got.Status.Running != 2 {
 		t.Fatalf("services %v state %s", got.Deployed.Services, got.Status.State)
 	}
-	rendered, err := os.ReadFile(filepath.Join(a.workDir(&got.App, got.Deployed), renderedCompose))
+	rendered, err := os.ReadFile(filepath.Join(a.composeDir(v.ID), renderedCompose))
 	if err != nil || !strings.Contains(string(rendered), `"published": "20000"`) {
 		t.Fatalf("rendered: %v %s", err, rendered)
 	}

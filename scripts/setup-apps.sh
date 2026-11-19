@@ -13,6 +13,8 @@
 set -euo pipefail
 [[ $EUID -eq 0 ]] || { echo "run with sudo" >&2; exit 1; }
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=scripts/lib/safe.sh
+source "$HERE/scripts/lib/safe.sh"
 MARK=/etc/sentinela/apps-enabled
 CFG=/etc/sentinela/config.yaml
 STATE=/var/lib/sentinela-apps
@@ -23,7 +25,8 @@ compose() {
 
 case "${1:-status}" in
   enable)
-    install -d -o 1000 -g 1000 -m 0750 "$STATE" /data/apps-agent
+    install -d -o 1000 -g 1000 -m 0750 "$STATE"
+    safe_install_d /data 0750 /data/apps-agent
     touch "$MARK"
     if ! grep -q '^apps:' "$CFG"; then
       cp -a "$CFG" "$CFG.bak.$(date +%Y%m%d%H%M%S)"

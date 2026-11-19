@@ -38,7 +38,8 @@ type Server struct {
 
 	tickets     *auth.Tickets
 	loginRL     *auth.Limiter
-	acctRL      *auth.Limiter // per-account login attempts in public zones (ADR-0019)
+	acctRL      *auth.Limiter // failed logins per account AND source in public zones (ADR-0019)
+	acctAllRL   *auth.Limiter // failed logins per account from all sources: a backstop against a spread-out guess
 	failRL      *auth.Limiter // failed sign-ins / invite codes per address, per hour
 	totpPending pendingTOTP
 	go2rtc      *url.URL
@@ -90,7 +91,7 @@ func New(cfg *config.Config, st *store.Store, web fs.FS, log *slog.Logger) (*Ser
 	}
 	s := &Server{Cfg: cfg, Store: st, Log: log, Web: web, Started: time.Now(), FFmpeg: "ffmpeg", lanIP: lanIPv4, instance: newInstanceID(), mirrorKick: make(chan struct{}, 1),
 		tickets: auth.NewTickets(60 * time.Second), loginRL: auth.NewLimiter(5, time.Minute),
-		acctRL: auth.NewLimiter(10, time.Hour), failRL: auth.NewLimiter(20, time.Hour),
+		acctRL: auth.NewLimiter(10, time.Hour), acctAllRL: auth.NewLimiter(300, time.Hour), failRL: auth.NewLimiter(20, time.Hour),
 		go2rtc: g, ctrl: map[string]*dvrip.Controller{}, hub: NewHub(), stateTTL: map[string]cachedState{},
 		tlSem: make(chan struct{}, 1), exportSem: make(chan struct{}, 2)}
 	for i := range cfg.Cameras {
@@ -206,8 +207,8 @@ func (s *Server) handler(zone string) http.Handler {
 	mux.Handle("POST /api/cloudflared", admin(privateOnly(s.postCloudflared)))
 	mux.Handle("POST /api/tailscale", admin(privateOnly(s.postTailscale)))
 	mux.Handle("PUT /api/onboarding", admin(s.putOnboarding))
-	mux.Handle("POST /api/cameras/discover", admin(s.discoverCameras))
-	mux.Handle("POST /api/cameras/test", admin(s.testCamera))
+	mux.Handle("POST /api/cameras/discover", admin(privateOnly(s.discoverCameras)))
+	mux.Handle("POST /api/cameras/test", admin(privateOnly(s.testCamera)))
 	mux.Handle("POST /api/cameras/onvif-streams", admin(privateOnly(s.onvifStreams)))
 
 	// Cameras and control

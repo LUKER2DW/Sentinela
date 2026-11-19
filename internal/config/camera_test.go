@@ -129,3 +129,63 @@ func TestCameraMotionSource(t *testing.T) {
 		t.Error("an unknown motion source was accepted")
 	}
 }
+
+func TestStreamPathRejectsEnvExpansion(t *testing.T) {
+	cases := []struct {
+		path string
+		ok   bool
+	}{
+		{"/stream1", true},
+		{"/live?x=1&y=2#a", true},
+		{"/Streaming/Channels/{channel}01", true},
+		{"/cam/realmonitor?channel={channel}&subtype=0", true},
+		{"/u={user}&p={password}", true},
+		{"/${SECRET}", false},
+		{"/a$b", false},
+		{"/a{b", false},
+		{"/a}b", false},
+		{"/{channel", false},
+		{"/{chan{channel}nel}", false},
+		{"/x?q=${P}", false},
+	}
+	for _, c := range cases {
+		for _, field := range []string{"rtsp_main", "rtsp_sub"} {
+			extra := ""
+			if field == "rtsp_sub" {
+				extra = "rtsp_main: /m, "
+			}
+			yml := "cameras:\n  - {id: a, host: 10.0.0.2, vendor: generic, " + extra + field + ": '" + c.path + "', user_env: U, password_env: P}\n"
+			_, err := Parse([]byte(yml), env(map[string]string{"U": "admin", "P": "Pa55word"}))
+			if (err == nil) != c.ok {
+				t.Errorf("%s %q: err = %v, want ok=%v", field, c.path, err, c.ok)
+			}
+		}
+	}
+}
+
+func TestCredentialEnvNames(t *testing.T) {
+	long64, long65 := strings.Repeat("A", 64), strings.Repeat("A", 65)
+	vars := map[string]string{"U": "admin", "P": "Pa55word", "front_user": "admin", "A-B": "x", "CAM_2_USER": "admin", "CAM_2_PASS": "Pa55word",
+		"${X}": "x", "A B": "x", long65: "x", long64: "x", "0_USER": "x"}
+	cases := []struct {
+		user, pass string
+		ok         bool
+	}{
+		{"U", "P", true},
+		{"CAM_2_USER", "CAM_2_PASS", true},
+		{"0_USER", "P", true},
+		{long64, "P", true},
+		{"front_user", "P", false},
+		{"A-B", "P", false},
+		{"U", "${X}", false},
+		{"A B", "P", false},
+		{long65, "P", false},
+	}
+	for _, c := range cases {
+		yml := "cameras:\n  - {id: a, host: 10.0.0.2, user_env: '" + c.user + "', password_env: '" + c.pass + "'}\n"
+		_, err := Parse([]byte(yml), env(vars))
+		if (err == nil) != c.ok {
+			t.Errorf("%q/%q: err = %v, want ok=%v", c.user, c.pass, err, c.ok)
+		}
+	}
+}

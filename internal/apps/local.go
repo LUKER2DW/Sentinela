@@ -191,7 +191,7 @@ func copyFile(src, dst *os.Root, p string, mode fs.FileMode) error {
 
 // gitHead reads HEAD of the working copy in r without running git.
 func gitHead(r *os.Root) (Version, bool) {
-	head, err := r.ReadFile(".git/HEAD")
+	head, err := readCapped(r, ".git/HEAD", maxGitSmall)
 	if err != nil {
 		return Version{}, false
 	}
@@ -199,7 +199,7 @@ func gitHead(r *os.Root) (Version, bool) {
 	var v Version
 	if ref, ok := strings.CutPrefix(h, "ref: "); ok {
 		v.Branch = strings.TrimPrefix(ref, "refs/heads/")
-		if b, err := r.ReadFile(".git/" + ref); err == nil {
+		if b, err := readCapped(r, ".git/"+ref, maxGitSmall); err == nil {
 			v.Commit = strings.TrimSpace(string(b))
 		} else {
 			v.Commit = packedRef(r, ref)
@@ -216,7 +216,7 @@ func gitHead(r *os.Root) (Version, bool) {
 }
 
 func packedRef(r *os.Root, ref string) string {
-	b, err := r.ReadFile(".git/packed-refs")
+	b, err := readCapped(r, ".git/packed-refs", maxPackedRefs)
 	if err != nil {
 		return ""
 	}
@@ -266,25 +266,38 @@ type Folder struct {
 // Browse lists the subfolders of rel (relative to Root), marking those that
 // look like projects.
 func (s LocalSource) Browse(rel string) ([]Folder, error) {
+	out, _, err := s.BrowseLimited(rel)
+	return out, err
+}
+
+// BrowseLimited is Browse that reads at most maxBrowse entries of any folder
+// (a Cloud folder may hold any number of files) and reports whether the
+// listing of rel itself was cut short.
+func (s LocalSource) BrowseLimited(rel string) ([]Folder, bool, error) {
 	rel = cleanRel(rel)
 	if rel != "" && !validRel(rel) {
-		return nil, errors.New("invalid folder")
+		return nil, false, errors.New("invalid folder")
 	}
 	if s.Root == "" {
-		return nil, errors.New("local folders are not enabled (apps.local_root)")
+		return nil, false, errors.New("local folders are not enabled (apps.local_root)")
 	}
 	base, err := os.OpenRoot(s.Root)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	defer base.Close()
 	name := rel
 	if name == "" {
 		name = "."
 	}
-	entries, err := fs.ReadDir(base.FS(), name)
+	dir, err := base.Open(name)
 	if err != nil {
-		return nil, fmt.Errorf("folder %q not found", rel)
+		return nil, false, fmt.Errorf("folder %q not found", rel)
+	}
+	entries, truncated, err := readDirCapped(dir, maxBrowse)
+	dir.Close()
+	if err != nil {
+		return nil, false, fmt.Errorf("folder %q not found", rel)
 	}
 	out := []Folder{}
 	for _, e := range entries {
@@ -293,16 +306,20 @@ func (s LocalSource) Browse(rel string) ([]Folder, error) {
 		}
 		p := path.Join(rel, e.Name())
 		f := Folder{Name: e.Name(), Path: p}
-		if sub, err := fs.ReadDir(base.FS(), p); err == nil {
-			names := make([]string, 0, len(sub))
-			for _, x := range sub {
-				names = append(names, x.Name())
+		if sub, err := base.Open(p); err == nil {
+			// A project's marker files are few; a folder with more entries than
+			// the cap is not scanned past it.
+			names, _, _ := readDirCapped(sub, maxBrowse)
+			sub.Close()
+			list := make([]string, 0, len(names))
+			for _, x := range names {
+				list = append(list, x.Name())
 			}
-			f.Git = slices.Contains(names, ".git")
-			f.Markers = markers(names)
+			f.Git = slices.Contains(list, ".git")
+			f.Markers = markers(list)
 		}
 		out = append(out, f)
 	}
 	slices.SortFunc(out, func(a, b Folder) int { return strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name)) })
-	return out, nil
+	return out, truncated, nil
 }
