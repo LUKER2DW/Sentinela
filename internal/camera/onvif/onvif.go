@@ -13,9 +13,12 @@ import (
 	"fmt"
 	"html"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -25,18 +28,137 @@ type Client struct {
 	User     string
 	Password string
 	HTTP     *http.Client
+	// DevicePath is the device service path ("" = /onvif/device_service).
+	DevicePath string
+
+	mu sync.Mutex
+	// caps are the service addresses the device reported (nil until read).
+	caps map[string]string
+	// offset is the camera clock minus ours: the UsernameToken digest
+	// carries a creation time and many cameras refuse one that is minutes
+	// off their own clock.
+	offset time.Duration
 }
+
+// DefaultDevicePath is the device service path nearly every camera uses.
+const DefaultDevicePath = "/onvif/device_service"
 
 // NewClient returns a client with a sane timeout.
 func NewClient(host string, port int, user, pw string) *Client {
-	return &Client{Base: fmt.Sprintf("http://%s:%d", host, port), User: user, Password: pw,
+	return &Client{Base: "http://" + net.JoinHostPort(host, strconv.Itoa(port)), User: user, Password: pw,
 		HTTP: &http.Client{Timeout: 20 * time.Second}}
+}
+
+// WithDevicePath sets the device service path (empty keeps the default).
+func (c *Client) WithDevicePath(p string) *Client {
+	c.DevicePath = p
+	return c
+}
+
+func (c *Client) device() string {
+	if c.DevicePath == "" {
+		return c.Base + DefaultDevicePath
+	}
+	return c.Base + c.DevicePath
+}
+
+// service is the address of one service ("media", "events", "ptz") from
+// GetCapabilities, read once per client; fallback (a path) when the device
+// does not say.
+func (c *Client) service(ctx context.Context, name, fallback string) string {
+	c.mu.Lock()
+	caps := c.caps
+	c.mu.Unlock()
+	if caps == nil {
+		caps = c.readCapabilities(ctx)
+	}
+	if a := caps[name]; a != "" {
+		return a
+	}
+	return c.Base + fallback
+}
+
+// HasService reports whether the device lists a service ("ptz", ...).
+func (c *Client) HasService(ctx context.Context, name string) bool {
+	c.mu.Lock()
+	caps := c.caps
+	c.mu.Unlock()
+	if caps == nil {
+		caps = c.readCapabilities(ctx)
+	}
+	return caps[name] != ""
+}
+
+func (c *Client) readCapabilities(ctx context.Context) map[string]string {
+	c.syncClock(ctx)
+	body := `<GetCapabilities xmlns="` + devNS + `"><Category>All</Category></GetCapabilities>`
+	data, err := c.call(ctx, c.device(), "", body)
+	if err != nil {
+		return nil // not cached: asked again next time
+	}
+	caps, err := ParseCapabilities(data)
+	if err != nil {
+		return nil
+	}
+	for k, v := range caps {
+		caps[k] = c.rebase(v)
+	}
+	c.mu.Lock()
+	c.caps = caps
+	c.mu.Unlock()
+	return caps
+}
+
+// ParseCapabilities reads the service addresses of a GetCapabilities
+// response (lower-case names: media, events, ptz, imaging).
+func ParseCapabilities(data []byte) (map[string]string, error) {
+	var r struct {
+		Media   string `xml:"Body>GetCapabilitiesResponse>Capabilities>Media>XAddr"`
+		Events  string `xml:"Body>GetCapabilitiesResponse>Capabilities>Events>XAddr"`
+		PTZ     string `xml:"Body>GetCapabilitiesResponse>Capabilities>PTZ>XAddr"`
+		Imaging string `xml:"Body>GetCapabilitiesResponse>Capabilities>Imaging>XAddr"`
+	}
+	if err := xml.Unmarshal(data, &r); err != nil {
+		return nil, fmt.Errorf("onvif: parse capabilities: %w", err)
+	}
+	out := map[string]string{}
+	for k, v := range map[string]string{"media": r.Media, "events": r.Events, "ptz": r.PTZ, "imaging": r.Imaging} {
+		if v = strings.TrimSpace(v); v != "" {
+			out[k] = v
+		}
+	}
+	return out, nil
+}
+
+// syncClock reads the camera clock without credentials (the ONVIF core
+// spec requires GetSystemDateAndTime to answer unauthenticated) and keeps
+// the offset when it is large enough to break the UsernameToken.
+func (c *Client) syncClock(ctx context.Context) {
+	t0 := time.Now()
+	data, err := c.post(ctx, c.device(), "", `<GetSystemDateAndTime xmlns="`+devNS+`"/>`, false)
+	if err != nil {
+		return
+	}
+	cam, err := ParseSystemTime(data)
+	if err != nil {
+		return
+	}
+	off := cam.Sub(t0.Add(time.Since(t0) / 2))
+	if off > -5*time.Second && off < 5*time.Second {
+		off = 0
+	}
+	c.mu.Lock()
+	c.offset = off
+	c.mu.Unlock()
 }
 
 func (c *Client) security() string {
 	nonce := make([]byte, 16)
 	_, _ = rand.Read(nonce)
-	created := time.Now().UTC().Format("2006-01-02T15:04:05Z")
+	c.mu.Lock()
+	off := c.offset
+	c.mu.Unlock()
+	created := time.Now().Add(off).UTC().Format("2006-01-02T15:04:05Z")
 	h := sha1.New()
 	h.Write(nonce)
 	h.Write([]byte(created))
@@ -53,7 +175,15 @@ func (c *Client) security() string {
 
 // call posts a SOAP envelope to url with an optional WS-Addressing header.
 func (c *Client) call(ctx context.Context, endpoint, action, body string) ([]byte, error) {
-	hdr := c.security()
+	return c.post(ctx, endpoint, action, body, true)
+}
+
+// post sends one envelope; auth adds the WS-Security UsernameToken.
+func (c *Client) post(ctx context.Context, endpoint, action, body string, auth bool) ([]byte, error) {
+	hdr := ""
+	if auth {
+		hdr = c.security()
+	}
 	if action != "" {
 		hdr += `<a:Action s:mustUnderstand="1">` + action + `</a:Action><a:To s:mustUnderstand="1">` + html.EscapeString(endpoint) + `</a:To>`
 	}
@@ -104,7 +234,9 @@ type Subscription struct {
 // Subscribe creates a PullPoint subscription.
 func (c *Client) Subscribe(ctx context.Context) (*Subscription, error) {
 	body := `<CreatePullPointSubscription xmlns="` + evNS + `"><InitialTerminationTime>PT120S</InitialTerminationTime></CreatePullPointSubscription>`
-	data, err := c.call(ctx, c.Base+"/onvif/event_service", evNS+"/EventPortType/CreatePullPointSubscriptionRequest", body)
+	// The event service address comes from the device: Hikvision answers on
+	// /onvif/Events, Axis on /onvif/services, XMEye and Dahua on the default.
+	data, err := c.call(ctx, c.service(ctx, "events", "/onvif/event_service"), evNS+"/EventPortType/CreatePullPointSubscriptionRequest", body)
 	if err != nil {
 		return nil, err
 	}
@@ -234,7 +366,7 @@ const devNS = "http://www.onvif.org/ver10/device/wsdl"
 // camera burns this clock into the video, so its offset from the server
 // explains an OSD that disagrees with real time.
 func (c *Client) SystemTime(ctx context.Context) (time.Time, error) {
-	data, err := c.call(ctx, c.Base+"/onvif/device_service", "", `<GetSystemDateAndTime xmlns="`+devNS+`"/>`)
+	data, err := c.call(ctx, c.device(), "", `<GetSystemDateAndTime xmlns="`+devNS+`"/>`)
 	if err != nil {
 		return time.Time{}, err
 	}

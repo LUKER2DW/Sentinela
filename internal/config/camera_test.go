@@ -86,6 +86,7 @@ cameras:
   - {id: fixed, host: 10.0.0.3, user_env: U, password_env: P, features: {ptz: false, light: false, talk: false}}
   - {id: h, host: 10.0.0.4, vendor: hikvision, user_env: U, password_env: P, features: {ptz: true, talk: true}}
   - {id: d, host: 10.0.0.5, vendor: dahua, user_env: U, password_env: P}
+  - {id: r, host: 10.0.0.6, vendor: reolink, onvif: false, user_env: U, password_env: P}
 `), env(map[string]string{"U": "admin", "P": "Pa55word"}))
 	if err != nil {
 		t.Fatal(err)
@@ -96,14 +97,31 @@ cameras:
 	}{
 		{"x", true, true, true},        // XMEye: everything by default
 		{"fixed", false, false, false}, // XMEye bullet without motor, light or speaker
-		{"h", false, false, true},      // PTZ needs the DVRIP driver; talk uses the RTSP backchannel
+		{"h", true, false, true},       // PTZ over ONVIF; talk uses the RTSP backchannel
 		{"d", false, false, false},     // other vendors: view and record only by default
+		{"r", false, false, false},     // ONVIF off: no ONVIF PTZ either
 	}
 	for _, tc := range cases {
 		cam := c.Camera(tc.id)
 		if cam.HasPTZ() != tc.ptz || cam.HasLight() != tc.light || cam.HasTalk() != tc.talk {
 			t.Errorf("%s: ptz/light/talk = %v/%v/%v, want %v/%v/%v", tc.id, cam.HasPTZ(), cam.HasLight(), cam.HasTalk(), tc.ptz, tc.light, tc.talk)
 		}
+	}
+	for id, want := range map[string]string{"x": PTZDVRIP, "fixed": "", "h": PTZONVIF, "d": "", "r": ""} {
+		if got := c.Camera(id).PTZDriver(); got != want {
+			t.Errorf("%s: PTZ driver %q, want %q", id, got, want)
+		}
+	}
+	if c.Camera("r").UsesONVIF() || !c.Camera("d").UsesONVIF() {
+		t.Error("onvif switch not honoured")
+	}
+	for id, port := range map[string]int{"x": 8899, "h": 80, "r": 8000} {
+		if got := c.Camera(id).ONVIFPort; got != port {
+			t.Errorf("%s: ONVIF port %d, want %d", id, got, port)
+		}
+	}
+	if got := c.Camera("r").Go2RTCURL(0); got != "rtsp://${U}:${P}@10.0.0.6:554/Preview_01_main" {
+		t.Errorf("reolink main: %s", got)
 	}
 	if c.Camera("fixed").Go2RTCBackchannel() != "" {
 		t.Error("no speaker: go2rtc must not open the DVRIP backchannel")
@@ -186,6 +204,30 @@ func TestCredentialEnvNames(t *testing.T) {
 		_, err := Parse([]byte(yml), env(vars))
 		if (err == nil) != c.ok {
 			t.Errorf("%q/%q: err = %v, want ok=%v", c.user, c.pass, err, c.ok)
+		}
+	}
+}
+
+func TestONVIFSettings(t *testing.T) {
+	creds := env(map[string]string{"U": "admin", "P": "Pa55word"})
+	for name, tc := range map[string]struct {
+		yaml string
+		ok   bool
+	}{
+		"custom path":             {"{id: a, host: 10.0.0.2, vendor: axis, onvif_path: /onvif/services, user_env: U, password_env: P}", true},
+		"path without slash":      {"{id: a, host: 10.0.0.2, vendor: axis, onvif_path: onvif, user_env: U, password_env: P}", false},
+		"path with a query":       {"{id: a, host: 10.0.0.2, vendor: axis, onvif_path: /x?y=1, user_env: U, password_env: P}", false},
+		"camera motion, no onvif": {"{id: a, host: 10.0.0.2, vendor: tapo, onvif: false, motion: camera, user_env: U, password_env: P}", false},
+		"video motion, no onvif":  {"{id: a, host: 10.0.0.2, vendor: tapo, onvif: false, motion: video, user_env: U, password_env: P}", true},
+		"onvif ptz, no onvif":     {"{id: a, host: 10.0.0.2, vendor: tapo, onvif: false, features: {ptz: true}, user_env: U, password_env: P}", false},
+	} {
+		c, err := Parse([]byte("cameras:\n  - "+tc.yaml+"\n"), creds)
+		if (err == nil) != tc.ok {
+			t.Errorf("%s: err=%v", name, err)
+			continue
+		}
+		if err == nil && c.Cameras[0].ONVIFPath == "" {
+			t.Errorf("%s: no default onvif path", name)
 		}
 	}
 }

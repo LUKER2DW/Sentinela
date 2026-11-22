@@ -33,7 +33,9 @@ From a shell instead: `sudo /opt/sentinela/scripts/add-camera.sh` (see
 | Motion events | ✓ (from the video) | ✓ (ONVIF events) | ✓ |
 | Tamper events | – | ✓ (ONVIF events) | ✓ |
 | Object detection (people, vehicles, animals) | ✓ | ✓ | ✓ |
-| PTZ, saved positions, tours, white light, day/night | – | – | ✓ (DVRIP) |
+| PTZ (move, zoom), saved positions, tours | – | ✓ (ONVIF PTZ, if `ptz: true`) | ✓ (DVRIP) |
+| Focus | – | – | ✓ (DVRIP) |
+| White light, day/night | – | – | ✓ (DVRIP) |
 | Two-way audio | ✓ (if `talk: true`) | ✓ (if `talk: true`) | ✓ |
 
 A camera that sends no ONVIF motion events (RTSP only, or events that
@@ -42,13 +44,46 @@ object detection. Choose per camera in System → Cameras → *Motion
 detection* (`motion: auto | camera | video` in config.yaml; see
 [Motion and object detection](../README.md#motion-and-object-detection)).
 
-Each camera says what it has under `features` (System → Cameras: "Has PTZ",
-"Has a white light", "Has a speaker"). The live page shows only those
-controls and the API refuses the others, so a fixed XMEye bullet gets no PTZ
-pad and a camera without a speaker gets no talk button. XMEye cameras default
-to all three; other brands default to none. Talk on another brand uses the
-camera's own ONVIF/RTSP two-way audio through go2rtc. PTZ over ONVIF for
-other brands is on the roadmap.
+## Setting up what each camera has
+
+Not every camera moves, has a light or a speaker. Each camera says what it
+has, in System → Cameras → *Camera settings* or in `config.yaml`; the live
+page shows only those controls and the API refuses the others, so a fixed
+bullet gets no PTZ pad and a camera without a speaker gets no talk button.
+
+| Setting | `config.yaml` | Default |
+|---|---|---|
+| Has PTZ (moves and zooms) | `features.ptz` | XMEye: on (DVRIP). Others: off; on = ONVIF PTZ |
+| Has a white light | `features.light` | XMEye: on. Others: not available |
+| Has a speaker | `features.talk` | XMEye: on (DVRIP). Others: off; on = the camera's ONVIF/RTSP backchannel through go2rtc |
+| Uses ONVIF (events, clock, PTZ) | `onvif` | on; off for an RTSP-only camera (its motion then comes from the video) |
+| ONVIF port | `onvif_port` | 80; XMEye 8899, Reolink 8000, Tapo 2020 |
+| ONVIF address | `onvif_path` | `/onvif/device_service` |
+| Upside-down mount | `invert_pan_tilt` (`invert_pan`, `invert_tilt`) | off |
+
+*Find the streams over ONVIF* also ticks *Has PTZ* when the camera reports
+a PTZ service; untick it for a fixed camera that reports one anyway.
+
+Sentinela asks the device service (`onvif_path`) where the camera's other
+ONVIF services live (GetCapabilities), so brands that put events or PTZ on
+their own paths (Hikvision `/onvif/Events`, Axis `/onvif/services`) work
+without settings. It also reads the camera's clock first (unauthenticated
+GetSystemDateAndTime) and signs its ONVIF requests in the camera's time, so
+a camera whose clock is minutes off still accepts them.
+
+### What Sentinela sends over ONVIF
+
+Read-only: GetCapabilities, GetSystemDateAndTime, GetDeviceInformation,
+GetProfiles, GetStreamUri, GetPresets, and the event subscription
+(CreatePullPointSubscription, PullMessages, Renew, Unsubscribe).
+
+PTZ, only for a camera with `features.ptz` on and only when someone presses
+a control or a tour runs: ContinuousMove (with a 2 s Timeout, so the camera
+stops by itself if Sentinela goes away; resent while the button is held and
+stopped within a second of release) and Stop; GotoPreset; SetPreset (saved
+as "Preset N", or over the same preset) and RemovePreset, from the *Saved
+positions* card (admins). Nothing else is written to the camera: no image,
+network, user or firmware setting. Focus and iris are not sent over ONVIF.
 
 ## Presets
 
@@ -57,9 +92,14 @@ other brands is on the roadmap.
 | `generic` | your `rtsp_main` | your `rtsp_sub` (optional) |
 | `hikvision` (also many OEMs: HiLook, Annke, EZVIZ) | `/Streaming/Channels/{channel}01` | `/Streaming/Channels/{channel}02` |
 | `dahua` (also Amcrest, Imou, Lorex OEMs) | `/cam/realmonitor?channel={channel}&subtype=0` | `…&subtype=1` |
+| `reolink` | `/Preview_{channel2}_main` | `/Preview_{channel2}_sub` |
+| `tapo` (TP-Link Tapo and VIGI; use the camera account from the Tapo app) | `/stream1` | `/stream2` |
+| `uniview` | `/unicast/c{channel}/s0/live` | `/unicast/c{channel}/s1/live` |
+| `axis` | `/axis-media/media.amp?camera={channel}` | `…&resolution=640x360` |
 | `xmeye` (Xiongmai modules, many no-name cameras) | XMEye path with credentials | sub stream |
 
-`channel` selects the camera on an NVR or DVR (default 1).
+`channel` selects the camera on an NVR or DVR (default 1); `{channel2}` is
+the same number with two digits (`01`).
 
 ## Common stream paths for `generic`
 
@@ -68,10 +108,7 @@ firmware:
 
 | Brand | Main | Light |
 |---|---|---|
-| Reolink | `/h264Preview_01_main` (newer firmware: `/Preview_01_main`) | `/h264Preview_01_sub` |
-| TP-Link Tapo / VIGI | `/stream1` | `/stream2` |
-| Uniview | `/unicast/c1/s0/live` | `/unicast/c1/s1/live` |
-| Axis | `/axis-media/media.amp` | `/axis-media/media.amp?resolution=640x360` |
+| Reolink, older H.264-only firmware | `/h264Preview_01_main` | `/h264Preview_01_sub` |
 | Foscam | `/videoMain` | `/videoSub` |
 
 ## Tips

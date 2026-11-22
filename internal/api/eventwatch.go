@@ -56,6 +56,9 @@ func (s *Server) videoMotion(cam *config.Camera) bool {
 	case config.MotionCamera:
 		return false
 	}
+	if !cam.UsesONVIF() {
+		return true // no ONVIF events to wait for
+	}
 	s.evWatch.mu.Lock()
 	st, known := s.evWatch.cams[cam.ID]
 	s.evWatch.mu.Unlock()

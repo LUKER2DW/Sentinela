@@ -1734,4 +1734,9 @@ export const ptBR: Record<string, string> = {
   "conversion failed": "a conversão falhou",
   "The browser could not play this video (H.265). Open the panel over HTTPS (Tailscale, the app or the public address) to convert it in this browser, use Chrome/Edge with hardware acceleration or Safari, or export the clip.": "O navegador não conseguiu reproduzir este vídeo (H.265). Abra o painel por HTTPS (Tailscale, o app ou o endereço público) para convertê-lo neste navegador, use Chrome/Edge com aceleração de hardware ou Safari, ou exporte o trecho.",
   "conversion too slow": "a conversão está lenta demais",
+  "{length} stream(s) found over ONVIF; the camera reports PTZ": "{length} stream(s) encontrado(s) por ONVIF; a câmera informa PTZ",
+  "ONVIF address (optional)": "Endereço ONVIF (opcional)",
+  "Only if the camera uses another path; the other ONVIF services are asked from it.": "Só se a câmera usar outro caminho; os demais serviços ONVIF são perguntados a ele.",
+  "Uses ONVIF (events, clock and PTZ)": "Usa ONVIF (eventos, relógio e PTZ)",
+  "Has PTZ (moves and zooms, over ONVIF)": "Tem PTZ (move e dá zoom, por ONVIF)",
 };

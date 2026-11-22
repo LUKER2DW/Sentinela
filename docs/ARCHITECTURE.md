@@ -72,6 +72,12 @@ one serialized DVRIP connection per camera, closes it after idle, and stops
 held movement when keepalives cease. Persistent config writes use the
 allow-list and read/modify/read-back/restore procedure in CAMERA.md.
 
+Cameras of other brands with `features.ptz` move over ONVIF PTZ instead
+(ContinuousMove/Stop and presets only, CAMERAS.md): one serialized driver
+per camera with the same keepalive deadman, plus the camera's own
+ContinuousMove timeout. ONVIF service addresses come from the camera's
+GetCapabilities, and requests are signed in the camera's clock.
+
 Pan and tilt are configurable independently (`invert_pan`, `invert_tilt`)
 and inherit `invert_pan_tilt` when unset. Talk uses go2rtc's backchannel.
 There is no browser-to-camera connection.

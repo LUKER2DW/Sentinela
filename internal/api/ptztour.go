@@ -111,11 +111,11 @@ func (s *Server) tourMove(ctx context.Context, cam string, preset int) error {
 	s.ptzQuiet.hold(cam, presetSettle)
 	cctx, cancel := context.WithTimeout(ctx, 2*dvrip.DefaultTimeout)
 	defer cancel()
-	ctrl := s.ctrl[cam]
-	if ctrl == nil {
-		return errors.New("this camera has no remote control")
+	drv := s.ptzDrv[cam]
+	if drv == nil {
+		return errors.New("this camera has no PTZ")
 	}
-	return ctrl.Preset(cctx, "goto", preset)
+	return drv.Preset(cctx, "goto", preset)
 }
 
 // validTour checks a start request against the limits.

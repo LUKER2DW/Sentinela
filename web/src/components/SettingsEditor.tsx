@@ -21,12 +21,16 @@ export interface SettingsCamera {
   rtsp_port: number;
   dvrip_port: number;
   onvif_port: number;
+  /** ONVIF on (events, clock, ONVIF PTZ); absent = on. */
+  onvif?: boolean;
+  /** ONVIF device service path ("" = /onvif/device_service). */
+  onvif_path: string;
   retention_days: number;
   record: boolean;
   record_audio: boolean;
   preload: boolean;
   invert_pan_tilt: boolean;
-  /** What the camera has: its controls show only when on (PTZ and light need XMEye/DVRIP). */
+  /** What the camera has: its controls show only when on (PTZ over DVRIP or ONVIF; light needs XMEye/DVRIP). */
   ptz: boolean;
   light: boolean;
   talk: boolean;
@@ -79,8 +83,12 @@ interface SettingsInfo {
 const vendorLabel: Record<string, string> = {
   generic: t("Any camera (ONVIF / RTSP)"),
   xmeye: t("XMEye / Xiongmai (with PTZ and light)"),
-  hikvision: "Hikvision",
-  dahua: "Dahua / Amcrest",
+  hikvision: "Hikvision / HiLook / Annke",
+  dahua: "Dahua / Amcrest / Imou",
+  reolink: "Reolink",
+  tapo: "TP-Link Tapo / VIGI",
+  uniview: "Uniview",
+  axis: "Axis",
 };
 
 function useSettings() {
@@ -270,15 +278,17 @@ const blankCamera = (n: number): SettingsCamera => ({
   rtsp_sub: "",
   rtsp_port: 554,
   dvrip_port: 34567,
-  onvif_port: 80,
+  onvif_port: 0,
+  onvif: true,
+  onvif_path: "",
   retention_days: 0,
   record: true,
   record_audio: true,
   preload: true,
   invert_pan_tilt: false,
-  // Vendor defaults (generic): no speaker until the person says so.
-  ptz: true,
-  light: true,
+  // Vendor defaults (generic): no motor, light or speaker until the person says so.
+  ptz: false,
+  light: false,
   talk: false,
   motion: "auto",
   user: "admin",
@@ -295,9 +305,10 @@ export function CamerasEditor() {
   const [found, setFound] = useState<Record<string, OnvifStream[]>>({});
   const discover = useMutation({
     mutationFn: (c: SettingsCamera) =>
-      api<{ streams: OnvifStream[] }>("POST", "/api/cameras/onvif-streams", {
+      api<{ streams: OnvifStream[]; ptz?: boolean }>("POST", "/api/cameras/onvif-streams", {
         host: c.host,
         onvif_port: c.onvif_port || 80,
+        onvif_path: c.onvif_path || "",
         user: c.user ?? "",
         password: c.password ?? "",
       }),
@@ -315,8 +326,13 @@ export function CamerasEditor() {
       onSuccess: (r) => {
         const [main, sub] = r.streams;
         setFound((f) => ({ ...f, [c.id]: r.streams }));
-        setCam(i, { vendor: "generic", rtsp_main: main.path, rtsp_sub: sub?.path ?? "", rtsp_port: main.port, onvif_port: c.onvif_port || 80 });
-        toast(t("{length} stream(s) found over ONVIF", { length: r.streams.length }));
+        // The camera says it has PTZ: tick the box (fixed cameras sometimes say so too; it can be unticked).
+        setCam(i, { vendor: "generic", rtsp_main: main.path, rtsp_sub: sub?.path ?? "", rtsp_port: main.port, onvif_port: c.onvif_port || 80, onvif: true, ptz: c.ptz || !!r.ptz });
+        toast(
+          r.ptz
+            ? t("{length} stream(s) found over ONVIF; the camera reports PTZ", { length: r.streams.length })
+            : t("{length} stream(s) found over ONVIF", { length: r.streams.length }),
+        );
       },
     });
   };
@@ -352,7 +368,11 @@ export function CamerasEditor() {
                     <TextField label={t("IP address")} value={c.host} onChange={(v) => setCam(i, { host: v.trim() })} placeholder="192.168.1.20" />
                     <label className="field">
                       <span>{t("Brand")}</span>
-                      <select className="input" value={c.vendor} onChange={(e) => setCam(i, { vendor: e.target.value, talk: e.target.value === "xmeye" })}>
+                      <select className="input" value={c.vendor} onChange={(e) => {
+                          // The new brand's defaults: XMEye has PTZ, light and speaker over DVRIP; others start without.
+                          const xm = e.target.value === "xmeye";
+                          setCam(i, { vendor: e.target.value, talk: xm, ptz: xm, light: xm, onvif_port: 0 });
+                        }}>
                         {(q.data?.vendors ?? []).map((v) => (
                           <option key={v} value={v}>
                             {vendorLabel[v] ?? v}
@@ -369,12 +389,23 @@ export function CamerasEditor() {
                     <NumField label={t("Channel (NVR/DVR)")} min={1} max={64} value={c.channel} onChange={(n) => setCam(i, { channel: n })} />
                     <NumField label={t("RTSP port")} min={1} max={65535} value={c.rtsp_port} onChange={(n) => setCam(i, { rtsp_port: n })} />
                     {c.vendor === "xmeye" && <NumField label={t("DVRIP port")} min={1} max={65535} value={c.dvrip_port} onChange={(n) => setCam(i, { dvrip_port: n })} />}
-                    <NumField label={t("ONVIF port (events)")} min={0} max={65535} value={c.onvif_port} onChange={(n) => setCam(i, { onvif_port: n })} hint={t("0 = brand default.")} />
+                    {c.onvif !== false && (
+                      <>
+                        <NumField label={t("ONVIF port")} min={0} max={65535} value={c.onvif_port} onChange={(n) => setCam(i, { onvif_port: n })} hint={t("0 = brand default.")} />
+                        <TextField
+                          label={t("ONVIF address (optional)")}
+                          value={c.onvif_path}
+                          onChange={(v) => setCam(i, { onvif_path: v.trim() })}
+                          placeholder="/onvif/device_service"
+                          hint={t("Only if the camera uses another path; the other ONVIF services are asked from it.")}
+                        />
+                      </>
+                    )}
                     <label className="field">
                       <span>{t("Motion detection")}</span>
                       <select className="input" value={c.motion || "auto"} onChange={(e) => setCam(i, { motion: e.target.value })}>
                         <option value="auto">{t("Automatic (the camera, else the video)")}</option>
-                        <option value="camera">{t("From the camera (ONVIF events)")}</option>
+                        {c.onvif !== false && <option value="camera">{t("From the camera (ONVIF events)")}</option>}
                         <option value="video">{t("From the video")}</option>
                       </select>
                       <span className="muted small">{t("Cameras that send no motion events (RTSP only) get it from the video.")}</span>
@@ -385,8 +416,21 @@ export function CamerasEditor() {
                     <Check label={t("Record")} checked={c.record} onChange={(v) => setCam(i, { record: v })} />
                     <Check label={t("Record audio")} checked={c.record_audio} onChange={(v) => setCam(i, { record_audio: v })} />
                     <Check label={t("Instant live (keeps the connection open)")} checked={c.preload} onChange={(v) => setCam(i, { preload: v })} />
-                    {c.vendor === "xmeye" && <Check label={t("Has PTZ (moves and zooms)")} checked={c.ptz} onChange={(v) => setCam(i, { ptz: v })} />}
-                    {c.vendor === "xmeye" && c.ptz && <Check label={t("Camera upside down (inverts PTZ)")} checked={c.invert_pan_tilt} onChange={(v) => setCam(i, { invert_pan_tilt: v })} />}
+                    {c.vendor !== "xmeye" && (
+                      <Check
+                        label={t("Uses ONVIF (events, clock and PTZ)")}
+                        checked={c.onvif !== false}
+                        onChange={(v) => setCam(i, v ? { onvif: true } : { onvif: false, ptz: false, motion: c.motion === "camera" ? "video" : c.motion })}
+                      />
+                    )}
+                    {(c.vendor === "xmeye" || c.onvif !== false) && (
+                      <Check
+                        label={c.vendor === "xmeye" ? t("Has PTZ (moves and zooms)") : t("Has PTZ (moves and zooms, over ONVIF)")}
+                        checked={c.ptz}
+                        onChange={(v) => setCam(i, { ptz: v })}
+                      />
+                    )}
+                    {c.ptz && <Check label={t("Camera upside down (inverts PTZ)")} checked={c.invert_pan_tilt} onChange={(v) => setCam(i, { invert_pan_tilt: v })} />}
                     {c.vendor === "xmeye" && <Check label={t("Has a white light")} checked={c.light} onChange={(v) => setCam(i, { light: v })} />}
                     <Check label={c.vendor === "xmeye" ? t("Has a speaker (hold to talk)") : t("Has a speaker (hold to talk, over the camera's ONVIF/RTSP two-way audio)")} checked={c.talk} onChange={(v) => setCam(i, { talk: v })} />
                   </div>

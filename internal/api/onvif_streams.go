@@ -8,6 +8,7 @@ import (
 
 	"github.com/LUKER2DW/sentinela/internal/auth/redact"
 	"github.com/LUKER2DW/sentinela/internal/camera/onvif"
+	"github.com/LUKER2DW/sentinela/internal/config"
 )
 
 // onvifStreams: POST /api/cameras/onvif-streams (admin, home or tailnet)
@@ -19,6 +20,7 @@ func (s *Server) onvifStreams(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Host      string `json:"host"`
 		ONVIFPort int    `json:"onvif_port"`
+		ONVIFPath string `json:"onvif_path"`
 		User      string `json:"user"`
 		Password  string `json:"password"`
 	}
@@ -38,6 +40,10 @@ func (s *Server) onvifStreams(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "user and password are required")
 		return
 	}
+	if body.ONVIFPath != "" && !config.ValidONVIFPath(body.ONVIFPath) {
+		writeErr(w, http.StatusBadRequest, "onvif_path must start with '/' and carry no spaces, quotes, '?', '#', '@', '&' or '<>'")
+		return
+	}
 	if !s.wizardMu.TryLock() {
 		writeErr(w, http.StatusTooManyRequests, "a camera search or test is already running")
 		return
@@ -45,10 +51,13 @@ func (s *Server) onvifStreams(w http.ResponseWriter, r *http.Request) {
 	defer s.wizardMu.Unlock()
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
-	streams, err := onvif.NewClient(ip.String(), body.ONVIFPort, body.User, body.Password).Streams(ctx)
+	c := onvif.NewClient(ip.String(), body.ONVIFPort, body.User, body.Password).WithDevicePath(body.ONVIFPath)
+	streams, err := c.Streams(ctx)
 	if err != nil {
 		writeErr(w, http.StatusBadGateway, redact.Secrets(err.Error(), body.Password))
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"streams": streams})
+	// ptz: the camera reports a PTZ service (a hint for the "Has PTZ" box;
+	// fixed cameras often report one too, so the person still decides).
+	writeJSON(w, http.StatusOK, map[string]any{"streams": streams, "ptz": c.HasService(ctx, "ptz")})
 }

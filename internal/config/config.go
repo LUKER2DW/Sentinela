@@ -238,12 +238,19 @@ type Camera struct {
 	// Preload keeps go2rtc connected to the main stream so the live view
 	// opens at once (default true); it holds one of the camera's RTSP
 	// sessions all the time.
-	Preload       *bool  `yaml:"preload"`
-	UserEnv       string `yaml:"user_env"`
-	PasswordEnv   string `yaml:"password_env"`
-	RTSPPort      int    `yaml:"rtsp_port"`
-	DVRIPPort     int    `yaml:"dvrip_port"`
-	ONVIFPort     int    `yaml:"onvif_port"`
+	Preload     *bool  `yaml:"preload"`
+	UserEnv     string `yaml:"user_env"`
+	PasswordEnv string `yaml:"password_env"`
+	RTSPPort    int    `yaml:"rtsp_port"`
+	DVRIPPort   int    `yaml:"dvrip_port"`
+	ONVIFPort   int    `yaml:"onvif_port"`
+	// ONVIF turns the camera's ONVIF use on or off (default on): events,
+	// clock and ONVIF PTZ. Off for an RTSP-only camera, which then gets its
+	// motion from the video and logs no ONVIF errors.
+	ONVIF *bool `yaml:"onvif"`
+	// ONVIFPath is the device service path (default /onvif/device_service);
+	// the other services' addresses are asked from it.
+	ONVIFPath     string `yaml:"onvif_path"`
 	RetentionDays int    `yaml:"retention_days"`
 	RecordAudio   *bool  `yaml:"record_audio"`
 	Record        *bool  `yaml:"record"`
@@ -405,11 +412,9 @@ func (c *Config) applyDefaults() {
 		defInt(&cam.Channel, 1)
 		defInt(&cam.RTSPPort, 554)
 		defInt(&cam.DVRIPPort, 34567)
-		if cam.Vendor == VendorXMEye {
-			defInt(&cam.ONVIFPort, 8899)
-		} else {
-			defInt(&cam.ONVIFPort, 80)
-		}
+		defInt(&cam.ONVIFPort, vendors[cam.Vendor].onvifPort)
+		defInt(&cam.ONVIFPort, 80)
+		def(&cam.ONVIFPath, DefaultONVIFPath)
 		defInt(&cam.RetentionDays, c.Recording.DefaultRetentionDays)
 	}
 }
@@ -519,6 +524,7 @@ func (c *Config) validate() error {
 		if !slices.Contains([]string{"", MotionAuto, MotionCamera, MotionVideo}, cam.Motion) {
 			errs = append(errs, fmt.Errorf("camera %s: motion must be auto, camera or video", cam.ID))
 		}
+		errs = append(errs, cam.validateONVIF()...)
 	}
 	return errors.Join(errs...)
 }

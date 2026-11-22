@@ -7,6 +7,55 @@ All notable changes to Sentinela. The format follows
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-11-22
+
+Any camera brand, set up camera by camera: ONVIF PTZ, an ONVIF switch and
+address per camera, more brand presets, ONVIF fixes and a weekly CVE scan.
+Update with the usual `./scripts/deploy.sh`; read **Changed** first.
+
+### Added
+- **PTZ for any brand over ONVIF.** A camera that is not XMEye moves, zooms,
+  saves and visits positions and runs tours over ONVIF PTZ once *Has PTZ* is
+  ticked (focus stays XMEye-only). The camera is asked to stop by itself
+  within 2 s if Sentinela goes away mid-move.
+- **Each camera's capabilities are set in System → Cameras:** PTZ for every
+  brand, *Uses ONVIF* (off for an RTSP-only camera: no ONVIF errors, motion
+  from the video), the ONVIF port and an optional ONVIF address
+  (`onvif`, `onvif_path` in `config.yaml`). *Find the streams over ONVIF*
+  also ticks *Has PTZ* when the camera reports PTZ.
+- Stream presets for Reolink, TP-Link Tapo/VIGI, Uniview and Axis, with
+  their usual ONVIF ports; a `{channel2}` (two-digit) path placeholder.
+- CI: weekly CVE scan (govulncheck, npm audit, OSV-Scanner over every
+  lockfile and the server image's Debian packages), OpenSSF Scorecard on the
+  public repository and actionlint for the workflow files. Dependabot waits a
+  week before proposing a new version and also covers the Android build.
+
+### Fixed
+- ONVIF motion and tamper events on brands whose event service is not at
+  `/onvif/event_service` (Hikvision, Axis and others): Sentinela now asks
+  the camera where its services are instead of assuming the XMEye/Dahua path.
+- ONVIF requests to a camera whose clock is minutes off are signed in the
+  camera's time, so they are no longer refused as stale.
+- ONVIF to a camera at an IPv6 address (the URL lacked the brackets).
+- A camera added from the dashboard as "Any camera" was saved with PTZ and
+  light on; new cameras start without them, and changing the brand resets
+  them to the brand's defaults.
+- The notices no longer ask cameras without DVRIP for their cloud setting
+  (one refused request per camera every few minutes).
+
+### Security
+- Go dependencies: `golang.org/x/crypto` 0.59.0 (drops the module-level
+  GO-2026-5932 advisory), `golang.org/x/sys` 0.50.0, `modernc.org/sqlite`
+  1.63.0; web and app packages updated within their ranges (no known
+  vulnerabilities). CI analysis tools updated (staticcheck 2026.2.2,
+  govulncheck 1.9.0).
+
+### Changed
+- A camera of another brand whose `config.yaml` says `features: {ptz: true}`
+  (cameras added from the dashboard before this version were saved that
+  way; it did nothing then) now shows the PTZ pad. For a fixed camera,
+  untick *Has PTZ* in System → Cameras.
+
 ## [1.6.0] - 2026-11-19
 
 Security release: the result of a full audit of the server, the remote-access
@@ -289,7 +338,9 @@ The first public release. Highlights of what is in it:
   with checksum checks and automatic rollback; System → Updates shows
   the schedule and these notes.
 
-[Unreleased]: https://github.com/LUKER2DW/Sentinela/compare/v1.5.1...HEAD
+[Unreleased]: https://github.com/LUKER2DW/Sentinela/compare/v1.7.0...HEAD
+[1.7.0]: https://github.com/LUKER2DW/Sentinela/compare/v1.6.0...v1.7.0
+[1.6.0]: https://github.com/LUKER2DW/Sentinela/compare/v1.5.1...v1.6.0
 [1.5.1]: https://github.com/LUKER2DW/Sentinela/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/LUKER2DW/Sentinela/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/LUKER2DW/Sentinela/compare/v1.3.0...v1.4.0

@@ -77,10 +77,13 @@ cameras: []
 #     name: Front door
 #     host: 192.168.1.20
 #     vendor: generic             # generic (ONVIF / RTSP) | xmeye | hikvision | dahua
+#                                 # | reolink | tapo | uniview | axis
 #     rtsp_main: /stream1         # stream paths (generic; found over ONVIF in the browser)
 #     rtsp_sub: /stream2          # optional lighter stream for grids and phones
 #     rtsp_port: 554
-#     onvif_port: 80              # events; default 80, 8899 for xmeye
+#     onvif_port: 80              # default 80; 8899 xmeye, 8000 reolink, 2020 tapo
+#     # onvif: false              # RTSP-only camera: no ONVIF at all (motion from the video)
+#     # onvif_path: /onvif/device_service   # only if the camera uses another path
 #     user_env: FRONT_USER
 #     password_env: FRONT_PASS
 #     record_audio: true          # audio is AAC-encoded (ADR-0006); false = pure copy
@@ -100,6 +103,7 @@ cameras: []
 #     #                          # compares keyframes); auto = the camera's events
 #     #                          # while they flow, the video otherwise
 #     # features:                # what it has; unset = vendor default
-#     #   ptz: false              # fixed camera: no motor (XMEye default true)
+#     #   ptz: false              # fixed camera: no motor (XMEye default true over
+#     #                           # DVRIP; other brands default false, true = ONVIF PTZ)
 #     #   light: false            # no white light (XMEye default true)
 #     #   talk: false             # no speaker (XMEye default true, others false)

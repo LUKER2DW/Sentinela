@@ -169,7 +169,10 @@ func serve(ctx context.Context, log *slog.Logger, cfgPath string) error {
 	var wg sync.WaitGroup
 	for i := range cfg.Cameras {
 		cam := &cfg.Cameras[i]
-		w := &onvif.Watcher{CameraID: cam.ID, Client: onvif.NewClient(cam.Host, cam.ONVIFPort, cam.User, cam.Password),
+		if !cam.UsesONVIF() {
+			continue // RTSP only: motion comes from the video
+		}
+		w := &onvif.Watcher{CameraID: cam.ID, Client: onvif.NewClient(cam.Host, cam.ONVIFPort, cam.User, cam.Password).WithDevicePath(cam.ONVIFPath),
 			Store: st, Log: log, Sink: srv.HandleEvent, Quiet: srv.MotionQuiet, Health: srv.NoteEventWatch}
 		wg.Add(1)
 		go func() { defer wg.Done(); w.Run(ctx) }()

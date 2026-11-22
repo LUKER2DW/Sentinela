@@ -122,6 +122,8 @@ function Single({ cam, now, autoFullscreen }: { cam: Camera; now: number; autoFu
     refetchInterval: 60_000,
   });
   const motionToday = timeline.data?.events.filter((e) => e.type === "motion").length ?? 0;
+  // PTZ over DVRIP (XMEye) or ONVIF (any other brand that has it).
+  const hasPtz = cam.ptz !== false && (cam.control !== false || cam.ptz_driver === "onvif");
   // The last HD/SD choice on this device; otherwise SD on phones and on
   // mobile data (saves the data plan), HD elsewhere. One tap switches.
   const [stream] = useState(() => initialStream(window.matchMedia("(max-width: 760px)").matches));
@@ -150,7 +152,7 @@ function Single({ cam, now, autoFullscreen }: { cam: Camera; now: number; autoFu
             defaultStream={stream}
             autoFullscreen={autoFullscreen}
           />
-          {narrow && cam.ptz !== false && cam.control !== false && <PtzPanel cameraId={cam.id} canControl={can("operator")} />}
+          {narrow && hasPtz && <PtzPanel cameraId={cam.id} canControl={can("operator")} focus={cam.ptz_driver !== "onvif"} />}
           <section className="card" aria-label={t("Today")}>
             <div className="card-head">
               <h2>{t("Today")}</h2>
@@ -170,8 +172,10 @@ function Single({ cam, now, autoFullscreen }: { cam: Camera; now: number; autoFu
           <TodayStats timeline={timeline.data} motion={motionToday} />
         </div>
         <aside className="stack live-right">
-          {!narrow && cam.ptz !== false && cam.control !== false && <PtzPanel cameraId={cam.id} canControl={can("operator")} />}
-          {cam.control !== false && <CameraSettings cameraId={cam.id} canControl={can("operator")} isAdmin={can("admin")} ptz={cam.ptz !== false} light={cam.light !== false} />}
+          {!narrow && hasPtz && <PtzPanel cameraId={cam.id} canControl={can("operator")} focus={cam.ptz_driver !== "onvif"} />}
+          {(cam.control !== false || hasPtz) && (
+            <CameraSettings cameraId={cam.id} canControl={can("operator")} isAdmin={can("admin")} ptz={hasPtz} light={cam.light !== false} control={cam.control !== false} />
+          )}
         </aside>
       </div>
     </>

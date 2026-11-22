@@ -1,0 +1,39 @@
+# OpenSSF Scorecard: grades the public repository's supply-chain practices
+# (pinned actions, token permissions, branch protection, signed releases...)
+# and lists the gaps in the Security tab. Public repository only; reads the
+# repository settings with the default token, holds no other secret.
+name: scorecard
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "23 5 * * 3" # Wednesdays
+  branch_protection_rule:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  analysis:
+    if: github.repository == 'LUKER2DW/Sentinela'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+      security-events: write # upload the results
+      id-token: write # publish the results to the OpenSSF API (badge)
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ossf/scorecard-action@fa7117db83c52d787ae5a89f350999701505d78e # v2.5.0
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          publish_results: true
+      - uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          sarif_file: results.sarif
+          category: scorecard

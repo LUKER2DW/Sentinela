@@ -1,0 +1,82 @@
+# Known-vulnerability scans (CVEs), also weekly: a new advisory can hit
+# code that did not change. Reads the code and the built image only: no
+# deploy, no secrets, no push.
+#
+#  - deps: govulncheck (Go call graph), npm audit (web, mobile) and
+#    OSV-Scanner over every lockfile in the tree. These fail the run.
+#  - image: OSV-Scanner over the server image's Debian packages (ffmpeg and
+#    its libraries). Debian often has no fix yet for a low CVE, so this job
+#    reports in the run summary and does not fail.
+name: security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "41 4 * * 2" # Tuesdays
+  workflow_dispatch:
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  # Tools pinned by version (go run builds them from the module proxy,
+  # checked against the Go checksum database).
+  GOVULNCHECK: golang.org/x/vuln/cmd/govulncheck@v1.9.0
+  OSV_SCANNER: github.com/google/osv-scanner/v2/cmd/osv-scanner@v2.7.0
+
+jobs:
+  deps:
+    name: dependencies (govulncheck, npm audit, osv-scanner)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      # The Go packages embed web/dist; an empty page is enough to compile.
+      - run: mkdir -p web/dist && echo '<!doctype html>' > web/dist/index.html
+      - run: go run "$GOVULNCHECK" ./...
+      # Production dependencies only: dev tools never reach the server or the app.
+      - run: npm audit --omit=dev --audit-level=high
+        working-directory: web
+      - run: npm audit --omit=dev --audit-level=high
+        working-directory: mobile
+      - name: OSV-Scanner (all lockfiles)
+        run: go run "$OSV_SCANNER" scan source --recursive .
+
+  image:
+    name: image (OS packages, report only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: docker build -t sentinela:scan .
+      - name: OSV-Scanner (image)
+        run: |
+          set +e
+          go run "$OSV_SCANNER" scan image --format markdown sentinela:scan > osv-image.md
+          rc=$?
+          {
+            echo "## Server image: known vulnerabilities in OS packages"
+            echo
+            if [ "$rc" -eq 0 ]; then echo "None found."; else cat osv-image.md; fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          [ "$rc" -le 1 ] || { echo "::error::osv-scanner failed (status $rc)"; exit 1; }
+          [ "$rc" -eq 0 ] || echo "::warning::the server image has OS packages with known vulnerabilities (see the summary)"

@@ -15,6 +15,7 @@ import (
 
 	"github.com/LUKER2DW/sentinela/internal/auth"
 	"github.com/LUKER2DW/sentinela/internal/camera/dvrip"
+	"github.com/LUKER2DW/sentinela/internal/camera/onvif"
 	"github.com/LUKER2DW/sentinela/internal/config"
 	"github.com/LUKER2DW/sentinela/internal/nas"
 	"github.com/LUKER2DW/sentinela/internal/push"
@@ -44,12 +45,14 @@ type Server struct {
 	totpPending pendingTOTP
 	go2rtc      *url.URL
 	ctrl        map[string]*dvrip.Controller
-	ptzQuiet    quietWindows  // cameras moving under PTZ: their own motion is not an event
-	tours       ptzTours      // preset tours, one per camera
-	pubPin      pinState      // public listener's self-signed certificate (app pairing)
-	lanIP       func() string // the server's home-network address (pairing); tests replace it
-	instance    string        // random per process: /.well-known/sentinela (reachability checks)
-	mirrorKick  chan struct{} // "check now" for the app mirror
+	ptzDrv      map[string]ptzDriver  // every camera with PTZ: DVRIP or ONVIF
+	onvifPTZ    map[string]*onvif.PTZ // the ONVIF ones (presets list, Close)
+	ptzQuiet    quietWindows          // cameras moving under PTZ: their own motion is not an event
+	tours       ptzTours              // preset tours, one per camera
+	pubPin      pinState              // public listener's self-signed certificate (app pairing)
+	lanIP       func() string         // the server's home-network address (pairing); tests replace it
+	instance    string                // random per process: /.well-known/sentinela (reachability checks)
+	mirrorKick  chan struct{}         // "check now" for the app mirror
 	mirrorMu    sync.Mutex
 	mirrorAt    time.Time // last app check (Updates page)
 	mirrorErr   string
@@ -92,16 +95,23 @@ func New(cfg *config.Config, st *store.Store, web fs.FS, log *slog.Logger) (*Ser
 	s := &Server{Cfg: cfg, Store: st, Log: log, Web: web, Started: time.Now(), FFmpeg: "ffmpeg", lanIP: lanIPv4, instance: newInstanceID(), mirrorKick: make(chan struct{}, 1),
 		tickets: auth.NewTickets(60 * time.Second), loginRL: auth.NewLimiter(5, time.Minute),
 		acctRL: auth.NewLimiter(10, time.Hour), acctAllRL: auth.NewLimiter(300, time.Hour), failRL: auth.NewLimiter(20, time.Hour),
-		go2rtc: g, ctrl: map[string]*dvrip.Controller{}, hub: NewHub(), stateTTL: map[string]cachedState{},
+		go2rtc: g, ctrl: map[string]*dvrip.Controller{}, ptzDrv: map[string]ptzDriver{}, onvifPTZ: map[string]*onvif.PTZ{}, hub: NewHub(), stateTTL: map[string]cachedState{},
 		tlSem: make(chan struct{}, 1), exportSem: make(chan struct{}, 2)}
 	for i := range cfg.Cameras {
 		cam := &cfg.Cameras[i]
-		if !cam.HasDVRIP() {
-			continue // view and record only
-		}
-		addr := hostPort(cam.Host, cam.DVRIPPort)
 		pan, tilt := cam.Inversion()
-		s.ctrl[cam.ID] = dvrip.NewController(addr, cam.User, cam.Password, dvrip.Invert{Pan: pan, Tilt: tilt}, log.With("camera", cam.ID))
+		switch {
+		case cam.HasDVRIP():
+			c := dvrip.NewController(hostPort(cam.Host, cam.DVRIPPort), cam.User, cam.Password, dvrip.Invert{Pan: pan, Tilt: tilt}, log.With("camera", cam.ID))
+			s.ctrl[cam.ID] = c
+			if cam.PTZDriver() == config.PTZDVRIP {
+				s.ptzDrv[cam.ID] = c
+			}
+		case cam.PTZDriver() == config.PTZONVIF:
+			p := onvif.NewPTZ(cam.Host, cam.ONVIFPort, cam.ONVIFPath, cam.User, cam.Password, onvif.Invert{Pan: pan, Tilt: tilt})
+			s.onvifPTZ[cam.ID] = p
+			s.ptzDrv[cam.ID] = p
+		}
 	}
 	s.det.motion, s.det.open, s.det.probe = map[string]bool{}, map[string]int64{}, map[string]time.Time{}
 	if tok, err := loadDetectorToken(cfg.DataDir); err != nil {
@@ -141,6 +151,9 @@ func (s *Server) Close() {
 	s.tours.stopAll()
 	for _, c := range s.ctrl {
 		c.Close()
+	}
+	for _, p := range s.onvifPTZ {
+		p.Close()
 	}
 	if s.nas != nil {
 		s.nas.Close()

@@ -49,6 +49,10 @@ const vendorLabel: Record<string, string> = {
   xmeye: "XMEye",
   hikvision: "Hikvision",
   dahua: "Dahua",
+  reolink: "Reolink",
+  tapo: "Tapo",
+  uniview: "Uniview",
+  axis: "Axis",
   generic: "ONVIF / RTSP",
 };
 

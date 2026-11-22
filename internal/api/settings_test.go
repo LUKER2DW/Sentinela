@@ -57,6 +57,7 @@ func TestSettingsEditor(t *testing.T) {
 	}
 
 	doc.Cameras[1].User, doc.Cameras[1].Password = "admin", "Garage55pass"
+	doc.Cameras[1].ONVIF, doc.Cameras[1].ONVIFPath, doc.Cameras[1].Motion = new(false), "/onvif/Device", "video"
 	doc.Timezone = "Europe/Lisbon"
 	req, _ = json.Marshal(doc)
 	if code, _, body := c.do("PUT", "/api/settings", string(req)); code != 202 {
@@ -64,7 +65,7 @@ func TestSettingsEditor(t *testing.T) {
 	}
 	dir := srv.settingsDir()
 	yml, _ := os.ReadFile(filepath.Join(dir, "pending.yaml"))
-	for _, want := range []string{"timezone: Europe/Lisbon", "id: garage", "user_env: GARAGE_USER", "user_env: U", "enabled: false"} {
+	for _, want := range []string{"timezone: Europe/Lisbon", "id: garage", "user_env: GARAGE_USER", "user_env: U", "enabled: false", "onvif: false", "onvif_path: /onvif/Device"} {
 		if !strings.Contains(string(yml), want) {
 			t.Errorf("pending.yaml lacks %q:\n%s", want, yml)
 		}

@@ -27,6 +27,18 @@ type cameraDTO struct {
 	PTZ   bool `json:"ptz"`
 	Light bool `json:"light"`
 	Talk  bool `json:"talk"`
+	// PTZDriver: "dvrip", "onvif" (no focus/iris) or "" (no PTZ).
+	PTZDriver string `json:"ptz_driver"`
+	// ONVIF: the server talks ONVIF to it (events, clock).
+	ONVIF bool `json:"onvif"`
+}
+
+// ptzDriver moves a camera: the DVRIP controller (XMEye) or ONVIF PTZ.
+type ptzDriver interface {
+	Start(ctx context.Context, op, dir string, speed int) error
+	Stop(ctx context.Context) error
+	Nudge(ctx context.Context, op, dir string, speed int, d time.Duration) error
+	Preset(ctx context.Context, action string, id int) error
 }
 
 func (s *Server) listCameras(w http.ResponseWriter, r *http.Request) {
@@ -36,7 +48,8 @@ func (s *Server) listCameras(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		out = append(out, cameraDTO{ID: c.ID, Name: c.Name, Recording: c.Recording(), RecordAudio: c.AudioRecording(), Retention: c.RetentionDays,
-			Control: c.HasDVRIP(), Vendor: c.Vendor, PTZ: c.HasPTZ(), Light: c.HasLight(), Talk: c.HasTalk()})
+			Control: c.HasDVRIP(), Vendor: c.Vendor, PTZ: c.HasPTZ(), Light: c.HasLight(), Talk: c.HasTalk(),
+			PTZDriver: c.PTZDriver(), ONVIF: c.UsesONVIF()})
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -61,8 +74,12 @@ func (s *Server) camErr(w http.ResponseWriter, cam *config.Camera, err error) {
 	msg := redact.Secrets(err.Error(), cam.Password)
 	s.Log.Warn("camera control failed", "camera", cam.ID, "err", msg)
 	switch {
-	case errors.Is(err, dvrip.ErrInvalidCommand):
+	case errors.Is(err, dvrip.ErrInvalidCommand), errors.Is(err, onvif.ErrInvalidCommand):
 		writeErr(w, http.StatusBadRequest, "invalid command")
+	case errors.Is(err, onvif.ErrUnsupported):
+		writeErr(w, http.StatusNotImplemented, "this camera does not do that over ONVIF")
+	case errors.Is(err, onvif.ErrNoPTZ):
+		writeErr(w, http.StatusNotImplemented, "the camera reports no ONVIF PTZ")
 	case errors.Is(err, dvrip.ErrUnsupportedModel):
 		writeErr(w, http.StatusForbidden, "control not approved for this camera model")
 	case errors.Is(err, dvrip.ErrUnresponsive):
@@ -76,9 +93,32 @@ func (s *Server) camErr(w http.ResponseWriter, cam *config.Camera, err error) {
 	}
 }
 
-func (s *Server) cameraControl(w http.ResponseWriter, r *http.Request) {
-	cam, ctrl := s.cameraCtrl(w, r)
+// ptzCam is s.camera for PTZ routes: cameras without PTZ answer 501.
+func (s *Server) ptzCam(w http.ResponseWriter, r *http.Request) (*config.Camera, ptzDriver) {
+	cam := s.camera(w, r)
 	if cam == nil {
+		return nil, nil
+	}
+	drv := s.ptzDrv[cam.ID]
+	if drv == nil {
+		writeErr(w, http.StatusNotImplemented, "this camera has no PTZ")
+		return nil, nil
+	}
+	return cam, drv
+}
+
+func (s *Server) cameraControl(w http.ResponseWriter, r *http.Request) {
+	cam := s.camera(w, r)
+	if cam == nil {
+		return
+	}
+	ctrl := s.ctrl[cam.ID]
+	if ctrl == nil && s.onvifPTZ[cam.ID] != nil {
+		s.onvifControl(w, r, cam)
+		return
+	}
+	if ctrl == nil {
+		writeErr(w, http.StatusNotImplemented, "this camera has no remote control (vendor "+cam.Vendor+")")
 		return
 	}
 	s.stateMu.Lock()
@@ -101,6 +141,33 @@ func (s *Server) cameraControl(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, st)
 }
 
+// onvifControl answers /control for a camera moved over ONVIF PTZ: its
+// saved positions (the DVRIP-only settings are absent).
+func (s *Server) onvifControl(w http.ResponseWriter, r *http.Request, cam *config.Camera) {
+	s.stateMu.Lock()
+	c, ok := s.stateTTL[cam.ID]
+	s.stateMu.Unlock()
+	if ok && time.Since(c.at) < 15*time.Second && r.URL.Query().Get("fresh") == "" {
+		writeJSON(w, http.StatusOK, c.st)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+	defer cancel()
+	list, err := s.onvifPTZ[cam.ID].Presets(ctx)
+	if err != nil {
+		s.camErr(w, cam, err)
+		return
+	}
+	st := &dvrip.State{Approved: true, Presets: make([]dvrip.Preset, 0, len(list))}
+	for _, p := range list {
+		st.Presets = append(st.Presets, dvrip.Preset{ID: p.ID, Name: p.Name})
+	}
+	s.stateMu.Lock()
+	s.stateTTL[cam.ID] = cachedState{at: time.Now(), st: st}
+	s.stateMu.Unlock()
+	writeJSON(w, http.StatusOK, st)
+}
+
 func (s *Server) invalidateState(id string) {
 	s.stateMu.Lock()
 	delete(s.stateTTL, id)
@@ -108,12 +175,8 @@ func (s *Server) invalidateState(id string) {
 }
 
 func (s *Server) ptz(w http.ResponseWriter, r *http.Request) {
-	cam, ctrl := s.cameraCtrl(w, r)
+	cam, ctrl := s.ptzCam(w, r)
 	if cam == nil {
-		return
-	}
-	if !cam.HasPTZ() {
-		writeErr(w, http.StatusNotImplemented, "this camera has no PTZ")
 		return
 	}
 	var body struct {
@@ -155,12 +218,8 @@ func (s *Server) ptz(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) preset(w http.ResponseWriter, r *http.Request) {
-	cam, ctrl := s.cameraCtrl(w, r)
+	cam, ctrl := s.ptzCam(w, r)
 	if cam == nil {
-		return
-	}
-	if !cam.HasPTZ() {
-		writeErr(w, http.StatusNotImplemented, "this camera has no PTZ")
 		return
 	}
 	id, err := strconv.Atoi(r.PathValue("preset"))
@@ -254,7 +313,11 @@ func (s *Server) cameraClock(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
-	c := onvif.NewClient(cam.Host, cam.ONVIFPort, cam.User, cam.Password)
+	if !cam.UsesONVIF() {
+		writeErr(w, http.StatusNotImplemented, "ONVIF is off for this camera")
+		return
+	}
+	c := onvif.NewClient(cam.Host, cam.ONVIFPort, cam.User, cam.Password).WithDevicePath(cam.ONVIFPath)
 	t0 := time.Now()
 	camTime, err := c.SystemTime(ctx)
 	t1 := time.Now()

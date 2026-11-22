@@ -462,9 +462,10 @@ stream layout:
 | `vendor` | Streams | Remote control |
 |---|---|---|
 | `xmeye` (default) | XMEye/Xiongmai URL with credentials in the path | PTZ, presets, tours, light, day/night, two-way audio (DVRIP) |
-| `hikvision` | `/Streaming/Channels/{channel}01` and `…02` | View and record |
-| `dahua` | `/cam/realmonitor?channel={channel}&subtype=0` and `1` | View and record |
-| `generic` | your `rtsp_main` (and optional `rtsp_sub`) path | View and record |
+| `hikvision` | `/Streaming/Channels/{channel}01` and `…02` | ONVIF: events; PTZ with `features.ptz` |
+| `dahua` | `/cam/realmonitor?channel={channel}&subtype=0` and `1` | ONVIF: events; PTZ with `features.ptz` |
+| `reolink`, `tapo`, `uniview`, `axis` | the brand's paths ([CAMERAS.md](CAMERAS.md#presets)) | ONVIF: events; PTZ with `features.ptz` |
+| `generic` | your `rtsp_main` (and optional `rtsp_sub`) path | ONVIF: events; PTZ with `features.ptz` (`onvif: false` for RTSP only) |
 
 For an XMEye camera, test it first in **System → Add camera** (*Adicionar
 camera*, admin, desktop). Then, on the server:

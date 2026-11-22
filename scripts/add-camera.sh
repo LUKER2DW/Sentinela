@@ -7,7 +7,7 @@
 #   sudo VENDOR=generic RTSP_MAIN=/stream1 RTSP_SUB=/stream2 \
 #     /opt/sentinela/scripts/add-camera.sh quintal 192.168.1.31
 #
-# Optional env: VENDOR (xmeye|hikvision|dahua|generic), CHANNEL (1),
+# Optional env: VENDOR (xmeye|hikvision|dahua|reolink|tapo|uniview|axis|generic), CHANNEL (1),
 # RTSP_MAIN / RTSP_SUB (stream paths; RTSP_MAIN required for generic),
 # RTSP_PORT (554), DVRIP_PORT (34567), ONVIF_PORT (8899 for xmeye, else 80),
 # RETENTION_DAYS (0 = until the disk is full), INVERT_PAN_TILT (false).
@@ -28,11 +28,10 @@ warn() { printf '\033[1;31m!! %s\033[0m\n' "$*" >&2; }
 [[ $# -ge 2 ]] || { sed -n '2,19p' "$0"; exit 1; }
 ID="$1" HOST="$2" NAME="${3:-$1}"
 VENDOR="${VENDOR:-xmeye}" CHANNEL="${CHANNEL:-1}" RTSP_MAIN="${RTSP_MAIN:-}" RTSP_SUB="${RTSP_SUB:-}"
-DEF_ONVIF=80
-[[ "$VENDOR" != xmeye ]] || DEF_ONVIF=8899
+case "$VENDOR" in xmeye) DEF_ONVIF=8899 ;; reolink) DEF_ONVIF=8000 ;; tapo) DEF_ONVIF=2020 ;; *) DEF_ONVIF=80 ;; esac
 RTSP_PORT="${RTSP_PORT:-554}" DVRIP_PORT="${DVRIP_PORT:-34567}" ONVIF_PORT="${ONVIF_PORT:-$DEF_ONVIF}"
 RETENTION_DAYS="${RETENTION_DAYS:-0}" INVERT_PAN_TILT="${INVERT_PAN_TILT:-false}"
-[[ "$VENDOR" =~ ^(xmeye|hikvision|dahua|generic)$ ]] || { warn "VENDOR: xmeye, hikvision, dahua or generic"; exit 1; }
+[[ "$VENDOR" =~ ^(xmeye|hikvision|dahua|reolink|tapo|uniview|axis|generic)$ ]] || { warn "VENDOR: xmeye, hikvision, dahua, reolink, tapo, uniview, axis or generic"; exit 1; }
 for p in "$RTSP_MAIN" "$RTSP_SUB"; do [[ -z "$p" || "$p" =~ ^/[A-Za-z0-9._~/?\&=%{}:-]*$ ]] || { warn "RTSP paths start with / (letters, digits and / . _ - ? & = %)"; exit 1; }; done
 
 [[ "$ID" =~ ^[a-z0-9][a-z0-9_-]{0,31}$ ]] || { warn "id must match ^[a-z0-9][a-z0-9_-]{0,31}\$"; exit 1; }

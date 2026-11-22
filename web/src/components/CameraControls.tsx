@@ -119,7 +119,8 @@ function speedLabel(v: number) {
   return v <= 2 ? t("Slow ({v})", { v }) : v >= 7 ? t("Fast ({v})", { v }) : t("Normal ({v})", { v });
 }
 
-export function PtzPanel({ cameraId, canControl }: { cameraId: string; canControl: boolean }) {
+/** focus: the camera can focus (DVRIP); ONVIF PTZ moves and zooms only. */
+export function PtzPanel({ cameraId, canControl, focus = true }: { cameraId: string; canControl: boolean; focus?: boolean }) {
   const toast = useToast();
   const [speed, setSpeed] = useState(4);
   const onError = useCallback((m: string) => toast(t("PTZ: {m}", { m }), true), [toast]);
@@ -140,7 +141,7 @@ export function PtzPanel({ cameraId, canControl }: { cameraId: string; canContro
         held.add(e.key);
         const d = keyDir(held);
         if (d) start("move", d);
-      } else if (LENS_KEY[e.key] && !e.repeat) {
+      } else if (LENS_KEY[e.key] && !e.repeat && (focus || LENS_KEY[e.key][0] !== "focus")) {
         lens = e.key;
         start(...LENS_KEY[e.key]);
       }
@@ -165,7 +166,7 @@ export function PtzPanel({ cameraId, canControl }: { cameraId: string; canContro
       window.removeEventListener("keyup", up);
       window.removeEventListener("blur", clear);
     };
-  }, [canControl, start, stop]);
+  }, [canControl, focus, start, stop]);
 
   return (
     <section className="card ptz" aria-label={t("Motion control")}>
@@ -214,6 +215,7 @@ export function PtzPanel({ cameraId, canControl }: { cameraId: string; canContro
             <Icon name="plus" />
           </button>
         </div>
+        {focus && (
         <div className="ptz-row">
           <span className="label">{t("Focus")}</span>
           <button className="btn icon small" aria-label={t("Focus near")} title={t("Focus near ([)")} disabled={!canControl} {...bind("focus", "near")}>
@@ -223,6 +225,7 @@ export function PtzPanel({ cameraId, canControl }: { cameraId: string; canContro
             <Icon name="plus" />
           </button>
         </div>
+        )}
       </div>
       {!canControl && <p className="muted small">{t("Your profile only lets you watch.")}</p>}
     </section>
@@ -236,12 +239,15 @@ export function CameraSettings({
   isAdmin,
   ptz = true,
   light: hasLight = true,
+  control = true,
 }: {
   cameraId: string;
   canControl: boolean;
   isAdmin: boolean;
   ptz?: boolean;
   light?: boolean;
+  /** DVRIP settings (light, day/night); off for a camera moved over ONVIF. */
+  control?: boolean;
 }) {
   const toast = useToast();
   const qc = useQueryClient();
@@ -378,6 +384,7 @@ export function CameraSettings({
         </div>
       )}
 
+      {control && (
       <section className="card" aria-label={t("Image and light")}>
         <h2>{t("Image")}</h2>
         {hasLight && (
@@ -418,6 +425,7 @@ export function CameraSettings({
           </p>
         )}
       </section>
+      )}
 
       {confirmSave !== null && (
         <div className="dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="save-title">

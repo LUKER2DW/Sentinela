@@ -149,7 +149,7 @@ Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 | Server | x86-64, 2 cores (no HEVC hardware decode needed), 1 GB RAM for up to about 3 cameras with detection; 2 GB for more cameras or self-hosted services |
 | OS | Ubuntu Server 22.04+ or Debian 12+, with Docker |
 | Disks | A dedicated disk for recordings at `/data`; optional disks for the file share and backups |
-| Cameras | RTSP (H.264/H.265), ONVIF recommended; XMEye cameras also get PTZ and light control |
+| Cameras | RTSP (H.264/H.265), ONVIF recommended (events, PTZ); XMEye cameras also get light and day/night control |
 | Network | Wired LAN; fixed addresses (DHCP reservations) for the server and cameras |
 
 Measured with one camera and detection on, the whole server (OS, Docker,
@@ -192,10 +192,13 @@ server then offers to the phones by itself
 | Motion events | ✓ (from the video) | ✓ | ✓ |
 | Tamper events | – | ✓ | ✓ |
 | Object detection | ✓ | ✓ | ✓ |
-| PTZ, positions, tours, white light, day/night | – | – | ✓ |
+| PTZ, positions, tours | – | ✓ (ONVIF PTZ, if it has a motor) | ✓ |
+| White light, day/night | – | – | ✓ |
 | Two-way audio | if it has a speaker | if it has a speaker | ✓ |
 
-Hikvision and Dahua/Amcrest also have stream presets. Stream paths for
+Each camera's capabilities are set in System → Cameras (PTZ, light,
+speaker, ONVIF on or off, ONVIF port and path). Hikvision, Dahua/Amcrest,
+Reolink, TP-Link Tapo/VIGI, Uniview and Axis also have stream presets. Stream paths for
 common brands and per-camera features are in [docs/CAMERAS.md](docs/CAMERAS.md).
 
 ## Motion and object detection
@@ -307,7 +310,7 @@ cameras:
   - id: front
     name: Front door
     host: 192.168.1.20
-    vendor: xmeye             # xmeye | hikvision | dahua | generic
+    vendor: xmeye             # xmeye | hikvision | dahua | reolink | tapo | uniview | axis | generic
     user_env: FRONT_USER      # names of the variables in secrets.env
     password_env: FRONT_PASS
   - id: yard

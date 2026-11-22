@@ -36,6 +36,10 @@ export interface Camera {
   ptz?: boolean;
   light?: boolean;
   talk?: boolean;
+  /** How it moves: "dvrip" (XMEye), "onvif" (any other brand; no focus) or "". */
+  ptz_driver?: string;
+  /** The server talks ONVIF to it (events, clock). */
+  onvif?: boolean;
 }
 
 export interface Preset {

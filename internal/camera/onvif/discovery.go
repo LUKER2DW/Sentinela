@@ -148,7 +148,7 @@ type DeviceInfo struct {
 
 // DeviceInformation reads GetDeviceInformation (authenticated, read-only).
 func (c *Client) DeviceInformation(ctx context.Context) (*DeviceInfo, error) {
-	data, err := c.call(ctx, c.Base+"/onvif/device_service", "", `<GetDeviceInformation xmlns="`+devNS+`"/>`)
+	data, err := c.call(ctx, c.device(), "", `<GetDeviceInformation xmlns="`+devNS+`"/>`)
 	if err != nil {
 		return nil, err
 	}

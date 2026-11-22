@@ -28,22 +28,27 @@ import (
 
 // SettingsCamera is one camera as the editor shows it (no secrets).
 type SettingsCamera struct {
-	ID            string `json:"id"`
-	Name          string `json:"name"`
-	Host          string `json:"host"`
-	Vendor        string `json:"vendor"`
-	Channel       int    `json:"channel"`
-	RTSPMain      string `json:"rtsp_main"`
-	RTSPSub       string `json:"rtsp_sub"`
-	RTSPPort      int    `json:"rtsp_port"`
-	DVRIPPort     int    `json:"dvrip_port"`
-	ONVIFPort     int    `json:"onvif_port"`
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Host      string `json:"host"`
+	Vendor    string `json:"vendor"`
+	Channel   int    `json:"channel"`
+	RTSPMain  string `json:"rtsp_main"`
+	RTSPSub   string `json:"rtsp_sub"`
+	RTSPPort  int    `json:"rtsp_port"`
+	DVRIPPort int    `json:"dvrip_port"`
+	ONVIFPort int    `json:"onvif_port"`
+	// ONVIF on (events, clock, ONVIF PTZ) and its device service path.
+	// ONVIF absent = on (older dashboards do not send it).
+	ONVIF         *bool  `json:"onvif,omitempty"`
+	ONVIFPath     string `json:"onvif_path"`
 	RetentionDays int    `json:"retention_days"`
 	Record        bool   `json:"record"`
 	RecordAudio   bool   `json:"record_audio"`
 	Preload       bool   `json:"preload"`
 	InvertPanTilt bool   `json:"invert_pan_tilt"`
-	// What the camera has (config features); PTZ and light need DVRIP.
+	// What the camera has (config features). PTZ: DVRIP on XMEye, ONVIF
+	// PTZ on other brands; light needs DVRIP.
 	PTZ   bool `json:"ptz"`
 	Light bool `json:"light"`
 	Talk  bool `json:"talk"`
@@ -224,7 +229,7 @@ func (s *Server) currentSettings() SettingsDoc {
 	for _, cam := range c.Cameras {
 		doc.Cameras = append(doc.Cameras, SettingsCamera{ID: cam.ID, Name: cam.Name, Host: cam.Host, Vendor: cam.Vendor,
 			Channel: cam.Channel, RTSPMain: cam.RTSPMain, RTSPSub: cam.RTSPSub, RTSPPort: cam.RTSPPort, DVRIPPort: cam.DVRIPPort,
-			ONVIFPort: cam.ONVIFPort, RetentionDays: cam.RetentionDays, Record: cam.Recording(), RecordAudio: cam.AudioRecording(),
+			ONVIFPort: cam.ONVIFPort, ONVIF: new(cam.UsesONVIF()), ONVIFPath: cam.ONVIFPath, RetentionDays: cam.RetentionDays, Record: cam.Recording(), RecordAudio: cam.AudioRecording(),
 			Preload: cam.Preload == nil || *cam.Preload, InvertPanTilt: cam.InvertPanTilt,
 			PTZ: cam.HasPTZ(), Light: cam.HasLight(), Talk: cam.HasTalk(), Motion: cam.MotionSource()})
 	}
@@ -340,6 +345,12 @@ func (s *Server) buildCandidate(doc SettingsDoc) ([]byte, map[string]string, err
 			"features": map[string]any{"ptz": c.PTZ, "light": c.Light, "talk": c.Talk}}
 		if c.Motion != "" && c.Motion != config.MotionAuto {
 			cm["motion"] = c.Motion
+		}
+		if c.ONVIF != nil && !*c.ONVIF {
+			cm["onvif"] = false
+		}
+		if c.ONVIFPath != "" && c.ONVIFPath != config.DefaultONVIFPath {
+			cm["onvif_path"] = c.ONVIFPath
 		}
 		for k, v := range map[string]int{"channel": c.Channel, "rtsp_port": c.RTSPPort, "dvrip_port": c.DVRIPPort, "onvif_port": c.ONVIFPort} {
 			if v > 0 {

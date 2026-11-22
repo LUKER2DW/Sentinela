@@ -1,3 +1,5 @@
 # False positives (gitleaks fingerprints: path:rule:line). x509 KeyType enum, not a key.
 internal/publiccert/ipcert.go:generic-api-key:222
 internal\publiccert\ipcert.go:generic-api-key:222
+# The same enum at its older line, in the public history (gitleaks git).
+4ae3ec2ad6d9d66bfafec8b61982257fe93a6c50:internal/publiccert/ipcert.go:generic-api-key:174

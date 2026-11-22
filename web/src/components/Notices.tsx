@@ -21,6 +21,8 @@ export function useSystemNotices() {
       staleTime: 5 * 60_000,
       refetchOnWindowFocus: false,
       retry: 1,
+      // Only DVRIP cameras report the vendor cloud switch; others answer 501.
+      enabled: c.control !== false,
     })),
   });
   const { read, mark } = useNoticeReads();

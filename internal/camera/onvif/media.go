@@ -37,17 +37,7 @@ type Stream struct {
 // mediaService finds the Media service address (falls back to the common
 // /onvif/media_service path when the device does not say).
 func (c *Client) mediaService(ctx context.Context) string {
-	body := `<GetCapabilities xmlns="` + devNS + `"><Category>Media</Category></GetCapabilities>`
-	data, err := c.call(ctx, c.Base+"/onvif/device_service", "", body)
-	if err == nil {
-		var r struct {
-			XAddr string `xml:"Body>GetCapabilitiesResponse>Capabilities>Media>XAddr"`
-		}
-		if xml.Unmarshal(data, &r) == nil && strings.TrimSpace(r.XAddr) != "" {
-			return c.rebase(strings.TrimSpace(r.XAddr))
-		}
-	}
-	return c.Base + "/onvif/media_service"
+	return c.service(ctx, "media", "/onvif/media_service")
 }
 
 // ParseProfiles reads a GetProfilesResponse.

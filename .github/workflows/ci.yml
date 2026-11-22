@@ -88,8 +88,8 @@ jobs:
         with:
           name: web-dist
           path: web/dist
-      - run: go run honnef.co/go/tools/cmd/staticcheck@2026.2.1 ./...
-      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
+      - run: go run honnef.co/go/tools/cmd/staticcheck@2026.2.2 ./...
+      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
 
   detector:
     name: detector (python tests)
@@ -117,6 +117,13 @@ jobs:
           persist-credentials: false
       # shellcheck ships with the runner image.
       - run: shellcheck -S warning $(git ls-files '*.sh')
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      # Workflow files: expressions, permissions, action inputs and the
+      # shell inside run steps (with the runner's shellcheck).
+      - run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.11
       - name: docker compose file is valid (with the optional services profile)
         working-directory: deploy
         run: |
