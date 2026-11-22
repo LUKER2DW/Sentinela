@@ -217,6 +217,8 @@ func TestONVIFSettings(t *testing.T) {
 		"custom path":             {"{id: a, host: 10.0.0.2, vendor: axis, onvif_path: /onvif/services, user_env: U, password_env: P}", true},
 		"path without slash":      {"{id: a, host: 10.0.0.2, vendor: axis, onvif_path: onvif, user_env: U, password_env: P}", false},
 		"path with a query":       {"{id: a, host: 10.0.0.2, vendor: axis, onvif_path: /x?y=1, user_env: U, password_env: P}", false},
+		"path with an escape":     {"{id: a, host: 10.0.0.2, vendor: axis, onvif_path: /x%2f, user_env: U, password_env: P}", false},
+		"path with a host":        {"{id: a, host: 10.0.0.2, vendor: axis, onvif_path: 'http://h/x', user_env: U, password_env: P}", false},
 		"camera motion, no onvif": {"{id: a, host: 10.0.0.2, vendor: tapo, onvif: false, motion: camera, user_env: U, password_env: P}", false},
 		"video motion, no onvif":  {"{id: a, host: 10.0.0.2, vendor: tapo, onvif: false, motion: video, user_env: U, password_env: P}", true},
 		"onvif ptz, no onvif":     {"{id: a, host: 10.0.0.2, vendor: tapo, onvif: false, features: {ptz: true}, user_env: U, password_env: P}", false},

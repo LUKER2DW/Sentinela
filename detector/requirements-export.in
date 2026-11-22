@@ -1,0 +1,7 @@
+# Model export stage only (ADR-0016): Ultralytics + CPU PyTorch. Locked in requirements-export.txt:
+#   uv pip compile requirements-export.in --generate-hashes --python-version 3.12 --python-platform x86_64-manylinux_2_28 --extra-index-url https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match -o requirements-export.txt
+torch==2.14.0+cpu
+ultralytics==8.4.165
+onnx
+onnxslim
+onnxruntime==1.23.2

@@ -55,11 +55,14 @@ func (c *Client) WithDevicePath(p string) *Client {
 	return c
 }
 
+// device is the device service URL. The configured path is appended after
+// a "/" on the fixed scheme and host, so it can only name a path there.
 func (c *Client) device() string {
-	if c.DevicePath == "" {
-		return c.Base + DefaultDevicePath
+	p := strings.TrimLeft(c.DevicePath, "/")
+	if p == "" {
+		p = strings.TrimLeft(DefaultDevicePath, "/")
 	}
-	return c.Base + c.DevicePath
+	return c.Base + "/" + p
 }
 
 // service is the address of one service ("media", "events", "ptz") from

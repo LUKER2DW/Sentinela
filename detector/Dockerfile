@@ -4,10 +4,14 @@
 
 # 1. Export YOLO26n to ONNX at 640x352 (the substream's 16:9, no padding). Ultralytics + PyTorch exist only in this stage;
 #    the weights are AGPL-3.0 (ADR-0016) and are never committed.
+# Python packages come from requirements*.txt (made from the .in files),
+# every file pinned by hash (--require-hashes): a changed or swapped wheel
+# on either index fails the build.
 FROM python:3.12-slim@sha256:f77ac9e44ae96ef2c90b8053ea08c31f8be030f824196b0ae4db6d462c84e51f AS export
+COPY requirements-export.txt /tmp/
 RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends libgl1 libglib2.0-0 libxcb1 >/dev/null \
- && pip install --no-cache-dir --root-user-action ignore --extra-index-url https://download.pytorch.org/whl/cpu \
-      torch==2.14.0+cpu ultralytics==8.4.165 onnx onnxslim onnxruntime==1.23.2
+ && pip install --no-cache-dir --root-user-action ignore --require-hashes --no-deps \
+      --extra-index-url https://download.pytorch.org/whl/cpu -r /tmp/requirements-export.txt
 ADD --checksum=sha256:9b09cc8bf347f0fc8a5f7657480587f25db09b34bf33b0652110fb03a8ad4fef \
     https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26n.pt /export/yolo26n.pt
 RUN cd /export && YOLO_OFFLINE=1 python -c "from ultralytics import YOLO; YOLO('yolo26n.pt').export(format='onnx', imgsz=[352, 640], opset=17, simplify=True, dynamic=False)" \
@@ -17,7 +21,9 @@ RUN cd /export && YOLO_OFFLINE=1 python -c "from ultralytics import YOLO; YOLO('
 FROM python:3.12-slim@sha256:f77ac9e44ae96ef2c90b8053ea08c31f8be030f824196b0ae4db6d462c84e51f
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 OMP_NUM_THREADS=1
 # sympy/mpmath are only used by onnxruntime's optional tooling, not inference.
-RUN pip install --no-cache-dir --root-user-action ignore onnxruntime==1.23.2 numpy==2.5.3 av==18.1.0 \
+COPY requirements.txt /tmp/
+RUN pip install --no-cache-dir --root-user-action ignore --require-hashes --no-deps -r /tmp/requirements.txt \
+ && rm /tmp/requirements.txt \
  && pip uninstall -y -q --root-user-action ignore sympy mpmath \
  && find /usr/local/lib/python3.12 -name tests -type d -prune -exec rm -rf {} + \
  && python -c "import onnxruntime, av, numpy"

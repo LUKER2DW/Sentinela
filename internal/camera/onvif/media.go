@@ -75,7 +75,8 @@ func splitRTSP(uri string) (int, string) {
 	}
 	port := 554
 	if p := u.Port(); p != "" {
-		if n, err := strconv.Atoi(p); err == nil {
+		// Only a real port: 0 or 99999 from the device keeps the default.
+		if n, err := strconv.Atoi(p); err == nil && n > 0 && n <= 65535 {
 			port = n
 		}
 	}

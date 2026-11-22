@@ -1,0 +1,5 @@
+# Detector runtime (ADR-0016). Locked with hashes in requirements.txt:
+#   uv pip compile requirements.in --generate-hashes --python-version 3.12 --python-platform x86_64-manylinux_2_28 -o requirements.txt
+onnxruntime==1.23.2
+numpy==2.5.3
+av==18.1.0

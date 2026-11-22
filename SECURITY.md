@@ -7,8 +7,10 @@ welcome and handled first.
 
 **Please do not open a public issue for a vulnerability.**
 
-Use GitHub's private reporting instead: the repository's **Security** tab →
-**Report a vulnerability**. Include:
+Use GitHub's private vulnerability reporting instead:
+<https://github.com/LUKER2DW/Sentinela/security/advisories/new> (the
+repository's **Security** tab → **Report a vulnerability**). Only the
+maintainers see the report. Include:
 
 - what an attacker can do, and from where (internet, LAN, a signed-in
   viewer, a self-hosted service…);

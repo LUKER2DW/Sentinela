@@ -159,3 +159,18 @@ func TestPTZFlow(t *testing.T) {
 		t.Errorf("capabilities and profile should be read once:\n%s", joined)
 	}
 }
+
+// A configured device path only ever names a path on the camera: a
+// leading "//" cannot turn it into another host.
+func TestDevicePathStaysOnHost(t *testing.T) {
+	for path, want := range map[string]string{
+		"":                      "http://10.0.0.5:80/onvif/device_service",
+		"/onvif/Device":         "http://10.0.0.5:80/onvif/Device",
+		"//evil.example/x":      "http://10.0.0.5:80/evil.example/x",
+		"/onvif/device_service": "http://10.0.0.5:80/onvif/device_service",
+	} {
+		if got := NewClient("10.0.0.5", 80, "u", "p").WithDevicePath(path).device(); got != want {
+			t.Errorf("%q: %s, want %s", path, got, want)
+		}
+	}
+}

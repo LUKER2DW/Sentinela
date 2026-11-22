@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"net"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -242,7 +243,7 @@ func (cam *Camera) validateStream() []error {
 func (cam *Camera) validateONVIF() []error {
 	var errs []error
 	if p := cam.ONVIFPath; p != "" && !ValidONVIFPath(p) {
-		errs = append(errs, fmt.Errorf("camera %s: onvif_path starts with '/' and carries no spaces, quotes, '?', '#', '@', '&' or '<>'", cam.ID))
+		errs = append(errs, fmt.Errorf("camera %s: onvif_path is a path such as /onvif/device_service (letters, digits and / . _ ~ -)", cam.ID))
 	}
 	if !cam.UsesONVIF() {
 		if cam.Motion == MotionCamera {
@@ -256,11 +257,9 @@ func (cam *Camera) validateONVIF() []error {
 }
 
 // ValidONVIFPath reports whether p may be an onvif_path: an absolute path
-// with no query, fragment, credentials, quotes, markup or white space.
-func ValidONVIFPath(p string) bool {
-	return strings.HasPrefix(p, "/") && len(p) <= 128 && !strings.ContainsAny(p, onvifPathBad)
-}
+// of letters, digits and / . _ ~ - only (no query, host, credentials or
+// escapes), so it can never change where a request goes.
+func ValidONVIFPath(p string) bool { return ONVIFPathPattern.MatchString(p) }
 
-// onvifPathBad: space, ? # @ & quotes, backslash, angle brackets and control
-// characters.
-var onvifPathBad = " ?#@&'<>" + string([]byte{34, 92, 9, 10, 13})
+// ONVIFPathPattern is the allow-list for onvif_path.
+var ONVIFPathPattern = regexp.MustCompile(`^/[A-Za-z0-9._~/-]{0,127}$`)

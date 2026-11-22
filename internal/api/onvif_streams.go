@@ -40,8 +40,9 @@ func (s *Server) onvifStreams(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "user and password are required")
 		return
 	}
-	if body.ONVIFPath != "" && !config.ValidONVIFPath(body.ONVIFPath) {
-		writeErr(w, http.StatusBadRequest, "onvif_path must start with '/' and carry no spaces, quotes, '?', '#', '@', '&' or '<>'")
+	// An allow-listed path only: the request goes to the LAN address above.
+	if body.ONVIFPath != "" && !config.ONVIFPathPattern.MatchString(body.ONVIFPath) {
+		writeErr(w, http.StatusBadRequest, "onvif_path is a path such as /onvif/device_service (letters, digits and / . _ ~ -)")
 		return
 	}
 	if !s.wizardMu.TryLock() {

@@ -7,6 +7,21 @@ All notable changes to Sentinela. The format follows
 
 ## [Unreleased]
 
+### Security
+- The ONVIF device path accepts only letters, digits and `/ . _ ~ -`, and is
+  always joined after the camera's own address, so a typed path can never
+  send a request elsewhere (CodeQL go/request-forgery).
+- The detector image installs its Python packages from hash-locked files
+  (`detector/requirements*.txt`, `--require-hashes`), CPU PyTorch included;
+  CI installs the same lock. `gomobile` is pinned to the module's version.
+- Fuzz tests for everything parsed from a camera (ONVIF replies, preset
+  numbering, stream addresses, DVRIP packets).
+- SECURITY.md links the private vulnerability report form directly.
+
+### Fixed
+- A stream address reporting port 0 or above 65535 over ONVIF falls back to
+  554 (found by the new fuzz tests).
+
 ## [1.7.0] - 2026-11-22
 
 Any camera brand, set up camera by camera: ONVIF PTZ, an ONVIF switch and
