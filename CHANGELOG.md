@@ -47,7 +47,8 @@ Update with the usual `./scripts/deploy.sh`; read **Changed** first.
 - Go dependencies: `golang.org/x/crypto` 0.59.0 (drops the module-level
   GO-2026-5932 advisory), `golang.org/x/sys` 0.50.0, `modernc.org/sqlite`
   1.63.0; web and app packages updated within their ranges (no known
-  vulnerabilities). CI analysis tools updated (staticcheck 2026.2.2,
+  vulnerabilities). The optional tailnet module (`mobile/tailnet`):
+  `klauspost/compress` 1.20.2 (GO-2026-6865), `x/net` 0.62.0. CI analysis tools updated (staticcheck 2026.2.2,
   govulncheck 1.9.0).
 
 ### Changed
