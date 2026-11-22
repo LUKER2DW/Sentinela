@@ -65,7 +65,7 @@ jobs:
           path: web/dist
       - name: gofmt and go.mod are clean
         run: |
-          unformatted=$(gofmt -l $(git ls-files '*.go'))
+          unformatted=$(git ls-files -z '*.go' | xargs -0 gofmt -l)
           [ -z "$unformatted" ] || { echo "::error::gofmt needed:"; echo "$unformatted"; exit 1; }
           go mod tidy -diff
       - run: go vet ./...
@@ -116,7 +116,7 @@ jobs:
         with:
           persist-credentials: false
       # shellcheck ships with the runner image.
-      - run: shellcheck -S warning $(git ls-files '*.sh')
+      - run: git ls-files -z '*.sh' | xargs -0 shellcheck -S warning
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod

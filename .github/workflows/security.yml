@@ -53,7 +53,11 @@ jobs:
         working-directory: web
       - run: npm audit --omit=dev --audit-level=high
         working-directory: mobile
+      # OSV-Scanner needs a newer Go than the project's: let go fetch that
+      # toolchain (checked against the Go checksum database) for this tool only.
       - name: OSV-Scanner (all lockfiles)
+        env:
+          GOTOOLCHAIN: auto
         run: go run "$OSV_SCANNER" scan source --recursive .
 
   image:
@@ -69,6 +73,8 @@ jobs:
           go-version-file: go.mod
       - run: docker build -t sentinela:scan .
       - name: OSV-Scanner (image)
+        env:
+          GOTOOLCHAIN: auto
         run: |
           set +e
           go run "$OSV_SCANNER" scan image --format markdown sentinela:scan > osv-image.md
