@@ -3,3 +3,11 @@ internal/publiccert/ipcert.go:generic-api-key:222
 internal\publiccert\ipcert.go:generic-api-key:222
 # The same enum at its older line, in the public history (gitleaks git).
 4ae3ec2ad6d9d66bfafec8b61982257fe93a6c50:internal/publiccert/ipcert.go:generic-api-key:174
+# Placeholder values, not secrets: the example secrets file and the fixed
+# HMAC keys of the Android app's unit tests.
+deploy/secrets.env.example:generic-api-key:12
+deploy\secrets.env.example:generic-api-key:12
+mobile/android/app/src/test/java/casa/sentinela/app/AppLinksTest.java:generic-api-key:17
+mobile\android\app\src\test\java\casa\sentinela\app\AppLinksTest.java:generic-api-key:17
+mobile/android/app/src/test/java/casa/sentinela/app/AppLinksTest.java:generic-api-key:18
+mobile\android\app\src\test\java\casa\sentinela\app\AppLinksTest.java:generic-api-key:18
