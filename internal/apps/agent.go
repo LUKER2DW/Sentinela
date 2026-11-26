@@ -561,7 +561,7 @@ func (a *Agent) deploy(ctx context.Context, id string, job *Job, logf func(strin
 		if _, err := os.Stat(filepath.Join(work, "Dockerfile")); err != nil {
 			return fail(errors.New("there is no Dockerfile in this folder"))
 		}
-		outside, err := a.build(ctx, dep.Image, work, logf)
+		outside, err := a.build(ctx, dep.Image, work, app.UnfilteredBuilds, logf)
 		dep.BuildOutsideFirewall = outside
 		if err != nil {
 			return fail(err)
@@ -575,6 +575,7 @@ func (a *Agent) deploy(ctx context.Context, id string, job *Job, logf func(strin
 	if cur == nil {
 		return fail(errNoApp)
 	}
+	var keepImages []string // Compose: the images this release's builds produced
 	if cur.Mode == ModeCompose {
 		if err := a.canStart(cur); err != nil {
 			return fail(err)
@@ -587,6 +588,10 @@ func (a *Agent) deploy(ctx context.Context, id string, job *Job, logf func(strin
 			dep.BuildOutsideFirewall = true
 			a.noteUnfilteredBuild(id)
 		}
+		for _, s := range built {
+			keepImages = append(keepImages, composeImage(id, s))
+		}
+		dep.ComposeImages = true
 		dep.Services = services
 		cur.Ports = ports
 		if err := a.composeCheck(ctx, cur, logf); err != nil {
@@ -621,6 +626,13 @@ func (a *Agent) deploy(ctx context.Context, id string, job *Job, logf func(strin
 	err = a.saveLocked()
 	a.mu.Unlock()
 	a.cleanup(ctx, id, dep, old)
+	if cur.Mode == ModeCompose {
+		// Images of services this release no longer builds (dropped or now
+		// pulled) are not run by anything of this service any more.
+		if rerr := a.removeComposeImages(ctx, id, keepImages); rerr != nil {
+			logf("Warning: could not list the images of earlier builds: %v", rerr)
+		}
+	}
 	return err
 }
 
@@ -707,8 +719,9 @@ func (a *Agent) runSetup(ctx context.Context, app *App, dep *Deployment, logf fu
 // Dockerfile that needs BuildKit syntax is retried with BuildKit. The
 // first result reports a build that ran outside the sn-* network (BuildKit
 // accepts no custom network through the Engine API), which the host
-// firewall does not filter.
-func (a *Agent) build(ctx context.Context, image, work string, logf func(string, ...any)) (bool, error) {
+// firewall does not filter; that retry needs the owner's consent
+// (App.UnfilteredBuilds).
+func (a *Agent) build(ctx context.Context, image, work string, unfiltered bool, logf func(string, ...any)) (bool, error) {
 	var buf bytes.Buffer
 	if err := TarDir(work, &buf); err != nil {
 		return false, err
@@ -716,18 +729,91 @@ func (a *Agent) build(ctx context.Context, image, work string, logf func(string,
 	if buf.Len() > maxExtract {
 		return false, errors.New("contexto de build grande demais")
 	}
+	if !unfiltered {
+		// The daemon itself fetches an ADD <url>, from the host's network:
+		// outside the sn-* firewall, like a BuildKit build.
+		if remote, err := dockerfileFetches(work); err != nil {
+			return false, err
+		} else if remote {
+			return false, errUnfilteredBuild("This Dockerfile downloads with ADD, which")
+		}
+	}
 	logf("Construindo a imagem (Dockerfile, %.1f MB de contexto)", float64(buf.Len())/(1<<20))
 	opt := BuildOptions{MemoryBytes: int64(a.Cfg.BuildMemoryMB) << 20, CPUs: a.Cfg.BuildCPUs, Network: networkName}
 	tctx, cancel := context.WithTimeout(ctx, setupTimeout)
 	defer cancel()
 	err := a.Eng.Build(tctx, image, bytes.NewReader(buf.Bytes()), opt, func(s string) { logf("  %s", s) })
 	if err != nil && strings.Contains(strings.ToLower(err.Error()), "buildkit") {
+		if !unfiltered {
+			return false, errUnfilteredBuild("This Dockerfile needs BuildKit, which")
+		}
 		logf("Este Dockerfile precisa do BuildKit: construindo de novo com ele (sem limite de CPU)")
 		logf("Warning: BuildKit builds run on Docker's own network, outside the sn-* egress firewall (ADR-0021)")
 		err = a.Eng.Build(tctx, image, bytes.NewReader(buf.Bytes()), BuildOptions{BuildKit: true}, func(s string) { logf("  %s", s) })
 		return true, err
 	}
 	return false, err
+}
+
+// dockerfileFetches reports whether the Dockerfile in work has an ADD that
+// may download (a URL, a git source, or a variable that could expand to
+// one): the daemon runs those downloads on the host's network. Continuation
+// lines are joined first; the escape directive is honoured. An ONBUILD
+// trigger of the base image is not seen here (ADR-0021).
+func dockerfileFetches(work string) (bool, error) {
+	root, err := os.OpenRoot(work)
+	if err != nil {
+		return false, err
+	}
+	defer root.Close()
+	b, err := readCapped(root, "Dockerfile", 1<<20)
+	if err != nil {
+		return false, fmt.Errorf("reading the Dockerfile: %w", err)
+	}
+	return addFetches(string(b)), nil
+}
+
+func addFetches(dockerfile string) bool {
+	lines := strings.Split(strings.ReplaceAll(dockerfile, "\r\n", "\n"), "\n")
+	escape := `\`
+	for _, l := range lines {
+		t := strings.TrimSpace(l)
+		if !strings.HasPrefix(t, "#") {
+			break // parser directives come first
+		}
+		d := strings.ReplaceAll(strings.ToLower(t[1:]), " ", "")
+		if v, ok := strings.CutPrefix(d, "escape="); ok && (v == "`" || v == `\`) {
+			escape = v
+		}
+	}
+	var inst strings.Builder
+	check := func() bool {
+		f := strings.Fields(inst.String())
+		inst.Reset()
+		if len(f) > 0 && strings.EqualFold(f[0], "ONBUILD") {
+			f = f[1:]
+		}
+		if len(f) == 0 || !strings.EqualFold(f[0], "ADD") {
+			return false
+		}
+		rest := strings.Join(f[1:], " ")
+		return strings.Contains(rest, "://") || strings.Contains(rest, "git@") || strings.Contains(rest, "$")
+	}
+	for _, l := range lines {
+		t := strings.TrimSpace(l)
+		if inst.Len() == 0 && (t == "" || strings.HasPrefix(t, "#")) {
+			continue
+		}
+		if s, ok := strings.CutSuffix(t, escape); ok {
+			inst.WriteString(s + " ")
+			continue
+		}
+		inst.WriteString(t)
+		if check() {
+			return true
+		}
+	}
+	return check()
 }
 
 // recreate applies new settings to the current deployment.
@@ -743,6 +829,15 @@ func (a *Agent) recreate(ctx context.Context, id string, logf func(string, ...an
 		}
 		_, ports, err := a.composeUp(ctx, app, a.workDir(app, app.Deployed), false, logf)
 		if err != nil {
+			a.mu.Lock()
+			upDone := a.rt(id).composeUp
+			a.mu.Unlock()
+			var blocked *blockedError
+			if !upDone && errors.As(err, &blocked) {
+				// No `up` of this agent accepted what runs (the first start
+				// after an update, say): stop it.
+				return a.composeBlocked(ctx, id, err)
+			}
 			return err
 		}
 		a.mu.Lock()
@@ -1131,6 +1226,10 @@ func (a *Agent) reconcileCompose(ctx context.Context, app *App) error {
 		if err == nil {
 			_, _, err = a.composeUp(ctx, app, a.workDir(app, app.Deployed), false, func(string, ...any) {})
 		}
+		if blocked := (*blockedError)(nil); errors.As(err, &blocked) {
+			// No `up` of this agent accepted what runs: stop it.
+			return a.composeBlocked(ctx, id, err)
+		}
 		a.mu.Lock()
 		r.composeUp = err == nil
 		a.mu.Unlock()
@@ -1173,6 +1272,46 @@ func (a *Agent) reconcileCompose(ctx context.Context, app *App) error {
 
 func (a *Agent) noteErr(id string, err error) {
 	a.rememberError(id, err)
+}
+
+// composeBlocked handles a deployed Compose project that cannot start again
+// without a new deploy (blockedError) while containers that no `up` of this
+// agent accepted may run: typically the first start after an update, when the
+// current checks refuse what an earlier version ran (a bind of the service
+// folder, say) or a build's image lacks the name it now runs under. Those
+// containers are stopped, the service stays stopped and marked for a deploy,
+// and the reason is shown on the service and in its events. It returns the
+// error to report.
+func (a *Agent) composeBlocked(ctx context.Context, id string, cause error) error {
+	err := fmt.Errorf("stopped until the next deploy: %w", cause)
+	members, lerr := a.projectContainers(ctx, id)
+	if lerr != nil {
+		a.Log.Warn("apps: compose project not listed", "app", id, "err", lerr)
+	}
+	for _, m := range members {
+		if !m.Running {
+			continue
+		}
+		// A failed stop is retried by the next check: the service is Stopped.
+		if serr := a.Eng.Stop(ctx, m.Name, stopGrace); serr != nil {
+			a.Log.Warn("apps: compose container not stopped", "app", id, "container", m.Name, "err", serr)
+		}
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if live := a.find(id); live != nil {
+		live.Desired, live.NeedsDeploy = Stopped, true
+		live.UpdatedAt = a.now().UTC()
+	}
+	r := a.rt(id)
+	r.composeUp = false
+	r.err = a.redactLocked(id, "Stopped until the next deploy: "+cause.Error())
+	a.eventLocked(id, "blocked", r.err)
+	if serr := a.saveLocked(); serr != nil {
+		a.Log.Warn("apps: state not saved", "err", serr)
+	}
+	a.Log.Warn("apps: compose project stopped until the next deploy", "app", id, "err", r.err)
+	return err
 }
 
 // sample reads resource usage of the running containers; CPU% comes from

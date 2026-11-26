@@ -17,6 +17,7 @@ const cfg = (over: Partial<AppConfig> = {}): AppConfig => ({
   cpus: 0.5,
   autostart: true,
   root: false,
+  unfiltered_builds: false,
   ...over,
 });
 

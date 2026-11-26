@@ -178,15 +178,21 @@ func TestPlanComposeRefusesHostAccess(t *testing.T) {
 		"macvlan":     `{"services":{"a":{"image":"x"}},"networks":{"lan":{"driver":"macvlan"}}}`,
 		"vol opts":    `{"services":{"a":{"image":"x"}},"volumes":{"d":{"driver_opts":{"type":"none","o":"bind","device":"/"}}}}`,
 		"unconfined":  `{"services":{"a":{"image":"x","security_opt":["seccomp:unconfined"]}}}`,
-		"build host":  `{"services":{"a":{"build":{"context":"/var/lib/sentinela-apps/apps/x","network":"host"}}}}`,
+		"build host":  `{"services":{"a":{"build":{"context":"/var/lib/sentinela-apps/apps/x/releases/r1","network":"host"}}}}`,
 		"port range":  `{"services":{"a":{"image":"x","ports":[{"target":80,"published":"8000-8010"}]}}}`,
 		"no services": `{"services":{}}`,
 	}
 	for name, raw := range cases {
-		if _, err := planCompose([]byte(raw), []string{root}); err == nil {
+		if _, err := planCompose([]byte(raw), testRules(root)); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
 	}
+}
+
+// testRules are the rules of service "x" whose folder is root, running
+// release r1.
+func testRules(root string) composeRules {
+	return composeRules{ID: "x", Release: root + "/releases/r1", Data: root + "/data"}
 }
 
 func TestPlanComposeRewrites(t *testing.T) {
@@ -197,7 +203,7 @@ func TestPlanComposeRewrites(t *testing.T) {
 	         "deploy":{"resources":{"limits":{"memory":"4g"}}},"labels":["a=b"],"restart":"always"},
 	  "db":{"image":"postgres","cap_add":["CHOWN"],"networks":{"default":null,"back":null}}},
 	 "networks":{"back":{}},"volumes":{"data":{}}}`
-	p, err := planCompose([]byte(raw), []string{root})
+	p, err := planCompose([]byte(raw), testRules(root))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -463,7 +469,7 @@ func TestComposeDeploy(t *testing.T) {
 	a, eng, src := newTestAgent(t)
 	src.files = map[string]string{"compose.yaml": "services: {}"}
 	eng.composeConfig = `{"services":{"web":{"image":"nginx","ports":[{"target":80,"published":"8080","protocol":"tcp"}]},"db":{"image":"postgres"}}}`
-	eng.members = []Summary{{Name: "sapp-site-web-1", Service: "web", Running: true}, {Name: "sapp-site-db-1", Service: "db", Running: true}}
+	eng.members = []Summary{{Name: "sapp-site-web-1", App: "site", Service: "web", Running: true}, {Name: "sapp-site-db-1", App: "site", Service: "db", Running: true}}
 	in := App{Name: "Site", Source: SourceGitHub, Repo: "ana/site", Mode: ModeCompose, Exposure: ExposePublic}
 	v, err := a.Create(in)
 	if err != nil {

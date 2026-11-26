@@ -97,12 +97,11 @@ package.json/bun/deno, requirements/pyproject, go.mod, index.html):
 - *dockerfile*: the classic builder with the build caps; a Dockerfile that
   needs BuildKit syntax is rebuilt with BuildKit (uncapped, logged, outside the `sn-*` firewall: see Consequences);
 - *compose*: `docker compose config` normalizes the file in a throwaway
-  `docker:29-cli` container (agent's uid, socket group, no network); the
-  agent refuses privileged mode, host namespaces, devices, extra
-  capabilities, binds outside the service's folder, the Docker socket,
-  external or non-bridge networks, external volumes and volume
-  `driver_opts`; then rewrites limits, published ports, restart policy and
-  bridge names, and only that file is run.
+  container of the Docker CLI image (`apps.compose_image`, pinned by digest;
+  agent's uid, socket group, no network); the agent checks every attribute
+  against an allow-list (see "Compose allow-list" below) and refuses the
+  rest; then rewrites limits, published ports, restart policy, build image
+  names and bridge names, and only that file is run.
 
 **Caps that protect recording.** Per service: memory (no swap), CPU
 quota, `cpu_shares` 256 (the NVR keeps Docker's 1024), 512 pids,
@@ -166,14 +165,9 @@ Added after a security review; none of it changes the model above.
 - **Bind sources.** Missing bind folders are created by the agent as real
   folders before `up`, so the daemon no longer creates or resolves a path
   that a service could still turn into a link; links are re-checked right
-  before `up`. **Residual race:** a service with write access to a parent
-  folder (for example the `.:/app` pattern, or `data`) can still replace a
-  bind folder with a link in the short time between that check and the
-  daemon creating the container. Closing it needs the daemon to refuse
-  links itself (not offered by Docker) or services not to share folders
-  with a sibling that mounts a deeper path; it is accepted for owner-
-  authored projects and is why a public service should not be given
-  Compose binds of its own parents.
+  before `up`. The race this left (a service with write access to a parent
+  folder replacing a deeper bind folder with a link before the daemon
+  mounts it) is closed by the nesting rule of the 2026-11-26 allow-list.
 - **Agent memory.** Source files read for detection are limited to 1 MiB,
   opened through `os.Root` without following links; `.git` files, listings
   of the local picker and of the service explorer, and the disk-usage walk
@@ -182,6 +176,94 @@ Added after a security review; none of it changes the model above.
   reported as a lower bound (`disk_partial`). At most two source
   inspections run at once, and their temporary folders are removed at start.
   FIFOs planted in a service's `data` are not opened blocking.
+
+## Compose allow-list (2026-11-26)
+Added after a second security review. The normalized file is checked
+against an allow-list, so an attribute a later Compose release adds is
+refused until reviewed; an unknown attribute left empty (`null`, `false`,
+`""`, `[]`, `{}`, as `config` prints unset ones) is dropped, and a value of a
+type the check does not expect (a mapping for `network_mode`, a volume
+without `type`, a string for `external`) is refused. Extensions (`x-*`) are
+accepted and dropped from the rendered file: Compose reads some of them.
+- **Service attributes accepted as written:** `attach`, `command`,
+  `entrypoint`, `environment`, `configs`/`secrets` references, `cap_drop`,
+  `cpuset`, `depends_on`, `dns`, `dns_opt`, `dns_search`, `domainname`,
+  `hostname`, `expose`, `extra_hosts`, `group_add`, `healthcheck`, `image`,
+  `init`, `links`, `mem_reservation`, `mem_swappiness`, `platform`,
+  `pull_policy`, `read_only`, `shm_size`, `stdin_open`, `tty`,
+  `stop_grace_period`, `stop_signal`, `tmpfs`, `user`, `working_dir`.
+  Replaced or dropped by the agent: the limits (`mem_limit`, `memswap_limit`,
+  `cpus`, `cpu_shares`, the `cpu_*` quota keys, `pids_limit`,
+  `oom_score_adj`), `restart`, `logging`, `profiles` (the file holds only
+  the active services), `develop`, and `container_name` (a host-wide name;
+  kept as an alias on the project's networks).
+- **Accepted with limits:** `cap_add` (Docker's default set),
+  `security_opt` (`no-new-privileges` only), `sysctls` (`net.*`), `ulimits`
+  (not `rtprio`, `rttime` or `nice`, which bypass the CPU quota), `ipc`
+  (`private`, `shareable`), `cgroup` (`private`), `network_mode` (`none`, or
+  `service:` of the same project), service `networks` (aliases, priority),
+  `labels` (not `com.docker.compose.*` or `sentinela.*`), `volumes` (named,
+  tmpfs, and binds as below; no shared propagation), `volumes_from`
+  (services, not containers), `env_file` (files of the release),
+  `post_start`/`pre_stop` (never `privileged`), `deploy` and `scale` (one
+  replica), `build` (below).
+- **Refused**, among the rest: `privileged`, `use_api_socket`, `provider`
+  services, devices and GPUs, host or container namespaces, `runtime`,
+  `annotations`, `blkio_config`, real-time CPU, `oom_kill_disable`,
+  `storage_opt`, `volume_driver`, `external_links`, fixed addresses and MACs.
+- **Binds** come only from the release being run or the service's `data`
+  folder, never from the service folder itself, where the agent keeps its
+  vault, diagnostics, logs, releases and the protected project. A writable
+  bind may not contain another bind or secret file of the project, nor one
+  that containers still running from the previous `up` mount (recorded in
+  `<state>/compose/<id>/binds.json`): a container could swap the inner path
+  for a link before the daemon mounts it. Mount such folders side by side,
+  or the outer one read-only; to move a bind below one that runs, stop the
+  service first.
+- **Networks and volumes** belong to the project: a `name` must start with
+  `sapp-<id>_`, so no other service's volume or network is reachable, and
+  `external` is refused. Networks are IPv4 bridges with the engine's own
+  subnets: no IPAM, no driver options but the MTU, no IPv6 (the firewall has
+  IPv4 rules only); the agent writes `enable_ipv6: false` on each.
+- **Builds** take their context and Dockerfile from the release; no `tags`,
+  SSH, extra contexts, cache import/export, entitlements or privileged
+  builds; `network` only `default` or `none`. The image a build produces is
+  always `sentinela-app/<id>:compose-<service>`, never pulled (a service
+  that runs another's image, however it spells the reference, follows the
+  rename), so no build can retag the helper image, `sentinela:local` or
+  another service's image. A deploy removes the images of services its
+  release no longer builds; deleting the service removes them all.
+- **Memory budget:** the check before `up` counts one container per service
+  of the plan being started, also on a first deploy.
+- **Helper:** `apps.compose_image` defaults to the CLI image pinned by digest
+  (bumped with Sentinela releases). `config` runs in the release with the
+  service's variables, reading an input file the agent writes to
+  `<state>/compose/<id>` (never into the release, which a service may bind
+  writable), with the Compose file's folder as the project directory; `up`
+  and `down` run with
+  `<state>/compose/<id>` as the project directory, and every run gets an
+  empty env file of the agent (`--env-file`), so no `.env` a service writes
+  is read. Manager values in the rendered file are references to
+  agent-named variables (`SENTINELA_VAR_<hash>`); a top-level secret or
+  config read from a variable (`environment: NAME`) reads
+  `SENTINELA_OBJ_<hash>`, which `up` gets with the service's value of
+  `NAME`. These are the only variables `up` gets, so services also receive
+  variables with reserved names. The helper mounts the release and `data`
+  read-only, not the whole service folder.
+- **Builds outside the firewall need consent.** A Compose project with
+  `build:`, or a Dockerfile that needs BuildKit, deploys only when the
+  service's *Allow builds outside the firewall* setting (`unfiltered_builds`)
+  is on; otherwise the deploy stops before anything is built. The setting is
+  off for existing services: the next deploy of one that builds asks for it.
+- **Services deployed before these rules.** Their first `up` after the
+  update (`--no-build`) recreates their containers and networks once. A
+  build's image is given its new name from the image ID a container of the
+  project runs (never from what an old name points to now), so no rebuild
+  and no consent is needed. A project the agent cannot start this way (the
+  current checks refuse its file, or no container runs a built image) is
+  stopped with its containers, marked for a deploy, and the reason is shown
+  on the service and in its events; the same applies whenever containers
+  that no `up` of the running agent accepted would keep running.
 
 ## Alternatives considered
 - *Docker socket in the API container*: refused — the internet-facing
@@ -213,11 +295,17 @@ Added after a security review; none of it changes the model above.
   `build.network` of `none` would break builds that download packages. A
   `RUN` step from a hostile repository could therefore reach private
   addresses (camera, router, LAN) while it builds; runtime containers still
-  cannot. The agent cannot close this itself: it marks the deployment
-  (`build_outside_firewall`), logs a warning and records a service event.
-  Deploy only sources you trust to services that need BuildKit or Compose
-  builds, or extend the host firewall to the builder's network.
-− Runtime and CLI images are referenced by tag (pin digests in
-  `apps.runtimes` / `apps.compose_image` if wanted).
+  cannot. The agent cannot close this itself: such a build needs the
+  owner's consent per service (`unfiltered_builds`, off by default; without
+  it the deploy is refused before building), and the agent marks the
+  deployment (`build_outside_firewall`), logs a warning and records a
+  service event. In every build mode, the classic one included, the Docker
+  daemon also fetches `ADD <url>` sources itself, on the host network, out
+  of reach of the `sn-*` rules, so a Dockerfile whose `ADD` names a URL, a
+  git source or a variable needs the same consent. An `ONBUILD ADD` trigger
+  of a base image is not seen before the build: deploy only sources you
+  trust to services that build.
+− Runtime images are referenced by tag (pin digests in `apps.runtimes` if
+  wanted); the Compose CLI image is pinned by digest.
 − Tailnet access needs the ACL to allow `tag:nvr:20000-20099` for the
   devices that should open services.

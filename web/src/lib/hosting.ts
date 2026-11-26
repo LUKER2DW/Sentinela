@@ -90,6 +90,9 @@ export interface AppConfig {
   cpus: number;
   autostart: boolean;
   root: boolean;
+  /** Owner's consent to builds outside the services firewall (Compose
+   * `build:`, Dockerfiles that need BuildKit). */
+  unfiltered_builds: boolean;
 }
 
 export interface Service extends AppConfig {
@@ -354,6 +357,7 @@ export function configOf(s: Service): AppConfig {
     cpus: s.cpus,
     autostart: s.autostart,
     root: s.root,
+    unfiltered_builds: s.unfiltered_builds ?? false,
   };
 }
 

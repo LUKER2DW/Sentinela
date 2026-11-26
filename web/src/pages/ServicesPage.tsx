@@ -786,6 +786,25 @@ function AccessFields({ cfg, set, info, hosts }: { cfg: AppConfig; set: SetCfg; 
           <button type="button" role="switch" className="switch" aria-checked={cfg.root} onClick={() => set((c) => ({ ...c, root: !c.root }))} />
         </label>
       )}
+      {cfg.mode !== "script" && (
+        <>
+          <label className="toggle-row">
+            <span>
+              <Icon name="shield" />{" "}{t("Allow builds outside the firewall")}
+            </span>
+            <button
+              type="button"
+              role="switch"
+              className="switch"
+              aria-checked={cfg.unfiltered_builds}
+              onClick={() => set((c) => ({ ...c, unfiltered_builds: !c.unfiltered_builds }))}
+            />
+          </label>
+          <span className="hint">
+            {t("Compose builds and Dockerfiles that need BuildKit run on Docker's own network: their steps can reach the cameras, the home network and this server. Turn on only for code you trust.")}
+          </span>
+        </>
+      )}
     </fieldset>
   );
 }
@@ -814,6 +833,7 @@ function emptyConfig(info: HostingInfo): AppConfig {
     cpus: info.limits.cpus,
     autostart: true,
     root: false,
+    unfiltered_builds: false,
   };
 }
 

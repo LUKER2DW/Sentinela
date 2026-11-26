@@ -250,10 +250,14 @@ are superseded where noted by ADR-0019 and ADR-0020.
     Services publish only on `apps.port_first..last`; `apps-firewall.sh`
     keeps them off private ranges and off the internet unless marked
     *Internet* by the owner (who also forwards the port). A public service
-    has no Sentinela authentication in front of it. Compose files may not
-    use privileged mode, host namespaces, devices, extra capabilities, the
-    Docker socket, binds outside their folder, or external/non-bridge
-    networks and volumes.
+    has no Sentinela authentication in front of it. Compose files are
+    checked against an allow-list (ADR-0021): no privileged mode, host
+    namespaces, devices, extra capabilities, Docker socket or provider
+    services; binds only from the release and `data` folders (never the
+    agent's files); only the project's own bridges and volumes (IPv4, no
+    chosen subnets); one replica per service; build output only in the
+    service's image namespace. Builds that run outside the services firewall
+    (Compose `build:`, BuildKit) need the owner's consent per service.
 
 18. Root host agents never trust files the containers write. They reach the
     data disk only through `scripts/lib/datafs.py` (no link followed,

@@ -80,6 +80,11 @@ type App struct {
 	// Root runs the process as root inside the container (still without
 	// capabilities). Off: uid 1000.
 	Root bool `json:"root"`
+	// UnfilteredBuilds is the owner's consent to image builds that run on
+	// Docker's own network, outside the sn-* egress firewall: Compose
+	// `build:` sections and Dockerfiles that need BuildKit (ADR-0021).
+	// Without it such a deploy is refused before anything is built.
+	UnfilteredBuilds bool `json:"unfiltered_builds"`
 
 	Desired  string      `json:"desired"`
 	Deployed *Deployment `json:"deployed,omitempty"`
@@ -124,6 +129,10 @@ type Deployment struct {
 	// Compose `build:`) ran outside the sn-* networks the host firewall
 	// filters (ADR-0021, Consequences).
 	BuildOutsideFirewall bool `json:"build_outside_firewall,omitempty"`
+	// ComposeImages: the Compose builds of this deployment produced images
+	// under the agent's names (composeImage). Deployments made before the
+	// agent named its builds run images it must adopt (adoptImages).
+	ComposeImages bool `json:"compose_images,omitempty"`
 	// FileEnv is private deployment configuration, never returned to clients.
 	FileEnv []EnvVar `json:"-"`
 }

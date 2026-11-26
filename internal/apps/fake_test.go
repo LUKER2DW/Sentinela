@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -31,10 +32,15 @@ type fakeEngine struct {
 	crashVersion string
 	crashExit    int
 	output       string
-	// compose: stdout of `docker compose config`, and the project members.
+	// compose: stdout of `docker compose config` (@WORK@ becomes the
+	// release folder it runs in), and the project members.
 	composeConfig string
 	members       []Summary
-	builds        []BuildOptions
+	// memberImages: the image ID each member container runs.
+	memberImages map[string]string
+	// tags: image name -> the image (ID or name) TagImage gave it.
+	tags   map[string]string
+	builds []BuildOptions
 	// buildKitOnly: the classic builder fails with a BuildKit error.
 	buildKitOnly bool
 	// created records every container spec, even of containers removed later.
@@ -116,7 +122,33 @@ func (f *fakeEngine) Build(_ context.Context, tag string, _ io.Reader, opt Build
 }
 func (f *fakeEngine) RemoveImage(_ context.Context, ref string) error {
 	f.log("rmi " + ref)
+	f.mu.Lock()
+	delete(f.images, ref)
+	f.mu.Unlock()
 	return nil
+}
+func (f *fakeEngine) TagImage(_ context.Context, source, ref string) error {
+	f.log("tag " + source + " " + ref)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.tags == nil {
+		f.tags = map[string]string{}
+	}
+	f.tags[ref] = source
+	f.images[ref] = true
+	return nil
+}
+func (f *fakeEngine) ListImages(_ context.Context, reference string) ([]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []string
+	for ref, ok := range f.images {
+		if m, _ := path.Match(reference, ref); m && ok {
+			out = append(out, ref)
+		}
+	}
+	slices.Sort(out)
+	return out, nil
 }
 func (f *fakeEngine) Create(_ context.Context, name string, s Spec) error {
 	f.log("create " + name)
@@ -184,6 +216,8 @@ func (f *fakeEngine) Logs(_ context.Context, name string, _ LogOptions, line fun
 	output := f.output
 	f.mu.Unlock()
 	if c != nil && strings.HasSuffix(name, "-compose") && slices.Contains(c.spec.Cmd, "config") {
+		// @WORK@ stands for the release folder `config` runs in.
+		cfg = strings.ReplaceAll(cfg, "@WORK@", filepath.ToSlash(c.spec.WorkingDir))
 		for _, l := range strings.Split(cfg, "\n") {
 			line(1, l)
 		}
@@ -204,7 +238,7 @@ func (f *fakeEngine) Inspect(_ context.Context, name string) (*ContainerState, e
 			if !m.Running {
 				exit = 1
 			}
-			return &ContainerState{Running: m.Running, ExitCode: exit}, nil
+			return &ContainerState{Running: m.Running, ExitCode: exit, Image: f.memberImages[m.Name]}, nil
 		}
 	}
 	c := f.containers[name]
@@ -216,10 +250,19 @@ func (f *fakeEngine) Inspect(_ context.Context, name string) (*ContainerState, e
 func (f *fakeEngine) Stats(context.Context, string) (*Sample, error) {
 	return &Sample{CPUTotal: 100, SystemTotal: 1000, OnlineCPUs: 4, MemUsage: 50 << 20, MemLimit: 256 << 20}, nil
 }
-func (f *fakeEngine) List(context.Context, string) ([]Summary, error) {
+
+// List filters on the sentinela.app label only (the one that tells
+// services apart); the members' other labels are not modelled.
+func (f *fakeEngine) List(_ context.Context, labels ...string) ([]Summary, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return slices.Clone(f.members), nil
+	out := slices.Clone(f.members)
+	for _, l := range labels {
+		if app, ok := strings.CutPrefix(l, labelApp+"="); ok {
+			out = slices.DeleteFunc(out, func(m Summary) bool { return m.App != app })
+		}
+	}
+	return out, nil
 }
 
 // fakeSource serves a fixed tree as every snapshot.

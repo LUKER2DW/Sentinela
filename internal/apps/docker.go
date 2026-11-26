@@ -26,6 +26,11 @@ type Engine interface {
 	Pull(ctx context.Context, ref string, log func(string)) error
 	Build(ctx context.Context, tag string, tarContext io.Reader, opt BuildOptions, log func(string)) error
 	RemoveImage(ctx context.Context, ref string) error
+	// TagImage gives the image source (a name or an image ID) the name ref.
+	TagImage(ctx context.Context, source, ref string) error
+	// ListImages returns the names of the local images that match reference,
+	// a pattern such as "sentinela-app/x:compose-*".
+	ListImages(ctx context.Context, reference string) ([]string, error)
 	Create(ctx context.Context, name string, spec Spec) error
 	Start(ctx context.Context, name string) error
 	Stop(ctx context.Context, name string, grace time.Duration) error
@@ -37,12 +42,13 @@ type Engine interface {
 	Inspect(ctx context.Context, name string) (*ContainerState, error)
 	Stats(ctx context.Context, name string) (*Sample, error)
 	// List returns the containers carrying a label ("key=value").
-	List(ctx context.Context, label string) ([]Summary, error)
+	List(ctx context.Context, labels ...string) ([]Summary, error)
 }
 
 // Summary is a listed container.
 type Summary struct {
 	Name    string
+	App     string // the sentinela.app label: the service that created it
 	Service string // Compose service, if any
 	Running bool
 }
@@ -100,6 +106,8 @@ type ContainerState struct {
 	Error      string
 	StartedAt  time.Time
 	FinishedAt time.Time
+	// Image is the ID of the image the container runs ("sha256:...").
+	Image string
 }
 
 // Sample is one stats reading.
@@ -320,6 +328,26 @@ func (d *Docker) RemoveImage(ctx context.Context, ref string) error {
 	return err
 }
 
+// TagImage names an image (the tag replaces whatever image had the name).
+func (d *Docker) TagImage(ctx context.Context, source, ref string) error {
+	name, tag := splitRef(ref)
+	return d.call(ctx, http.MethodPost, "/images/"+source+"/tag", url.Values{"repo": {name}, "tag": {tag}}, nil, nil)
+}
+
+// ListImages returns the names of the images matching a reference pattern.
+func (d *Docker) ListImages(ctx context.Context, reference string) ([]string, error) {
+	f, _ := json.Marshal(map[string][]string{"reference": {reference}})
+	var raw []struct{ RepoTags []string }
+	if err := d.call(ctx, http.MethodGet, "/images/json", url.Values{"filters": {string(f)}}, nil, &raw); err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, img := range raw {
+		out = append(out, img.RepoTags...)
+	}
+	return out, nil
+}
+
 // Create creates a container from spec, hardened the same way every time:
 // no capabilities, no privilege gain, an init process, capped logs, lower
 // CPU weight and OOM priority than the NVR, and no Docker restart policy
@@ -453,6 +481,7 @@ func demux(r io.Reader, line func(int, string)) error {
 // Inspect returns a container's state, or nil if it does not exist.
 func (d *Docker) Inspect(ctx context.Context, name string) (*ContainerState, error) {
 	var out struct {
+		Image string
 		State struct {
 			Status     string
 			Running    bool
@@ -472,12 +501,12 @@ func (d *Docker) Inspect(ctx context.Context, name string) (*ContainerState, err
 	}
 	s := out.State
 	return &ContainerState{Status: s.Status, Running: s.Running, ExitCode: s.ExitCode, OOMKilled: s.OOMKilled,
-		Error: s.Error, StartedAt: s.StartedAt, FinishedAt: s.FinishedAt}, nil
+		Error: s.Error, StartedAt: s.StartedAt, FinishedAt: s.FinishedAt, Image: out.Image}, nil
 }
 
-// List returns the containers with a label.
-func (d *Docker) List(ctx context.Context, label string) ([]Summary, error) {
-	f, _ := json.Marshal(map[string][]string{"label": {label}})
+// List returns the containers with every one of labels ("k=v").
+func (d *Docker) List(ctx context.Context, labels ...string) ([]Summary, error) {
+	f, _ := json.Marshal(map[string][]string{"label": labels})
 	var raw []struct {
 		Names  []string
 		State  string
@@ -492,7 +521,7 @@ func (d *Docker) List(ctx context.Context, label string) ([]Summary, error) {
 		if len(c.Names) > 0 {
 			name = strings.TrimPrefix(c.Names[0], "/")
 		}
-		out = append(out, Summary{Name: name, Service: c.Labels["com.docker.compose.service"], Running: c.State == "running"})
+		out = append(out, Summary{Name: name, App: c.Labels[labelApp], Service: c.Labels["com.docker.compose.service"], Running: c.State == "running"})
 	}
 	return out, nil
 }

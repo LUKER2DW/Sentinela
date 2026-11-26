@@ -513,6 +513,9 @@ share and pick it under **New service → Folder on the server**.
   The service has no Sentinela login in front of it.
 - Private GitHub repositories: **Acesso ao GitHub** takes a fine-grained
   token with read-only *Contents* on the repositories you use.
+- Compose projects that build images (`build:`) and Dockerfiles that need
+  BuildKit deploy only with **Allow builds outside the firewall** on in the
+  service's settings: their build steps can reach the home network.
 - `setup-apps.sh status` shows the agent, the services and the firewall;
   `disable` stops everything (files stay in `/var/lib/sentinela-apps`).
 

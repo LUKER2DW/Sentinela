@@ -101,12 +101,20 @@ type Apps struct {
 	// here override or add to the defaults (pin digests here if wanted).
 	Runtimes map[string]string `yaml:"runtimes"`
 	// ComposeImage is the Docker CLI image that runs `docker compose` for
-	// compose services, in a throwaway container.
+	// compose services, in a throwaway container that holds the Docker
+	// socket. The default is pinned by digest (DefaultComposeImage).
 	ComposeImage string `yaml:"compose_image"`
 	// LocalRoot is where local project folders are picked from (read-only;
 	// "none" turns local folders off). Default: the Cloud.
 	LocalRoot string `yaml:"local_root"`
 }
+
+// DefaultComposeImage is the official Docker CLI image (Docker 29.10.1,
+// Compose 5.8.0) by digest. The helper that holds the Docker socket runs
+// from it, so a local tag (which any build on the host could move) is never
+// trusted, and the Compose release whose attributes the agent's allow-list
+// was checked against stays fixed until this line changes.
+const DefaultComposeImage = "docker:29-cli@sha256:4e60c31615e83523afbb59773b25d055c0da9edcd5f80a4c6a6eebad49de1a25"
 
 // DefaultRuntimes are the base images offered for script services.
 var DefaultRuntimes = map[string]string{
@@ -366,7 +374,7 @@ func (c *Config) applyDefaults() {
 	def(&c.Apps.StateDir, "/var/lib/sentinela-apps")
 	def(&c.Apps.Docker, "/var/run/docker.sock")
 	def(&c.Apps.Subnet, "172.31.250.0/24")
-	def(&c.Apps.ComposeImage, "docker:29-cli")
+	def(&c.Apps.ComposeImage, DefaultComposeImage)
 	def(&c.Apps.LocalRoot, "/srv/nas")
 	if c.Apps.LocalRoot == "none" {
 		c.Apps.LocalRoot = ""

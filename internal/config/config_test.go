@@ -60,3 +60,16 @@ func TestVolumeMarker(t *testing.T) {
 		}
 	}
 }
+
+// The Compose helper holds the Docker socket: by default it runs an image
+// pinned by digest, never a local tag a build on the host could move.
+func TestDefaultComposeImageIsPinned(t *testing.T) {
+	c, err := Parse([]byte("apps: {enabled: true}\n"), env(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Apps.ComposeImage != DefaultComposeImage || !imagePattern.MatchString(DefaultComposeImage) ||
+		!strings.Contains(DefaultComposeImage, "@sha256:") {
+		t.Fatalf("compose image %q is not pinned by digest", c.Apps.ComposeImage)
+	}
+}

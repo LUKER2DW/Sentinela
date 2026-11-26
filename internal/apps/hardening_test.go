@@ -69,7 +69,7 @@ func deployCompose(t *testing.T, a *Agent, eng *fakeEngine, src *fakeSource, in 
 		t.Fatal(err)
 	}
 	eng.composeConfig = config(v.ID)
-	eng.members = []Summary{{Name: "sapp-" + v.ID + "-web-1", Service: "web", Running: true}}
+	eng.members = []Summary{{Name: "sapp-" + v.ID + "-web-1", App: v.ID, Service: "web", Running: true}}
 	a.Enqueue(v.ID, "deploy")
 	runQueued(t, a)
 	got, _ := a.viewOf(v.ID)
@@ -117,15 +117,29 @@ func TestComposeHelperGetsOnlyAFixedEnvironment(t *testing.T) {
 				t.Errorf("%s reached the helper", k)
 			}
 		}
-		for _, want := range []string{"TOKEN=s3cret", "API_URL=http://api"} {
-			if !slices.Contains(sp.Env, want) {
-				t.Errorf("interpolation variable %q missing from %v", strings.Split(want, "=")[0], sp.Env)
-			}
-		}
 		ro := a.composeDir(got.ID) + ":" + a.composeDir(got.ID) + ":ro"
 		if !slices.Contains(sp.Binds, ro) {
 			t.Errorf("rendered folder not mounted read-only: %v", sp.Binds)
 		}
+		for _, b := range sp.Binds {
+			if b != a.Cfg.Docker+":/var/run/docker.sock" && !strings.HasSuffix(b, ":ro") {
+				t.Errorf("helper gets a writable folder: %s", b)
+			}
+			if strings.HasPrefix(b, a.appDir(got.ID)+":") {
+				t.Errorf("helper sees the whole service folder: %s", b)
+			}
+		}
+	}
+	// `config` interpolates the source file with the service's variables.
+	for _, want := range []string{"TOKEN=s3cret", "API_URL=http://api"} {
+		if !slices.Contains(specs[0].Env, want) {
+			t.Errorf("interpolation variable %q missing from %v", strings.Split(want, "=")[0], specs[0].Env)
+		}
+	}
+	// `up` only resolves the references the agent wrote, under its own names.
+	want := []string{"PATH=" + composeHelperPath, "HOME=/tmp", "DOCKER_CONFIG=/tmp/.docker", composeVar("TOKEN") + "=s3cret"}
+	if !slices.Equal(specs[1].Env, want) {
+		t.Errorf("up environment %v, want %v", specs[1].Env, want)
 	}
 }
 
@@ -143,7 +157,7 @@ func TestRenderedComposeLivesOutsideAnyBindableFolder(t *testing.T) {
 	}
 	// Nothing planCompose accepts as a bind source can contain it.
 	if _, err := planCompose([]byte(`{"services":{"a":{"image":"x","volumes":[{"type":"bind","source":"`+filepath.ToSlash(a.composeDir(got.ID))+`","target":"/c"}]}}}`),
-		[]string{a.appDir(got.ID)}); err == nil {
+		composeRules{ID: got.ID, Release: a.releaseDir(got.ID, got.Deployed.Release), Data: filepath.Join(a.appDir(got.ID), "data")}); err == nil {
 		t.Fatal("a bind of the rendered folder was accepted")
 	}
 	if _, err := os.Stat(filepath.Join(a.workDir(&got.App, got.Deployed), ".sentinela-compose.json")); err == nil {
@@ -207,12 +221,12 @@ func TestPrepareBindDirs(t *testing.T) {
 func TestPlanComposeBindDirsAndBuilds(t *testing.T) {
 	root := "/var/lib/sentinela-apps/apps/x"
 	raw := `{"services":{
-	 "a":{"build":{"context":"` + root + `/src"},"volumes":[
+	 "a":{"build":{"context":"` + root + `/releases/r1/src"},"volumes":[
 	   {"type":"bind","source":"` + root + `/data/one","target":"/1","bind":{"create_host_path":true}},
 	   {"type":"bind","source":"` + root + `/data/two","target":"/2","bind":{"create_host_path":false}},
 	   {"type":"bind","source":"` + root + `/data/three","target":"/3"}]},
 	 "b":{"image":"x"}}}`
-	p, err := planCompose([]byte(raw), []string{root})
+	p, err := planCompose([]byte(raw), testRules(root))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -283,7 +297,7 @@ func TestBuildsOutsideTheFirewallAreMarked(t *testing.T) {
 		a, eng, src := newTestAgent(t)
 		eng.buildKitOnly = true
 		src.files = map[string]string{"Dockerfile": "FROM node\nRUN --mount=type=cache,target=/x true\n"}
-		v, err := a.Create(App{Name: "Img", Source: SourceGitHub, Repo: "ana/img", Mode: ModeDockerfile, Ports: []Port{{Container: 8080}}})
+		v, err := a.Create(App{Name: "Img", Source: SourceGitHub, Repo: "ana/img", Mode: ModeDockerfile, Ports: []Port{{Container: 8080}}, UnfilteredBuilds: true})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -324,8 +338,8 @@ func TestBuildsOutsideTheFirewallAreMarked(t *testing.T) {
 	})
 	t.Run("compose build", func(t *testing.T) {
 		a, eng, src := newTestAgent(t)
-		got := deployCompose(t, a, eng, src, App{Name: "Site"}, func(id string) string {
-			return `{"services":{"web":{"build":{"context":"` + filepath.ToSlash(a.appDir(id)) + `"}}}}`
+		got := deployCompose(t, a, eng, src, App{Name: "Site", UnfilteredBuilds: true}, func(string) string {
+			return `{"services":{"web":{"build":{"context":"@WORK@"}}}}`
 		})
 		if got.Deployed == nil || !got.Deployed.BuildOutsideFirewall {
 			t.Fatalf("compose build not marked: %+v", got.Deployed)

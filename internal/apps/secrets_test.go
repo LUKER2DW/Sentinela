@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -224,18 +225,27 @@ func TestComposeSecretsStayOutOfRenderedFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if input != "deploy/.sentinela-input.yaml" {
-		t.Fatalf("relative paths changed: %s", input)
+	// The input is the agent's file, never one in the release (which a service
+	// may bind writable); `config` resolves relative paths from the Compose
+	// file's folder through --project-directory.
+	if input != filepath.Join(a.composeDir(v.ID), composeInputFile) {
+		t.Fatalf("input written to %s", input)
 	}
-	b, _ := os.ReadFile(work + "/" + input)
+	if entries, _ := os.ReadDir(work + "/deploy"); len(entries) != 1 {
+		t.Fatalf("files written into the release: %v", entries)
+	}
+	b, _ := os.ReadFile(input)
 	if bytes.Contains(b, []byte("env_file")) || bytes.Contains(b, []byte("s3cret")) {
 		t.Fatal("imported env reference/value left in Compose input")
 	}
 	doc := map[string]any{"environment": map[string]any{"TOKEN": "s3cret", "URL": "https://example.test/s3cret"}, "command": "echo $$keep $SHELL"}
-	protectComposeValues(doc, []EnvVar{{Key: "TOKEN", Value: "s3cret", Secret: true}})
+	env := protectComposeValues(doc, []EnvVar{{Key: "TOKEN", Value: "s3cret", Secret: true}})
 	out, _ := json.Marshal(doc)
-	if bytes.Contains(out, []byte("s3cret")) || !bytes.Contains(out, []byte("${TOKEN}")) {
+	if bytes.Contains(out, []byte("s3cret")) || !bytes.Contains(out, []byte("${"+composeVar("TOKEN")+"}")) {
 		t.Fatal("Compose output disclosed manager value")
+	}
+	if !slices.Equal(env, []string{composeVar("TOKEN") + "=s3cret"}) {
+		t.Fatalf("helper environment for the references: %v", env)
 	}
 	if doc["command"] != "echo $$$$keep $$SHELL" {
 		t.Fatal("literal shell dollars not escaped")

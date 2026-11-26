@@ -426,8 +426,7 @@ func (a *Agent) Delete(ctx context.Context, id string) error {
 		return errBusy
 	}
 	if app.Mode == ModeCompose {
-		_, err := a.composeCLI(ctx, app, "", []string{"down", "--volumes", "--remove-orphans", "--rmi", "local"}, func(string, ...any) {})
-		if err != nil {
+		if err := a.composeDown(ctx, app); err != nil {
 			return fmt.Errorf("docker compose down: %w", err)
 		}
 	}
