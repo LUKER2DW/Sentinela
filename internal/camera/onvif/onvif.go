@@ -138,7 +138,7 @@ func ParseCapabilities(data []byte) (map[string]string, error) {
 // the offset when it is large enough to break the UsernameToken.
 func (c *Client) syncClock(ctx context.Context) {
 	t0 := time.Now()
-	data, err := c.post(ctx, c.device(), "", `<GetSystemDateAndTime xmlns="`+devNS+`"/>`, false)
+	data, err := c.post(ctx, c.device(), "", `<GetSystemDateAndTime xmlns="`+devNS+`"/>`, false, replyMax)
 	if err != nil {
 		return
 	}
@@ -176,13 +176,36 @@ func (c *Client) security() string {
 		`</UsernameToken></Security>`
 }
 
-// call posts a SOAP envelope to url with an optional WS-Addressing header.
-func (c *Client) call(ctx context.Context, endpoint, action, body string) ([]byte, error) {
-	return c.post(ctx, endpoint, action, body, true)
+// httpClient is c.HTTP with redirects refused. Whatever answers at the
+// camera address must not be able to send a request, with its SOAP body
+// and digest, to another host (go2rtc's API on loopback, for one): only
+// the configured scheme, host and port are ever contacted. Applied per
+// request, so a client set up by a caller (wizard, tests) obeys it too.
+func (c *Client) httpClient() *http.Client {
+	hc := http.Client{Timeout: 20 * time.Second}
+	if c.HTTP != nil {
+		hc = *c.HTTP
+	}
+	hc.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	return &hc
 }
 
-// post sends one envelope; auth adds the WS-Security UsernameToken.
-func (c *Client) post(ctx context.Context, endpoint, action, body string, auth bool) ([]byte, error) {
+// Reply size limits. Decoding XML costs about ten times its size in heap,
+// so the call made every second (PullMessages: 32 real messages are about
+// 32 KiB) reads far less than the rare ones (profiles, capabilities).
+const (
+	replyMax = 4 << 20
+	pullMax  = 256 << 10
+)
+
+// call posts a SOAP envelope to url with an optional WS-Addressing header.
+func (c *Client) call(ctx context.Context, endpoint, action, body string) ([]byte, error) {
+	return c.post(ctx, endpoint, action, body, true, replyMax)
+}
+
+// post sends one envelope; auth adds the WS-Security UsernameToken. A reply
+// longer than limit is an error (a cut one would not parse anyway).
+func (c *Client) post(ctx context.Context, endpoint, action, body string, auth bool, limit int64) ([]byte, error) {
 	hdr := ""
 	if auth {
 		hdr = c.security()
@@ -197,14 +220,20 @@ func (c *Client) post(ctx context.Context, endpoint, action, body string, auth b
 		return nil, err
 	}
 	req.Header.Set("Content-Type", `application/soap+xml; charset=utf-8`)
-	resp, err := c.HTTP.Do(req)
+	resp, err := c.httpClient().Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	data, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+		return nil, fmt.Errorf("onvif %s: HTTP %d: the camera redirected the request (not followed)", action, resp.StatusCode)
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
 	if err != nil {
 		return nil, err
+	}
+	if int64(len(data)) > limit {
+		return nil, fmt.Errorf("onvif %s: reply over %d bytes", action, limit)
 	}
 	if resp.StatusCode != http.StatusOK || bytes.Contains(data, []byte("Fault>")) {
 		return data, fmt.Errorf("onvif %s: HTTP %d: %s", action, resp.StatusCode, faultReason(data))
@@ -274,23 +303,39 @@ func (c *Client) rebase(addr string) string {
 	return u.String()
 }
 
+// onBase reports whether addr is an absolute URL on the client's own
+// scheme, host and port (no userinfo): rebasing it would change nothing.
+func (c *Client) onBase(addr string) bool {
+	base, err := url.Parse(c.Base)
+	if err != nil || base.Host == "" {
+		return false
+	}
+	u, err := url.Parse(addr)
+	if err != nil || u.User != nil || u.Host == "" {
+		return false
+	}
+	return strings.EqualFold(u.Scheme, base.Scheme) && strings.EqualFold(u.Host, base.Host)
+}
+
 // Notification is one decoded event message.
 type Notification struct {
 	Topic string
 	Items map[string]string // SimpleItem Name → Value (Source and Data)
 }
 
-// pullLimit is the most messages one Pull returns.
+// pullLimit is the most messages one Pull asks for, and the most it
+// returns: a camera that sends more (MessageLimit is only a request) is
+// cut to its last pullLimit messages, the newest state of each topic.
 const pullLimit = 32
 
 // Pull waits up to timeout for messages.
 func (s *Subscription) Pull(ctx context.Context, timeout time.Duration) ([]Notification, error) {
 	body := fmt.Sprintf(`<PullMessages xmlns="%s"><Timeout>PT%dS</Timeout><MessageLimit>%d</MessageLimit></PullMessages>`, evNS, int(timeout.Seconds()), pullLimit)
-	data, err := s.c.call(ctx, s.URL, evNS+"/PullPointSubscription/PullMessagesRequest", body)
+	data, err := s.c.post(ctx, s.URL, evNS+"/PullPointSubscription/PullMessagesRequest", body, true, pullMax)
 	if err != nil {
 		return nil, err
 	}
-	return ParseNotifications(data)
+	return parseNotifications(data, pullLimit)
 }
 
 // Renew extends the subscription.
@@ -307,36 +352,101 @@ func (s *Subscription) Unsubscribe(ctx context.Context) error {
 	return err
 }
 
+// notificationXML is one NotificationMessage of a PullMessagesResponse.
+type notificationXML struct {
+	Topic string `xml:"Topic"`
+	Items []struct {
+		Name  string `xml:"Name,attr"`
+		Value string `xml:"Value,attr"`
+	} `xml:"Message>Message>Data>SimpleItem"`
+	Source []struct {
+		Name  string `xml:"Name,attr"`
+		Value string `xml:"Value,attr"`
+	} `xml:"Message>Message>Source>SimpleItem"`
+}
+
+// What one notification keeps of the camera's strings. Real topics are
+// tens of bytes ("tns1:RuleEngine/CellMotionDetector/Motion") and items are
+// a few short names and values; a reply is up to 4 MiB, and the watcher
+// keeps active topics between pulls, so nothing longer is kept.
+const (
+	maxTopicLen     = 256
+	maxItems        = 16
+	maxItemNameLen  = 64
+	maxItemValueLen = 256
+)
+
+// notification converts one message; ok is false for a topic longer than
+// maxTopicLen (no camera sends one: the message is dropped). Items longer
+// than their limits are left out, and at most maxItems are kept, Data
+// first: a Data item wins over a Source item of the same name.
+func (m *notificationXML) notification() (n Notification, ok bool) {
+	n = Notification{Topic: strings.TrimSpace(m.Topic), Items: map[string]string{}}
+	if len(n.Topic) > maxTopicLen {
+		return Notification{}, false
+	}
+	add := func(name, value string) {
+		if _, dup := n.Items[name]; dup || len(n.Items) == maxItems || len(name) > maxItemNameLen || len(value) > maxItemValueLen {
+			return
+		}
+		n.Items[name] = value
+	}
+	for i := len(m.Items) - 1; i >= 0; i-- { // the last of a repeated name wins, as before
+		add(m.Items[i].Name, m.Items[i].Value)
+	}
+	for i := len(m.Source) - 1; i >= 0; i-- {
+		add(m.Source[i].Name, m.Source[i].Value)
+	}
+	return n, true
+}
+
 // ParseNotifications decodes a PullMessagesResponse.
 func ParseNotifications(data []byte) ([]Notification, error) {
-	var r struct {
-		Msgs []struct {
-			Topic string `xml:"Topic"`
-			Items []struct {
-				Name  string `xml:"Name,attr"`
-				Value string `xml:"Value,attr"`
-			} `xml:"Message>Message>Data>SimpleItem"`
-			Source []struct {
-				Name  string `xml:"Name,attr"`
-				Value string `xml:"Value,attr"`
-			} `xml:"Message>Message>Source>SimpleItem"`
-		} `xml:"Body>PullMessagesResponse>NotificationMessage"`
-	}
-	if err := xml.Unmarshal(data, &r); err != nil {
-		return nil, err
-	}
-	out := make([]Notification, 0, len(r.Msgs))
-	for _, m := range r.Msgs {
-		n := Notification{Topic: strings.TrimSpace(m.Topic), Items: map[string]string{}}
-		for _, it := range m.Source {
-			n.Items[it.Name] = it.Value
+	return parseNotifications(data, 0)
+}
+
+// parseNotifications decodes the NotificationMessages of a
+// PullMessagesResponse (Envelope>Body>PullMessagesResponse, matched by
+// local name as xml.Unmarshal does) one at a time, keeping only the last
+// limit of them (0 = all): a reply crammed with messages costs time in
+// proportion to its size, never memory. A message with an oversized topic
+// is dropped (notification).
+func parseNotifications(data []byte, limit int) ([]Notification, error) {
+	d := xml.NewDecoder(bytes.NewReader(data))
+	var path []string // open elements, the root first
+	out := []Notification{}
+	for {
+		tok, err := d.Token()
+		if err != nil {
+			// Like xml.Unmarshal: no root element is an error (io.EOF).
+			return nil, err
 		}
-		for _, it := range m.Items {
-			n.Items[it.Name] = it.Value
+		switch t := tok.(type) {
+		case xml.StartElement:
+			if len(path) == 3 && path[1] == "Body" && path[2] == "PullMessagesResponse" && t.Name.Local == "NotificationMessage" {
+				var m notificationXML
+				if err := d.DecodeElement(&m, &t); err != nil {
+					return nil, err
+				}
+				n, ok := m.notification()
+				if !ok {
+					continue
+				}
+				if limit > 0 && len(out) == limit {
+					copy(out, out[1:])
+					out = out[:limit-1]
+				}
+				out = append(out, n)
+				continue
+			}
+			path = append(path, t.Name.Local)
+		case xml.EndElement:
+			path = path[:len(path)-1]
+			if len(path) == 0 {
+				return out, nil // the end of the root element, as xml.Unmarshal stops
+			}
 		}
-		out = append(out, n)
 	}
-	return out, nil
 }
 
 // Classify maps a notification to (event type, active). ok=false for

@@ -10,8 +10,9 @@ import (
 	"reflect"
 	"sort"
 	"strings"
-	"sync"
 	"time"
+
+	"github.com/LUKER2DW/sentinela/internal/camera/camlock"
 )
 
 // Controller owns the single DVRIP session of one camera and serializes all
@@ -30,7 +31,10 @@ type Controller struct {
 
 	dial func(ctx context.Context, addr, user, pw string) (*Conn, error)
 
-	mu        sync.Mutex
+	// mu is the camera's one control lock. Requests take it with their
+	// context, so one that waited past its deadline gives up without
+	// touching the session.
+	mu        camlock.Mutex
 	conn      *Conn
 	lastUse   time.Time
 	idleTimer *time.Timer
@@ -43,6 +47,7 @@ type Controller struct {
 
 	moving    *activeMove
 	moveTimer *time.Timer
+	stopFails int // stops of the current movement that failed in a row
 }
 
 type activeMove struct {
@@ -76,7 +81,9 @@ func NewController(addr, user, password string, invert Invert, log *slog.Logger)
 
 // with runs fn with a live, logged-in session, reconnecting once on I/O errors.
 func (c *Controller) with(ctx context.Context, fn func(*Conn) error) error {
-	c.mu.Lock()
+	if err := c.mu.LockContext(ctx); err != nil {
+		return err
+	}
 	defer c.mu.Unlock()
 	return c.withLocked(ctx, fn)
 }
@@ -99,6 +106,11 @@ func (c *Controller) cool() {
 // always be tried).
 func (c *Controller) withConn(ctx context.Context, fn func(*Conn) error, force bool) error {
 	for attempt := 0; ; attempt++ {
+		// A caller out of time would only fail on the socket and drop a
+		// session that is fine.
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		fresh := false
 		if c.conn == nil {
 			if !force && time.Now().Before(c.coolUntil) {
@@ -188,6 +200,11 @@ func (c *Controller) Close() {
 		ctx, cancel := context.WithTimeout(context.Background(), DefaultTimeout)
 		_ = c.stopLocked(ctx)
 		cancel()
+		// Closing (shutdown): no retry after this last attempt.
+		c.moving = nil
+		if c.moveTimer != nil {
+			c.moveTimer.Stop()
+		}
 	}
 	if c.conn != nil {
 		c.conn.Close()
@@ -382,7 +399,9 @@ func (c *Controller) Start(ctx context.Context, op, dir string, speed int) error
 	if speed < 1 || speed > 8 {
 		return ErrInvalidCommand
 	}
-	c.mu.Lock()
+	if err := c.mu.LockContext(ctx); err != nil {
+		return err
+	}
 	defer c.mu.Unlock()
 	if c.moving != nil && (c.moving.command != cmd || c.moving.speed != speed) {
 		if err := c.stopLocked(ctx); err != nil {
@@ -398,7 +417,7 @@ func (c *Controller) Start(ctx context.Context, op, dir string, speed int) error
 	if err != nil {
 		return err
 	}
-	c.moving = &activeMove{command: cmd, speed: speed}
+	c.moving, c.stopFails = &activeMove{command: cmd, speed: speed}, 0
 	if c.moveTimer == nil {
 		c.moveTimer = time.AfterFunc(c.Deadman, c.deadman)
 	} else {
@@ -422,11 +441,16 @@ func (c *Controller) deadman() {
 
 // Stop ends the current held movement, if any.
 func (c *Controller) Stop(ctx context.Context) error {
-	c.mu.Lock()
+	if err := c.mu.LockContext(ctx); err != nil {
+		return err
+	}
 	defer c.mu.Unlock()
 	return c.stopLocked(ctx)
 }
 
+// stopLocked sends the stop. When it fails the camera may still be moving,
+// so the deadman is armed again to retry, at a growing interval while the
+// camera does not answer (stopRetry).
 func (c *Controller) stopLocked(ctx context.Context) error {
 	if c.moving == nil {
 		return nil
@@ -436,10 +460,24 @@ func (c *Controller) stopLocked(ctx context.Context) error {
 		c.moveTimer.Stop()
 	}
 	err := c.withConn(ctx, func(conn *Conn) error { return conn.ptz(ctx, m.command, m.speed, -1) }, true)
-	if err == nil {
-		c.moving = nil
+	if err != nil {
+		c.stopFails++
+		d := stopRetry(c.Deadman, c.stopFails)
+		if c.moveTimer == nil {
+			c.moveTimer = time.AfterFunc(d, c.deadman)
+		} else {
+			c.moveTimer.Reset(d)
+		}
+		return err
 	}
-	return err
+	c.moving, c.stopFails = nil, 0
+	return nil
+}
+
+// stopRetry is when to try a stop again after fails failed in a row: the
+// deadman interval, doubling up to coolMax.
+func stopRetry(deadman time.Duration, fails int) time.Duration {
+	return min(deadman<<min(fails-1, 5), coolMax)
 }
 
 // Nudge moves for d (100 ms..1 s) and stops.

@@ -15,6 +15,11 @@ the server unless an ADR gives a measured budget.
   burst reuse the review item's earlier picture.
 - Stored as `/data/snapshots/<camera>/<event id>.jpg`, deleted with the
   event (same age as the recordings retention).
+- Amendment (2026-11-26): the detector's analysed frame (ADR-0016) is kept
+  at most once per camera every 10 s too. Snapshots never take more than
+  1 % of the data disk (at least 256 MiB): past it the oldest are deleted
+  first, so the recorder's disk valve deletes recordings to make room for
+  them out of at most 1 % of the disk.
 - Served only through the API (`/api/events/{id}/snapshot`, logged-in
   users); never sent to a third party (ADR-0013).
 

@@ -34,10 +34,11 @@ are superseded where noted by ADR-0019 and ADR-0020.
    every container uses the host network and shares that loopback, and go2rtc's
    API has no credential of its own: a compromised detector (it decodes camera
    video) could talk to it. Giving the API a credential or a private network
-   namespace is still open work. Live streams (`/stream/ws`, event and
-   notification streams) re-check the session every 45 s and end when it is
-   revoked or the account is disabled; a narrowed camera list applies to open
-   streams too.
+   namespace is still open work. Requests to cameras (ONVIF) never follow
+   HTTP redirects, so a device at a camera address cannot point them there.
+   Live streams (`/stream/ws`, event and notification streams) re-check the
+   session every 45 s and end when it is revoked or the account is
+   disabled; a narrowed camera list applies to open streams too.
 4. Passwords use argon2id (64 MiB, 3 iterations, one lane). Policy is at
    least 10 characters mixing two kinds, or a 16-character passphrase;
    common passwords are rejected. Remembered browser sessions last 30 days
@@ -159,7 +160,12 @@ are superseded where noted by ADR-0019 and ADR-0020.
 13. Detector endpoints require loopback and `/data/detector/token`.
     The sidecar consumes only the loopback substream restream, never camera
     credentials. Its accepted decode budget is ADR-0016; snapshot decoding
-    is separately limited by ADR-0015.
+    is separately limited by ADR-0015. What it can store is bounded: per
+    camera and kind 60 events at once, then one every 10 s; at most 50
+    objects of 10 zones each, of which a summary is kept (the count and
+    the 5 best objects' allow-listed fields) within 1 KiB;
+    its picture at most once per camera every 10 s; and all event
+    snapshots within 1 % of the data disk (ADR-0015).
 14. Public access is the accepted P1 path (ADR-0019): a WAN port forwarded
     to TLS 7443, with the approved WebRTC 8555 allowance. Funnel
     (`remote.funnel_listen`) and the loopback proxy listener

@@ -62,8 +62,8 @@ type Server struct {
 	tourGoto    tourGoto   // tests replace the camera move
 	evWatch     eventWatch // ONVIF event subscription health per camera
 	hub         *Hub
-	stateMu     sync.Mutex
-	stateTTL    map[string]cachedState
+	control     camReads[*dvrip.State] // /control per camera
+	clock       camReads[clockReading] // /clock per camera
 
 	snaps     snapshotter
 	tlSem     chan struct{} // one timelapse at a time
@@ -84,11 +84,6 @@ type Server struct {
 	thumbs  *nas.Thumbs
 }
 
-type cachedState struct {
-	at time.Time
-	st *dvrip.State
-}
-
 // New builds a server. Call Close on shutdown.
 func New(cfg *config.Config, st *store.Store, web fs.FS, log *slog.Logger) (*Server, error) {
 	g, err := url.Parse(cfg.Go2RTCAPI)
@@ -98,8 +93,9 @@ func New(cfg *config.Config, st *store.Store, web fs.FS, log *slog.Logger) (*Ser
 	s := &Server{Cfg: cfg, Store: st, Log: log, Web: web, Started: time.Now(), FFmpeg: "ffmpeg", lanIP: lanIPv4, instance: newInstanceID(), mirrorKick: make(chan struct{}, 1),
 		tickets: auth.NewTickets(60 * time.Second), loginRL: auth.NewLimiter(5, time.Minute),
 		homeLim: newLoginLimits(false), pubLim: newLoginLimits(true), codes: auth.NewCodeGuard(),
-		go2rtc: g, ctrl: map[string]*dvrip.Controller{}, ptzDrv: map[string]ptzDriver{}, onvifPTZ: map[string]*onvif.PTZ{}, hub: NewHub(), stateTTL: map[string]cachedState{},
+		go2rtc: g, ctrl: map[string]*dvrip.Controller{}, ptzDrv: map[string]ptzDriver{}, onvifPTZ: map[string]*onvif.PTZ{}, hub: NewHub(),
 		tlSem: make(chan struct{}, 1), exportSem: make(chan struct{}, 2)}
+	s.control.log, s.clock.log, s.frames.log = log, log, log
 	for i := range cfg.Cameras {
 		cam := &cfg.Cameras[i]
 		pan, tilt := cam.Inversion()

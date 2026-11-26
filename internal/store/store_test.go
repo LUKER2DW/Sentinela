@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -393,5 +394,37 @@ func TestSessionKeepsItsHost(t *testing.T) {
 		if sess.Host != c.host || sess.Zone != c.zone {
 			t.Errorf("session host/zone = %q/%q, want %q/%q", sess.Host, sess.Zone, c.host, c.zone)
 		}
+	}
+}
+
+// Event lists never load meta; EventByID loads it, except an oversized one
+// (only rows written before the API capped it can have one).
+func TestEventQueriesSkipHugeMeta(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	small := `{"source":"detector","objects":[]}`
+	huge := `{"objects":["` + strings.Repeat("<", EventMetaLoadMax) + `"]}`
+	edge := strings.Repeat("x", EventMetaLoadMax)
+	a, _ := s.OpenEvent(ctx, "cam1", "human", now, small)
+	b, _ := s.OpenEvent(ctx, "cam1", "human", now.Add(time.Second), huge)
+	c, _ := s.OpenEvent(ctx, "cam1", "human", now.Add(2*time.Second), edge)
+	want := map[int64]string{a: small, b: "", c: edge}
+	ev, err := s.EventsBetween(ctx, "", now.Add(-time.Minute), now.Add(time.Minute), 10)
+	if err != nil || len(ev) != 3 {
+		t.Fatalf("events %d %v", len(ev), err)
+	}
+	for _, e := range ev {
+		if _, ok := want[e.ID]; !ok || e.Meta != "" {
+			t.Errorf("listed event %d with meta of %d bytes", e.ID, len(e.Meta))
+		}
+	}
+	for id, m := range want {
+		if e, err := s.EventByID(ctx, id); err != nil || e.Meta != m {
+			t.Errorf("EventByID(%d): %v, meta of %d bytes", id, err, len(e.Meta))
+		}
+	}
+	if !strings.Contains(eventCols, "<="+strconv.Itoa(EventMetaLoadMax)+" ") {
+		t.Fatalf("eventCols does not use EventMetaLoadMax: %s", eventCols)
 	}
 }

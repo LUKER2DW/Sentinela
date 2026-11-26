@@ -261,9 +261,10 @@ not establish long-term artifact-free operation or current 4G latency.
   (deployed 2026-11-06 22:26 UTC) used all 32 by 23:22 and motion events
   stopped. The watcher now keeps one subscription for as long as pulls
   work, remembers its address (`settings` key `onvif.pullpoint.<camera>`)
-  and reuses it after a restart. When creation is refused and nothing is
-  remembered, it adopts a live numbered slot, discarding that slot's first
-  batch as stale. `PullMessages` on a slot needs no authentication
+  and reuses it after a restart (only while the camera's configured address
+  and port are unchanged; otherwise it is forgotten). When creation is
+  refused and nothing is remembered, it adopts a live numbered slot,
+  discarding that slot's first batch as stale. `PullMessages` on a slot needs no authentication
   (read-only, LAN-only).
 - While the camera moves under PTZ (and 3 s after; 15 s after a preset
   goto) its own motion opens no event, snapshot, detection or notification.

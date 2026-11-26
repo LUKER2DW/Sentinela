@@ -10,8 +10,9 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
+
+	"github.com/LUKER2DW/sentinela/internal/camera/camlock"
 )
 
 // ONVIF PTZ for cameras of any brand (PTZ service, ver20): held moves and
@@ -48,10 +49,15 @@ type PTZ struct {
 	invert  Invert
 	Deadman time.Duration
 
-	mu      sync.Mutex
+	// mu serializes the camera's PTZ requests. They take it with their
+	// context, so one that waited past its deadline simply gives up.
+	mu      camlock.Mutex
 	profile string
 	moving  bool
 	timer   *time.Timer
+	// stopFails counts the stops of the current movement that failed in a
+	// row (retry interval, stopRetry).
+	stopFails int
 	// noTimeout: the camera faulted on ContinuousMove's Timeout, send none.
 	noTimeout bool
 }
@@ -175,7 +181,9 @@ func (p *PTZ) Start(ctx context.Context, op, dir string, speed int) error {
 	if err != nil {
 		return err
 	}
-	p.mu.Lock()
+	if err := p.mu.LockContext(ctx); err != nil {
+		return err
+	}
 	defer p.mu.Unlock()
 	prof, err := p.profileLocked(ctx)
 	if err != nil {
@@ -203,7 +211,7 @@ func (p *PTZ) Start(ctx context.Context, op, dir string, speed int) error {
 	if err != nil {
 		return err
 	}
-	p.moving = true
+	p.moving, p.stopFails = true, 0
 	if p.timer == nil {
 		p.timer = time.AfterFunc(p.Deadman, p.deadman)
 	} else {
@@ -225,11 +233,19 @@ func (p *PTZ) deadman() {
 
 // Stop ends the current movement, if any.
 func (p *PTZ) Stop(ctx context.Context) error {
-	p.mu.Lock()
+	if err := p.mu.LockContext(ctx); err != nil {
+		return err
+	}
 	defer p.mu.Unlock()
 	return p.stopLocked(ctx)
 }
 
+// stopLocked sends the stop. When it fails the camera may still be moving,
+// so the deadman is armed again to retry, at a growing interval, while
+// that is possible: the camera did not answer, or it refused
+// ContinuousMove's Timeout and has no limit of its own. A camera that
+// answered with an error and took the Timeout stops by itself, so it is
+// not asked again; nor is any camera after maxStopTries in a row.
 func (p *PTZ) stopLocked(ctx context.Context) error {
 	if !p.moving {
 		return nil
@@ -237,17 +253,44 @@ func (p *PTZ) stopLocked(ctx context.Context) error {
 	if p.timer != nil {
 		p.timer.Stop()
 	}
+	if err := p.sendStop(ctx); err != nil {
+		p.stopFails++
+		answered := strings.Contains(err.Error(), ": HTTP ")
+		if (answered && !p.noTimeout) || p.stopFails >= maxStopTries {
+			p.moving, p.stopFails = false, 0
+			return err
+		}
+		d := stopRetry(p.Deadman, p.stopFails)
+		if p.timer == nil {
+			p.timer = time.AfterFunc(d, p.deadman)
+		} else {
+			p.timer.Reset(d)
+		}
+		return err
+	}
+	p.moving, p.stopFails = false, 0
+	return nil
+}
+
+func (p *PTZ) sendStop(ctx context.Context) error {
 	prof, err := p.profileLocked(ctx)
 	if err != nil {
 		return err
 	}
 	body := `<Stop xmlns="` + ptzNS + `"><ProfileToken>` + xmlEscape(prof) + `</ProfileToken>` +
 		`<PanTilt>true</PanTilt><Zoom>true</Zoom></Stop>`
-	if _, err := p.c.call(ctx, p.ptzURL(ctx), "", body); err != nil {
-		return err
-	}
-	p.moving = false
-	return nil
+	_, err = p.c.call(ctx, p.ptzURL(ctx), "", body)
+	return err
+}
+
+// maxStopTries is how many stops of one movement are tried in a row
+// (about 10 minutes at the 30 s ceiling of stopRetry).
+const maxStopTries = 25
+
+// stopRetry is when to try a stop again after fails failed in a row: the
+// deadman interval, doubling up to 30 s.
+func stopRetry(deadman time.Duration, fails int) time.Duration {
+	return min(deadman<<min(fails-1, 5), 30*time.Second)
 }
 
 // Nudge moves for d (100 ms..1 s) and stops.
@@ -350,7 +393,9 @@ func (p *PTZ) presetsLocked(ctx context.Context) (string, []onvifPreset, error) 
 
 // Presets lists the camera's saved positions (read-only).
 func (p *PTZ) Presets(ctx context.Context) ([]PTZPreset, error) {
-	p.mu.Lock()
+	if err := p.mu.LockContext(ctx); err != nil {
+		return nil, err
+	}
 	defer p.mu.Unlock()
 	_, list, err := p.presetsLocked(ctx)
 	if err != nil {
@@ -368,7 +413,9 @@ func (p *PTZ) Preset(ctx context.Context, action string, id int) error {
 	if id < 1 || id > 255 || (action != "goto" && action != "set" && action != "clear") {
 		return ErrInvalidCommand
 	}
-	p.mu.Lock()
+	if err := p.mu.LockContext(ctx); err != nil {
+		return err
+	}
 	defer p.mu.Unlock()
 	prof, list, err := p.presetsLocked(ctx)
 	if err != nil {
@@ -406,11 +453,20 @@ func (p *PTZ) Preset(ctx context.Context, action string, id int) error {
 	return err
 }
 
-// Close stops the deadman timer.
+// Close stops the deadman timer and, if the camera may still be moving,
+// sends one last stop; no stop is retried after it.
 func (p *PTZ) Close() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.timer != nil {
 		p.timer.Stop()
 	}
+	if p.moving {
+		// A last stop, bounded: a camera with no Timeout of its own would
+		// otherwise keep turning after shutdown.
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_ = p.sendStop(ctx)
+		cancel()
+	}
+	p.moving = false
 }

@@ -1,6 +1,8 @@
 package onvif
 
 import (
+	"encoding/xml"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -28,10 +30,28 @@ func FuzzParsers(f *testing.F) {
 		_, _ = PTZProfile(data)
 		_, _ = ParseSystemTime(data)
 		_ = ParseProbeMatches(data)
-		if ns, err := ParseNotifications(data); err == nil {
+		ns, err := ParseNotifications(data)
+		if err == nil {
 			for _, n := range ns {
 				_, _, _ = Classify(n)
+				if len(n.Topic) > maxTopicLen || len(n.Items) > maxItems {
+					t.Fatalf("kept a topic of %d bytes and %d items", len(n.Topic), len(n.Items))
+				}
+				for k, v := range n.Items {
+					if len(k) > maxItemNameLen || len(v) > maxItemValueLen {
+						t.Fatalf("kept an item of %d+%d bytes", len(k), len(v))
+					}
+				}
 			}
+		}
+		// The streaming decoder reads what xml.Unmarshal read.
+		want, werr := referenceNotifications(data)
+		if (err == nil) != (werr == nil) || err == nil && !reflect.DeepEqual(ns, want) {
+			t.Fatalf("streaming %v %+v, reference %v %+v", err, ns, werr, want)
+		}
+		if lim, err := parseNotifications(data, 2); err == nil && (len(lim) > 2 || len(lim) != min(2, len(ns)) ||
+			len(lim) > 0 && !reflect.DeepEqual(lim, ns[len(ns)-len(lim):])) {
+			t.Fatalf("limited %+v of %+v", lim, ns)
 		}
 		_ = faultReason(data)
 	})
@@ -79,4 +99,22 @@ func FuzzSplitRTSP(f *testing.F) {
 			t.Fatalf("bad stream %d %q from %q", port, path, uri)
 		}
 	})
+}
+
+// referenceNotifications is the former ParseNotifications (xml.Unmarshal of
+// the whole reply), kept to check the streaming decoder against.
+func referenceNotifications(data []byte) ([]Notification, error) {
+	var r struct {
+		Msgs []notificationXML `xml:"Body>PullMessagesResponse>NotificationMessage"`
+	}
+	if err := xml.Unmarshal(data, &r); err != nil {
+		return nil, err
+	}
+	out := []Notification{}
+	for i := range r.Msgs {
+		if n, ok := r.Msgs[i].notification(); ok {
+			out = append(out, n)
+		}
+	}
+	return out, nil
 }

@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/LUKER2DW/sentinela/internal/auth"
 	"github.com/LUKER2DW/sentinela/internal/auth/redact"
 	"github.com/LUKER2DW/sentinela/internal/camera/dvrip"
 	"github.com/LUKER2DW/sentinela/internal/camera/onvif"
@@ -107,6 +108,30 @@ func (s *Server) ptzCam(w http.ResponseWriter, r *http.Request) (*config.Camera,
 	return cam, drv
 }
 
+// Camera reads coalesced per camera (camReads): viewers can ask as often as
+// they like, the camera answers at most one read at a time, and its answer
+// is reused for a while.
+var (
+	// controlRead: the SPA reads /control with a 60 s stale time. Viewers
+	// always get an answer up to 15 s old; ?fresh=1 from an operator or
+	// admin accepts one up to 2 s old, so even that cannot keep the camera's
+	// control lock busy ahead of PTZ commands and the deadman.
+	controlRead  = readPolicy{maxAge: 15 * time.Second, errAge: 5 * time.Second, timeout: 8 * time.Second}
+	controlFresh = 2 * time.Second
+	// clockRead: the offset of a camera clock does not move in seconds;
+	// the SPA asks once a minute per open view.
+	clockRead = readPolicy{maxAge: 10 * time.Second, errAge: 5 * time.Second, timeout: 5 * time.Second}
+)
+
+// controlPolicy is controlRead, shortened by ?fresh for operators.
+func controlPolicy(r *http.Request) readPolicy {
+	p := controlRead
+	if u := userFrom(r); r.URL.Query().Get("fresh") != "" && u != nil && auth.RoleAtLeast(u.Role, auth.RoleOperator) {
+		p.maxAge = controlFresh
+	}
+	return p
+}
+
 func (s *Server) cameraControl(w http.ResponseWriter, r *http.Request) {
 	cam := s.camera(w, r)
 	if cam == nil {
@@ -121,58 +146,37 @@ func (s *Server) cameraControl(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotImplemented, "this camera has no remote control (vendor "+cam.Vendor+")")
 		return
 	}
-	s.stateMu.Lock()
-	c, ok := s.stateTTL[cam.ID]
-	s.stateMu.Unlock()
-	if ok && time.Since(c.at) < 15*time.Second && r.URL.Query().Get("fresh") == "" {
-		writeJSON(w, http.StatusOK, c.st)
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
-	defer cancel()
-	st, err := ctrl.State(ctx)
+	st, err := s.control.get(r.Context(), cam.ID, controlPolicy(r), ctrl.State)
 	if err != nil {
 		s.camErr(w, cam, err)
 		return
 	}
-	s.stateMu.Lock()
-	s.stateTTL[cam.ID] = cachedState{at: time.Now(), st: st}
-	s.stateMu.Unlock()
 	writeJSON(w, http.StatusOK, st)
 }
 
 // onvifControl answers /control for a camera moved over ONVIF PTZ: its
 // saved positions (the DVRIP-only settings are absent).
 func (s *Server) onvifControl(w http.ResponseWriter, r *http.Request, cam *config.Camera) {
-	s.stateMu.Lock()
-	c, ok := s.stateTTL[cam.ID]
-	s.stateMu.Unlock()
-	if ok && time.Since(c.at) < 15*time.Second && r.URL.Query().Get("fresh") == "" {
-		writeJSON(w, http.StatusOK, c.st)
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
-	defer cancel()
-	list, err := s.onvifPTZ[cam.ID].Presets(ctx)
+	p := s.onvifPTZ[cam.ID]
+	st, err := s.control.get(r.Context(), cam.ID, controlPolicy(r), func(ctx context.Context) (*dvrip.State, error) {
+		list, err := p.Presets(ctx)
+		if err != nil {
+			return nil, err
+		}
+		st := &dvrip.State{Approved: true, Presets: make([]dvrip.Preset, 0, len(list))}
+		for _, pr := range list {
+			st.Presets = append(st.Presets, dvrip.Preset{ID: pr.ID, Name: pr.Name})
+		}
+		return st, nil
+	})
 	if err != nil {
 		s.camErr(w, cam, err)
 		return
 	}
-	st := &dvrip.State{Approved: true, Presets: make([]dvrip.Preset, 0, len(list))}
-	for _, p := range list {
-		st.Presets = append(st.Presets, dvrip.Preset{ID: p.ID, Name: p.Name})
-	}
-	s.stateMu.Lock()
-	s.stateTTL[cam.ID] = cachedState{at: time.Now(), st: st}
-	s.stateMu.Unlock()
 	writeJSON(w, http.StatusOK, st)
 }
 
-func (s *Server) invalidateState(id string) {
-	s.stateMu.Lock()
-	delete(s.stateTTL, id)
-	s.stateMu.Unlock()
-}
+func (s *Server) invalidateState(id string) { s.control.invalidate(id) }
 
 func (s *Server) ptz(w http.ResponseWriter, r *http.Request) {
 	cam, ctrl := s.ptzCam(w, r)
@@ -304,34 +308,42 @@ func (s *Server) setDayNight(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
+// clockReading is what /clock answers.
+type clockReading struct {
+	Camera   time.Time `json:"camera"`
+	Server   time.Time `json:"server"`
+	OffsetMS int64     `json:"offset_ms"`
+}
+
 // cameraClock reports how far the camera's clock (the one burned into the
-// video) is from the server's NTP-synced clock. Read-only ONVIF call.
+// video) is from the server's NTP-synced clock. Read-only ONVIF call, made
+// at most once at a time per camera and reused for a few seconds.
 func (s *Server) cameraClock(w http.ResponseWriter, r *http.Request) {
 	cam := s.camera(w, r)
 	if cam == nil {
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-	defer cancel()
 	if !cam.UsesONVIF() {
 		writeErr(w, http.StatusNotImplemented, "ONVIF is off for this camera")
 		return
 	}
-	c := onvif.NewClient(cam.Host, cam.ONVIFPort, cam.User, cam.Password).WithDevicePath(cam.ONVIFPath)
-	t0 := time.Now()
-	camTime, err := c.SystemTime(ctx)
-	t1 := time.Now()
+	reading, err := s.clock.get(r.Context(), cam.ID, clockRead, func(ctx context.Context) (clockReading, error) {
+		c := onvif.NewClient(cam.Host, cam.ONVIFPort, cam.User, cam.Password).WithDevicePath(cam.ONVIFPath)
+		t0 := time.Now()
+		camTime, err := c.SystemTime(ctx)
+		t1 := time.Now()
+		if err != nil {
+			s.Log.Warn("camera clock read failed", "camera", cam.ID, "err", redact.Secrets(err.Error(), cam.Password))
+			return clockReading{}, err
+		}
+		mid := t0.Add(t1.Sub(t0) / 2)
+		// The camera reports whole seconds (truncated): on average its real
+		// time is half a second later, so the offset is accurate to ±0.5 s.
+		return clockReading{Camera: camTime, Server: mid.UTC(), OffsetMS: camTime.Add(500 * time.Millisecond).Sub(mid).Milliseconds()}, nil
+	})
 	if err != nil {
-		s.Log.Warn("camera clock read failed", "camera", cam.ID, "err", redact.Secrets(err.Error(), cam.Password))
 		writeErr(w, http.StatusBadGateway, "camera did not report its time")
 		return
 	}
-	mid := t0.Add(t1.Sub(t0) / 2)
-	// The camera reports whole seconds (truncated): on average its real time
-	// is half a second later, so the offset is accurate to about ±0.5 s.
-	writeJSON(w, http.StatusOK, map[string]any{
-		"camera":    camTime,
-		"server":    mid.UTC(),
-		"offset_ms": camTime.Add(500 * time.Millisecond).Sub(mid).Milliseconds(),
-	})
+	writeJSON(w, http.StatusOK, reading)
 }

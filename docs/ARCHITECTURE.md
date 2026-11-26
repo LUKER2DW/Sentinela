@@ -76,7 +76,11 @@ Cameras of other brands with `features.ptz` move over ONVIF PTZ instead
 (ContinuousMove/Stop and presets only, CAMERAS.md): one serialized driver
 per camera with the same keepalive deadman, plus the camera's own
 ContinuousMove timeout. ONVIF service addresses come from the camera's
-GetCapabilities, and requests are signed in the camera's clock.
+GetCapabilities, requests are signed in the camera's clock, and redirects
+are never followed. A queued control request gives up at its deadline
+without touching the session. Viewer reads of `/control`, `/clock` and the
+zone-editor frame are coalesced per camera: one at a time, answer reused
+for seconds (`?fresh=1` only for operators, at most every 2 s).
 
 Pan and tilt are configurable independently (`invert_pan`, `invert_tilt`)
 and inherit `invert_pan_tilt` when unset. Talk uses go2rtc's backchannel.
@@ -85,9 +89,17 @@ There is no browser-to-camera connection.
 ### 2.4 Events and notifications
 
 ONVIF events enter SQLite and the live SSE hub; PullMessages calls are
-spaced at least one second apart for this camera. The detector consumes the
-motion gate, analyzes only substream keyframes, applies zones, and posts
-person/vehicle/animal events over a token-protected loopback endpoint.
+spaced at least one second apart, full batches too, and a reply is cut to
+its last 32 messages; topics over 256 bytes are ignored. An event stays
+open 5 s after its type goes inactive, so a re-trigger continues it. A
+camera stores at most 20 events of each type at once, then one per 15 s;
+beyond that only its motion state reaches the detector, and the event is
+stored at its next active message once its type is allowed one again.
+A remembered pull point is reused only on the camera's current address.
+The detector consumes the motion gate, analyzes only substream keyframes,
+applies zones, and posts person/vehicle/animal events over a
+token-protected loopback endpoint, per camera and kind at most 60 at once,
+then one every 10 s.
 
 Modes Casa/Noite/Fora and per-user preferences decide which events notify.
 While detection is healthy, raw motion stays in the timeline but does not

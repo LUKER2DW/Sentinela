@@ -2,6 +2,7 @@ package onvif
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -80,6 +81,7 @@ type fakePTZ struct {
 	mu        sync.Mutex
 	calls     []string
 	noTimeout bool
+	failStop  bool // answer Stop with an HTTP error
 }
 
 func (f *fakePTZ) handler(t *testing.T) http.HandlerFunc {
@@ -90,7 +92,12 @@ func (f *fakePTZ) handler(t *testing.T) http.HandlerFunc {
 		op = op[:strings.IndexAny(op, " />")]
 		f.mu.Lock()
 		f.calls = append(f.calls, r.URL.Path+" "+op)
+		failStop := f.failStop && op == "Stop"
 		f.mu.Unlock()
+		if failStop {
+			http.Error(w, "busy", http.StatusServiceUnavailable)
+			return
+		}
 		if op != "GetSystemDateAndTime" && !strings.Contains(body, "UsernameToken") {
 			http.Error(w, "auth", http.StatusUnauthorized)
 			return
@@ -172,5 +179,151 @@ func TestDevicePathStaysOnHost(t *testing.T) {
 		if got := NewClient("10.0.0.5", 80, "u", "p").WithDevicePath(path).device(); got != want {
 			t.Errorf("%q: %s, want %s", path, got, want)
 		}
+	}
+}
+
+// Preset reads queued behind a busy PTZ lock give up at their deadline, and
+// a stop gets the lock as soon as it is free.
+func TestPTZWaitersGiveUp(t *testing.T) {
+	f := &fakePTZ{}
+	srv := httptest.NewServer(f.handler(t))
+	defer srv.Close()
+	p := &PTZ{c: &Client{Base: srv.URL, User: "u", Password: "p", HTTP: srv.Client()}, Deadman: time.Minute}
+	defer p.Close()
+	if err := p.Start(context.Background(), "move", "left", 4); err != nil {
+		t.Fatal(err)
+	}
+	p.mu.Lock()
+	held := true
+	defer func() {
+		if held { // a failure below: free the lock for Close
+			p.mu.Unlock()
+		}
+	}()
+	errs := make(chan error, 10)
+	for range 10 {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+			defer cancel()
+			_, err := p.Presets(ctx)
+			errs <- err
+		}()
+	}
+	for range 10 {
+		select {
+		case err := <-errs:
+			if !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("queued read: %v", err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("a queued read kept waiting past its deadline")
+		}
+	}
+	held = false
+	p.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := p.Stop(ctx); err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if n := strings.Count(strings.Join(f.calls, "\n"), "GetPresets"); n != 0 {
+		t.Fatalf("expired reads reached the camera %d times", n)
+	}
+}
+
+// A stop that fails leaves the camera moving: the deadman is armed again
+// and retries until the camera answers.
+func TestPTZFailedStopIsRetried(t *testing.T) {
+	f := &fakePTZ{noTimeout: true, failStop: true}
+	srv := httptest.NewServer(f.handler(t))
+	defer srv.Close()
+	p := &PTZ{c: &Client{Base: srv.URL, User: "u", Password: "p", HTTP: srv.Client()}, Deadman: 50 * time.Millisecond}
+	defer p.Close()
+	ctx := context.Background()
+	if err := p.Start(ctx, "move", "left", 4); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Stop(ctx); err == nil {
+		t.Fatal("the stop should have failed")
+	}
+	time.Sleep(120 * time.Millisecond) // a retry or two fail as well
+	f.mu.Lock()
+	f.failStop = false
+	f.mu.Unlock()
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		p.mu.Lock()
+		moving := p.moving
+		p.mu.Unlock()
+		f.mu.Lock()
+		stops := strings.Count(strings.Join(f.calls, "\n"), " Stop")
+		f.mu.Unlock()
+		if !moving && stops >= 2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("stop not retried until it worked: moving=%v, %d stops", moving, stops)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if d := stopRetry(time.Second, 3); d != 4*time.Second {
+		t.Fatalf("stopRetry(1s, 3) = %v", d)
+	}
+}
+
+// A camera that answers Stop with an error but took the move's Timeout
+// stops by itself: the stop is not retried. One with no Timeout of its own
+// is retried, but at most maxStopTries times in a row.
+func TestPTZStopRetryBounded(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		noTimeout bool
+		wantStops int // Stop requests in total, including the first
+	}{
+		{"timeout taken", false, 1},
+		{"no timeout", true, maxStopTries},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &fakePTZ{noTimeout: tc.noTimeout, failStop: true}
+			srv := httptest.NewServer(f.handler(t))
+			defer srv.Close()
+			p := &PTZ{c: &Client{Base: srv.URL, User: "u", Password: "p", HTTP: srv.Client()}, Deadman: time.Millisecond}
+			ctx := context.Background()
+			if err := p.Start(ctx, "move", "left", 4); err != nil {
+				t.Fatal(err)
+			}
+			if err := p.Stop(ctx); err == nil {
+				t.Fatal("the stop should have failed")
+			}
+			deadline := time.Now().Add(5 * time.Second)
+			for {
+				p.mu.Lock()
+				moving := p.moving
+				p.mu.Unlock()
+				if !moving || time.Now().After(deadline) {
+					break
+				}
+				time.Sleep(5 * time.Millisecond)
+			}
+			time.Sleep(50 * time.Millisecond) // no further retry arrives
+			p.mu.Lock()
+			moving := p.moving
+			p.mu.Unlock()
+			f.mu.Lock()
+			stops := strings.Count(strings.Join(f.calls, "\n"), " Stop")
+			f.mu.Unlock()
+			if moving || stops != tc.wantStops {
+				t.Fatalf("moving=%v after %d stops, want %d", moving, stops, tc.wantStops)
+			}
+			p.Close() // not moving: no last stop
+			f.mu.Lock()
+			after := strings.Count(strings.Join(f.calls, "\n"), " Stop")
+			f.mu.Unlock()
+			if after != stops {
+				t.Fatalf("Close sent a stop to a camera that is not moving")
+			}
+		})
 	}
 }

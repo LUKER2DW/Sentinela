@@ -1,6 +1,8 @@
 package api
 
 import (
+	"bytes"
+	"cmp"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -31,7 +33,129 @@ const (
 	maxZones         = 10
 	maxZonePoints    = 32
 	detectorEventMax = 3 << 20
+	// The detector decodes camera video, so it is treated as compromisable
+	// (docs/SECURITY.md): what it can store is bounded. Each camera may open
+	// detectorOpens events of each type at once, then one more every
+	// detectorOpenEvery (60 per 10 minutes sustained); an event's meta is a
+	// summary (how many objects, the metaObjects best ones) of at most
+	// eventMetaMax bytes, so a compromised detector stores at most about
+	// 34 MiB of meta a day per camera (4 kinds x 8 640 events x 1 KiB).
+	detectorOpens     = 60
+	detectorOpenEvery = 10 * time.Second
+	eventMetaMax      = 1 << 10
+	metaObjects       = 5
+	maxEventObjects   = 50
+	maxZoneName       = 40 // characters of a zone name kept in meta
 )
+
+// detectedObject is what an event stores of one object the detector saw:
+// these fields only, whatever else the sidecar sends.
+type detectedObject struct {
+	X     float64  `json:"x"`
+	Y     float64  `json:"y"`
+	W     float64  `json:"w"`
+	H     float64  `json:"h"`
+	Score float64  `json:"score"`
+	Zones zoneList `json:"zones,omitempty"`
+}
+
+// objectList is the objects of a detector event: at most maxEventObjects.
+type objectList []detectedObject
+
+func (l *objectList) UnmarshalJSON(b []byte) error {
+	v, err := decodeArray[detectedObject](b, maxEventObjects)
+	*l = v
+	return err
+}
+
+// zoneList is the zones one object is in: at most maxZones, as many as
+// the settings allow.
+type zoneList []string
+
+func (z *zoneList) UnmarshalJSON(b []byte) error {
+	v, err := decodeArray[string](b, maxZones)
+	*z = v
+	return err
+}
+
+var errTooMany = errors.New("too many elements")
+
+// decodeArray decodes a JSON array (or null) one element at a time and
+// refuses it at element limit+1: a request body full of tiny elements
+// ("[{},{},…]") costs no more memory than its first limit elements, instead
+// of one decoded value per element.
+func decodeArray[T any](raw []byte, limit int) ([]T, error) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	tok, err := dec.Token()
+	if err != nil || tok == nil {
+		return nil, err // null: no elements
+	}
+	if d, ok := tok.(json.Delim); !ok || d != '[' {
+		return nil, errors.New("not an array")
+	}
+	var out []T
+	for dec.More() {
+		if len(out) == limit {
+			return nil, errTooMany
+		}
+		var v T
+		if err := dec.Decode(&v); err != nil {
+			return nil, err
+		}
+		out = append(out, v)
+	}
+	_, err = dec.Token() // the closing ]
+	return out, err
+}
+
+// eventMeta is the meta of a detector event, a summary: how many objects
+// the detector saw and the metaObjects with the best scores, zone names as
+// the settings allow them (at most maxZones per object, maxZoneName
+// characters each). Over eventMetaMax, objects are dropped from the end,
+// then the zones of the one left.
+func eventMeta(source string, objs []detectedObject) string {
+	count := len(objs)
+	objs = slices.Clone(objs)
+	slices.SortStableFunc(objs, func(a, b detectedObject) int { return cmp.Compare(b.Score, a.Score) })
+	objs = objs[:min(len(objs), metaObjects)]
+	for i := range objs {
+		zones := slices.Clone(objs[i].Zones[:min(len(objs[i].Zones), maxZones)])
+		for j, z := range zones {
+			zones[j] = truncRunes(z, maxZoneName)
+		}
+		objs[i].Zones = zones
+	}
+	for {
+		var b bytes.Buffer
+		enc := json.NewEncoder(&b)
+		enc.SetEscapeHTML(false) // "<" costs one byte, not six
+		_ = enc.Encode(map[string]any{"source": source, "count": count, "objects": objs})
+		meta := bytes.TrimSuffix(b.Bytes(), []byte{'\n'})
+		switch {
+		case len(meta) <= eventMetaMax || len(objs) == 0:
+			return string(meta)
+		case len(objs) > 1:
+			objs = objs[:len(objs)/2]
+		case len(objs[0].Zones) > 0:
+			objs[0].Zones = objs[0].Zones[:len(objs[0].Zones)-1]
+		default:
+			objs = nil
+		}
+	}
+}
+
+// truncRunes is s cut to at most n characters, without converting all of
+// s to runes (a zone string can be megabytes long).
+func truncRunes(s string, n int) string {
+	i := 0
+	for pos := range s {
+		if i == n {
+			return s[:pos]
+		}
+		i++
+	}
+	return s
+}
 
 // Zone is a polygon (normalised 0..1 coordinates) that counts the listed
 // object kinds when their base (feet, wheels) is inside it.
@@ -110,8 +234,39 @@ type detectorState struct {
 	motion   map[string]bool
 	probe    map[string]time.Time // camera -> analyse without motion until (zone editor)
 	open     map[string]int64     // camera|type -> open event id
+	opens    map[string]*openAllowance
 	status   json.RawMessage
 	statusAt time.Time
+}
+
+// openAllowance is one camera|type's token bucket: the events it may still
+// open (detectorOpens at most), refilled by one every detectorOpenEvery.
+// Each type has its own, so video motion cannot use up a person's; keys
+// are configured cameras times four types, so the map stays small.
+type openAllowance struct {
+	tokens float64
+	at     time.Time // when tokens was last refilled
+}
+
+// allowOpen takes one event from key's allowance. Callers hold d.mu.
+func (d *detectorState) allowOpen(key string, now time.Time) bool {
+	if d.opens == nil {
+		d.opens = map[string]*openAllowance{}
+	}
+	a := d.opens[key]
+	if a == nil {
+		a = &openAllowance{tokens: detectorOpens, at: now}
+		d.opens[key] = a
+	}
+	if dt := now.Sub(a.at); dt > 0 {
+		a.tokens = min(detectorOpens, a.tokens+float64(dt)/float64(detectorOpenEvery))
+		a.at = now
+	}
+	if a.tokens < 1 {
+		return false
+	}
+	a.tokens--
+	return true
 }
 
 // probeFor is how long one probe request keeps the detector analysing.
@@ -236,7 +391,14 @@ func (s *Server) detectorObjects(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	s.hub.PublishObjects(body.Camera, raw)
+	// Relayed as one SSE data line: compact JSON has no line breaks (a
+	// string cannot hold a raw one), so the body cannot add SSE fields.
+	var line bytes.Buffer
+	if json.Compact(&line, raw) != nil {
+		writeErr(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	s.hub.PublishObjects(body.Camera, line.Bytes())
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
@@ -254,13 +416,15 @@ func (s *Server) detectorStatus(w http.ResponseWriter, r *http.Request) {
 
 // detectorEvent opens or closes an event for one kind of object. A start
 // carries the analysed frame as JPEG: it becomes the event snapshot.
+// Objects and their zones are decoded one at a time and refused past
+// maxEventObjects and maxZones (objectList, zoneList).
 func (s *Server) detectorEvent(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Camera  string            `json:"camera"`
-		Kind    string            `json:"kind"`
-		Active  bool              `json:"active"`
-		Objects []json.RawMessage `json:"objects"`
-		JPEG    string            `json:"jpeg"`
+		Camera  string     `json:"camera"`
+		Kind    string     `json:"kind"`
+		Active  bool       `json:"active"`
+		Objects objectList `json:"objects"`
+		JPEG    string     `json:"jpeg"`
 	}
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, detectorEventMax))
 	if err := dec.Decode(&body); err != nil {
@@ -272,7 +436,7 @@ func (s *Server) detectorEvent(w http.ResponseWriter, r *http.Request) {
 	if body.Kind == "motion" { // motion found in the video (cameras that report none)
 		typ, ok, source = "motion", true, "video"
 	}
-	if !ok || s.Cfg.Camera(body.Camera) == nil || len(body.Objects) > 50 {
+	if !ok || s.Cfg.Camera(body.Camera) == nil {
 		writeErr(w, http.StatusBadRequest, "unknown camera or kind")
 		return
 	}
@@ -286,17 +450,26 @@ func (s *Server) detectorEvent(w http.ResponseWriter, r *http.Request) {
 	case body.Active && !isOpen && typ == "motion" && s.ptzQuiet.Quiet(body.Camera):
 		// The camera is turning: not motion in the scene.
 	case body.Active && !isOpen:
-		meta, _ := json.Marshal(map[string]any{"source": source, "objects": body.Objects})
+		s.det.mu.Lock()
+		allowed := s.det.allowOpen(key, now)
+		s.det.mu.Unlock()
+		if !allowed {
+			writeErr(w, http.StatusTooManyRequests, "too many events of this kind for this camera; try again later")
+			return
+		}
 		var err error
-		if id, err = s.Store.OpenEvent(ctx, body.Camera, typ, now, string(meta)); err != nil {
+		if id, err = s.Store.OpenEvent(ctx, body.Camera, typ, now, eventMeta(source, body.Objects)); err != nil {
 			writeErr(w, http.StatusInternalServerError, "database error")
 			return
 		}
 		s.det.mu.Lock()
 		s.det.open[key] = id
 		s.det.mu.Unlock()
+		// The analysed frame is the snapshot (ADR-0015), at most one per
+		// camera every snapshotEvery; otherwise go2rtc's gate applies.
 		haveSnap := false
-		if jpg, err := base64.StdEncoding.DecodeString(body.JPEG); err == nil && len(jpg) > 2 && jpg[0] == 0xFF && jpg[1] == 0xD8 {
+		if jpg, err := base64.StdEncoding.DecodeString(body.JPEG); err == nil && len(jpg) > 2 && jpg[0] == 0xFF && jpg[1] == 0xD8 &&
+			s.snapshotSlot("detector|"+body.Camera) {
 			haveSnap = s.saveSnapshot(body.Camera, id, jpg) == nil
 		}
 		s.eventStarted(body.Camera, typ, id, now, haveSnap)
@@ -397,43 +570,33 @@ func (s *Server) probeDetection(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "seconds": int(probeFor.Seconds())})
 }
 
-// frame returns a current substream picture for the zone editor (one
-// go2rtc keyframe decode, ADR-0015), cached for a few seconds per camera.
+// frameRead: one go2rtc keyframe decode per camera at a time, its picture
+// reused for 5 s (ADR-0017). A failure is reused for 2 s, so requests that
+// go away (or a go2rtc that fails) cannot start decode after decode.
+var frameRead = readPolicy{maxAge: 5 * time.Second, errAge: 2 * time.Second, timeout: snapshotTimeout}
+
+// frameCache holds the zone-editor pictures per camera.
+type frameCache = camReads[[]byte]
+
+// frame returns a current substream picture for the zone editor. The fetch
+// is coalesced per camera on its own deadline (camReads), and the picture
+// is written with no lock held: a client that stops reading delays only
+// itself.
 func (s *Server) frame(w http.ResponseWriter, r *http.Request) {
 	cam := s.camera(w, r)
 	if cam == nil {
 		return
 	}
-	s.frames.mu.Lock()
-	defer s.frames.mu.Unlock()
-	if s.frames.m == nil {
-		s.frames.m = map[string]cachedFrame{}
-	}
-	f, ok := s.frames.m[cam.ID]
-	if !ok || time.Since(f.at) > 5*time.Second {
-		ctx, cancel := context.WithTimeout(r.Context(), snapshotTimeout)
-		defer cancel()
-		b, err := s.grabFrame(ctx, cam.ID)
-		if err != nil {
-			writeErr(w, http.StatusBadGateway, "could not get a picture from the camera")
-			return
-		}
-		f = cachedFrame{at: time.Now(), jpeg: b}
-		s.frames.m[cam.ID] = f
+	b, err := s.frames.get(r.Context(), cam.ID, frameRead, func(ctx context.Context) ([]byte, error) {
+		return s.grabFrame(ctx, cam.ID)
+	})
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, "could not get a picture from the camera")
+		return
 	}
 	w.Header().Set("Content-Type", "image/jpeg")
 	w.Header().Set("Cache-Control", "no-store")
-	_, _ = w.Write(f.jpeg)
-}
-
-type cachedFrame struct {
-	at   time.Time
-	jpeg []byte
-}
-
-type frameCache struct {
-	mu sync.Mutex
-	m  map[string]cachedFrame
+	_, _ = w.Write(b)
 }
 
 // detectorInfo is the System page's view of the sidecar.

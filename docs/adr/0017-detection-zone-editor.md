@@ -20,7 +20,8 @@ what it detects, so no camera write is needed.
   is inside a zone watching its kind — a person behind the gate on the
   street does not count even if their head overlaps the zone.
 - Editor on the System page (operators): a current substream picture
-  (`/api/cameras/{id}/frame.jpeg`, one go2rtc keyframe decode, cached 5 s),
+  (`/api/cameras/{id}/frame.jpeg`, one go2rtc keyframe decode per camera
+  at a time, cached 5 s, a failure 2 s),
   tap to add points, drag to move, per-zone kinds, sensitivity presets.
 - The camera's motion detection stays as it is: it is the cheap trigger
   that wakes the detector. Its regions are not touched (no DVRIP write).

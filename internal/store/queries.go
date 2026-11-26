@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -673,9 +674,20 @@ func (s *Store) CloseDanglingEvents(ctx context.Context, cameraID string, maxLen
 	return nil
 }
 
-// EventsBetween lists events of a camera ("" = all) that start in [from, to), newest first.
+// EventMetaLoadMax is the longest event meta (bytes) EventByID returns; a
+// longer one, which only rows written before the API capped detector meta
+// can have, reads as "".
+const EventMetaLoadMax = 16384
+
+// eventCols are the columns EventByID reads (meta up to EventMetaLoadMax
+// bytes).
+var eventCols = `id,camera_id,type,start_utc,end_utc,CASE WHEN octet_length(meta)<=` + strconv.Itoa(EventMetaLoadMax) + ` THEN meta ELSE '' END`
+
+// EventsBetween lists events of a camera ("" = all) that start in [from, to),
+// newest first, without their meta (Meta is ""): lists load thousands of
+// rows on every poll and nothing that lists events reads it.
 func (s *Store) EventsBetween(ctx context.Context, cameraID string, from, to time.Time, limit int) ([]Event, error) {
-	q := `SELECT id,camera_id,type,start_utc,end_utc,meta FROM events WHERE start_utc>=? AND start_utc<?`
+	q := `SELECT id,camera_id,type,start_utc,end_utc FROM events WHERE start_utc>=? AND start_utc<?`
 	args := []any{FormatTime(from), FormatTime(to)}
 	if cameraID != "" {
 		q += ` AND camera_id=?`
@@ -693,7 +705,7 @@ func (s *Store) EventsBetween(ctx context.Context, cameraID string, from, to tim
 		var e Event
 		var st string
 		var en sql.NullString
-		if err := rows.Scan(&e.ID, &e.CameraID, &e.Type, &st, &en, &e.Meta); err != nil {
+		if err := rows.Scan(&e.ID, &e.CameraID, &e.Type, &st, &en); err != nil {
 			return nil, err
 		}
 		e.Start = mustTime(st)
@@ -706,12 +718,12 @@ func (s *Store) EventsBetween(ctx context.Context, cameraID string, from, to tim
 	return out, rows.Err()
 }
 
-// EventByID returns one event.
+// EventByID returns one event, with its meta.
 func (s *Store) EventByID(ctx context.Context, id int64) (*Event, error) {
 	var e Event
 	var st string
 	var en sql.NullString
-	err := s.db.QueryRowContext(ctx, `SELECT id,camera_id,type,start_utc,end_utc,meta FROM events WHERE id=?`, id).
+	err := s.db.QueryRowContext(ctx, `SELECT `+eventCols+` FROM events WHERE id=?`, id).
 		Scan(&e.ID, &e.CameraID, &e.Type, &st, &en, &e.Meta)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound

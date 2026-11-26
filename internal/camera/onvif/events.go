@@ -12,10 +12,20 @@ import (
 )
 
 // Sink receives event transitions with the stored event id (implemented by
-// the API: live push, snapshots, notifications).
+// the API: live push, snapshots, notifications). eventID is 0 for an event
+// that was not stored because the camera opened too many of its type
+// (OpenBurst): only its live state counts (the motion that wakes the
+// detector). Such an event is stored at its next active message once its
+// type is allowed one again, and the Sink then hears it start with its id.
 type Sink func(cameraID, typ string, eventID int64, active bool, at time.Time)
 
 // Watcher keeps a PullPoint subscription alive and writes events to the store.
+//
+// The camera's replies are plain HTTP and never authenticated, so what one
+// can cost is bounded: one pull per MinPull, at most pullLimit messages per
+// pull, topics of at most maxTopicLen bytes, a few active topics per event
+// type, and per event type at most OpenBurst stored events at once (then
+// one per OpenEvery).
 type Watcher struct {
 	CameraID string
 	Client   *Client
@@ -24,11 +34,24 @@ type Watcher struct {
 	Sink     Sink
 	// MaxEvent closes an event that never received an "inactive" message.
 	MaxEvent time.Duration
-	// MinPull is the shortest time between two pulls (default 1 s). This
-	// camera ignores the PullMessages timeout and answers at once when it has
-	// nothing to say: pulling again right away made ~45 requests a second,
-	// which starved its encoder (frames dropped on every stream).
+	// MinPull is the shortest time between two pulls (default 1 s), full
+	// batches included. This camera ignores the PullMessages timeout and
+	// answers at once when it has nothing to say: pulling again right away
+	// made ~45 requests a second, which starved its encoder (frames dropped
+	// on every stream).
 	MinPull time.Duration
+	// CloseGrace is how long an event stays open after its type went
+	// inactive (default 5 s when Run starts it): a re-trigger meanwhile
+	// continues the same event instead of storing a new one, and the end
+	// stored is when it went inactive.
+	CloseGrace time.Duration
+	// OpenBurst and OpenEvery bound the events one camera can store, per
+	// event type (a busy motion scene does not use up tamper's): at most
+	// OpenBurst at once, refilled by one every OpenEvery (defaults 20 and
+	// 15 s). Beyond that, transitions still reach the Sink with event id 0,
+	// and nothing is stored, pushed or notified.
+	OpenBurst int
+	OpenEvery time.Duration
 	// Quiet, when set and true, keeps a motion event from opening: the
 	// camera is moving under PTZ and sees its own movement.
 	Quiet func(cameraID string) bool
@@ -39,12 +62,27 @@ type Watcher struct {
 
 	open    map[string]openEvent
 	healthy *bool
-	topics  map[string]bool // "type|topic" -> last active state
+	topics  map[string]map[string]struct{} // type -> topics active now
+	allow   map[string]*allowance          // type -> its stored-event allowance
 }
 
+// allowance is one event type's token bucket (OpenBurst, OpenEvery).
+// Types come from Classify, so there are at most four.
+type allowance struct {
+	tokens  float64   // stored events still allowed now
+	refill  time.Time // when tokens was last refilled
+	limited bool      // an event was not stored; logged once until full again
+}
+
+// maxActiveTopics is how many active topics are kept per event type. The
+// type is active while any is, so a topic past the cap changes nothing;
+// cameras send one or two per type.
+const maxActiveTopics = 16
+
 type openEvent struct {
-	id    int64
+	id    int64 // 0: not stored (OpenBurst)
 	start time.Time
+	ended time.Time // the type went inactive then; closed after CloseGrace
 }
 
 // Run subscribes and pulls until ctx ends, re-subscribing with backoff.
@@ -55,8 +93,10 @@ func (w *Watcher) Run(ctx context.Context) {
 	if w.MinPull == 0 {
 		w.MinPull = time.Second
 	}
-	w.open = map[string]openEvent{}
-	w.topics = map[string]bool{}
+	if w.CloseGrace == 0 {
+		w.CloseGrace = 5 * time.Second
+	}
+	w.init()
 	_ = w.Store.CloseDanglingEvents(ctx, w.CameraID, time.Minute)
 	const minBackoff = 5 * time.Second
 	backoff := minBackoff
@@ -65,6 +105,9 @@ func (w *Watcher) Run(ctx context.Context) {
 		if ctx.Err() != nil {
 			break
 		}
+		// An event waiting out its grace ends now: no re-trigger can come
+		// before the next session.
+		w.settle(ctx, time.Now().Add(w.CloseGrace))
 		wait := backoff
 		reason := redact.Secrets(errString(err), w.Client.Password)
 		w.Log.Warn("onvif events: session ended", "camera", w.CameraID, "err", reason)
@@ -105,8 +148,16 @@ func (w *Watcher) pullPoint(ctx context.Context) (sub *Subscription, adopted boo
 		sub = s
 		return true
 	}
-	if u := w.Store.Setting(ctx, w.settingKey(), ""); u != "" && try(u) {
-		return sub, true, nil
+	if u := w.Store.Setting(ctx, w.settingKey(), ""); u != "" {
+		// Only a pull point on the camera's current address: after the
+		// address changed (or the id went to another camera) the old host
+		// must not get this camera's credentials, nor speak for it.
+		if !w.Client.onBase(u) {
+			w.Log.Info("onvif events: forgetting a pull point of a previous camera address", "camera", w.CameraID)
+			_ = w.Store.SetSetting(ctx, w.settingKey(), "")
+		} else if try(u) {
+			return sub, true, nil
+		}
 	}
 	sub, err = w.Client.Subscribe(ctx)
 	if err == nil {
@@ -168,9 +219,11 @@ func (w *Watcher) session(ctx context.Context) (delivered bool, err error) {
 		for _, m := range msgs {
 			w.Handle(ctx, m, now)
 		}
+		w.settle(ctx, now)
 		w.expire(ctx, now)
-		// A full batch may have more waiting; anything else keeps the pace.
-		if wait := w.MinPull - time.Since(started); wait > 0 && len(msgs) < pullLimit {
+		// Every pull keeps the pace, a full batch too: whatever the camera
+		// still holds comes with the next pull.
+		if wait := w.MinPull - time.Since(started); wait > 0 {
 			select {
 			case <-ctx.Done():
 			case <-time.After(wait):
@@ -180,60 +233,167 @@ func (w *Watcher) session(ctx context.Context) (delivered bool, err error) {
 	return delivered, nil
 }
 
+func (w *Watcher) init() {
+	if w.open == nil {
+		w.open = map[string]openEvent{}
+	}
+	if w.topics == nil {
+		w.topics = map[string]map[string]struct{}{}
+	}
+	if w.allow == nil {
+		w.allow = map[string]*allowance{}
+	}
+	if w.OpenBurst <= 0 {
+		w.OpenBurst = 20
+	}
+	if w.OpenEvery <= 0 {
+		w.OpenEvery = 15 * time.Second
+	}
+}
+
 // Handle applies one notification. Several topics map to one type (this
 // camera sends motion on two topics): the type is active while any is.
+// A topic longer than maxTopicLen is ignored: none is that long, and the
+// active ones are kept between pulls.
 func (w *Watcher) Handle(ctx context.Context, m Notification, now time.Time) {
+	if len(m.Topic) > maxTopicLen {
+		return
+	}
 	typ, active, ok := Classify(m)
 	if !ok {
 		return
 	}
-	if w.topics == nil {
-		w.topics, w.open = map[string]bool{}, map[string]openEvent{}
-	}
-	w.topics[typ+"|"+m.Topic] = active
-	anyActive := false
-	for k, v := range w.topics {
-		if v && strings.HasPrefix(k, typ+"|") {
-			anyActive = true
+	w.init()
+	// An event whose grace has run out ends first: a pull can return up to
+	// its 10 s timeout after the type went inactive, and a message then
+	// starts a new event instead of continuing that one.
+	w.settle(ctx, now)
+	set := w.topics[typ]
+	switch {
+	case active && set == nil:
+		w.topics[typ] = map[string]struct{}{m.Topic: {}}
+	case active && len(set) < maxActiveTopics:
+		set[m.Topic] = struct{}{}
+	case !active:
+		delete(set, m.Topic)
+		if len(set) == 0 {
+			delete(w.topics, typ)
 		}
 	}
-	w.transition(ctx, typ, anyActive, now)
+	w.transition(ctx, typ, len(w.topics[typ]) > 0, now)
+	w.settle(ctx, now)
 }
 
 func (w *Watcher) transition(ctx context.Context, typ string, active bool, now time.Time) {
 	ev, isOpen := w.open[typ]
 	switch {
-	case active && !isOpen:
-		if typ == "motion" && w.Quiet != nil && w.Quiet(w.CameraID) {
-			return
+	case active && isOpen:
+		// A re-trigger within the grace continues the same event.
+		ev.ended = time.Time{}
+		if ev.id == 0 && !w.quiet(typ) && w.allowOpen(typ, now) {
+			// Not stored when it began (no allowance left): stored now,
+			// from its start, and announced with its id.
+			if id, err := w.Store.OpenEvent(ctx, w.CameraID, typ, ev.start, ""); err != nil {
+				w.warn("store event", "err", err)
+			} else {
+				ev.id = id
+				w.sink(typ, id, true, ev.start)
+			}
 		}
-		id, err := w.Store.OpenEvent(ctx, w.CameraID, typ, now, "")
-		if err != nil {
-			w.Log.Warn("store event", "err", err)
-			return
-		}
-		ev = openEvent{id: id, start: now}
 		w.open[typ] = ev
-	case !active && isOpen:
-		_ = w.Store.CloseEvent(ctx, ev.id, now)
-		delete(w.open, typ)
-	default:
-		return
+	case active:
+		if w.quiet(typ) {
+			return
+		}
+		ev = openEvent{start: now}
+		if w.allowOpen(typ, now) {
+			id, err := w.Store.OpenEvent(ctx, w.CameraID, typ, now, "")
+			if err != nil {
+				w.warn("store event", "err", err)
+				return
+			}
+			ev.id = id
+		}
+		w.open[typ] = ev
+		w.sink(typ, ev.id, true, now)
+	case isOpen && ev.ended.IsZero():
+		ev.ended = now // closed by settle once the grace has passed
+		w.open[typ] = ev
 	}
+}
+
+// quiet: motion of a camera moving under PTZ is its own movement.
+func (w *Watcher) quiet(typ string) bool {
+	return typ == "motion" && w.Quiet != nil && w.Quiet(w.CameraID)
+}
+
+// allowOpen takes one stored event from the type's allowance (a token
+// bucket of OpenBurst, refilled by one every OpenEvery). The first refusal
+// is logged; the next only after the allowance was full again.
+func (w *Watcher) allowOpen(typ string, now time.Time) bool {
+	burst := float64(w.OpenBurst)
+	a := w.allow[typ]
+	if a == nil {
+		a = &allowance{tokens: burst, refill: now}
+		w.allow[typ] = a
+	}
+	if d := now.Sub(a.refill); d > 0 {
+		a.tokens = min(burst, a.tokens+float64(d)/float64(w.OpenEvery))
+		a.refill = now
+	}
+	if a.tokens >= burst {
+		a.limited = false
+	}
+	if a.tokens < 1 {
+		if !a.limited {
+			a.limited = true
+			w.warn("onvif events: the camera opens events too fast; not storing more for now", "camera", w.CameraID, "type", typ)
+		}
+		return false
+	}
+	a.tokens--
+	return true
+}
+
+// settle ends the events whose type stayed inactive for CloseGrace, at
+// the time they went inactive.
+func (w *Watcher) settle(ctx context.Context, now time.Time) {
+	for typ, ev := range w.open {
+		if !ev.ended.IsZero() && now.Sub(ev.ended) >= w.CloseGrace {
+			w.end(ctx, typ, ev, ev.ended)
+		}
+	}
+}
+
+func (w *Watcher) end(ctx context.Context, typ string, ev openEvent, at time.Time) {
+	if ev.id != 0 {
+		_ = w.Store.CloseEvent(ctx, ev.id, at)
+	}
+	delete(w.open, typ)
+	w.sink(typ, ev.id, false, at)
+}
+
+func (w *Watcher) sink(typ string, id int64, active bool, at time.Time) {
 	if w.Sink != nil {
-		w.Sink(w.CameraID, typ, ev.id, active, now)
+		w.Sink(w.CameraID, typ, id, active, at)
+	}
+}
+
+func (w *Watcher) warn(msg string, args ...any) {
+	if w.Log != nil {
+		w.Log.Warn(msg, args...)
 	}
 }
 
 func (w *Watcher) expire(ctx context.Context, now time.Time) {
 	for typ, ev := range w.open {
 		if now.Sub(ev.start) > w.MaxEvent {
-			for k := range w.topics {
-				if strings.HasPrefix(k, typ+"|") {
-					delete(w.topics, k)
-				}
+			delete(w.topics, typ)
+			at := now
+			if !ev.ended.IsZero() {
+				at = ev.ended
 			}
-			w.transition(ctx, typ, false, now)
+			w.end(ctx, typ, ev, at)
 		}
 	}
 }
@@ -241,7 +401,11 @@ func (w *Watcher) expire(ctx context.Context, now time.Time) {
 func (w *Watcher) closeAll(now time.Time) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	for typ := range w.open {
-		w.transition(ctx, typ, false, now)
+	for typ, ev := range w.open {
+		at := now
+		if !ev.ended.IsZero() {
+			at = ev.ended
+		}
+		w.end(ctx, typ, ev, at)
 	}
 }

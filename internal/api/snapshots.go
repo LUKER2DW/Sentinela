@@ -1,6 +1,7 @@
 package api
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -9,24 +10,48 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/LUKER2DW/sentinela/internal/store"
+	"github.com/LUKER2DW/sentinela/internal/sysinfo"
 )
 
 // Event snapshots (ADR-0015): one substream keyframe from go2rtc per event,
-// at most one per camera every snapshotEvery.
+// at most one per camera every snapshotEvery; the detector's own picture
+// for its events, at most one per camera every snapshotEvery too.
 const (
 	snapshotEvery   = 10 * time.Second
 	snapshotTimeout = 12 * time.Second
 	snapshotMax     = 2 << 20
 )
 
+// Snapshots live on the recordings disk, where the recorder's disk valve
+// can free space only by deleting recordings: whatever opens events, they
+// never take more than 1/snapshotShare of that disk (at least
+// snapshotMinBudget). Past it the oldest pictures go first, at most once
+// per snapshotPruneEvery between the hourly purges; until then new ones
+// are not stored.
+const (
+	snapshotShare      = 100
+	snapshotMinBudget  = 256 << 20
+	snapshotPruneEvery = time.Minute
+)
+
+var errSnapshotBudget = errors.New("event snapshots use their whole share of the disk")
+
 type snapshotter struct {
 	mu   sync.Mutex
-	last map[string]time.Time
+	last map[string]time.Time // gate key -> last snapshot
+
+	budgetMu sync.Mutex
+	bytes    int64 // size of the stored snapshots, once counted
+	counted  bool
+	prunedAt time.Time
+	limit    int64 // tests: the budget (0 = the disk's share)
 }
 
 // HandleEvent receives ONVIF event transitions: live push to browsers, a
@@ -35,6 +60,11 @@ type snapshotter struct {
 func (s *Server) HandleEvent(cameraID, typ string, eventID int64, active bool, at time.Time) {
 	if typ == "motion" {
 		s.noteMotion(cameraID, active)
+	}
+	if eventID == 0 {
+		// Not stored (the camera opens events too fast): its motion still
+		// wakes the detector, nothing is pushed, snapshotted or notified.
+		return
 	}
 	if !active {
 		s.hub.Publish(LiveEvent{CameraID: cameraID, Type: typ, Active: false, At: at.UTC()})
@@ -63,18 +93,26 @@ func (s *Server) snapshotPath(cameraID string, eventID int64) string {
 	return filepath.Join(s.Cfg.DataDir, "snapshots", filepath.Base(cameraID), strconv.FormatInt(eventID, 10)+".jpg")
 }
 
-func (s *Server) takeSnapshot(ctx context.Context, cameraID string, eventID int64) {
+// snapshotSlot takes the gate key's slot: false when its last snapshot
+// was less than snapshotEvery ago. Keys are camera ids (go2rtc pictures)
+// and "detector|"+camera id (the detector's), both from the configuration.
+func (s *Server) snapshotSlot(key string) bool {
 	s.snaps.mu.Lock()
+	defer s.snaps.mu.Unlock()
 	if s.snaps.last == nil {
 		s.snaps.last = map[string]time.Time{}
 	}
-	if time.Since(s.snaps.last[cameraID]) < snapshotEvery {
-		s.snaps.mu.Unlock()
+	if time.Since(s.snaps.last[key]) < snapshotEvery {
+		return false
+	}
+	s.snaps.last[key] = time.Now()
+	return true
+}
+
+func (s *Server) takeSnapshot(ctx context.Context, cameraID string, eventID int64) {
+	if !s.snapshotSlot(cameraID) {
 		return
 	}
-	s.snaps.last[cameraID] = time.Now()
-	s.snaps.mu.Unlock()
-
 	ctx, cancel := context.WithTimeout(ctx, snapshotTimeout)
 	defer cancel()
 	b, err := s.grabFrame(ctx, cameraID)
@@ -111,11 +149,22 @@ func (s *Server) grabFrame(ctx context.Context, cameraID string) ([]byte, error)
 	return b, nil
 }
 
-// saveSnapshot stores an event picture atomically.
-func (s *Server) saveSnapshot(cameraID string, eventID int64, jpg []byte) error {
+// saveSnapshot stores an event picture atomically, within the snapshots'
+// share of the disk.
+func (s *Server) saveSnapshot(cameraID string, eventID int64, jpg []byte) (err error) {
 	if len(jpg) == 0 || len(jpg) > snapshotMax {
 		return fmt.Errorf("unexpected snapshot size %d", len(jpg))
 	}
+	if err := s.reserveSnapshot(int64(len(jpg))); err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			s.snaps.budgetMu.Lock()
+			s.snaps.bytes -= int64(len(jpg))
+			s.snaps.budgetMu.Unlock()
+		}
+	}()
 	dst := s.snapshotPath(cameraID, eventID)
 	if err := os.MkdirAll(filepath.Dir(dst), 0o750); err != nil {
 		return err
@@ -133,6 +182,39 @@ func (s *Server) saveSnapshot(cameraID string, eventID int64, jpg []byte) error 
 		return err
 	}
 	return os.Rename(tmp.Name(), dst)
+}
+
+// snapshotBudget is the most bytes the snapshots may take.
+func (s *Server) snapshotBudget() int64 {
+	if s.snaps.limit > 0 {
+		return s.snaps.limit
+	}
+	d, err := sysinfo.DiskUsage(s.Cfg.DataDir)
+	if b := int64(d.Total / snapshotShare); err == nil && b > snapshotMinBudget {
+		return b
+	}
+	return snapshotMinBudget
+}
+
+// reserveSnapshot counts n more bytes of snapshots, making room by
+// deleting the oldest ones when the budget is used up (at most once per
+// snapshotPruneEvery); errSnapshotBudget when there is still no room.
+func (s *Server) reserveSnapshot(n int64) error {
+	b := &s.snaps
+	b.budgetMu.Lock()
+	defer b.budgetMu.Unlock()
+	budget := s.snapshotBudget()
+	if n > budget {
+		return errSnapshotBudget // no room to make: keep what is there
+	}
+	if !b.counted || b.bytes+n > budget && time.Since(b.prunedAt) >= snapshotPruneEvery {
+		b.bytes, b.counted, b.prunedAt = s.pruneSnapshots(time.Time{}, budget, n), true, time.Now()
+	}
+	if b.bytes+n > budget {
+		return errSnapshotBudget
+	}
+	b.bytes += n
+	return nil
 }
 
 func (s *Server) hasSnapshot(e store.Event) bool {
@@ -179,17 +261,101 @@ func (s *Server) PruneCaches() {
 }
 
 // PurgeSnapshots deletes snapshot files older than maxAge (called hourly;
-// events of that age are gone too).
+// events of that age are gone too), then the oldest others while they
+// take more than their share of the disk.
 func (s *Server) PurgeSnapshots(maxAge time.Duration) {
+	b := &s.snaps
+	b.budgetMu.Lock()
+	defer b.budgetMu.Unlock()
+	b.bytes, b.counted = s.pruneSnapshots(time.Now().Add(-maxAge), s.snapshotBudget(), 0), true
+}
+
+// snapshotBucket groups snapshot files by age for pruneSnapshots.
+const snapshotBucket = 10 * 60 // seconds
+
+// pruneSnapshots deletes the snapshot files last written before cut; then,
+// when the rest and need more bytes do not fit in budget, the oldest of
+// them until they fit in 90 % of it (with room for need). It returns the
+// bytes kept. Memory stays small: files are tallied per ten minutes, whole
+// ten minutes go while that keeps enough, and only the ten minutes where
+// pruning stops are listed, to delete their oldest files one by one. So
+// the newest pictures stay even when those ten minutes alone are over the
+// target (snapshotSlot writes at most a few per camera a minute).
+func (s *Server) pruneSnapshots(cut time.Time, budget, need int64) int64 {
 	root := filepath.Join(s.Cfg.DataDir, "snapshots")
-	cut := time.Now().Add(-maxAge)
-	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
+	walk := func(fn func(p string, info fs.FileInfo)) {
+		_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+			if err != nil || !d.Type().IsRegular() {
+				return nil
+			}
+			if info, err := d.Info(); err == nil {
+				fn(p, info)
+			}
 			return nil
-		}
-		if info, err := d.Info(); err == nil && info.ModTime().Before(cut) {
+		})
+	}
+	tally := map[int64]int64{} // bucket -> bytes
+	var total int64
+	walk(func(p string, info fs.FileInfo) {
+		if info.ModTime().Before(cut) {
 			_ = os.Remove(p)
+			return
 		}
-		return nil
+		tally[info.ModTime().Unix()/snapshotBucket] += info.Size()
+		total += info.Size()
 	})
+	if total+need <= budget {
+		return total
+	}
+	buckets := make([]int64, 0, len(tally))
+	for k := range tally {
+		buckets = append(buckets, k)
+	}
+	slices.Sort(buckets)
+	target := min(budget/10*9, budget-need)
+	whole, edge := 0, false // buckets[:whole] go; buckets[whole] file by file when edge
+	for _, k := range buckets {
+		if total <= target {
+			break
+		}
+		if total-tally[k] < target {
+			edge = true
+			break
+		}
+		total -= tally[k]
+		whole++
+	}
+	type file struct {
+		path string
+		mod  time.Time
+		size int64
+	}
+	var last []file // the files of buckets[whole]
+	var lastBytes int64
+	walk(func(p string, info fs.FileInfo) {
+		switch b := info.ModTime().Unix() / snapshotBucket; {
+		case whole > 0 && b <= buckets[whole-1]:
+			if os.Remove(p) != nil {
+				total += info.Size() // still there
+			}
+		case edge && b == buckets[whole]:
+			last = append(last, file{p, info.ModTime(), info.Size()})
+			lastBytes += info.Size()
+		}
+	})
+	if !edge {
+		return total
+	}
+	// What is there now (a picture may have arrived since the tally).
+	total += lastBytes - tally[buckets[whole]]
+	slices.SortFunc(last, func(a, b file) int { return cmp.Or(a.mod.Compare(b.mod), strings.Compare(a.path, b.path)) })
+	for _, f := range last {
+		if total <= target {
+			break
+		}
+		if os.Remove(f.path) == nil {
+			total -= f.size
+		}
+	}
+	return total
 }

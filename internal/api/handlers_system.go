@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -165,7 +166,9 @@ func (s *Server) eventStream(w http.ResponseWriter, r *http.Request) {
 			}
 			user = u
 		case m := <-c:
-			if user == nil || !user.CanSee(m.cameraID) {
+			// One data line each: a line break would let the payload add
+			// SSE fields (publishers send compact JSON, which has none).
+			if user == nil || !user.CanSee(m.cameraID) || bytes.ContainsAny(m.data, "\r\n") {
 				continue
 			}
 			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", m.event, m.data)
