@@ -7,7 +7,85 @@ All notable changes to Sentinela. The format follows
 
 ## [Unreleased]
 
+### Changed
+Read before updating.
+- **Accounts move to their own database.** On its first start the API copies
+  users, sessions, two-step secrets, push subscriptions, settings and the
+  audit log from `db/` into `db-private/` (the recorder cannot open it).
+  For 10 minutes the old copy stays, so an automatic rollback still signs
+  people in; after that it is deleted and an older release can only be
+  brought back with a backup. Backups and the restore drill cover both files.
+- **Sessions from outside are signed out once:** a session now works only in
+  the kind of zone it was created in (home and tailnet sessions are refused
+  on the public door). Home and tailnet sign-in are unaffected.
+- **go2rtc has a password.** `scripts/go2rtc-secret.sh` creates it in
+  `secrets.env` during the update (also from `gen-go2rtc-cameras.sh`); go2rtc
+  does not start without it, so live view waits until it exists (recording
+  does not use go2rtc). go2rtc's own web page on loopback is gone.
+- **Self-hosted services.** The first start of each Compose service after the
+  update recreates its containers and networks once; built services come
+  back without a rebuild. Builds that run outside the services firewall
+  (BuildKit, `ADD <url>`) need *Allow builds outside the firewall*. Run
+  `sudo ./scripts/setup-apps.sh enable` once to install the new firewall
+  check timer.
+- **Host files.** `/opt/sentinela` (`deploy/`, `scripts/`) is owned by root;
+  hosts that update themselves get this, the Cloudflare Tunnel's new unit
+  (its own user, confined on loopback by nftables) and the other host units
+  on the first run of the new updater, once.
+- **Android app.** Pairing another house signs the app out of the current
+  one; every download asks for a tap on *Save*; notifications received
+  before the update open the home page.
+- Camera passwords typed in the dashboard must now pass the credential
+  character rule (installed ones keep working). A config with cameras `x`
+  and `x_sub` loads, but the clashing go2rtc name is skipped with a warning.
+- Cloud uploads over HTTP/2 through the port forward are slower on distant
+  links (about 5 MB/s at 100 ms round trip): the price of small receive
+  windows. Home and tailnet are unchanged.
+
+
 ### Security
+A full review of the code (52 leads) was fixed in nine pull requests:
+- **Sign-in from the internet:** limits per address, network (/24, /48),
+  account (by user id, so username and e-mail share them) and all sources
+  together, with tables a flood cannot use to lock anyone out; internet
+  sign-ins get their own argon2id lane, so they cannot starve home sign-in;
+  two-step codes lock after 5 wrong ones in a row and alert the account and
+  every admin.
+- **Public door:** anonymous requests keep their time limits to the last
+  byte, HTTP/2 there has small windows and few streams, connections are
+  capped per source, network and in total (signed-in ones are never evicted),
+  review marks are stored only for real events the user may see, and each
+  user has at most 10 browser subscriptions and 10 app tokens with a delivery
+  budget of their own.
+- **Cameras and detector:** ONVIF never follows redirects and its event
+  subscription stays on the camera's host; camera replies, event topics and
+  per-type event floods are bounded; camera reads are shared and survive a
+  bad reply; the detector stores a 1 KiB summary per event; PTZ stops are
+  retried while the camera may still move, and sent once more at shutdown.
+- **Live media and lifecycle:** only operators reach a camera's speaker;
+  live video of a signed-out, revoked, disabled, demoted or deleted account
+  (or a camera taken away) is cut within seconds, rationed per account;
+  presets are saved and deleted by admins only; a camera id or a username is
+  never reused with the old one's grants, recordings, Cloud folder or
+  recycle bin; protected recordings are capped (5 % per camera, 10 % in
+  total) and a full disk deleting them is audited and announced.
+- **Containers:** the recorder no longer holds the accounts database; go2rtc's
+  API needs a password and answers only the paths Sentinela uses.
+- **Self-hosted services:** Compose files are allow-listed key by key, with
+  binds inside the service's folder, no foreign names or networks, images and
+  project membership bound to the service, and the build consent above;
+  services start only after the firewall is verified for this boot (a timer
+  re-checks it), and logs, folder walks and file reads are bounded and never
+  follow links or block on FIFOs.
+- **Host scripts and releases:** root scripts reach the data disk only
+  through a no-follow helper; the secrets merge accepts only the cameras'
+  credential names; the updater checks the version and the bundle's file
+  names and extracts without the archive's owners; the Cloudflare Tunnel is
+  restarted into its new unit only with a way back; releases are signed only
+  from a plain version tag on main above every published one.
+- **Android app:** only the app's own notifications open pages and nothing
+  downloads without a tap; the session copy used for notifications is bound
+  to the paired server and its certificate pin.
 - The ONVIF device path accepts only letters, digits and `/ . _ ~ -`, and is
   always joined after the camera's own address, so a typed path can never
   send a request elsewhere (CodeQL go/request-forgery).
