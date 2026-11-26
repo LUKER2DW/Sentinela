@@ -64,11 +64,11 @@ public_ports() {
 # private-range drop and ends with the drop of new inbound connections.
 verify() {
   local first
-  iptables -C FORWARD -j DOCKER-USER 2>/dev/null || { echo "FORWARD does not jump to DOCKER-USER" >&2; return 1; }
+  iptables -C FORWARD -j DOCKER-USER >/dev/null 2>&1 || { echo "FORWARD does not jump to DOCKER-USER" >&2; return 1; }
   first="$(iptables -S DOCKER-USER | sed -n 2p)"
   [[ "$first" == "-A DOCKER-USER -j $CHAIN" ]] || { echo "DOCKER-USER does not start with the jump to $CHAIN" >&2; return 1; }
   for net in "${PRIVATE[@]}"; do
-    iptables -C "$CHAIN" -i sn-+ -d "$net" -j DROP 2>/dev/null || { echo "$CHAIN lacks the drop of $net" >&2; return 1; }
+    iptables -C "$CHAIN" -i sn-+ -d "$net" -j DROP >/dev/null 2>&1 || { echo "$CHAIN lacks the drop of $net" >&2; return 1; }
   done
   [[ "$(iptables -S "$CHAIN" | tail -1)" == "-A $CHAIN -o sn-+ -m conntrack --ctstate NEW -j DROP" ]] ||
     { echo "$CHAIN does not end with the drop of new connections" >&2; return 1; }
@@ -84,7 +84,7 @@ apply() {
   fi
   # The rules may be gone (a Docker or iptables reset) while a marker of
   # this boot remains: until they are back, there is no marker.
-  iptables -C DOCKER-USER -j "$CHAIN" 2>/dev/null || unready
+  iptables -C DOCKER-USER -j "$CHAIN" >/dev/null 2>&1 || unready
   local opened
   mapfile -t opened < <(public_ports)
   # Build the new rules in a fresh chain, then swap it in, so there is no
