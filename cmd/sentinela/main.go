@@ -7,6 +7,9 @@
 //	sentinela healthcheck  exit 0 if the local API answers /healthz
 //	sentinela check-config validate the config + secrets, list the cameras
 //	sentinela go2rtc-config print go2rtc's camera streams (no secrets needed)
+//	sentinela public-ports  the ports scripts/firewall.sh opens to the internet
+//	sentinela credential-names the cameras' credential names (apply-config.sh)
+//	sentinela proxy-port   the tunnel listener's port (setup-cloudflared.sh)
 //	sentinela version
 package main
 
@@ -17,6 +20,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"net"
@@ -90,10 +94,14 @@ func main() {
 				fmt.Println(p)
 			}
 		}
+	case "credential-names":
+		err = credentialNames(os.Stdout, *cfgPath)
+	case "proxy-port":
+		err = proxyPort(os.Stdout, *cfgPath)
 	case "version":
 		fmt.Println(version)
 	default:
-		err = fmt.Errorf("unknown command %q (serve|record|apps|user|healthcheck|check-config|go2rtc-config|public-ports|version)", cmd)
+		err = fmt.Errorf("unknown command %q (serve|record|apps|user|healthcheck|check-config|go2rtc-config|public-ports|credential-names|proxy-port|version)", cmd)
 	}
 	if err != nil {
 		log.Error("fatal", "cmd", cmd, "err", err)
@@ -127,6 +135,37 @@ func checkConfig(path, against string) error {
 		fmt.Printf("%s\t%s\t%d\t%d\t%s\n", c.ID, c.Host, c.RTSPPort, c.DVRIPPort, c.Name)
 	}
 	return nil
+}
+
+// credentialNames prints the credential names (user_env, password_env) the
+// config's cameras use, one per line: scripts/apply-config.sh accepts
+// credentials from the dashboard only for these. Names, never values: the
+// config is read without secrets.
+func credentialNames(w io.Writer, path string) error {
+	cfg, err := config.LoadLayout(path)
+	if err != nil {
+		return err
+	}
+	for _, n := range cfg.CredentialNames() {
+		if _, err := fmt.Fprintln(w, n); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// proxyPort prints the port of remote.proxy.listen, nothing when that
+// listener is off: on loopback, the Cloudflare Tunnel's connector may reach
+// this port and no other (scripts/lib/cloudflared.sh).
+func proxyPort(w io.Writer, path string) error {
+	cfg, err := config.LoadLayout(path)
+	if err != nil {
+		return err
+	}
+	if p := cfg.ProxyPort(); p != 0 {
+		_, err = fmt.Fprintln(w, p)
+	}
+	return err
 }
 
 func envOr(k, d string) string {

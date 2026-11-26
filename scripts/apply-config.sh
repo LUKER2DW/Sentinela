@@ -7,20 +7,23 @@
 # check-config, no network) and against the installed config: the files come
 # from a directory the unprivileged containers can write, so the host applies
 # its own policy (config.CheckDashboardChange: apps and the update source stay
-# as installed, public ports 1024..65535, nas volumes inside /srv/nas) instead
-# of trusting the API's. Then it keeps backups, installs, regenerates go2rtc's
-# streams, recreates the services and rolls back when the health check
-# fails. The result goes to /var/lib/sentinela/config-apply.json.
+# as installed, public ports 1024..65535, nas volumes inside /srv/nas, camera
+# credential names <NAME>_USER/<NAME>_PASS or as installed) instead of
+# trusting the API's. Credentials are accepted only for names the
+# candidate's cameras use, with values every reader of secrets.env reads the
+# same. Then it keeps backups, installs, regenerates go2rtc's streams,
+# recreates the services and rolls back when the health check fails. The
+# result goes to /var/lib/sentinela/config-apply.json.
 set -euo pipefail
 
 ETC=/etc/sentinela
 DIR="${SENTINELA_DIR:-/opt/sentinela}"
 # shellcheck source=scripts/lib/safe.sh
 source "$DIR/scripts/lib/safe.sh"
-REQ="${SENTINELA_DATA:-/data}/config"
+DATA="${SENTINELA_DATA:-/data}"
+REQ="$DATA/config"
 STATUS=/var/lib/sentinela/config-apply.json
 [[ $EUID -eq 0 ]] || { echo "run with sudo" >&2; exit 1; }
-[[ -f "$REQ/request" ]] || exit 0
 exec 9>/run/sentinela-config.lock
 flock -n 9 || exit 0
 
@@ -28,47 +31,87 @@ status() { # state message
   printf '{"at":"%s","state":"%s","message":"%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "${2//\"/\'}" > "$STATUS.tmp"
   chmod 0644 "$STATUS.tmp" && mv -f "$STATUS.tmp" "$STATUS"
 }
-# <data>/config belongs to uid 1000: follow no link found in it.
-if ! refuse_symlink "$REQ" "$REQ/request" "$REQ/pending.yaml" "$REQ/pending-secrets.json" 2>/dev/null; then
-  status failed "refused: a symbolic link in the settings request"
-  exit 1
-fi
+# <data>/config belongs to uid 1000: its files are read and removed only
+# through safe.sh (no link followed, plain files only, size-capped). The
+# request stays until the end: while it exists the API refuses another change.
+rc=0
+safe_read "$DATA" "$REQ/request" 64 >/dev/null 2>&1 || rc=$?
+case "$rc" in
+  0) ;;
+  2) exit 0 ;;
+  *) safe_rm "$DATA" "$REQ/request" "$REQ/pending.yaml" "$REQ/pending-secrets.json" 2>/dev/null || true
+     status failed "refused: the settings request is not a plain file"
+     exit 1 ;;
+esac
 work="$(mktemp -d)"
 # shellcheck disable=SC2329 # run by the EXIT trap
-cleanup() { rm -rf "$work"; rm -f "$REQ/request" "$REQ/pending.yaml" "$REQ/pending-secrets.json"; }
+cleanup() { rm -rf "$work"; safe_rm "$DATA" "$REQ/request" "$REQ/pending.yaml" "$REQ/pending-secrets.json" 2>/dev/null || true; }
 trap cleanup EXIT
 status applying ""
 
-[[ -f "$REQ/pending.yaml" ]] || { status failed "nothing to apply"; exit 1; }
-dd if="$REQ/pending.yaml" of="$work/config.yaml" iflag=nofollow bs=1M count=1 status=none \
-  || { status failed "could not read the settings request"; exit 1; }
+rc=0
+safe_read "$DATA" "$REQ/pending.yaml" 1048576 > "$work/config.yaml" 2>/dev/null || rc=$?
+case "$rc" in
+  0) ;;
+  2) status failed "nothing to apply"; exit 1 ;;
+  *) status failed "could not read the settings request"; exit 1 ;;
+esac
 chmod 0644 "$work/config.yaml"
+rc=0
+safe_read "$DATA" "$REQ/pending-secrets.json" 262144 > "$work/request.json" 2>/dev/null || rc=$?
+[[ "$rc" == 0 || "$rc" == 2 ]] || { status failed "invalid credential request"; exit 1; }
+
+# The credential names the candidate's cameras use (user_env/password_env),
+# read by the real parser from the cameras themselves: a stream URL need
+# not carry them (a custom path without {user}/{password}).
+if ! docker run --rm --network none -v "$work/config.yaml:/etc/sentinela/config.yaml:ro" \
+      --entrypoint /usr/local/bin/sentinela sentinela:local credential-names > "$work/names" 2> "$work/names.err"; then
+  status failed "invalid settings: $(cat "$work/names" "$work/names.err" | tail -1)"
+  exit 1
+fi
+
 # Merge new credentials into a copy of secrets.env (values never logged).
-if ! python3 - "$ETC/secrets.env" "$REQ/pending-secrets.json" "$work/secrets.env" <<'PY'
-import json, os, re, sys
-src, req, out = sys.argv[1:]
-lines = open(src).read().splitlines()
+if ! python3 -I - "$ETC/secrets.env" "$work/request.json" "$work/names" "$work/secrets.env" <<'PY'
+import json, re, sys
+src, req, names, out = sys.argv[1:]
+# secrets.env is split on "\n" only, the one line break every reader of the
+# file agrees on (str.splitlines() would also split at \v, \f, \x1c-\x1e,
+# \x85, U+2028...); its lines are kept as bytes, untouched.
+lines = open(src, "rb").read().split(b"\n")
+if lines[-1] == b"":
+    lines.pop()
 try:
-    # No link is followed: the request directory belongs to uid 1000.
-    with os.fdopen(os.open(req, os.O_RDONLY | os.O_NOFOLLOW), encoding="utf-8") as f:
-        new = json.load(f)
-except FileNotFoundError:
-    new = {}
+    raw = open(req, "rb").read()
+    new = json.loads(raw) if raw.strip() else {}
 except Exception:
     sys.exit("bad credential request")
 if not isinstance(new, dict):
     sys.exit("bad credential request")
-# secrets.env holds camera USER/PASS pairs only (credEnv in the API names
-# them <ID>_USER / <ID>_PASS): a new name must look like that; an existing
-# one (a camera whose user_env was written by hand) may be changed.
-ok = re.compile(r"^[A-Z0-9_]{1,59}_(USER|PASS)$")
-have = {l.split("=", 1)[0] for l in lines if "=" in l}
+# Only names a camera of the candidate uses (user_env/password_env), shaped
+# like the API's <ID>_USER / <ID>_PASS or already in the file (a camera whose
+# names were written by hand): nothing else can be set from a directory the
+# containers can write.
+used = set(open(names).read().split())
+shape = re.compile(r"[A-Z0-9_]{1,59}_(USER|PASS)")
+have = {l.split(b"=", 1)[0] for l in lines if b"=" in l}
+# Values (config.SecretValueOK): 1-256 printable ASCII characters except
+# space, quotes, backslash, $ { } and #. Docker's --env-file (the check
+# below) reads a value literally; Compose's env_file expands ${...} and
+# strips quotes and comments; go2rtc pastes it into its YAML. Without these
+# characters every reader sees the same text, and no value can carry a line
+# break or a control character that starts another variable.
+bad = set("\"#$'\\`{}")
+def value_ok(v):
+    return 0 < len(v) <= 256 and all("!" <= c <= "~" and c not in bad for c in v)
 for k, v in new.items():
-    if not (ok.match(k) or k in have) or not isinstance(v, str) or "\n" in v or "\r" in v or "\0" in v or len(v) > 256:
+    if not (isinstance(k, str) and isinstance(v, str) and k in used
+            and (shape.fullmatch(k) or k.encode() in have) and value_ok(v)):
         sys.exit("bad credential entry")
-    lines = [l for l in lines if not l.startswith(k + "=")]
-    lines.append(f"{k}={v}")
-open(out, "w").write("\n".join(lines) + "\n")
+    kb = k.encode()
+    lines = [l for l in lines if not l.startswith(kb + b"=")]
+    lines.append(kb + b"=" + v.encode())
+with open(out, "wb") as f:
+    f.write(b"\n".join(lines) + b"\n")
 PY
 then
   status failed "invalid credential request"
@@ -125,6 +168,8 @@ for _ in $(seq 1 45); do
       rm -f "$ETC/public-access"
     fi
     "$DIR/scripts/firewall.sh" >/dev/null 2>&1 || true
+    # A Cloudflare Tunnel may reach the proxy listener's port alone.
+    "$DIR/scripts/setup-cloudflared.sh" firewall >/dev/null 2>&1 || true
     status applied "backup: config.yaml.bak-$ts"
     exit 0
   fi

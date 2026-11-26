@@ -23,6 +23,8 @@
 set -euo pipefail
 [[ $EUID -eq 0 ]] || { echo "run with sudo" >&2; exit 1; }
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=scripts/lib/safe.sh
+source "$DIR/scripts/lib/safe.sh"
 DATA="${SENTINELA_DATA:-/data}"
 REQ="$DATA/tailscale"
 STATE=/var/lib/sentinela
@@ -34,19 +36,20 @@ exec 9>/run/sentinela-tailscale.lock
 flock -w 120 9 || exit 0
 install -d -m 0755 "$STATE"
 
+# $REQ belongs to uid 1000: the request and the key are taken (read, then
+# removed) through safe.sh, which follows no link and reads only a small
+# plain file.
 action=status
 arg=""
-if [[ -f "$REQ/request" ]]; then
-  read -r action arg _ < "$REQ/request" || true
-  rm -f "$REQ/request"
+if req="$(safe_take "$DATA" "$REQ/request" 256)"; then
+  read -r action arg _ <<< "$req" || true
 fi
 FUNNEL_TARGET=http://127.0.0.1:8081
 key=""
-if [[ -f "$REQ/authkey" ]]; then
-  key="$(mktemp /run/sentinela-tskey.XXXXXX)"   # root only (mktemp: 0600)
-  head -c 512 "$REQ/authkey" | tr -d '[:space:]' > "$key"
-  rm -f "$REQ/authkey"
-  trap 'shred -u "$key" 2>/dev/null || rm -f "$key"' EXIT
+tmpkey="$(mktemp /run/sentinela-tskey.XXXXXX)"   # root only (mktemp: 0600)
+trap 'shred -u "$tmpkey" 2>/dev/null || rm -f "$tmpkey"' EXIT
+if safe_take "$DATA" "$REQ/authkey" 512 | tr -d '[:space:]' > "$tmpkey" && [[ -s "$tmpkey" ]]; then
+  key="$tmpkey"
 fi
 
 message=""   # what the dashboard shows after this run

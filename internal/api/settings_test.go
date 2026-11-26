@@ -47,6 +47,15 @@ func TestSettingsEditor(t *testing.T) {
 	if code, _, body := c.do("PUT", "/api/settings", string(req)); code != 400 || !strings.Contains(body, "user and password") {
 		t.Fatalf("no credentials: %d %s", code, body)
 	}
+	// Credentials that the readers of secrets.env (Docker's --env-file,
+	// Compose's env_file, go2rtc's YAML) would not all read the same way.
+	for _, pw := range []string{"pa${OTHER_PASS}", "pa\vNAME=x", "pa x", "pa{x}", "pa`x"} {
+		doc.Cameras[1].User, doc.Cameras[1].Password = "admin", pw
+		req, _ = json.Marshal(doc)
+		if code, _, body := c.do("PUT", "/api/settings", string(req)); code != 400 || !strings.Contains(body, "printable ASCII") {
+			t.Fatalf("credential %q: %d %s", pw, code, body)
+		}
+	}
 	// Invalid values are refused by the server's own parser.
 	bad := doc
 	bad.Recording.MaxDiskPercent = 5

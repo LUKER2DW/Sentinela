@@ -54,8 +54,10 @@ through Cloudflare Tunnel or a reverse proxy they already run.
   tunnel in Cloudflare Zero Trust and pastes its install command or token.
   The host agent (`scripts/cloudflared-agent.sh`) installs `cloudflared`
   from Cloudflare's apt repository and runs `sentinela-cloudflared.service`
-  with the token from a root-only `EnvironmentFile` (dynamic user, read-only
-  system, no capabilities, 256 MB). The public hostname's service is
+  with the token from a root-only `EnvironmentFile` (its own system user,
+  read-only system, no capabilities, 256 MB; on loopback an nftables table
+  keyed on that user lets it reach only the tunnel listener, see
+  `docs/SECURITY.md` rule 14). The public hostname's service is
   `http://127.0.0.1:7444`. No container is added; cloudflared is a host
   service like tailscaled.
 - **Reachability check.** `GET /.well-known/sentinela` answers a random

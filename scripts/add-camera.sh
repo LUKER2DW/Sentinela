@@ -46,10 +46,16 @@ ENV="$(printf '%s' "${ID^^}" | tr -- '-' '_')"
 read -r -p "Username of $HOST [admin]: " CAM_USER; CAM_USER="${CAM_USER:-admin}"
 read -r -s -p "Password (not shown): " CAM_PASS; echo
 [[ -n "$CAM_PASS" ]] || { warn "empty password"; exit 1; }
+# Every reader of secrets.env (Docker's --env-file, Compose's env_file,
+# go2rtc's YAML) must see the same text: the rule of config.SecretValueOK.
 # Characters the camera's RTSP URL cannot carry are refused by check-config
 # below (they differ per vendor).
-if [[ "$CAM_USER$CAM_PASS" == *[\'\"\\]* ]]; then
-  warn "credentials cannot carry quotes or backslashes: change the camera password first"; exit 1
+cred_ok() {
+  local LC_ALL=C
+  [[ -n "$1" && ${#1} -le 256 && "$1" != *[^!-~]* && "$1" != *[\"\#\$\'\\\`{}]* ]]
+}
+if ! cred_ok "$CAM_USER" || ! cred_ok "$CAM_PASS"; then
+  warn "credentials take up to 256 printable ASCII characters, without spaces, quotes, backslashes, \$, {, } or #: change the camera password first"; exit 1
 fi
 
 TMP="$(mktemp -d -p "$ETC")"

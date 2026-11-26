@@ -17,8 +17,11 @@
 set -euo pipefail
 [[ $EUID -eq 0 ]] || { echo "run with sudo" >&2; exit 1; }
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=scripts/lib/safe.sh
+source "$HERE/scripts/lib/safe.sh"
 MARK=/etc/sentinela/public-access
 CFG=/etc/sentinela/config.yaml
+DATA="${SENTINELA_DATA:-/data}"
 
 case "${1:-status}" in
   enable)
@@ -40,10 +43,12 @@ domain="$(sed -n 's/^[[:space:]]*domain:[[:space:]]*\([^#[:space:]]*\).*/\1/p' "
 echo "config remote.public.domain: ${domain:-<not set>}"
 if ss -tln | grep -q ':7443 '; then echo "listener :7443: up"; else echo "listener :7443: down (set the domain and redeploy)"; fi
 if ss -tln | grep -q ':7080 '; then echo "listener :7080 (HTTP-01): up"; else echo "listener :7080 (HTTP-01): off"; fi
-SELF=/data/acme/self/cert.pem
-if grep -q '^[[:space:]]*self_signed:[[:space:]]*true' "$CFG" && [[ -f "$SELF" ]]; then
-  fp="$(openssl x509 -in "$SELF" -noout -fingerprint -sha256 | cut -d= -f2 | tr -d ':' | tr 'A-F' 'a-f')"
-  echo "self-signed certificate SHA-256 (SENTINELA_PUBLIC_CERT_SHA256 for build-apk.sh): $fp"
+# The data disk belongs to uid 1000: the certificate is read through safe.sh
+# (no link followed, a small plain file), never opened by name as root.
+if grep -q '^[[:space:]]*self_signed:[[:space:]]*true' "$CFG" &&
+    pem="$(safe_read "$DATA" "$DATA/acme/self/cert.pem" 65536 2>/dev/null)"; then
+  fp="$(printf '%s\n' "$pem" | openssl x509 -noout -fingerprint -sha256 | cut -d= -f2 | tr -d ':' | tr 'A-F' 'a-f')" || fp=""
+  echo "self-signed certificate SHA-256 (SENTINELA_PUBLIC_CERT_SHA256 for build-apk.sh): ${fp:-unreadable}"
 fi
 # CGNAT check: the public IP seen from outside must be the router's WAN IP.
 pub="$(curl -fsS --max-time 5 https://api.ipify.org || true)"

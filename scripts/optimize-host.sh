@@ -41,8 +41,9 @@ for p in snapd lxd-agent-loader cloud-init open-vm-tools multipath-tools open-is
   overlayroot landscape-common pollinate sosreport byobu ubuntu-drivers-common mdadm lvm2; do
   dpkg -s "$p" >/dev/null 2>&1 && purge+=("$p")
 done
-# Tools these removals would otherwise take along, still wanted (disk work).
-apt-mark manual fdisk gdisk bc finalrd >/dev/null 2>&1 || true
+# Tools these removals would otherwise take along, still wanted (disk work;
+# python3 for root's data-disk helpers, scripts/lib/datafs.py).
+apt-mark manual fdisk gdisk bc finalrd python3 >/dev/null 2>&1 || true
 ((${#purge[@]})) && "${APT[@]}" purge "${purge[@]}" >/dev/null
 # Obsolete Docker packages can delete the active Engine's shared state in
 # their purge hooks. Keep their residual configuration when Docker CE is

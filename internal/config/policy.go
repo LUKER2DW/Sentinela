@@ -6,6 +6,7 @@ import (
 	"net"
 	"path"
 	"reflect"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -46,7 +47,9 @@ var reservedPorts = map[int]bool{1984: true, 8554: true, 8555: true, 7091: true,
 //   - a public, HTTP-01 or tunnel listener port is outside 1024..65535 or is
 //     one the stack itself uses;
 //   - remote.funnel_listen changes to anything but the loopback default;
-//   - a "nas" volume points outside NASRoot (unless it was already installed).
+//   - a "nas" volume points outside NASRoot (unless it was already installed);
+//   - a camera's user_env/password_env is not <NAME>_USER/<NAME>_PASS, the
+//     names the dashboard gives (unless the camera had them installed).
 func CheckDashboardChange(installed, candidate []byte) error {
 	var old, next Config
 	if err := yaml.Unmarshal(installed, &old); err != nil {
@@ -70,6 +73,7 @@ func CheckDashboardChange(installed, candidate []byte) error {
 	}
 
 	errs = append(errs, checkRemotePolicy(old, next)...)
+	errs = append(errs, checkCredentialNames(old, next)...)
 
 	oldNAS := map[string]bool{}
 	for _, v := range old.Volumes {
@@ -88,6 +92,57 @@ func CheckDashboardChange(installed, candidate []byte) error {
 		errs = append(errs, fmt.Errorf("volume %q: a nas volume must be %s or inside it", v.ID, NASRoot))
 	}
 	return errors.Join(errs...)
+}
+
+// Credential names the dashboard gives a camera (internal/api credEnv). The
+// root secrets merge (scripts/apply-config.sh) writes only names a camera of
+// the candidate uses, so a candidate naming, say, LD_PRELOAD as a password
+// could otherwise set any variable of the containers.
+var (
+	dashboardUserEnv = regexp.MustCompile(`^[A-Z0-9_]{1,59}_USER$`)
+	dashboardPassEnv = regexp.MustCompile(`^[A-Z0-9_]{1,59}_PASS$`)
+)
+
+func checkCredentialNames(old, next Config) []error {
+	installed := map[string]Camera{}
+	for _, c := range old.Cameras {
+		installed[c.ID] = c
+	}
+	var errs []error
+	for _, c := range next.Cameras {
+		if o, ok := installed[c.ID]; ok && o.UserEnv == c.UserEnv && o.PasswordEnv == c.PasswordEnv {
+			continue // as installed (names written by hand stay usable)
+		}
+		if !dashboardUserEnv.MatchString(c.UserEnv) || !dashboardPassEnv.MatchString(c.PasswordEnv) {
+			errs = append(errs, fmt.Errorf("camera %s: user_env/password_env must be <NAME>_USER and <NAME>_PASS", c.ID))
+		}
+	}
+	return errs
+}
+
+// secretForbidden are the printable characters a credential set from the
+// dashboard may not carry (see SecretValueOK).
+const secretForbidden = "\"#$'\\`{}"
+
+// SecretValueOK reports whether v may be stored in secrets.env as a camera
+// credential from the dashboard: 1 to 256 printable ASCII characters other
+// than space, quotes, backslash, '$', '{', '}' and '#'. secrets.env has
+// several readers: the host checks it with Docker's --env-file (literal
+// values), the containers get it through Compose's env_file (which expands
+// ${...} and strips quotes and comments) and go2rtc pastes values into its
+// YAML. With these characters, line breaks and control characters out, all
+// of them read the same text. scripts/apply-config.sh applies the same rule
+// on the root side.
+func SecretValueOK(v string) bool {
+	if v == "" || len(v) > 256 {
+		return false
+	}
+	for i := 0; i < len(v); i++ {
+		if c := v[i]; c <= ' ' || c > '~' || strings.IndexByte(secretForbidden, c) >= 0 {
+			return false
+		}
+	}
+	return true
 }
 
 // normalize makes "absent" and "empty" the same for the comparison.

@@ -3,6 +3,8 @@
 #
 #   ./scripts/build-apk.sh                       # -> mobile/build/sentinela.apk
 #   SENTINELA_GENERIC_APK=1 ./scripts/build-apk.sh   # no default server: for anyone
+#   SENTINELA_APK_UNSIGNED=1 ...  # no key at all: -> mobile/build/sentinela-unsigned.apk
+#                                 # (the release workflow signs it in a job of its own)
 #
 # The app is paired with a house by its QR/pairing code (System ->
 # App). Optional household default (start screen address and the
@@ -38,10 +40,16 @@ ext=""; [[ -f "$BT/apksigner.bat" ]] && ext=".bat"
 # Java tools on Windows need native paths (Git Bash gives /c/...).
 native() { if command -v cygpath >/dev/null; then cygpath -w "$1"; else echo "$1"; fi; }
 
+UNSIGNED="${SENTINELA_APK_UNSIGNED:-}"
+if [[ "$UNSIGNED" == 1 ]]; then
+  # Gradle finds no key (an empty folder) and builds the APK unsigned.
+  SENTINELA_KEYSTORE_DIR="$(mktemp -d)"
+  export SENTINELA_KEYSTORE_DIR
+fi
 KS_DIR="${SENTINELA_KEYSTORE_DIR:-$HOME/.sentinela-android}"
 KS="$KS_DIR/release.jks"
 PASS="$KS_DIR/keystore.pass"
-if [[ ! -f "$KS" ]]; then
+if [[ "$UNSIGNED" != 1 && ! -f "$KS" ]]; then
   mkdir -p "$KS_DIR" && chmod 700 "$KS_DIR"
   (umask 077 && head -c 32 /dev/urandom | base64 | tr -d '/+=\n' >"$PASS")
   "$JAVA_HOME/bin/keytool" -genkeypair -keystore "$(native "$KS")" -storetype PKCS12 -alias sentinela \
@@ -58,7 +66,11 @@ fi
 npm ci --no-audit --no-fund --silent
 npm run sync --silent >/dev/null
 
-echo "==> gradle assembleRelease (signed by Gradle with the key above)"
+if [[ "$UNSIGNED" == 1 ]]; then
+  echo "==> gradle assembleRelease (unsigned)"
+else
+  echo "==> gradle assembleRelease (signed by Gradle with the key above)"
+fi
 (cd android && ./gradlew assembleRelease --no-daemon -q)
 
 # A default server, when built in, must come with a well-formed pin or none;
@@ -74,6 +86,11 @@ if (process.env.SENTINELA_GENERIC_APK === "1" && (url || pin)) throw new Error("
 '
 
 mkdir -p build
+if [[ "$UNSIGNED" == 1 ]]; then
+  cp android/app/build/outputs/apk/release/app-release-unsigned.apk build/sentinela-unsigned.apk
+  echo "APK (unsigned): mobile/build/sentinela-unsigned.apk"
+  exit 0
+fi
 cp android/app/build/outputs/apk/release/app-release.apk build/sentinela.apk
 "$BT/apksigner$ext" verify build/sentinela.apk
 echo "APK: mobile/build/sentinela.apk ($(du -h build/sentinela.apk | cut -f1)). Copy it to the phone and open it to install."

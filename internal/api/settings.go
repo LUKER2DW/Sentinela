@@ -334,6 +334,11 @@ func (s *Server) buildCandidate(doc SettingsDoc) ([]byte, map[string]string, err
 			if c.User == "" || c.Password == "" {
 				return nil, nil, fmt.Errorf("camera %s: give both user and password", c.ID)
 			}
+			// The host refuses anything else (scripts/apply-config.sh):
+			// every reader of secrets.env must see the same text.
+			if !config.SecretValueOK(c.User) || !config.SecretValueOK(c.Password) {
+				return nil, nil, fmt.Errorf("camera %s: user and password take up to 256 printable ASCII characters, without spaces, quotes, backslashes, $, {, } or #", c.ID)
+			}
 			secrets[userEnv], secrets[passEnv] = c.User, c.Password
 			env[userEnv], env[passEnv] = c.User, c.Password
 		} else if known[c.ID] == nil {

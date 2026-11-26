@@ -125,6 +125,52 @@ jobs:
       # Workflow files: expressions, permissions, action inputs and the
       # shell inside run steps (with the runner's shellcheck).
       - run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.11
+      # The Cloudflare Tunnel connector's loopback table
+      # (scripts/lib/cloudflared.sh), loaded twice in a network namespace of
+      # its own: as the confined user (nobody here) only the tunnel listener
+      # and its metrics listener's answers pass; root is untouched.
+      - name: tunnel loopback firewall
+        run: |
+          command -v nft >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq nftables >/dev/null; }
+          # shellcheck source=scripts/lib/cloudflared.sh
+          source scripts/lib/cloudflared.sh
+          cf_ruleset 65534 7444 > "$RUNNER_TEMP/on.nft"
+          cf_ruleset 65534 > "$RUNNER_TEMP/off.nft"
+          cat > "$RUNNER_TEMP/check.sh" <<'SH'
+          set -euo pipefail
+          cd /
+          ip link set lo up
+          nft -f "$1"
+          nft -f "$1"
+          as() { setpriv --reuid=65534 --regid=65534 --clear-groups "$@"; }
+          get() { curl -so /dev/null --max-time 5 "$@"; }
+          refused() {
+            local rc=0
+            as curl -so /dev/null --max-time 5 "$1" || rc=$?
+            [ "$rc" = 7 ] || { echo "::error::$1 as the connector: curl status $rc, want 7 (refused)"; exit 1; }
+          }
+          bind=127.0.0.1 v6=no
+          if ip -6 addr show dev lo | grep -q '::1'; then bind=:: v6=yes; fi
+          trap 'kill $(jobs -p) 2>/dev/null || true' EXIT
+          python3 -m http.server -b "$bind" 7444 >/dev/null 2>&1 &
+          python3 -m http.server -b "$bind" 1984 >/dev/null 2>&1 &
+          as python3 -m http.server -b 127.0.0.1 20241 >/dev/null 2>&1 &
+          for p in 7444 1984 20241; do
+            for _ in $(seq 100); do get "http://127.0.0.1:$p/" && break; sleep 0.1; done
+          done
+          get http://127.0.0.1:1984/            # root: untouched
+          get http://127.0.0.1:20241/           # the readiness check reaches its metrics
+          as curl -so /dev/null --max-time 5 http://127.0.0.1:7444/   # the connector: the tunnel listener...
+          refused http://127.0.0.1:1984/        # ...and no other loopback service
+          if [ "$v6" = yes ]; then
+            as curl -so /dev/null --max-time 5 "http://[::1]:7444/"
+            refused "http://[::1]:1984/"
+          fi
+          nft -f "$2"                           # the proxy listener off: not even that
+          refused http://127.0.0.1:7444/
+          echo "tunnel loopback firewall: ok (IPv6 checked: $v6)"
+          SH
+          sudo unshare --net bash "$RUNNER_TEMP/check.sh" "$RUNNER_TEMP/on.nft" "$RUNNER_TEMP/off.nft"
       - name: docker compose file is valid (with the optional services profile)
         working-directory: deploy
         run: |

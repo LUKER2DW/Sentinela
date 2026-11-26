@@ -12,32 +12,40 @@
 #               root only, read by systemd; never logged or on a command line)
 #   disconnect  stop the tunnel and forget the token
 #
-# The tunnel runs as sentinela-cloudflared.service (no root, read-only
-# system). It only reaches the loopback port set in remote.proxy.listen,
-# where Sentinela treats every request as coming from the internet.
+# The tunnel runs as sentinela-cloudflared.service (its own system user,
+# read-only system). Its routes are set in the Cloudflare account: the public
+# hostname must point at remote.proxy.listen, where Sentinela treats every
+# request as coming from the internet. The unit confines the connector to
+# this host's loopback and the IPv4 internet (no LAN, cameras, router or
+# tailnet), and on loopback an nftables table lets it reach that listener
+# alone (scripts/lib/cloudflared.sh). This agent keeps that table and a
+# drop-in that also allows the host's own name servers.
 set -euo pipefail
 [[ $EUID -eq 0 ]] || { echo "run with sudo" >&2; exit 1; }
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=scripts/lib/safe.sh
+source "$DIR/scripts/lib/safe.sh"
+# shellcheck source=scripts/lib/cloudflared.sh
+source "$DIR/scripts/lib/cloudflared.sh"
 DATA="${SENTINELA_DATA:-/data}"
 REQ="$DATA/cloudflared"
 STATE=/var/lib/sentinela
 OUT="$STATE/cloudflared.json"
-ENVF=/etc/sentinela/cloudflared.env
-UNIT=sentinela-cloudflared.service
+ENVF="$CF_ENV"
+UNIT="$CF_UNIT"
 
-exec 9>/run/sentinela-cloudflared.lock
+exec 9>"$CF_LOCK"
 flock -w 120 9 || exit 0
 install -d -m 0755 "$STATE"
 
+# $REQ belongs to uid 1000: the request and the token are taken (read,
+# then removed) through safe.sh, which follows no link and reads only a
+# small plain file.
 action=status
-if [[ -f "$REQ/request" ]]; then
-  read -r action _ < "$REQ/request" || true
-  rm -f "$REQ/request"
+if req="$(safe_take "$DATA" "$REQ/request" 256)"; then
+  read -r action _ <<< "$req" || true
 fi
-token=""
-if [[ -f "$REQ/token" ]]; then
-  token="$(head -c 8192 "$REQ/token" | tr -d '[:space:]')"
-  rm -f "$REQ/token"
-fi
+token="$(safe_take "$DATA" "$REQ/token" 8192 | tr -d '[:space:]')" || token=""
 message=""
 
 status() { # status [BUSY]
@@ -94,36 +102,46 @@ install_cloudflared() {
     DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 install -y -qq cloudflared >/dev/null
 }
 
+if [[ "$action" != disconnect && -f "$ENVF" ]]; then
+  # The loopback table follows the settings (the proxy port) and comes back
+  # if something flushed it.
+  cf_firewall_kept || echo "warning: the tunnel's loopback firewall could not be loaded" >&2
+  # A running tunnel follows the host's name servers (a DHCP change).
+  if cf_dns_dropin; then
+    systemctl try-restart "$UNIT" || true
+  fi
+fi
+
 case "$action" in
   connect)
     if [[ ! "$token" =~ ^eyJ[A-Za-z0-9+/=_-]{50,4000}$ ]]; then
       message="bad_token"
-    elif ! install_cloudflared; then
+    elif ! install_cloudflared || ! cf_firewall; then
+      # cloudflared, or nftables for its loopback table, could not be installed.
       message="install_failed"
     else
       umask 077
       install -d -m 0755 /etc/sentinela
       printf 'TUNNEL_TOKEN=%s\n' "$token" > "$ENVF.tmp"
       chmod 0600 "$ENVF.tmp" && mv -f "$ENVF.tmp" "$ENVF"
+      cf_dns_dropin || true
       systemctl daemon-reload
       systemctl enable -q "$UNIT"
-      systemctl restart "$UNIT"
+      # A start that fails (its loopback table did not load) is reported
+      # below as no connection, not left as "starting".
+      systemctl restart "$UNIT" || true
       message="starting"
       status true
       # Connected when Cloudflare's edge accepts the tunnel (a few seconds).
       message="no_connection"
-      for _ in $(seq 1 20); do
-        if curl -fsS --max-time 3 http://127.0.0.1:20241/ready 2>/dev/null | grep -q '"readyConnections":[1-9]'; then
-          message="ok"
-          break
-        fi
-        sleep 2
-      done
+      cf_wait_ready 40 && message="ok"
     fi
     ;;
   disconnect)
     systemctl disable -q --now "$UNIT" 2>/dev/null || true
-    rm -f "$ENVF"
+    rm -f "$ENVF" "$CF_DNS_DROPIN"
+    cf_firewall_remove
+    systemctl daemon-reload
     message="disconnected"
     ;;
   *) action=status ;;

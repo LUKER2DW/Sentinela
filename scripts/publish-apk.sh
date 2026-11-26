@@ -34,13 +34,11 @@ json="$(printf '{"version_code":%s,"version_name":"%s","size":%s,"sha256":"%s","
   "$code" "$name" "$size" "$sha" "${notes//\"/\'}")"
 
 echo "==> publish app ${name} (${code}), $((size / 1024 / 1024)) MB"
-# /data belongs to uid 1000: root writes only into a plain directory, never
-# through a link found there (install itself replaces a link at the file name).
-"${SSH[@]}" 'sudo bash -s' <<'REMOTE'
-[[ ! -L /data/app ]] || { echo "refusing: /data/app is a symbolic link" >&2; exit 1; }
-install -d -o 1000 -g 1000 -m 0755 /data/app
-[[ ! -L /data/app ]] || { echo "refusing: /data/app is a symbolic link" >&2; exit 1; }
-REMOTE
-"${SSH[@]}" 'sudo install -o 1000 -g 1000 -m 0644 /dev/stdin /data/app/sentinela.apk' <"$APK"
-printf '%s' "$json" | "${SSH[@]}" 'sudo install -o 1000 -g 1000 -m 0644 /dev/stdin /data/app/app.json'
+# /data belongs to uid 1000, the API's user: the files are written as that
+# uid (setpriv), never as root, so a link planted there leads nowhere uid
+# 1000 could not write anyway. Each file is written aside, then renamed.
+# shellcheck disable=SC2016 # expanded on the server
+AS_API='sudo setpriv --reuid=1000 --regid=1000 --clear-groups --no-new-privs -- sh -c '\''umask 022 && mkdir -p /data/app && cat > "/data/app/.$1.part" && mv -f "/data/app/.$1.part" "/data/app/$1"'\'' publish'
+"${SSH[@]}" "$AS_API sentinela.apk" <"$APK"
+printf '%s' "$json" | "${SSH[@]}" "$AS_API app.json"
 echo "Published. Phones on an older version see \"Atualizar o app\"."

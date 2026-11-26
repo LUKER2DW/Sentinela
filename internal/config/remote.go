@@ -28,3 +28,23 @@ func (c *Config) PublicPorts() []string {
 	out = append(out, "8555/tcp", "8555/udp")
 	return out
 }
+
+// ProxyPort is the port of the tunnel / reverse proxy listener
+// (remote.proxy.listen), 0 when it is off. scripts/setup-cloudflared.sh
+// asks for it (`sentinela proxy-port`): on loopback, the Cloudflare Tunnel's
+// connector may reach that port and no other.
+func (c *Config) ProxyPort() int {
+	p := c.Remote.Proxy
+	if p.URL == "" {
+		return 0
+	}
+	_, port, err := net.SplitHostPort(p.Listen)
+	if err != nil {
+		return 0
+	}
+	n, err := strconv.Atoi(port)
+	if err != nil || n <= 0 || n > 65535 {
+		return 0
+	}
+	return n
+}

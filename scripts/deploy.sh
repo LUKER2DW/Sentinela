@@ -44,9 +44,12 @@ if (( ! SERVICES_ONLY )); then
 fi
 
 echo "==> ship deploy files"
-# shellcheck disable=SC2016 # $USER expands on the server
-"${SSH[@]}" 'sudo install -d -o "$USER" -g "$USER" /opt/sentinela'
-git ls-files -z deploy scripts | tar --null -T - -cf - | "${SSH[@]}" 'tar -m -x -C /opt/sentinela && chmod +x /opt/sentinela/scripts/*.sh'
+# Root runs these files, so root owns them and only root can change them
+# (not the SSH account): unpacked by root, without the archive's owners.
+"${SSH[@]}" 'sudo install -d -o root -g root -m 0755 /opt/sentinela'
+git ls-files -z deploy scripts | tar --null -T - -cf - | "${SSH[@]}" 'sudo tar --no-same-owner --no-same-permissions -m -x -C /opt/sentinela &&
+  sudo chown -R root:root /opt/sentinela/deploy /opt/sentinela/scripts &&
+  sudo chmod -R go-w /opt/sentinela/deploy /opt/sentinela/scripts && sudo chmod +x /opt/sentinela/scripts/*.sh'
 
 echo "==> ship image ($(docker image inspect sentinela:local --format '{{.Size}}' | awk '{printf "%.0f MB", $1/1e6}'))"
 docker save sentinela:local | gzip -1 | "${SSH[@]}" 'gunzip | docker load -q'
@@ -67,25 +70,18 @@ echo "==> restart stack"
 # Camera streams for go2rtc come from config.yaml (any number, any vendor).
 GO2RTC_CHANGED="$("${SSH[@]}" 'sudo /opt/sentinela/scripts/gen-go2rtc-cameras.sh')"
 # The recorder writes only while /data holds its marker (volume_marker).
+# /data belongs to uid 1000: root reaches it only through safe.sh, which
+# follows no link and works through descriptors.
 "${SSH[@]}" 'sudo bash -s' <<'REMOTE'
+set -euo pipefail
+source /opt/sentinela/scripts/lib/safe.sh
 m=/data/.sentinela-volume
-# /data belongs to uid 1000: root never writes through a link found there.
-[[ -L "$m" ]] && { echo "!! refusing: $m is a symbolic link" >&2; exit 1; }
-[[ -e "$m" ]] && exit 0
-if mountpoint -q /data; then
-  touch "$m" && echo "created $m"
+if mountpoint -q /data || [[ -e "$m" || -L "$m" ]]; then
+  safe_touch /data "$m"
 else
   echo "!! /data is not a mount point: recording stays paused until the disk is mounted" >&2
 fi
-REMOTE
-"${SSH[@]}" 'sudo bash -s' <<'REMOTE'
-for d in /data/detector /data/apps-agent; do
-  [[ ! -L "$d" ]] || { echo "!! refusing: $d is a symbolic link" >&2; exit 1; }
-done
-install -d -o 1000 -g 1000 -m 0750 /data/detector /data/apps-agent
-for d in /data/detector /data/apps-agent; do
-  [[ ! -L "$d" && -d "$d" ]] || { echo "!! refusing: $d is not a plain directory" >&2; exit 1; }
-done
+safe_install_d /data 0750 /data/detector /data/apps-agent
 REMOTE
 # Host units behind System -> Atualizações (they do nothing until turned on).
 "${SSH[@]}" 'sudo /opt/sentinela/scripts/setup-auto-update.sh install && sudo /opt/sentinela/scripts/setup-config-apply.sh && sudo /opt/sentinela/scripts/setup-tailscale.sh units && sudo /opt/sentinela/scripts/setup-cloudflared.sh units'

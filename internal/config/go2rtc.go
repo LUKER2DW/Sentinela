@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strconv"
 )
 
@@ -16,6 +17,24 @@ func LoadLayout(path string) (*Config, error) {
 		return nil, fmt.Errorf("read config: %w", err)
 	}
 	return Parse(raw, func(string) string { return "unused" })
+}
+
+// CredentialNames are the environment names the cameras' credentials come
+// from (user_env and password_env), sorted, each once. A camera's stream
+// URLs need not carry them (a custom path without {user}/{password}), so
+// scripts/apply-config.sh asks for these (`sentinela credential-names`)
+// before it accepts credentials from the dashboard.
+func (c *Config) CredentialNames() []string {
+	var names []string
+	for _, cam := range c.Cameras {
+		for _, n := range []string{cam.UserEnv, cam.PasswordEnv} {
+			if n != "" {
+				names = append(names, n)
+			}
+		}
+	}
+	slices.Sort(names)
+	return slices.Compact(names)
 }
 
 // WriteGo2RTC writes go2rtc's camera streams for every camera: the main

@@ -166,6 +166,20 @@ are superseded where noted by ADR-0019 and ADR-0020.
     (`remote.proxy.listen`, for Cloudflare Tunnel, Caddy or nginx; ADR-0025)
     are also public zones when the owner turns them on from the dashboard;
     point a tunnel only at that listener, never at the dashboard port.
+    A Cloudflare Tunnel's routes live in the Cloudflare account, not on the
+    host: its one public hostname must have the service
+    `http://<remote.proxy.listen>` (`http://127.0.0.1:7444`) and the tunnel
+    no private-network routes. `sentinela-cloudflared.service` confines the
+    connector to the host's loopback and the IPv4 internet (no LAN, cameras,
+    router, tailnet, Docker networks or IPv6), and on loopback to that
+    listener: the connector runs as its own system user, and an nftables
+    table keyed on that user's uid (`scripts/lib/cloudflared.sh`, loaded
+    before every start, kept by the agent's timer, following the port in
+    the settings) refuses everything else it sends through the loopback
+    interface (go2rtc's API and RTSP, any other local service), apart from a
+    local name server. Who can edit the tunnel (account members, API
+    tokens) still decides who reaches that listener; it is the owner's
+    responsibility.
     Embedded tailnet enrollment/app keys were removed (`mobile/tailnet` is
     parked source that no build uses).
     Public zones are determined by listener, never by a client header:
@@ -235,13 +249,21 @@ are superseded where noted by ADR-0019 and ADR-0020.
     Docker socket, binds outside their folder, or external/non-bridge
     networks and volumes.
 
-18. Root host agents never trust files the containers write. `apply-config.sh`
-    re-checks every dashboard-applied config with `sentinela check-config
-    -against <installed>` (non-editable keys unchanged, public ports in
-    1024..65535), refuses symlinked request files, and the setup/deploy scripts
-    refuse symlinks under `/data` (`scripts/lib/safe.sh`). Releases are made
-    only from a plain `vX.Y.Z` tag whose commit is on `main`; the signing key
-    additionally needs the `release` environment protections in
+18. Root host agents never trust files the containers write. They reach the
+    data disk only through `scripts/lib/datafs.py` (no link followed,
+    descriptors only, plain size-capped files); the updater takes the running
+    version from the installed image, and the deploy files it installs belong
+    to root. `apply-config.sh` re-checks every dashboard-applied config with
+    `sentinela check-config -against <installed>` (non-editable keys
+    unchanged, public ports in 1024..65535, credential names
+    `<NAME>_USER`/`<NAME>_PASS` or as installed) and accepts credentials only
+    for names the candidate's cameras use, as printable ASCII without spaces,
+    quotes, backslashes, `$`, `{`, `}` or `#`, so Docker's `--env-file`,
+    Compose's `env_file` and go2rtc all read the same value. Releases are
+    made only from a plain `vX.Y.Z` tag (no leading zeros) whose commit is on
+    `main`, is newer than every published release and contains the latest
+    one; the APK is signed in a job that runs no project code, and the
+    signing key additionally needs the `release` environment protections in
     `docs/RELEASING.md`, which only GitHub settings can enforce.
 
 ## Reporting and verification

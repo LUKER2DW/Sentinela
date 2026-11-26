@@ -7,10 +7,22 @@ ConditionPathExists=/etc/sentinela/cloudflared.env
 [Service]
 # The token comes from this root-only file, never from the command line.
 EnvironmentFile=/etc/sentinela/cloudflared.env
+# Cloudflare's edge over IPv4 (cloudflared's default): IPv6 is closed below.
+Environment=TUNNEL_EDGE_IP_VERSION=4
+# On loopback the connector may reach only the tunnel listener
+# (remote.proxy.listen), a local name server and its own metrics answers:
+# an nftables table keyed on this unit's user (scripts/lib/cloudflared.sh).
+# Loaded as root ("+") before every start; without it the tunnel does not
+# start.
+ExecStartPre=+/usr/sbin/nft -f /etc/sentinela/cloudflared.nft
 ExecStart=/usr/bin/cloudflared tunnel --no-autoupdate --metrics 127.0.0.1:20241 run
 Restart=on-failure
 RestartSec=5
-DynamicUser=yes
+# A static system user (made by scripts/lib/cloudflared.sh), so that the
+# table above can name its uid. It owns no file: systemd reads the token.
+User=sentinela-cloudflared
+Group=sentinela-cloudflared
+RemoveIPC=yes
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
@@ -18,9 +30,33 @@ PrivateTmp=yes
 PrivateDevices=yes
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
+ProtectKernelLogs=yes
 ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+UMask=0077
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 CapabilityBoundingSet=
+AmbientCapabilities=
+# The tunnel's routes (public hostnames, their services, private networks)
+# live in the Cloudflare account, not on this host. Whatever they say, the
+# connector reaches only this host's loopback and the IPv4 internet: never
+# the LAN, the cameras, the router, the tailnet, Docker networks, link-local
+# addresses or anything over IPv6 (where LAN devices have global addresses).
+# scripts/lib/cloudflared.sh allows this host's own name servers in a
+# drop-in (dns.conf) when they fall in these ranges. On loopback, the table
+# loaded above leaves it remote.proxy.listen alone (docs/SECURITY.md rule 14).
+IPAddressAllow=localhost
+IPAddressDeny=0.0.0.0/8 10.0.0.0/8 100.64.0.0/10 169.254.0.0/16 172.16.0.0/12 192.0.0.0/24 192.168.0.0/16 198.18.0.0/15 224.0.0.0/3 ::/0
 MemoryMax=256M
 
 [Install]

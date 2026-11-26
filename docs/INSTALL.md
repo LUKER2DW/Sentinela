@@ -300,7 +300,11 @@ from the tunnel get the same protection as the public address.
   System → Remote access; the server installs and runs `cloudflared`. Add a
   public hostname (e.g. `cam.example.com`) with service
   `http://127.0.0.1:7444`, type the address in the dashboard and press
-  *Test from the internet*.
+  *Test from the internet*. Add no other hostname and no private network
+  to this tunnel: the server keeps the tunnel off the LAN and lets it reach
+  only that listener on `127.0.0.1` (its port follows the dashboard), so
+  they would not work. Connecting also installs `nftables`, which holds
+  that rule.
 - **Another proxy** (Caddy, nginx, ngrok…) on the same server: send the
   domain to `http://127.0.0.1:7444`, keep the Host header, add
   `X-Forwarded-For` and `X-Forwarded-Proto: https`, allow WebSockets. In

@@ -41,6 +41,13 @@ if ! command -v docker >/dev/null || ! docker compose version >/dev/null 2>&1; t
 else
   echo "docker $(docker --version | awk '{print $3}') already installed"
 fi
+# Root reaches the data disk only through scripts/lib/datafs.py (safe.sh),
+# so python3 stays installed even when what pulled it in goes.
+if ! command -v python3 >/dev/null; then
+  apt-get -o DPkg::Lock::Timeout=600 update -qq
+  apt-get -o DPkg::Lock::Timeout=600 install -y -qq python3
+fi
+apt-mark manual python3 >/dev/null 2>&1 || true
 
 say "2/6 Configuration in ${ETC}"
 install -d -m 0750 "${ETC}"
@@ -77,9 +84,9 @@ fi
 # The recorder writes only while this marker exists: if the disk ever fails
 # to mount, the empty mount point has no marker and recording pauses
 # instead of filling the system disk (recording.volume_marker).
-# The disk is owned by uid 1000: never write through a link found on it.
-refuse_symlink_below "${DATA}" "${DATA}/.sentinela-volume"
-touch "${DATA}/.sentinela-volume"
+# The disk is owned by uid 1000: never write through a link found on it
+# (scripts/lib/safe.sh).
+safe_touch "${DATA}" "${DATA}/.sentinela-volume"
 safe_install_d "${DATA}" 0750 "${DATA}/recordings" "${DATA}/db" "${DATA}/backup" "${DATA}/detector"
 chown 1000:1000 "${DATA}"   # top level only: never walk every recording
 df -h "${DATA}" | tail -1

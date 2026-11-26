@@ -9,8 +9,10 @@
 #   --now        by hand.
 # Preferences come from <data>/updates/settings.json (written by the
 # dashboard or setup-auto-update.sh); where releases come from only from the
-# root-owned /etc/sentinela/auto-update.env. Nothing is built here: the
-# release already holds the server image (built in CI) and deploy files.
+# root-owned /etc/sentinela/auto-update.env, and the running version only
+# from the installed image (never from the data disk, which the containers
+# can write). Nothing is built here: the release already holds the server
+# image (built in CI) and deploy files.
 #
 #   1. Read the latest release of SENTINELA_UPDATE_REPO (GitHub API).
 #   2. Skip when the running version is the same or newer, when it is not a
@@ -19,8 +21,13 @@
 #      version ahead and SENTINELA_UPDATE_MAJOR is not "yes".
 #   3. Download SHA256SUMS, the deploy bundle and image.txt; check them.
 #   4. Pull the image by digest, keep the current one as sentinela:previous,
-#      install the deploy files, regenerate go2rtc's streams, restart.
-#   5. Health check; on failure put the previous image and files back.
+#      install the deploy files (owned by root), regenerate go2rtc's streams,
+#      restart.
+#   5. Health check; on failure put the previous image and files back. On
+#      success, reinstall the host units from the new files, as deploy.sh does
+#      (a setup that fails is named in the status).
+# Every run first checks that the host units match the deploy files (heal):
+# a release installed by an older auto-update.sh gets them on the next run.
 # A status file (/var/lib/sentinela/update.json) feeds the System page.
 set -euo pipefail
 
@@ -32,48 +39,102 @@ ENV_FILE="$ETC/auto-update.env"
 [[ $EUID -eq 0 ]] || { echo "run with sudo" >&2; exit 1; }
 # shellcheck disable=SC1090
 [[ -f "$ENV_FILE" ]] && . "$ENV_FILE"
+# shellcheck source=scripts/lib/safe.sh
+source "$DIR/scripts/lib/safe.sh"
 REPO="${SENTINELA_UPDATE_REPO:-LUKER2DW/Sentinela}"
-UPDATES="${SENTINELA_DATA:-/data}/updates"
-# Dashboard preferences (missing file = off).
-read -r ENABLED AT MAJOR MANUAL < <(python3 - "$UPDATES/settings.json" <<'PY'
+DATA="${SENTINELA_DATA:-/data}"
+UPDATES="$DATA/updates"
+# Dashboard preferences (missing file = off). <data>/updates belongs to uid
+# 1000: its files are read only through safe.sh (no link followed, a small
+# plain file), never by name.
+PREFS='
 import json, re, sys
 try:
-    s = json.load(open(sys.argv[1]))
+    s = json.loads(sys.stdin.read())
 except Exception:
+    s = {}
+if not isinstance(s, dict):
     s = {}
 at = s.get("at") if isinstance(s.get("at"), str) and re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", s.get("at", "")) else "04:00"
 print("yes" if s.get("enabled") is True else "no", at,
       "yes" if s.get("major") is True else "no",
       "replace" if s.get("replace_manual") is True else "keep")
-PY
-)
+'
+read -r ENABLED AT MAJOR MANUAL < <({ safe_read "$DATA" "$UPDATES/settings.json" 4096 2>/dev/null || true; } | python3 -I -c "$PREFS")
 ACTION=install # what this run does: install, or only check and report
 FORCE=no       # a person asked to install: past the manual-build and major guards
-case "${1:---scheduled}" in
+MODE="${1:---scheduled}"
+case "$MODE" in
   --now) ;;
   --request)
-    [[ -f "$UPDATES/request" ]] || exit 0
-    read -r req _ < "$UPDATES/request" || true
-    rm -f "$UPDATES/request"
+    rc=0
+    req="$(safe_take "$DATA" "$UPDATES/request" 64)" || rc=$?
+    case "$rc" in 0) ;; 2) exit 0 ;; *) exit 1 ;; esac
+    read -r req _ <<< "$req" || true
     case "$req" in
       check) ACTION=check ;;
       install) FORCE=yes ;;
       *) ;; # an older dashboard's request: check and install with the guards
     esac
     ;;
-  --scheduled)
-    [[ "$ENABLED" == yes ]] || exit 0
-    [[ "$(date +%H)" == "${AT%%:*}" ]] || exit 0
-    ;;
+  --scheduled) ;; # acts only when turned on and in the chosen hour (below)
   *) echo "usage: $0 [--scheduled|--request|--now]" >&2; exit 2 ;;
 esac
-[[ "$REPO" =~ ^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$ ]] || { echo "bad SENTINELA_UPDATE_REPO" >&2; exit 1; }
 
 exec 9>/run/sentinela-update.lock
 flock -n 9 || { echo "another update is running"; exit 0; }
 install -d -m 0755 "$STATE"
 
 log() { echo "update: $*"; }
+# root_owned: what root runs (scripts, compose file, units) belongs to root
+# and only root may change it, whatever the archive or an earlier install
+# recorded as the owner.
+root_owned() {
+  chown -R root:root "$DIR/deploy" "$DIR/scripts" && chmod -R go-w "$DIR/deploy" "$DIR/scripts" &&
+    chown root:root "$DIR" && chmod go-w "$DIR" && chmod +x "$DIR"/scripts/*.sh
+}
+# The host units come with the deploy files: deploy.sh installs them with
+# the setup scripts below, and so does an update after its health check.
+UNITS_STAMP="$STATE/host-units.sha256"
+units_sum() { # the files the host units and their setups come from
+  (cd "$DIR" && find deploy/host scripts/lib scripts/setup-*.sh -type f -print0 | sort -z | xargs -0 sha256sum) |
+    sha256sum | cut -c1-64
+}
+# install_host: runs the setups, records the stamp, prints those that failed.
+install_host() {
+  local setup failed=""
+  for setup in "setup-auto-update.sh install" setup-config-apply.sh "setup-tailscale.sh units" "setup-cloudflared.sh units"; do
+    # shellcheck disable=SC2086 # the script and its argument
+    if ! "$DIR"/scripts/$setup >/dev/null 2>&1; then
+      log "warning: $setup failed" >&2
+      failed+="${failed:+, }${setup%% *}"
+    fi
+  done
+  if units_sum > "$UNITS_STAMP.tmp"; then
+    mv -f "$UNITS_STAMP.tmp" "$UNITS_STAMP"
+  fi
+  printf '%s' "$failed"
+}
+# heal: these deploy files may have been installed by an older
+# auto-update.sh, which reinstalled no host unit and left deploy/ and
+# scripts/ owned as unpacked (or by deploy.sh, which records no stamp). The
+# first run of this script after that, whatever started it, does what an
+# update does after its health check, once per set of host files.
+heal() {
+  local want
+  want="$(units_sum)" || return 0
+  [[ "$(cat "$UNITS_STAMP" 2>/dev/null)" != "$want" ]] || return 0
+  log "host units older than these deploy files: installing them"
+  root_owned || log "warning: could not make root own the deploy files"
+  install_host >/dev/null
+}
+heal
+
+if [[ "$MODE" == --scheduled ]]; then
+  [[ "$ENABLED" == yes ]] || exit 0
+  [[ "$(date +%H)" == "${AT%%:*}" ]] || exit 0
+fi
+[[ "$REPO" =~ ^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$ ]] || { echo "bad SENTINELA_UPDATE_REPO" >&2; exit 1; }
 status() { # state, current, latest, message
   printf '{"checked":"%s","state":"%s","current":"%s","latest":"%s","message":"%s"}\n' \
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$2" "$3" "${4//\"/\'}" > "$STATUS.tmp"
@@ -99,11 +160,11 @@ newer() { # newer A B: A > B
   return 1
 }
 
-# The running server writes its version at start (instant); an older server
-# does not, so ask the image (a few seconds).
-current="$(head -c 64 "$UPDATES/version" 2>/dev/null | tr -d '[:space:]')"
-[[ "$current" =~ ^[A-Za-z0-9._-]+$ ]] ||
-  current="$(docker run --rm --network none --entrypoint /usr/local/bin/sentinela sentinela:local version 2>/dev/null || echo unknown)"
+# The running version comes from the installed image itself (a few seconds),
+# never from <data>/updates/version: the API writes that file, and anything
+# that runs as uid 1000 could make root believe it is up to date.
+current="$(docker run --rm --network none --entrypoint /usr/local/bin/sentinela sentinela:local version 2>/dev/null | head -1 | tr -d '[:space:]')" || current=""
+[[ "$current" =~ ^[A-Za-z0-9._-]{1,64}$ ]] || current=unknown
 api="https://api.github.com/repos/$REPO/releases/latest"
 release="$(curl -fsSL --max-time 30 -H 'Accept: application/vnd.github+json' -A "sentinela-updater/$current" "$api")" ||
   { status error "$current" "" "could not read $api"; exit 1; }
@@ -168,6 +229,19 @@ progress 35 verify
   { status error "$current" "$latest" "checksum mismatch"; exit 1; }
 image="$(head -1 "$work/image.txt")"
 [[ "$image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]] || { status error "$current" "$latest" "bad image reference"; exit 1; }
+# The bundle holds deploy/ and scripts/ only: plain files and directories.
+python3 -I - "$work/$bundle" <<'PY' || { status error "$current" "$latest" "unexpected file in the deploy bundle"; exit 1; }
+import re, sys, tarfile
+name = re.compile(r"(deploy|scripts)(/[A-Za-z0-9._-]+)+/?")
+seen = set()
+with tarfile.open(sys.argv[1], "r:gz") as t:
+    for m in t:
+        if not (m.isfile() or m.isdir()) or not name.fullmatch(m.name) or {".", ".."} & set(m.name.split("/")):
+            sys.exit(f"unexpected member {m.name!r}")
+        seen.add(m.name)
+if not {"deploy/docker-compose.yml", "scripts/auto-update.sh"} <= seen:
+    sys.exit("incomplete bundle")
+PY
 
 progress 40 image
 if ! out="$(docker pull -q "$image" 2>&1)"; then
@@ -190,12 +264,18 @@ rollback() {
   rm -rf "$DIR/deploy" "$DIR/scripts"
   cp -a "$work/deploy.previous" "$DIR/deploy"
   cp -a "$work/scripts.previous" "$DIR/scripts"
+  root_owned || true
   (cd "$DIR/deploy" && docker compose up -d --no-build >/dev/null 2>&1) || true
 }
 
 docker tag "$image" sentinela:local
-tar -xzf "$work/$bundle" -C "$DIR"
-chmod +x "$DIR"/scripts/*.sh
+# --no-same-owner: root's tar would otherwise give every file the owner
+# recorded in the archive (the build machine's account).
+if ! tar --no-same-owner --no-same-permissions -xzf "$work/$bundle" -C "$DIR" || ! root_owned; then
+  rollback
+  status failed "$current" "$latest" "could not install the deploy files; rolled back"
+  exit 1
+fi
 "$DIR/scripts/gen-go2rtc-cameras.sh" >/dev/null || { rollback; status failed "$current" "$latest" "go2rtc config failed; rolled back"; exit 1; }
 APPS_PROFILE=""
 [[ -f "$ETC/apps-enabled" ]] && APPS_PROFILE=apps
@@ -210,7 +290,11 @@ progress 85 restart
 for _ in $(seq 1 45); do
   if (cd "$DIR/deploy" && docker compose exec -T sentinela /usr/local/bin/sentinela healthcheck >/dev/null 2>&1); then
     log "updated to $latest"
-    status updated "$latest" "$latest" "updated from $current"
+    # The release's host units take effect now (a changed unit, such as the
+    # tunnel's sandbox); a setup that failed is named in the status.
+    progress 95 restart
+    failed="$(install_host)"
+    status updated "$latest" "$latest" "updated from $current${failed:+; host setup failed: $failed, see the journal}"
     docker image prune -f >/dev/null || true
     exit 0
   fi
