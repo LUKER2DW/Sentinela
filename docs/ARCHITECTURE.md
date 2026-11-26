@@ -18,6 +18,10 @@ from their original runs; they are not new hardware measurements.
 | Firebase | Outbound service, ADR-0020 | An opaque wake-up signal to Android; no event title, link or picture |
 
 Host-networked containers still bind sensitive APIs/restreams to loopback.
+They all share that loopback, so go2rtc's API also needs a password
+(`GO2RTC_API_PASSWORD` in `secrets.env`, created by
+`scripts/go2rtc-secret.sh`; loopback callers too) that only `sentinela serve`
+holds, and answers only the paths serve uses.
 The concrete Compose caps are safety limits, not observed steady-state RSS.
 
 ## 2. Data flows
@@ -187,14 +191,18 @@ for shared paths. API permissions do not depend on that display column.
 
 Profile photos are resized on the client and served with authentication.
 Admins authorize users by invite links; passwords, optional e-mail sign-in,
-TOTP, device sessions, disabled accounts and audit are in the existing DB.
+TOTP, device sessions, disabled accounts and audit are in the API's private
+database (§3).
 
 ## 3. Storage
 
 ```
 /data/
   recordings/                 UTC fragmented MP4 files
-  db/sentinela.db              SQLite WAL
+  db/sentinela.db              SQLite WAL: shared index (segments, events,
+                               recorder status); the recorder mounts db/
+  db-private/sentinela.db      SQLite WAL, API only: accounts, sessions,
+                               push, settings, audit (0700 folder)
   snapshots/<camera>/          Event JPEGs
   cache/timelapse/             Prepared timelapse files
   avatars/                    User photo files
@@ -211,6 +219,17 @@ TOTP, device sessions, disabled accounts and audit are in the existing DB.
   config.yaml                  Server configuration
   secrets.env                  Camera secrets, root 0600
 ```
+
+The database is two files of the same SQLite store. The recorder parses
+untrusted camera data and needs only the index, so the accounts and
+sessions are in a file it cannot open: it cannot read a password hash or
+two-step secret, or mint a session. Releases before the split kept every
+table in `db/sentinela.db`; the API's first start copies its tables into
+`db-private/` and, after 10 minutes up (past the updater's health check),
+drops them from the index with their pages zeroed. Until then an automatic
+rollback to an older release still finds the accounts, and what it changes
+is copied again on the next start. The recorder never removes anything, so
+either container may run an older or newer binary during an update.
 
 Developer-only files in `~/.sentinela-android/`: signing keystore/password,
 Firebase client JSON, connection JSON and the retained service-account

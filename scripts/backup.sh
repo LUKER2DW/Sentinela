@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Nightly backup (ADR-0014). Runs as root from sentinela-backup.timer.
-#   1. SQLite: VACUUM INTO /srv/backup/db/sentinela-YYYYMMDD.db (keep 14).
-#      Consistent under WAL while the app keeps running.
+#   1. SQLite: VACUUM INTO /srv/backup/db/sentinela-YYYYMMDD.db (the shared
+#      index) and sentinela-private-YYYYMMDD.db (the API's private database:
+#      accounts, sessions, settings, audit), 14 of each. Consistent under WAL
+#      while the app keeps running.
 #   2. /etc/sentinela (config + secrets) -> /srv/backup/etc (root-only).
 #   3. restic to the external disk, only if /etc/sentinela/restic.env exists:
 #        RESTIC_REPOSITORY=/media/backup/sentinela-restic
@@ -12,6 +14,8 @@
 set -euo pipefail
 
 DB="${SENTINELA_DB:-/data/db/sentinela.db}"
+# Next to the index's folder, never inside it (store.PrivatePath).
+PRIVATE_DB="${SENTINELA_PRIVATE_DB:-$(dirname "$DB")-private/$(basename "$DB")}"
 DEST="${SENTINELA_BACKUP_DIR:-/srv/backup}"
 STATUS="${SENTINELA_BACKUP_STATUS:-/var/lib/sentinela/backup.json}"
 KEEP=14
@@ -31,27 +35,45 @@ install -d -m 0700 "$DEST/db" "$DEST/etc"
 # off: nothing in the file's schema (views, triggers, functions) can run
 # with root's rights.
 sq() { setpriv --reuid="$uid" --regid="$gid" --clear-groups sqlite3 -cmd 'PRAGMA trusted_schema=OFF' "$@"; }
-db_at="" db_file="" db_bytes=0 db_ok=false
-if [[ -f "$DB" ]]; then
-  uid="$(stat -c %u "$DB")" gid="$(stat -c %g "$DB")"
+# backup_db SRC PREFIX: VACUUM INTO $DEST/db/PREFIX<date>.db, keep $KEEP.
+# Sets name and bytes; fails when the copy could not be made or checked.
+backup_db() {
+  local src="$1" prefix="$2" tmp
+  uid="$(stat -c %u "$src")" gid="$(stat -c %g "$src")"
   tmp="$(mktemp -d)"
   chown "$uid:$gid" "$tmp"
-  name="sentinela-$(date -u +%Y%m%d).db"
-  if sq "$DB" ".timeout 10000" "VACUUM INTO '$tmp/$name'" &&
+  name="${prefix}$(date -u +%Y%m%d).db"
+  if sq "$src" ".timeout 10000" "VACUUM INTO '$tmp/$name'" &&
      [[ -f "$tmp/$name" && ! -L "$tmp/$name" ]] &&
      [[ "$(sq "$tmp/$name" 'PRAGMA integrity_check')" == ok ]]; then
     chown root:root "$tmp/$name" && chmod 0600 "$tmp/$name"
     mv -f "$tmp/$name" "$DEST/db/$name"
-    db_at="$(now)" db_file="$name" db_bytes="$(stat -c %s "$DEST/db/$name")" db_ok=true
-    log "database -> $DEST/db/$name ($db_bytes bytes)"
-    # Keep the newest $KEEP.
-    ls -1t "$DEST"/db/sentinela-*.db | tail -n +$((KEEP + 1)) | xargs -r rm -f
-  else
-    log "database backup FAILED"
+    bytes="$(stat -c %s "$DEST/db/$name")"
+    log "database -> $DEST/db/$name ($bytes bytes)"
+    # shellcheck disable=SC2012 # backup names are <prefix>YYYYMMDD.db
+    ls -1t "$DEST/db/$prefix"[0-9]*.db | tail -n +$((KEEP + 1)) | xargs -r rm -f
+    rm -rf "$tmp"
+    return 0
   fi
+  log "database backup FAILED ($src)"
   rm -rf "$tmp"
-else
+  return 1
+}
+db_at="" db_file="" db_bytes=0 db_ok=false
+if [[ ! -f "$DB" ]]; then
   log "no database at $DB"
+elif backup_db "$DB" sentinela-; then
+  db_file="$name" db_bytes="$bytes" db_ok=true
+  # Hosts updated from a release before the split have no private file
+  # until the API's first start.
+  if [[ -f "$PRIVATE_DB" ]]; then
+    if backup_db "$PRIVATE_DB" sentinela-private-; then
+      db_bytes=$((db_bytes + bytes))
+    else
+      db_ok=false
+    fi
+  fi
+  [[ "$db_ok" != true ]] || db_at="$(now)"
 fi
 
 # 2. Config and secrets.

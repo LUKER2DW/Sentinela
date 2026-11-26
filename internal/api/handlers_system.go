@@ -194,11 +194,15 @@ func (s *Server) go2rtcStatus(ctx context.Context) (map[string]go2rtcStream, err
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, s.go2rtc.String()+"/api/streams", nil)
+	s.go2rtcAuth(req)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("go2rtc: HTTP %d", resp.StatusCode)
+	}
 	var raw map[string]struct {
 		Producers []json.RawMessage `json:"producers"`
 		Consumers []json.RawMessage `json:"consumers"`

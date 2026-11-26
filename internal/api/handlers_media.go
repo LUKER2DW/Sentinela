@@ -164,7 +164,13 @@ func (s *Server) streamWS(w http.ResponseWriter, r *http.Request) {
 			// the stream's tag (it keeps it on the consumer it creates).
 			pr.Out.Header.Del("Origin")
 			pr.Out.Header.Del("Cookie")
+			s.go2rtcAuth(pr.Out)
 			pr.Out.Header.Set("User-Agent", liveTagPrefix+tag)
+		},
+		// A wrong or missing go2rtc password must not make the browser ask for one.
+		ModifyResponse: func(resp *http.Response) error {
+			resp.Header.Del("Www-Authenticate")
+			return nil
 		},
 		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, err error) {
 			s.Log.Warn("go2rtc proxy error", "err", err)
@@ -231,6 +237,9 @@ func (s *Server) segmentPath(rel string) string {
 	if !strings.HasPrefix(p, root+string(filepath.Separator)) {
 		return "" // defence in depth against a tampered DB row
 	}
+	if linkLeaves(root, p) {
+		return "" // a link the recorder planted (segfile.go)
+	}
 	return p
 }
 
@@ -239,7 +248,7 @@ func (s *Server) recording(w http.ResponseWriter, r *http.Request) {
 	if seg == nil {
 		return
 	}
-	f, err := os.Open(path)
+	f, err := s.openSegment(seg.Path)
 	if err != nil || path == "" {
 		writeErr(w, http.StatusNotFound, "file missing")
 		return

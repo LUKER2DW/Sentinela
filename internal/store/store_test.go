@@ -51,27 +51,28 @@ func TestMigrationsRerun(t *testing.T) {
 	s.Close()
 }
 
+// 0010 ran on the index of a release before the split, where users lived;
+// the reset it made moves to the private database with the account.
 func TestNotifyOptInMigration(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "t.db")
+	ix, err := OpenIndex(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := ix.DB().ExecContext(ctx, `INSERT INTO users(username,pw_hash,role,created_at,notify) VALUES('admin','hash','admin',?,?)`,
+		Now(), `{"follow_mode":false,"types":["motion","human"]}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, _ := res.LastInsertId()
+	if _, err := ix.DB().ExecContext(ctx, `DELETE FROM schema_migrations WHERE version='0010_notify_opt_in'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := ix.Close(); err != nil {
+		t.Fatal(err)
+	}
 	s, err := Open(ctx, path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	id, err := s.CreateFirstUser(ctx, "admin", "hash")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := s.SetUserNotify(ctx, id, `{"follow_mode":false,"types":["motion","human"]}`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.DB().ExecContext(ctx, `DELETE FROM schema_migrations WHERE version='0010_notify_opt_in'`); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.Close(); err != nil {
-		t.Fatal(err)
-	}
-	s, err = Open(ctx, path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -369,11 +370,11 @@ func TestAuditClipAndPrune(t *testing.T) {
 	// Retention: by age and by count; upload records stay.
 	old := FormatTime(time.Now().Add(-200 * 24 * time.Hour))
 	for i := 0; i < 5; i++ {
-		if _, err := s.DB().ExecContext(ctx, `INSERT INTO audit(at,username,action,target,ok,detail) VALUES(?,?,?,?,1,'')`, old, "u", "login", ""); err != nil {
+		if _, err := s.priv.ExecContext(ctx, `INSERT INTO audit(at,username,action,target,ok,detail) VALUES(?,?,?,?,1,'')`, old, "u", "login", ""); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := s.DB().ExecContext(ctx, `INSERT INTO audit(at,username,action,target,ok,detail) VALUES(?,?,?,?,1,'')`, old, "u", "nas.upload", "a/b.txt"); err != nil {
+	if _, err := s.priv.ExecContext(ctx, `INSERT INTO audit(at,username,action,target,ok,detail) VALUES(?,?,?,?,1,'')`, old, "u", "nas.upload", "a/b.txt"); err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < 6; i++ {
@@ -383,8 +384,8 @@ func TestAuditClipAndPrune(t *testing.T) {
 		t.Fatal(err)
 	}
 	var logins, uploads int
-	_ = s.DB().QueryRowContext(ctx, `SELECT count(*) FROM audit WHERE action<>'nas.upload'`).Scan(&logins)
-	_ = s.DB().QueryRowContext(ctx, `SELECT count(*) FROM audit WHERE action='nas.upload'`).Scan(&uploads)
+	_ = s.priv.QueryRowContext(ctx, `SELECT count(*) FROM audit WHERE action<>'nas.upload'`).Scan(&logins)
+	_ = s.priv.QueryRowContext(ctx, `SELECT count(*) FROM audit WHERE action='nas.upload'`).Scan(&uploads)
 	if logins != 4 || uploads != 1 {
 		t.Fatalf("after prune: %d rows, %d uploads", logins, uploads)
 	}

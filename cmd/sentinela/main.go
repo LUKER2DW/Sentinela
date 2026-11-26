@@ -230,16 +230,41 @@ func envOr(k, d string) string {
 	return d
 }
 
+// legacyKeep is how long serve waits before making the database split
+// final: well past auto-update.sh's 90 s health check.
+const legacyKeep = 10 * time.Minute
+
 func serve(ctx context.Context, log *slog.Logger, cfgPath string) error {
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
 		return err
+	}
+	// The private database sits next to the index (store.PrivatePath); outside
+	// the data disk it would live in the container's writable layer and be
+	// lost on the next update.
+	if rel, err := filepath.Rel(cfg.DataDir, store.PrivatePath(cfg.DBPath)); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("db_path %q: the private database (%s) must be inside data_dir %q", cfg.DBPath, store.PrivatePath(cfg.DBPath), cfg.DataDir)
 	}
 	st, err := store.Open(ctx, cfg.DBPath)
 	if err != nil {
 		return err
 	}
 	defer st.Close()
+	// After an update the index keeps its copy of the accounts until serve has
+	// been up past the updater's health check (a rollback to a release from
+	// before the split still finds them); then the move is made final.
+	go func() {
+		t := time.NewTimer(legacyKeep)
+		defer t.Stop()
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		if err := st.FinalizeMove(ctx); err != nil {
+			log.Warn("could not finish moving the accounts out of the shared index; retried at the next start", "err", err)
+		}
+	}()
 
 	var webFS fs.FS
 	if sub, err := fs.Sub(web.Dist, "dist"); err == nil {
@@ -257,6 +282,11 @@ func serve(ctx context.Context, log *slog.Logger, cfgPath string) error {
 	srv, err := api.New(cfg, st, webFS, log)
 	if srv != nil {
 		srv.ConfigPath = cfgPath
+		// go2rtc's API answers only with this secret (deploy/go2rtc.yaml).
+		srv.Go2RTCPassword = os.Getenv(config.Go2RTCPasswordEnv)
+		if len(srv.Go2RTCPassword) < 32 {
+			log.Error("live view and snapshots unavailable: " + config.Go2RTCPasswordEnv + " missing in secrets.env (run scripts/go2rtc-secret.sh)")
+		}
 	}
 	if err != nil {
 		return err
@@ -446,12 +476,16 @@ func maintenance(ctx context.Context, log *slog.Logger, cfg *config.Config, st *
 		if day != lastBackup {
 			dir := filepath.Join(cfg.DataDir, "backup")
 			if err := os.MkdirAll(dir, 0o750); err == nil {
-				dst := filepath.Join(dir, "sentinela-"+day+".db")
-				if err := st.Backup(ctx, dst); err != nil {
+				err := st.Backup(ctx, filepath.Join(dir, "sentinela-"+day+".db"))
+				if err == nil {
+					err = st.BackupPrivate(ctx, filepath.Join(dir, "sentinela-private-"+day+".db"))
+				}
+				if err != nil {
 					log.Warn("db backup failed", "err", err)
 				} else {
 					lastBackup = day
-					pruneBackups(dir, 7)
+					pruneBackups(dir, "sentinela-", 7)
+					pruneBackups(dir, "sentinela-private-", 7)
 				}
 			}
 		}
@@ -480,8 +514,9 @@ func retryUntil(ctx context.Context, first, limit time.Duration, try func(contex
 	}
 }
 
-func pruneBackups(dir string, keep int) {
-	m, _ := filepath.Glob(filepath.Join(dir, "sentinela-*.db"))
+// pruneBackups keeps the newest keep copies named prefix+YYYYMMDD.db.
+func pruneBackups(dir, prefix string, keep int) {
+	m, _ := filepath.Glob(filepath.Join(dir, prefix+"[0-9]*.db"))
 	sort.Strings(m)
 	for len(m) > keep {
 		_ = os.Remove(m[0])
@@ -503,8 +538,10 @@ func record(ctx context.Context, log *slog.Logger, cfgPath string) error {
 		return err
 	}
 	// Recording must not depend on the database (ADR-0007): if it cannot be
-	// opened, record anyway and retry; the indexer catches up later.
-	st, err := store.Open(ctx, cfg.DBPath)
+	// opened, record anyway and retry; the indexer catches up later. The
+	// recorder opens the shared index only: accounts and sessions live in the
+	// API's private database, which this container does not mount.
+	st, err := store.OpenIndex(ctx, cfg.DBPath)
 	if err != nil {
 		log.Error("database unavailable; recording without index", "err", err)
 		st = nil
@@ -532,7 +569,7 @@ func record(ctx context.Context, log *slog.Logger, cfgPath string) error {
 				return
 			case <-time.After(time.Minute):
 			}
-			if s, err := store.Open(ctx, cfg.DBPath); err == nil {
+			if s, err := store.OpenIndex(ctx, cfg.DBPath); err == nil {
 				st = s
 				for _, r := range recorders {
 					r.SetStore(s)

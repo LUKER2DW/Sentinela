@@ -37,6 +37,9 @@ type Server struct {
 	// ConfigPath is the config.yaml this server was started with (read by
 	// the settings editor); "" disables editing.
 	ConfigPath string
+	// Go2RTCPassword is go2rtc's API password (GO2RTC_API_PASSWORD), sent
+	// on every request to go2rtc (go2rtcauth.go); "" sends none.
+	Go2RTCPassword string
 
 	tickets *auth.Tickets
 	// loginRL throttles per-user and admin actions (fixed keys, never an
@@ -341,7 +344,7 @@ func readJSON(r *http.Request, v any) error {
 func (s *Server) healthz(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
-	if err := s.Store.DB().PingContext(ctx); err != nil {
+	if err := s.Store.Ping(ctx); err != nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "db down"})
 		return
 	}

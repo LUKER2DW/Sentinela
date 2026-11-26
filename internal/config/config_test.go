@@ -36,9 +36,10 @@ func TestValidate(t *testing.T) {
 		"neg retention": "recording: {default_retention_days: -1}\ncameras: []",
 		"funnel on lan": "remote: {funnel_listen: '0.0.0.0:8081'}",
 		"public lan ip": "remote: {public: {domain: '192.168.1.10'}}",
+		"go2rtc secret": `cameras: [{id: cam1, host: 10.0.0.2, user_env: U, password_env: GO2RTC_API_PASSWORD}]`,
 	}
 	for name, y := range cases {
-		if _, err := Parse([]byte(y), env(map[string]string{"U": "admin", "P": "pw"})); err == nil {
+		if _, err := Parse([]byte(y), env(map[string]string{"U": "admin", "P": "pw", "GO2RTC_API_PASSWORD": "pw"})); err == nil {
 			t.Errorf("%s: expected error", name)
 		}
 	}

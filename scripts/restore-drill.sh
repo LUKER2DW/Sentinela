@@ -4,12 +4,13 @@
 #
 #   sudo /opt/sentinela/scripts/restore-drill.sh
 #
-# 1. The newest local database copy (/srv/backup/db) opens, passes
-#    PRAGMA integrity_check, has its schema and at least one user.
+# 1. The newest local database copies (/srv/backup/db) open, pass
+#    PRAGMA integrity_check and have their schema; the private one (or, in a
+#    copy from before the split, the single file) has at least one user.
 # 2. The config backup (/srv/backup/etc) validates with the current image,
 #    secrets included (sentinela check-config, no network).
 # 3. With /etc/sentinela/restic.env and its disk mounted: restic checks a
-#    sample of the repository data and restores the newest database copy
+#    sample of the repository data and restores the newest database copies
 #    from the latest snapshot, which must pass the same checks as (1).
 #
 # Everything is restored into a temporary folder that is removed at the
@@ -44,9 +45,10 @@ sq() {
     sqlite3 -cmd 'PRAGMA trusted_schema=OFF' -readonly "$1" "$2"
 }
 
-# check_db FILE LABEL: integrity, schema and users of a database copy.
+# check_db FILE LABEL [users]: integrity and schema of a database copy and,
+# with "users", at least one account.
 check_db() {
-  local label="$2" integrity users migrations db="$STAGE/check.db"
+  local label="$2" integrity users=0 migrations db="$STAGE/check.db"
   rm -f "$STAGE"/check.db*
   cp "$1" "$db" && chown 65534:65534 "$db" && chmod 0600 "$db" || { bad "$label: could not stage the copy"; return; }
   integrity="$(sq "$db" 'PRAGMA integrity_check' 2>&1 || true)"
@@ -55,23 +57,37 @@ check_db() {
     return
   fi
   migrations="$(sq "$db" 'SELECT count(*) FROM schema_migrations' 2>/dev/null || echo 0)"
-  users="$(sq "$db" 'SELECT count(*) FROM users' 2>/dev/null || echo 0)"
-  if ((migrations < 1 || users < 1)); then
+  [[ "${3:-}" != users ]] || users="$(sq "$db" 'SELECT count(*) FROM users' 2>/dev/null || echo 0)"
+  if ((migrations < 1)) || { [[ "${3:-}" == users ]] && ((users < 1)); }; then
     bad "$label: schema migrations=$migrations users=$users"
     return
   fi
-  pass "$label: integrity ok, $migrations migrations, $users users"
+  pass "$label: integrity ok, $migrations migrations${3:+, $users users}"
 }
 
-# 1. Local database copy.
-# shellcheck disable=SC2012 # backup names are sentinela-YYYYMMDD.db
-newest="$(ls -1t "$DEST"/db/sentinela-*.db 2>/dev/null | head -1 || true)"
-if [[ -z "$newest" ]]; then
-  bad "no database copy in $DEST/db (has the nightly backup run?)"
-else
-  cp -a "$newest" "$WORK/local.db"
-  check_db "$WORK/local.db" "local copy $(basename "$newest")"
-fi
+# newest DIR PREFIX: the newest copy named PREFIX + YYYYMMDD.db.
+newest() {
+  # shellcheck disable=SC2012 # backup names are <prefix>YYYYMMDD.db
+  ls -1t "$1/$2"[0-9]*.db 2>/dev/null | head -1 || true
+}
+
+# check_copies DIR LABEL: the shared index copy and the private one
+# (accounts); a copy from before the split holds both in one file.
+check_copies() {
+  local index private
+  index="$(newest "$1" sentinela-)" private="$(newest "$1" sentinela-private-)"
+  if [[ -z "$index" ]]; then
+    bad "$2: no database copy in $1 (has the nightly backup run?)"
+  elif [[ -z "$private" ]]; then
+    check_db "$index" "$2 $(basename "$index")" users
+  else
+    check_db "$index" "$2 $(basename "$index")"
+    check_db "$private" "$2 $(basename "$private")" users
+  fi
+}
+
+# 1. Local database copies.
+check_copies "$DEST/db" "local copy"
 
 # 2. Config and secrets backup.
 if [[ ! -f "$DEST/etc/config.yaml" || ! -f "$DEST/etc/secrets.env" ]]; then
@@ -103,14 +119,8 @@ else
   elif ! restic restore latest --quiet --target "$WORK/restic" --include "$DEST/db" >/dev/null 2>&1; then
     bad "restic: could not restore $DEST/db from the latest snapshot"
   else
-    # shellcheck disable=SC2012
-    restored="$(ls -1t "$WORK/restic$DEST"/db/sentinela-*.db 2>/dev/null | head -1 || true)"
-    if [[ -z "$restored" ]]; then
-      bad "restic: the latest snapshot holds no database copy"
-    else
-      pass "restic: repository sample checked, snapshot restored"
-      check_db "$restored" "restic copy $(basename "$restored")"
-    fi
+    pass "restic: repository sample checked, snapshot restored"
+    check_copies "$WORK/restic$DEST/db" "restic copy"
   fi
 fi
 

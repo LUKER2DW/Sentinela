@@ -19,12 +19,12 @@ func TestValveNoticeReachesAdmins(t *testing.T) {
 	defer srv.push.unsubscribe(toAdmin)
 	defer srv.push.unsubscribe(toViewer)
 	// A row from before the first run is history, not news.
-	_ = srv.Store.Audit(ctx, 0, "", store.AuditProtectValve, "cam1", true, "old")
+	_ = srv.Store.RecorderNotice(ctx, store.AuditProtectValve, "cam1", "old")
 	srv.raiseValveNotices(ctx)
 	if len(toAdmin) != 0 {
 		t.Fatal("history was announced")
 	}
-	_ = srv.Store.Audit(ctx, 0, "", store.AuditProtectValve, "cam1", true, "3 protected clips deleted")
+	_ = srv.Store.RecorderNotice(ctx, store.AuditProtectValve, "cam1", "3 protected clips deleted")
 	srv.raiseValveNotices(ctx)
 	select {
 	case msg := <-toAdmin:

@@ -29,80 +29,102 @@ const ArchiveSep = "~"
 
 // SyncCameraIDs records the configured camera ids and retires every known
 // id that is no longer configured. Ids found in recordings, events or grants
-// count as known (installs from before camera_ids). In the same
-// transaction, retired ids leave every grant that names a configured camera
-// too (a grant naming only retired ids is kept, so it does not turn into
-// "every camera"), and the settings settingKeys names for them are deleted.
-// A retired id that is configured again is revived as a new camera (see
-// above). It returns every retired id, the ones retired by this call and
-// the ones revived by it.
+// count as known (installs from before camera_ids). Retired ids leave every
+// grant that names a configured camera too (a grant naming only retired ids
+// is kept, so it does not turn into "every camera"), and the settings
+// settingKeys names for them are deleted. A retired id that is configured
+// again is revived as a new camera (see above). It returns every retired
+// id, the ones retired by this call and the ones revived by it.
+//
+// Grants and settings live in the private database, ids, recordings and
+// events in the shared index: the private changes are made first, then the
+// index's. Both are idempotent, so a failure between them is completed by
+// the next call (an id stays retired in the index until its revival there).
 func (s *Store) SyncCameraIDs(ctx context.Context, configured []string, settingKeys func(id string) []string) (retired, removedNow, revived []string, err error) {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, nil, nil, err
+	if s.priv == nil {
+		return nil, nil, nil, errors.New("camera ids: the private database is not open")
 	}
-	defer tx.Rollback()
 	now := Now()
-	// Known before this table existed: whatever left data behind.
-	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO camera_ids(id, added_at)
-		SELECT DISTINCT camera_id, ? FROM segments UNION SELECT DISTINCT camera_id, ? FROM events`, now, now); err != nil {
+	// What the index knows: every id with its removal time ("" = active),
+	// including ids only recordings or events name (before camera_ids).
+	known := map[string]string{}
+	rows, err := s.db.QueryContext(ctx, `SELECT id, coalesce(removed_at,'') FROM camera_ids
+		UNION SELECT DISTINCT camera_id, '' FROM segments WHERE camera_id NOT IN (SELECT id FROM camera_ids)
+		UNION SELECT DISTINCT camera_id, '' FROM events WHERE camera_id NOT IN (SELECT id FROM camera_ids)`)
+	if err != nil {
 		return nil, nil, nil, fmt.Errorf("camera ids: %w", err)
 	}
-	for _, id := range configured {
-		var removedAt sql.NullString
-		switch err := tx.QueryRowContext(ctx, `SELECT removed_at FROM camera_ids WHERE id=?`, id).Scan(&removedAt); {
-		case errors.Is(err, sql.ErrNoRows), err == nil && !removedAt.Valid:
-			continue
-		case err != nil:
-			return nil, nil, nil, err
-		}
-		if err := reviveCameraID(ctx, tx, id, removedAt.String, now, settingKeys); err != nil {
-			return nil, nil, nil, fmt.Errorf("revive camera id %s: %w", id, err)
-		}
-		revived = append(revived, id)
-	}
-	grants, err := userGrants(ctx, tx)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	for _, g := range grants {
-		for _, id := range g.cameras {
-			if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO camera_ids(id, added_at) VALUES(?,?)`, id, now); err != nil {
-				return nil, nil, nil, err
-			}
-		}
-	}
-	for _, id := range configured {
-		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO camera_ids(id, added_at) VALUES(?,?)`, id, now); err != nil {
-			return nil, nil, nil, err
-		}
-	}
-	rows, err := tx.QueryContext(ctx, `SELECT id, removed_at IS NULL FROM camera_ids ORDER BY id`)
-	if err != nil {
-		return nil, nil, nil, err
-	}
 	for rows.Next() {
-		var id string
-		var active bool
-		if err := rows.Scan(&id, &active); err != nil {
+		var id, removedAt string
+		if err := rows.Scan(&id, &removedAt); err != nil {
 			rows.Close()
 			return nil, nil, nil, err
 		}
-		if slices.Contains(configured, id) {
-			continue
-		}
-		retired = append(retired, id)
-		if active {
-			removedNow = append(removedNow, id)
-		}
+		known[id] = removedAt
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
 		return nil, nil, nil, err
 	}
-	for _, id := range removedNow {
-		if _, err := tx.ExecContext(ctx, `UPDATE camera_ids SET removed_at=? WHERE id=?`, now, id); err != nil {
-			return nil, nil, nil, err
+	// Revived: configured again after it was retired. Its old data moves to
+	// an archive id, which is retired like any other id no longer configured.
+	archives := map[string]string{} // id -> archive id
+	for _, id := range configured {
+		if at := known[id]; at != "" {
+			archives[id] = ArchiveID(id, at)
+			revived = append(revived, id)
+			known[archives[id]] = at
+			known[id] = ""
+		}
+	}
+
+	// Private database: grants and settings.
+	ptx, err := s.priv.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	defer ptx.Rollback()
+	grants, err := userGrants(ctx, ptx)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	for i, g := range grants {
+		// A grant still naming a revived id named only retired ids (the
+		// others left it at retirement): it names the archive instead, so it
+		// neither sees the new camera nor widens to every camera.
+		cams := make([]string, 0, len(g.cameras))
+		for _, c := range g.cameras {
+			if a, ok := archives[c]; ok {
+				c = a
+			}
+			if !slices.Contains(cams, c) {
+				cams = append(cams, c)
+			}
+		}
+		for _, c := range cams {
+			if _, ok := known[c]; !ok {
+				known[c] = "" // named by a grant only
+			}
+		}
+		grants[i].cameras = cams
+		if !slices.Equal(cams, g.cameras) {
+			if _, err := ptx.ExecContext(ctx, `UPDATE users SET cameras=? WHERE id=?`, joinCameras(cams), g.id); err != nil {
+				return nil, nil, nil, err
+			}
+		}
+	}
+	for _, id := range configured {
+		if _, ok := known[id]; !ok {
+			known[id] = ""
+		}
+	}
+	for _, id := range sortedKeys(known) {
+		if slices.Contains(configured, id) {
+			continue
+		}
+		retired = append(retired, id)
+		if known[id] == "" {
+			removedNow = append(removedNow, id)
 		}
 	}
 	for _, g := range grants {
@@ -110,7 +132,41 @@ func (s *Store) SyncCameraIDs(ctx context.Context, configured []string, settingK
 		if len(keep) == len(g.cameras) || len(keep) == 0 {
 			continue // nothing retired, or only retired ids: never widen to all
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE users SET cameras=? WHERE id=?`, joinCameras(keep), g.id); err != nil {
+		if _, err := ptx.ExecContext(ctx, `UPDATE users SET cameras=? WHERE id=?`, joinCameras(keep), g.id); err != nil {
+			return nil, nil, nil, err
+		}
+	}
+	if settingKeys != nil {
+		for _, id := range append(slices.Clone(retired), revived...) {
+			for _, k := range settingKeys(id) {
+				if _, err := ptx.ExecContext(ctx, `DELETE FROM settings WHERE key=?`, k); err != nil {
+					return nil, nil, nil, err
+				}
+			}
+		}
+	}
+	if err := ptx.Commit(); err != nil {
+		return nil, nil, nil, err
+	}
+
+	// Shared index: ids, the revived cameras' old data, recorder status.
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	defer tx.Rollback()
+	for _, id := range revived {
+		if err := reviveCameraID(ctx, tx, id, archives[id], now); err != nil {
+			return nil, nil, nil, fmt.Errorf("revive camera id %s: %w", id, err)
+		}
+	}
+	for _, id := range sortedKeys(known) {
+		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO camera_ids(id, added_at) VALUES(?,?)`, id, now); err != nil {
+			return nil, nil, nil, err
+		}
+	}
+	for _, id := range removedNow {
+		if _, err := tx.ExecContext(ctx, `UPDATE camera_ids SET removed_at=? WHERE id=? AND removed_at IS NULL`, now, id); err != nil {
 			return nil, nil, nil, err
 		}
 	}
@@ -118,19 +174,20 @@ func (s *Store) SyncCameraIDs(ctx context.Context, configured []string, settingK
 		if _, err := tx.ExecContext(ctx, `DELETE FROM recorder_status WHERE camera_id=?`, id); err != nil {
 			return nil, nil, nil, err
 		}
-		if settingKeys == nil {
-			continue
-		}
-		for _, k := range settingKeys(id) {
-			if _, err := tx.ExecContext(ctx, `DELETE FROM settings WHERE key=?`, k); err != nil {
-				return nil, nil, nil, err
-			}
-		}
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, nil, nil, err
 	}
 	return retired, removedNow, revived, nil
+}
+
+func sortedKeys(m map[string]string) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	slices.Sort(out)
+	return out
 }
 
 // ArchiveID is the id a revived camera's old data moves to.
@@ -148,18 +205,27 @@ func ArchiveID(id, removedAt string) string {
 	return id + ArchiveSep + stamp
 }
 
-// reviveCameraID makes a retired id that is configured again a new camera:
-// the recordings and events the old camera made before it was retired, its
-// grants and its row move to an archive id, and its settings go. Recordings
-// the new camera made already (the recorder may start first) started after
-// the old one was retired, and stay.
-func reviveCameraID(ctx context.Context, tx *sql.Tx, id, removedAt, now string, settingKeys func(id string) []string) error {
-	archive := ArchiveID(id, removedAt)
+// reviveCameraID makes a retired id that is configured again a new camera
+// in the index: the recordings and events the old camera made before it was
+// retired and its row move to the archive id (its grants and settings were
+// handled in the private database). Recordings the new camera made already
+// (the recorder may start first) started after the old one was retired,
+// and stay.
+func reviveCameraID(ctx context.Context, tx *sql.Tx, id, archive, now string) error {
+	var removedAt sql.NullString
+	switch err := tx.QueryRowContext(ctx, `SELECT removed_at FROM camera_ids WHERE id=?`, id).Scan(&removedAt); {
+	case errors.Is(err, sql.ErrNoRows):
+		return nil
+	case err != nil:
+		return err
+	case !removedAt.Valid:
+		return nil // revived already (a repeated call)
+	}
 	for _, q := range []string{
 		`UPDATE segments SET camera_id=? WHERE camera_id=? AND start_utc<?`,
 		`UPDATE events SET camera_id=? WHERE camera_id=? AND start_utc<?`,
 	} {
-		if _, err := tx.ExecContext(ctx, q, archive, id, removedAt); err != nil {
+		if _, err := tx.ExecContext(ctx, q, archive, id, removedAt.String); err != nil {
 			return err
 		}
 	}
@@ -167,41 +233,8 @@ func reviveCameraID(ctx context.Context, tx *sql.Tx, id, removedAt, now string, 
 		SELECT ?, added_at, removed_at FROM camera_ids WHERE id=?`, archive, id); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE camera_ids SET added_at=?, removed_at=NULL WHERE id=?`, now, id); err != nil {
-		return err
-	}
-	// A grant still naming the id named only retired ids (the others left
-	// it at retirement): it names the archive instead, so it neither sees
-	// the new camera nor widens to every camera.
-	grants, err := userGrants(ctx, tx)
-	if err != nil {
-		return err
-	}
-	for _, g := range grants {
-		if !slices.Contains(g.cameras, id) {
-			continue
-		}
-		cams := make([]string, 0, len(g.cameras))
-		for _, c := range g.cameras {
-			if c == id {
-				c = archive
-			}
-			if !slices.Contains(cams, c) {
-				cams = append(cams, c)
-			}
-		}
-		if _, err := tx.ExecContext(ctx, `UPDATE users SET cameras=? WHERE id=?`, joinCameras(cams), g.id); err != nil {
-			return err
-		}
-	}
-	if settingKeys != nil {
-		for _, k := range settingKeys(id) {
-			if _, err := tx.ExecContext(ctx, `DELETE FROM settings WHERE key=?`, k); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
+	_, err := tx.ExecContext(ctx, `UPDATE camera_ids SET added_at=?, removed_at=NULL WHERE id=?`, now, id)
+	return err
 }
 
 // CameraIDKnown reports whether id was ever used: configured now or once,
@@ -217,7 +250,10 @@ func (s *Store) CameraIDKnown(ctx context.Context, id string) (bool, error) {
 	if n > 0 {
 		return true, nil
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT cameras FROM users WHERE cameras<>''`)
+	if s.priv == nil {
+		return false, errors.New("camera ids: the private database is not open")
+	}
+	rows, err := s.priv.QueryContext(ctx, `SELECT cameras FROM users WHERE cameras<>''`)
 	if err != nil {
 		return false, err
 	}

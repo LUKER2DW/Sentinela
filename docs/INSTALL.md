@@ -533,8 +533,10 @@ share and pick it under **New service → Folder on the server**.
 ## 14. Backups
 
 `setup-backup.sh` (run by the installer when `/srv/backup` exists) installs
-a nightly timer that copies the database and `/etc/sentinela` to
-`/srv/backup`. For an off-machine copy, create `/etc/sentinela/restic.env`
+a nightly timer that copies both database files (the shared index in
+`/data/db` and the accounts database in `/data/db-private`) and
+`/etc/sentinela` to `/srv/backup`; a restore puts each copy back in its own
+folder. For an off-machine copy, create `/etc/sentinela/restic.env`
 (mode 0600) for an external disk:
 
 ```bash

@@ -12,11 +12,12 @@ import (
 
 // Protected clips deleted by the recorder's full-disk valve
 // (recording.Retention) are announced to the admins. The recorder never
-// depends on the API: it only writes an audit row, and this watcher turns
-// each new row into a notice.
+// depends on the API, and it cannot write the audit log (private database):
+// it writes a row of the index's recorder_notices, and this watcher copies
+// each new row into the audit log and turns it into a notice.
 
-// valveNoticeKey keeps the id of the last valve row announced.
-const valveNoticeKey = "notice.protect_valve_after"
+// valveNoticeKey keeps the id of the last recorder notice announced.
+const valveNoticeKey = "notice.recorder_after"
 
 // WatchStorageNotices checks for new valve rows every minute until ctx ends.
 func (s *Server) WatchStorageNotices(ctx context.Context) {
@@ -37,12 +38,12 @@ func (s *Server) WatchStorageNotices(ctx context.Context) {
 func (s *Server) raiseValveNotices(ctx context.Context) {
 	after, err := strconv.ParseInt(s.Store.Setting(ctx, valveNoticeKey, ""), 10, 64)
 	if err != nil {
-		if last, err := s.Store.LastAuditID(ctx); err == nil {
+		if last, err := s.Store.LastRecorderNoticeID(ctx); err == nil {
 			_ = s.Store.SetSetting(ctx, valveNoticeKey, strconv.FormatInt(last, 10))
 		}
 		return
 	}
-	rows, err := s.Store.AuditAfter(ctx, store.AuditProtectValve, after, 20)
+	rows, err := s.Store.RecorderNoticesAfter(ctx, store.AuditProtectValve, after, 20)
 	if err != nil || len(rows) == 0 {
 		return
 	}
@@ -57,6 +58,7 @@ func (s *Server) raiseValveNotices(ctx context.Context) {
 			}
 		}
 		s.Log.Warn("full disk: protected recordings were deleted", "detail", r.Detail, "cameras", r.Target)
+		_ = s.Store.Audit(ctx, 0, "", store.AuditProtectValve, r.Target, true, r.Detail)
 		s.adminNotice(ctx, map[string]any{
 			"title": "Disco cheio: trechos protegidos apagados",
 			"body":  r.Detail + " (" + strings.Join(names, ", ") + "). Free space or lower what is kept.",

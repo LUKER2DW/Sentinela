@@ -135,6 +135,7 @@ func (s *Server) grabFrame(ctx context.Context, cameraID string) ([]byte, error)
 	if err != nil {
 		return nil, err
 	}
+	s.go2rtcAuth(req)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, errors.New("go2rtc unreachable")

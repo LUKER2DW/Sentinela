@@ -542,6 +542,11 @@ func (c *Config) validate() error {
 			if n != "" && !envName.MatchString(n) {
 				errs = append(errs, fmt.Errorf("camera %s: user_env/password_env must match %s", cam.ID, envName))
 			}
+			// go2rtc's own API password is no camera's: a camera using it
+			// would send it to whatever answers at the camera's address.
+			if n == Go2RTCPasswordEnv {
+				errs = append(errs, fmt.Errorf("camera %s: %s is reserved for go2rtc", cam.ID, n))
+			}
 		}
 		errs = append(errs, cam.validateStream()...)
 		if !slices.Contains([]string{"", MotionAuto, MotionCamera, MotionVideo}, cam.Motion) {
@@ -554,6 +559,10 @@ func (c *Config) validate() error {
 	// refused where cameras are added (the settings editor, check-config).
 	return errors.Join(errs...)
 }
+
+// Go2RTCPasswordEnv names go2rtc's API password in secrets.env
+// (scripts/go2rtc-secret.sh); go2rtc and `sentinela serve` read it.
+const Go2RTCPasswordEnv = "GO2RTC_API_PASSWORD"
 
 var (
 	envName      = regexp.MustCompile(`^[A-Z0-9_]{1,64}$`)

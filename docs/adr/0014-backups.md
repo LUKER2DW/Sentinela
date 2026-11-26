@@ -13,7 +13,9 @@ rolling and disposable; user files, config and the DB are not.
   It is a different disk from both the DB and the Cloud.
 - **DB + config:** a host timer (`sentinela-backup.timer`, nightly) runs
   `sqlite3 <db> "VACUUM INTO …"` (consistent under WAL, the app keeps
-  running) into `/srv/backup/db/sentinela-YYYYMMDD.db`, keeps the last 14,
+  running) into `/srv/backup/db/sentinela-YYYYMMDD.db` and, since the
+  database split, the API's private file into
+  `sentinela-private-YYYYMMDD.db`, keeps the last 14 of each,
   and copies `/etc/sentinela` into `/srv/backup/etc/` (root-only, 0700).
 - **restic** nightly to an external USB disk the owner provides:
   `/srv/nas` and `/srv/backup`. Repository and password file in

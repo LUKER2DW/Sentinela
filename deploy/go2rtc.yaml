@@ -2,8 +2,23 @@
 api:
   listen: "127.0.0.1:1984"      # loopback only; sentinela proxies with tickets
   origin: ""                   # no CORS
+  # Every container on the host network shares this loopback (the detector
+  # decodes camera video): the API, which holds every camera credential,
+  # answers only `sentinela serve`, with the secret scripts/go2rtc-secret.sh
+  # keeps in secrets.env. local_auth: loopback callers must authenticate too.
+  # Compose refuses to start go2rtc without that secret (an unset ${VAR}
+  # would be taken literally). allow_paths: what serve uses, nothing else
+  # (no /api/config, web UI...); restart and exit cut revoked WebRTC viewers
+  # (internal/api/livemedia.go).
+  username: "sentinela"
+  password: "${GO2RTC_API_PASSWORD}"
+  local_auth: true
+  allow_paths: ["/api/ws", "/api/streams", "/api/frame.jpeg", "/api/restart", "/api/exit"]
 rtsp:
-  listen: "127.0.0.1:8554"      # internal restream only
+  # Internal restream (the detector's substreams). go2rtc 1.9.14 lets
+  # loopback clients skip RTSP credentials, so none are set: it carries
+  # video only, never a camera credential.
+  listen: "127.0.0.1:8554"
 webrtc:
   # ICE on all interfaces (LAN now, tailscale0 later). No external STUN:
   # go2rtc advertises its host addresses, which is all a LAN/tailnet needs.

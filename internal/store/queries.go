@@ -61,13 +61,13 @@ func splitCameras(s string) []string {
 // CountUsers returns the number of users.
 func (s *Store) CountUsers(ctx context.Context) (int, error) {
 	var n int
-	err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM users`).Scan(&n)
+	err := s.priv.QueryRowContext(ctx, `SELECT count(*) FROM users`).Scan(&n)
 	return n, err
 }
 
 // CreateUser inserts a user and returns its id.
 func (s *Store) CreateUser(ctx context.Context, username, pwHash, role string) (int64, error) {
-	res, err := s.db.ExecContext(ctx, `INSERT INTO users(username,pw_hash,role,created_at) VALUES(?,?,?,?)`, username, pwHash, role, Now())
+	res, err := s.priv.ExecContext(ctx, `INSERT INTO users(username,pw_hash,role,created_at) VALUES(?,?,?,?)`, username, pwHash, role, Now())
 	if err != nil {
 		return 0, err
 	}
@@ -76,7 +76,7 @@ func (s *Store) CreateUser(ctx context.Context, username, pwHash, role string) (
 
 // CreateFirstUser inserts an admin only if no user exists (atomic).
 func (s *Store) CreateFirstUser(ctx context.Context, username, pwHash string) (int64, error) {
-	res, err := s.db.ExecContext(ctx, `INSERT INTO users(username,pw_hash,role,created_at)
+	res, err := s.priv.ExecContext(ctx, `INSERT INTO users(username,pw_hash,role,created_at)
 		SELECT ?,?,'admin',? WHERE NOT EXISTS (SELECT 1 FROM users)`, username, pwHash, Now())
 	if err != nil {
 		return 0, err
@@ -108,23 +108,23 @@ func scanUser(row interface{ Scan(...any) error }) (*User, error) {
 
 // UserByLogin looks a user up by username or e-mail (case-insensitive).
 func (s *Store) UserByLogin(ctx context.Context, login string) (*User, error) {
-	return scanUser(s.db.QueryRowContext(ctx, `SELECT `+userCols+` FROM users WHERE username=? OR (email<>'' AND email=? COLLATE NOCASE)
+	return scanUser(s.priv.QueryRowContext(ctx, `SELECT `+userCols+` FROM users WHERE username=? OR (email<>'' AND email=? COLLATE NOCASE)
 		ORDER BY username=? DESC LIMIT 1`, login, login, login))
 }
 
 // UserByName looks a user up by username (case-insensitive).
 func (s *Store) UserByName(ctx context.Context, username string) (*User, error) {
-	return scanUser(s.db.QueryRowContext(ctx, `SELECT `+userCols+` FROM users WHERE username=?`, username))
+	return scanUser(s.priv.QueryRowContext(ctx, `SELECT `+userCols+` FROM users WHERE username=?`, username))
 }
 
 // UserByID looks a user up by id.
 func (s *Store) UserByID(ctx context.Context, id int64) (*User, error) {
-	return scanUser(s.db.QueryRowContext(ctx, `SELECT `+userCols+` FROM users WHERE id=?`, id))
+	return scanUser(s.priv.QueryRowContext(ctx, `SELECT `+userCols+` FROM users WHERE id=?`, id))
 }
 
 // ListUsers returns all users.
 func (s *Store) ListUsers(ctx context.Context) ([]User, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT `+userCols+` FROM users ORDER BY username`)
+	rows, err := s.priv.QueryContext(ctx, `SELECT `+userCols+` FROM users ORDER BY username`)
 	if err != nil {
 		return nil, err
 	}
@@ -142,17 +142,17 @@ func (s *Store) ListUsers(ctx context.Context) ([]User, error) {
 
 // UpdateUserRole changes a user's role.
 func (s *Store) UpdateUserRole(ctx context.Context, id int64, role string) error {
-	return s.execOne(ctx, `UPDATE users SET role=? WHERE id=?`, role, id)
+	return s.privOne(ctx, `UPDATE users SET role=? WHERE id=?`, role, id)
 }
 
 // UpdateUserCameras sets the cameras a user may see (empty = all).
 func (s *Store) UpdateUserCameras(ctx context.Context, id int64, cameras []string) error {
-	return s.execOne(ctx, `UPDATE users SET cameras=? WHERE id=?`, joinCameras(cameras), id)
+	return s.privOne(ctx, `UPDATE users SET cameras=? WHERE id=?`, joinCameras(cameras), id)
 }
 
 // UpdateUserPassword changes a user's password hash and drops their sessions.
 func (s *Store) UpdateUserPassword(ctx context.Context, id int64, pwHash string) error {
-	if err := s.execOne(ctx, `UPDATE users SET pw_hash=?, invite_hash=NULL, invite_expires='' WHERE id=?`, pwHash, id); err != nil {
+	if err := s.privOne(ctx, `UPDATE users SET pw_hash=?, invite_hash=NULL, invite_expires='' WHERE id=?`, pwHash, id); err != nil {
 		return err
 	}
 	return s.dropUserAccess(ctx, id)
@@ -162,7 +162,7 @@ func (s *Store) UpdateUserPassword(ctx context.Context, id int64, pwHash string)
 // subscriptions, including ones saved before subscriptions were tied to a
 // session (they would otherwise outlive the sessions). One transaction.
 func (s *Store) dropUserAccess(ctx context.Context, id int64) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.priv.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -179,11 +179,11 @@ func (s *Store) dropUserAccess(ctx context.Context, id int64) error {
 // SetUserTOTP turns two-step login on (secret) or off (”); off also
 // drops the user's 2FA sessions.
 func (s *Store) SetUserTOTP(ctx context.Context, id int64, secret string) error {
-	if err := s.execOne(ctx, `UPDATE users SET totp_secret=?, totp_step=0 WHERE id=?`, secret, id); err != nil {
+	if err := s.privOne(ctx, `UPDATE users SET totp_secret=?, totp_step=0 WHERE id=?`, secret, id); err != nil {
 		return err
 	}
 	if secret == "" {
-		_, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE user_id=? AND mfa=1`, id)
+		_, err := s.priv.ExecContext(ctx, `DELETE FROM sessions WHERE user_id=? AND mfa=1`, id)
 		return err
 	}
 	return nil
@@ -192,12 +192,12 @@ func (s *Store) SetUserTOTP(ctx context.Context, id int64, secret string) error 
 // UseTOTPStep records an accepted TOTP step. It fails if an equal or later
 // step was already used (a code is good once, even across racing logins).
 func (s *Store) UseTOTPStep(ctx context.Context, id, step int64) error {
-	return s.execOne(ctx, `UPDATE users SET totp_step=? WHERE id=? AND totp_step<?`, step, id, step)
+	return s.privOne(ctx, `UPDATE users SET totp_step=? WHERE id=? AND totp_step<?`, step, id, step)
 }
 
 // SetUserDisabled switches an account off (dropping its sessions) or on.
 func (s *Store) SetUserDisabled(ctx context.Context, id int64, disabled bool) error {
-	if err := s.execOne(ctx, `UPDATE users SET disabled=? WHERE id=?`, disabled, id); err != nil {
+	if err := s.privOne(ctx, `UPDATE users SET disabled=? WHERE id=?`, disabled, id); err != nil {
 		return err
 	}
 	if disabled {
@@ -209,7 +209,7 @@ func (s *Store) SetUserDisabled(ctx context.Context, id int64, disabled bool) er
 // CreateInvitedUser inserts an account without a password: it signs in
 // only after redeeming the invite (inviteHash) before expires.
 func (s *Store) CreateInvitedUser(ctx context.Context, username, email, role string, inviteHash []byte, expires time.Time) (int64, error) {
-	res, err := s.db.ExecContext(ctx, `INSERT INTO users(username,pw_hash,role,created_at,email,invite_hash,invite_expires) VALUES(?,?,?,?,?,?,?)`,
+	res, err := s.priv.ExecContext(ctx, `INSERT INTO users(username,pw_hash,role,created_at,email,invite_hash,invite_expires) VALUES(?,?,?,?,?,?,?)`,
 		username, "", role, Now(), email, inviteHash, FormatTime(expires))
 	if err != nil {
 		return 0, err
@@ -220,7 +220,7 @@ func (s *Store) CreateInvitedUser(ctx context.Context, username, email, role str
 // SetInvite issues a new invite: the password, two-step login and every
 // session are dropped until the person redeems it (lost password).
 func (s *Store) SetInvite(ctx context.Context, id int64, inviteHash []byte, expires time.Time) error {
-	if err := s.execOne(ctx, `UPDATE users SET pw_hash='', totp_secret='', totp_step=0, invite_hash=?, invite_expires=? WHERE id=?`,
+	if err := s.privOne(ctx, `UPDATE users SET pw_hash='', totp_secret='', totp_step=0, invite_hash=?, invite_expires=? WHERE id=?`,
 		inviteHash, FormatTime(expires), id); err != nil {
 		return err
 	}
@@ -230,41 +230,50 @@ func (s *Store) SetInvite(ctx context.Context, id int64, inviteHash []byte, expi
 // RedeemInvite sets the password (and 2FA secret, may be "") of a pending
 // account whose invite matches; it fails if the invite changed meanwhile.
 func (s *Store) RedeemInvite(ctx context.Context, id int64, inviteHash []byte, pwHash, totpSecret string, totpStep int64) error {
-	return s.execOne(ctx, `UPDATE users SET pw_hash=?, totp_secret=?, totp_step=?, invite_hash=NULL, invite_expires=''
+	return s.privOne(ctx, `UPDATE users SET pw_hash=?, totp_secret=?, totp_step=?, invite_hash=NULL, invite_expires=''
 		WHERE id=? AND pw_hash='' AND invite_hash=?`, pwHash, totpSecret, totpStep, id, inviteHash)
 }
 
 // UpdateUserEmail changes a user's e-mail ("" = none).
 func (s *Store) UpdateUserEmail(ctx context.Context, id int64, email string) error {
-	return s.execOne(ctx, `UPDATE users SET email=? WHERE id=?`, email, id)
+	return s.privOne(ctx, `UPDATE users SET email=? WHERE id=?`, email, id)
 }
 
 // SetUserNotify stores the user's notification choices (JSON).
 func (s *Store) SetUserNotify(ctx context.Context, id int64, prefs string) error {
-	return s.execOne(ctx, `UPDATE users SET notify=? WHERE id=?`, prefs, id)
+	return s.privOne(ctx, `UPDATE users SET notify=? WHERE id=?`, prefs, id)
 }
 
 // LastLogin returns the time of a user's last successful sign-in ("" = never).
 func (s *Store) LastLogin(ctx context.Context, username string) (string, error) {
 	var at sql.NullString
-	err := s.db.QueryRowContext(ctx, `SELECT max(at) FROM audit WHERE action='login' AND ok=1 AND username=?`, username).Scan(&at)
+	err := s.priv.QueryRowContext(ctx, `SELECT max(at) FROM audit WHERE action='login' AND ok=1 AND username=?`, username).Scan(&at)
 	return at.String, err
 }
 
 // DeleteUser removes a user (sessions cascade).
 func (s *Store) DeleteUser(ctx context.Context, id int64) error {
-	return s.execOne(ctx, `DELETE FROM users WHERE id=?`, id)
+	return s.privOne(ctx, `DELETE FROM users WHERE id=?`, id)
 }
 
 // CountAdmins returns the number of admin users.
 func (s *Store) CountAdmins(ctx context.Context) (int, error) {
 	var n int
-	err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM users WHERE role='admin' AND disabled=0`).Scan(&n)
+	err := s.priv.QueryRowContext(ctx, `SELECT count(*) FROM users WHERE role='admin' AND disabled=0`).Scan(&n)
 	return n, err
 }
 
+// execOne runs a statement on the shared index and reports ErrNotFound when
+// it changed no row; privOne does the same on the private database.
 func (s *Store) execOne(ctx context.Context, q string, args ...any) error {
-	res, err := s.db.ExecContext(ctx, q, args...)
+	return one(s.db.ExecContext(ctx, q, args...))
+}
+
+func (s *Store) privOne(ctx context.Context, q string, args ...any) error {
+	return one(s.priv.ExecContext(ctx, q, args...))
+}
+
+func one(res sql.Result, err error) error {
 	if err != nil {
 		return err
 	}
@@ -299,7 +308,7 @@ type Session struct {
 // CreateSession stores a session keyed by the token hash, bound to host (the
 // Host it was created on) and zone (the listener's access zone).
 func (s *Store) CreateSession(ctx context.Context, idHash []byte, userID int64, csrf string, expires time.Time, ua string, mfa, remember bool, host, zone string) error {
-	_, err := s.db.ExecContext(ctx, `INSERT INTO sessions(id_hash,user_id,csrf,created_at,expires_at,user_agent,mfa,remember,host,zone) VALUES(?,?,?,?,?,?,?,?,?,?)`,
+	_, err := s.priv.ExecContext(ctx, `INSERT INTO sessions(id_hash,user_id,csrf,created_at,expires_at,user_agent,mfa,remember,host,zone) VALUES(?,?,?,?,?,?,?,?,?,?)`,
 		idHash, userID, csrf, Now(), FormatTime(expires), ua, mfa, remember, host, zone)
 	return err
 }
@@ -308,7 +317,7 @@ func (s *Store) CreateSession(ctx context.Context, idHash []byte, userID int64, 
 func (s *Store) SessionByHash(ctx context.Context, idHash []byte) (*Session, *User, error) {
 	var sess Session
 	var exp string
-	err := s.db.QueryRowContext(ctx, `SELECT s.id_hash,s.user_id,s.csrf,s.expires_at,s.mfa,s.remember,s.host,s.zone
+	err := s.priv.QueryRowContext(ctx, `SELECT s.id_hash,s.user_id,s.csrf,s.expires_at,s.mfa,s.remember,s.host,s.zone
 		FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.id_hash=? AND s.expires_at>? AND u.disabled=0 AND u.pw_hash<>''`, idHash, Now()).
 		Scan(&sess.IDHash, &sess.UserID, &sess.CSRF, &exp, &sess.MFA, &sess.Remember, &sess.Host, &sess.Zone)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -327,13 +336,13 @@ func (s *Store) SessionByHash(ctx context.Context, idHash []byte) (*Session, *Us
 
 // ExtendSession moves a session's expiry (sliding "keep me signed in").
 func (s *Store) ExtendSession(ctx context.Context, idHash []byte, expires time.Time) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE sessions SET expires_at=? WHERE id_hash=?`, FormatTime(expires), idHash)
+	_, err := s.priv.ExecContext(ctx, `UPDATE sessions SET expires_at=? WHERE id_hash=?`, FormatTime(expires), idHash)
 	return err
 }
 
 // DeleteSession removes one session.
 func (s *Store) DeleteSession(ctx context.Context, idHash []byte) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE id_hash=?`, idHash)
+	_, err := s.priv.ExecContext(ctx, `DELETE FROM sessions WHERE id_hash=?`, idHash)
 	return err
 }
 
@@ -351,7 +360,7 @@ type DeviceSession struct {
 
 // UserSessions lists a user's live sessions, newest first.
 func (s *Store) UserSessions(ctx context.Context, userID int64) ([]DeviceSession, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT lower(hex(substr(id_hash,1,8))),created_at,expires_at,user_agent,mfa FROM sessions
+	rows, err := s.priv.QueryContext(ctx, `SELECT lower(hex(substr(id_hash,1,8))),created_at,expires_at,user_agent,mfa FROM sessions
 		WHERE user_id=? AND expires_at>? ORDER BY created_at DESC`, userID, Now())
 	if err != nil {
 		return nil, err
@@ -372,12 +381,12 @@ func (s *Store) UserSessions(ctx context.Context, userID int64) ([]DeviceSession
 
 // DeleteUserSession removes one of a user's sessions by its short id.
 func (s *Store) DeleteUserSession(ctx context.Context, userID int64, id string) error {
-	return s.execOne(ctx, `DELETE FROM sessions WHERE user_id=? AND lower(hex(substr(id_hash,1,8)))=?`, userID, id)
+	return s.privOne(ctx, `DELETE FROM sessions WHERE user_id=? AND lower(hex(substr(id_hash,1,8)))=?`, userID, id)
 }
 
 // PurgeExpiredSessions deletes expired sessions.
 func (s *Store) PurgeExpiredSessions(ctx context.Context) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE expires_at<=?`, Now())
+	_, err := s.priv.ExecContext(ctx, `DELETE FROM sessions WHERE expires_at<=?`, Now())
 	return err
 }
 
@@ -863,7 +872,7 @@ func (s *Store) SeenItems(ctx context.Context, userID int64, ids []int64) (map[i
 	if len(ids) == 0 {
 		return out, nil
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT item_id FROM review_seen WHERE user_id=? AND item_id>=? AND item_id<=?`,
+	rows, err := s.priv.QueryContext(ctx, `SELECT item_id FROM review_seen WHERE user_id=? AND item_id>=? AND item_id<=?`,
 		userID, slices.Min(ids), slices.Max(ids))
 	if err != nil {
 		return nil, err
@@ -887,7 +896,7 @@ func (s *Store) SeenItems(ctx context.Context, userID int64, ids []int64) (map[i
 
 // MarkSeen records review items as seen by the user.
 func (s *Store) MarkSeen(ctx context.Context, userID int64, ids []int64) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.priv.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -903,7 +912,7 @@ func (s *Store) MarkSeen(ctx context.Context, userID int64, ids []int64) error {
 
 // PurgeSeenBefore drops seen marks older than t (their events are gone).
 func (s *Store) PurgeSeenBefore(ctx context.Context, t time.Time) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM review_seen WHERE seen_at<?`, FormatTime(t))
+	_, err := s.priv.ExecContext(ctx, `DELETE FROM review_seen WHERE seen_at<?`, FormatTime(t))
 	return err
 }
 
@@ -925,7 +934,7 @@ func (s *Store) SavePushSub(ctx context.Context, userID int64, sessionHash []byt
 	if len(sessionHash) > 0 {
 		sh = sessionHash
 	}
-	_, err := s.db.ExecContext(ctx, `INSERT INTO push_subscriptions(user_id,session_hash,endpoint,p256dh,auth,user_agent,created_at) VALUES(?,?,?,?,?,?,?)
+	_, err := s.priv.ExecContext(ctx, `INSERT INTO push_subscriptions(user_id,session_hash,endpoint,p256dh,auth,user_agent,created_at) VALUES(?,?,?,?,?,?,?)
 		ON CONFLICT(endpoint) DO UPDATE SET user_id=excluded.user_id, session_hash=excluded.session_hash, p256dh=excluded.p256dh, auth=excluded.auth, user_agent=excluded.user_agent`,
 		userID, sh, endpoint, p256dh, auth, ua, FormatTime(time.Now()))
 	return err
@@ -934,10 +943,10 @@ func (s *Store) SavePushSub(ctx context.Context, userID int64, sessionHash []byt
 // DeletePushSub removes a subscription; userID 0 removes it for anyone (expired).
 func (s *Store) DeletePushSub(ctx context.Context, userID int64, endpoint string) error {
 	if userID == 0 {
-		_, err := s.db.ExecContext(ctx, `DELETE FROM push_subscriptions WHERE endpoint=?`, endpoint)
+		_, err := s.priv.ExecContext(ctx, `DELETE FROM push_subscriptions WHERE endpoint=?`, endpoint)
 		return err
 	}
-	_, err := s.db.ExecContext(ctx, `DELETE FROM push_subscriptions WHERE endpoint=? AND user_id=?`, endpoint, userID)
+	_, err := s.priv.ExecContext(ctx, `DELETE FROM push_subscriptions WHERE endpoint=? AND user_id=?`, endpoint, userID)
 	return err
 }
 
@@ -951,7 +960,7 @@ func (s *Store) PushSubs(ctx context.Context, userID int64) ([]PushSub, error) {
 		q += ` AND p.user_id=?`
 		args = append(args, userID)
 	}
-	rows, err := s.db.QueryContext(ctx, q, args...)
+	rows, err := s.priv.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -969,12 +978,12 @@ func (s *Store) PushSubs(ctx context.Context, userID int64) ([]PushSub, error) {
 
 // MarkPushOK records a successful delivery.
 func (s *Store) MarkPushOK(ctx context.Context, id int64) {
-	_, _ = s.db.ExecContext(ctx, `UPDATE push_subscriptions SET last_ok=? WHERE id=?`, FormatTime(time.Now()), id)
+	_, _ = s.priv.ExecContext(ctx, `UPDATE push_subscriptions SET last_ok=? WHERE id=?`, FormatTime(time.Now()), id)
 }
 
 // SaveFCMToken registers (or moves to userID) an app's FCM token (ADR-0020).
 func (s *Store) SaveFCMToken(ctx context.Context, userID int64, sessionHash []byte, token, ua string) error {
-	_, err := s.db.ExecContext(ctx, `INSERT INTO fcm_tokens(token,user_id,session_hash,user_agent,created_at) VALUES(?,?,?,?,?)
+	_, err := s.priv.ExecContext(ctx, `INSERT INTO fcm_tokens(token,user_id,session_hash,user_agent,created_at) VALUES(?,?,?,?,?)
 		ON CONFLICT(token) DO UPDATE SET user_id=excluded.user_id, session_hash=excluded.session_hash, user_agent=excluded.user_agent`,
 		token, userID, sessionHash, ua, FormatTime(time.Now()))
 	return err
@@ -983,16 +992,16 @@ func (s *Store) SaveFCMToken(ctx context.Context, userID int64, sessionHash []by
 // DeleteFCMToken forgets a token; userID 0 removes it for anyone (expired).
 func (s *Store) DeleteFCMToken(ctx context.Context, userID int64, token string) error {
 	if userID == 0 {
-		_, err := s.db.ExecContext(ctx, `DELETE FROM fcm_tokens WHERE token=?`, token)
+		_, err := s.priv.ExecContext(ctx, `DELETE FROM fcm_tokens WHERE token=?`, token)
 		return err
 	}
-	_, err := s.db.ExecContext(ctx, `DELETE FROM fcm_tokens WHERE token=? AND user_id=?`, token, userID)
+	_, err := s.priv.ExecContext(ctx, `DELETE FROM fcm_tokens WHERE token=? AND user_id=?`, token, userID)
 	return err
 }
 
 // FCMTokens lists one user's app tokens.
 func (s *Store) FCMTokens(ctx context.Context, userID int64) ([]string, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT f.token FROM fcm_tokens f
+	rows, err := s.priv.QueryContext(ctx, `SELECT f.token FROM fcm_tokens f
 		JOIN sessions s ON s.id_hash=f.session_hash
 		WHERE f.user_id=? AND s.expires_at>?`, userID, Now())
 	if err != nil {
@@ -1012,13 +1021,13 @@ func (s *Store) FCMTokens(ctx context.Context, userID int64) ([]string, error) {
 
 // MarkFCMOK records a successful delivery to a token.
 func (s *Store) MarkFCMOK(ctx context.Context, token string) {
-	_, _ = s.db.ExecContext(ctx, `UPDATE fcm_tokens SET last_ok=? WHERE token=?`, FormatTime(time.Now()), token)
+	_, _ = s.priv.ExecContext(ctx, `UPDATE fcm_tokens SET last_ok=? WHERE token=?`, FormatTime(time.Now()), token)
 }
 
 // Setting returns a setting value, or def when unset.
 func (s *Store) Setting(ctx context.Context, key, def string) string {
 	var v string
-	if err := s.db.QueryRowContext(ctx, `SELECT value FROM settings WHERE key=?`, key).Scan(&v); err != nil {
+	if err := s.priv.QueryRowContext(ctx, `SELECT value FROM settings WHERE key=?`, key).Scan(&v); err != nil {
 		return def
 	}
 	return v
@@ -1026,7 +1035,7 @@ func (s *Store) Setting(ctx context.Context, key, def string) string {
 
 // SetSetting stores a setting value.
 func (s *Store) SetSetting(ctx context.Context, key, value string) error {
-	_, err := s.db.ExecContext(ctx, `INSERT INTO settings(key,value,updated_at) VALUES(?,?,?)
+	_, err := s.priv.ExecContext(ctx, `INSERT INTO settings(key,value,updated_at) VALUES(?,?,?)
 		ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`, key, value, FormatTime(time.Now()))
 	return err
 }
@@ -1073,7 +1082,7 @@ func (s *Store) Audit(ctx context.Context, userID int64, username, action, targe
 	if userID > 0 {
 		uid = userID
 	}
-	_, err := s.db.ExecContext(ctx, `INSERT INTO audit(at,user_id,username,action,target,ok,detail) VALUES(?,?,?,?,?,?,?)`,
+	_, err := s.priv.ExecContext(ctx, `INSERT INTO audit(at,user_id,username,action,target,ok,detail) VALUES(?,?,?,?,?,?,?)`,
 		Now(), uid, clip(username, auditMaxUser), clip(action, auditMaxAction), clip(target, auditMaxTarget), ok, clip(detail, auditMaxDetail))
 	return err
 }
@@ -1085,7 +1094,7 @@ const AuditProtectValve = "segment.protect.valve"
 // AuditAfter returns up to limit audit rows of action with an id above
 // afterID, oldest first.
 func (s *Store) AuditAfter(ctx context.Context, action string, afterID int64, limit int) ([]AuditEntry, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id,at,username,action,target,ok,detail FROM audit WHERE action=? AND id>? ORDER BY id LIMIT ?`, action, afterID, limit)
+	rows, err := s.priv.QueryContext(ctx, `SELECT id,at,username,action,target,ok,detail FROM audit WHERE action=? AND id>? ORDER BY id LIMIT ?`, action, afterID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -1104,7 +1113,41 @@ func (s *Store) AuditAfter(ctx context.Context, action string, afterID int64, li
 // LastAuditID returns the id of the newest audit row (0 when none).
 func (s *Store) LastAuditID(ctx context.Context) (int64, error) {
 	var id int64
-	err := s.db.QueryRowContext(ctx, `SELECT coalesce(max(id),0) FROM audit`).Scan(&id)
+	err := s.priv.QueryRowContext(ctx, `SELECT coalesce(max(id),0) FROM audit`).Scan(&id)
+	return id, err
+}
+
+// RecorderNotice records something the recorder must tell the API (it has
+// no audit log of its own): a row of the shared index's recorder_notices.
+func (s *Store) RecorderNotice(ctx context.Context, action, target, detail string) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO recorder_notices(at,action,target,detail) VALUES(?,?,?,?)`,
+		Now(), clip(action, auditMaxAction), clip(target, auditMaxTarget), clip(detail, auditMaxDetail))
+	return err
+}
+
+// RecorderNoticesAfter lists recorder notices of action with id > afterID,
+// oldest first (as audit entries: the API copies them to the audit log).
+func (s *Store) RecorderNoticesAfter(ctx context.Context, action string, afterID int64, limit int) ([]AuditEntry, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id,at,action,target,detail FROM recorder_notices WHERE action=? AND id>? ORDER BY id LIMIT ?`, action, afterID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []AuditEntry
+	for rows.Next() {
+		e := AuditEntry{OK: true}
+		if err := rows.Scan(&e.ID, &e.At, &e.Action, &e.Target, &e.Detail); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// LastRecorderNoticeID returns the id of the newest recorder notice (0 when none).
+func (s *Store) LastRecorderNoticeID(ctx context.Context) (int64, error) {
+	var id int64
+	err := s.db.QueryRowContext(ctx, `SELECT coalesce(max(id),0) FROM recorder_notices`).Scan(&id)
 	return id, err
 }
 
@@ -1112,13 +1155,13 @@ func (s *Store) LastAuditID(ctx context.Context) (int64, error) {
 // ones above maxRows. Upload and folder rows (nas.*) are kept: they are the
 // only record of who put a file in a shared folder (see Authors).
 func (s *Store) PruneAudit(ctx context.Context, maxAge time.Duration, maxRows int) error {
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM audit WHERE at<? AND action NOT LIKE 'nas.%'`, FormatTime(time.Now().Add(-maxAge))); err != nil {
+	if _, err := s.priv.ExecContext(ctx, `DELETE FROM audit WHERE at<? AND action NOT LIKE 'nas.%'`, FormatTime(time.Now().Add(-maxAge))); err != nil {
 		return err
 	}
 	if maxRows <= 0 {
 		return nil
 	}
-	_, err := s.db.ExecContext(ctx, `DELETE FROM audit WHERE action NOT LIKE 'nas.%' AND id <= (
+	_, err := s.priv.ExecContext(ctx, `DELETE FROM audit WHERE action NOT LIKE 'nas.%' AND id <= (
 		SELECT id FROM audit WHERE action NOT LIKE 'nas.%' ORDER BY id DESC LIMIT 1 OFFSET ?)`, maxRows)
 	return err
 }
@@ -1136,7 +1179,7 @@ func (s *Store) Authors(ctx context.Context, paths []string) (map[string]string,
 	for i, p := range paths {
 		args[i] = p
 	}
-	rows, err := s.db.QueryContext(ctx, q, args...)
+	rows, err := s.priv.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -1158,7 +1201,7 @@ func (s *Store) ListAudit(ctx context.Context, limit int) ([]AuditEntry, error) 
 
 // UserAudit lists the newest audit entries, only one user's when username is set.
 func (s *Store) UserAudit(ctx context.Context, username string, limit int) ([]AuditEntry, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id,at,username,action,target,ok,detail FROM audit WHERE ?='' OR username=? ORDER BY id DESC LIMIT ?`, username, username, limit)
+	rows, err := s.priv.QueryContext(ctx, `SELECT id,at,username,action,target,ok,detail FROM audit WHERE ?='' OR username=? ORDER BY id DESC LIMIT ?`, username, username, limit)
 	if err != nil {
 		return nil, err
 	}

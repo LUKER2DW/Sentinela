@@ -429,7 +429,7 @@ func TestDiskPressureProtectedLast(t *testing.T) {
 	}
 	// Not silently: an audit row names how many and whose (the API turns
 	// it into a notice to the admins).
-	rows, _ := st.AuditAfter(ctx, store.AuditProtectValve, 0, 10)
+	rows, _ := st.RecorderNoticesAfter(ctx, store.AuditProtectValve, 0, 10)
 	if len(rows) != 1 || rows[0].Target != "cam1" || !strings.HasPrefix(rows[0].Detail, "3 protected clips deleted") {
 		t.Fatalf("valve audit rows: %+v", rows)
 	}

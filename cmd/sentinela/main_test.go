@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -172,5 +173,33 @@ func TestProxyPort(t *testing.T) {
 	}
 	if err := proxyPort(io.Discard, p); err == nil {
 		t.Error("a proxy listener off loopback was accepted")
+	}
+}
+
+// The index and the private database are pruned separately: one prefix
+// must never count (or delete) the other's copies.
+func TestPruneBackupsKeepsEachFile(t *testing.T) {
+	dir := t.TempDir()
+	for d := 1; d <= 9; d++ {
+		for _, p := range []string{"sentinela-", "sentinela-private-"} {
+			if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("%s2026010%d.db", p, d)), nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	pruneBackups(dir, "sentinela-", 7)
+	pruneBackups(dir, "sentinela-private-", 7)
+	for _, tc := range []struct {
+		pattern string
+		want    int
+		oldest  string
+	}{
+		{"sentinela-[0-9]*.db", 7, "sentinela-20260103.db"},
+		{"sentinela-private-[0-9]*.db", 7, "sentinela-private-20260103.db"},
+	} {
+		m, _ := filepath.Glob(filepath.Join(dir, tc.pattern))
+		if len(m) != tc.want || filepath.Base(m[0]) != tc.oldest {
+			t.Errorf("%s: %d left, oldest %v", tc.pattern, len(m), m)
+		}
 	}
 }

@@ -33,10 +33,17 @@ are superseded where noted by ADR-0019 and ADR-0020.
    authenticated session when consumed. Talk needs an operator: only the
    `<id>_talk` go2rtc stream reaches a camera's speaker, only operators get
    a ticket for it, and watching streams carry no backchannel at all.
-   Loopback keeps the network out, but every container uses the host network and shares that loopback, and go2rtc's
-   API has no credential of its own: a compromised detector (it decodes camera
-   video) could talk to it. Giving the API a credential or a private network
-   namespace is still open work. Requests to cameras (ONVIF) never follow
+   Loopback keeps the network out, but
+   every container uses the host network and shares that loopback, so
+   go2rtc's API (which holds every camera credential) also requires a
+   password, from loopback callers too (`local_auth`), and answers only
+   `/api/ws`, `/api/streams`, `/api/frame.jpeg` and the restart and exit a cut needs. The password
+   (`GO2RTC_API_PASSWORD`, `scripts/go2rtc-secret.sh`) is in `secrets.env`,
+   which the detector (it decodes camera video) never gets; without it
+   go2rtc does not start. Residual: go2rtc 1.9.14 exempts loopback clients
+   from RTSP credentials, so any host-network container can still read the
+   restream (video only, no credential) and add a publisher to a configured
+   stream. Requests to cameras (ONVIF) never follow
    HTTP redirects, so a device at a camera address cannot point them there.
    Live streams (`/stream/ws`, event and notification streams) re-check the
    session every 45 s and end when it is revoked or the account is
@@ -123,7 +130,12 @@ are superseded where noted by ADR-0019 and ADR-0020.
    dependency. The recorder, which parses untrusted camera data, mounts only
    the recordings, the database folder and the volume marker, not all of
    `/data` (which holds the request folders root agents act on, the agent and
-   detector tokens and the TLS keys). The one exception to "no Docker socket"
+   detector tokens and the TLS keys). Accounts, sessions, two-step secrets,
+   settings and the audit log are in the API's private database
+   (`db-private/`), which the recorder does not mount; the index it shares
+   with the API holds recordings, events and recorder status only. The API
+   opens recordings through `os.Root`, so a link planted under `recordings/`
+   cannot lead it to the rest of `/data`. The one exception to "no Docker socket"
    is the `apps` agent (ADR-0021): uid 1000 in the docker group, no camera
    secrets, loopback API with `/data/apps-agent/token`, and read-write access
    to the Cloud share (importing a local folder moves it into the service).

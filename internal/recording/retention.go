@@ -199,7 +199,7 @@ func (r *Retention) auditValve(ctx context.Context, n int, cams map[string]bool)
 	}
 	sort.Strings(ids)
 	detail := fmt.Sprintf("%d protected clips deleted: the recordings disk was above %d%% with nothing unprotected left", n, r.Cfg.Recording.MaxDiskPercent)
-	if err := r.Store.Audit(context.WithoutCancel(ctx), 0, "", store.AuditProtectValve, strings.Join(ids, ","), true, detail); err != nil {
+	if err := r.Store.RecorderNotice(context.WithoutCancel(ctx), store.AuditProtectValve, strings.Join(ids, ","), detail); err != nil {
 		r.Log.Warn("audit of deleted protected recordings failed", "err", err)
 	}
 }

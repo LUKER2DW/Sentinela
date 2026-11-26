@@ -406,6 +406,7 @@ func (s *Server) go2rtcConsumerTags(ctx context.Context) (map[string]bool, error
 	if err != nil {
 		return nil, err
 	}
+	s.go2rtcAuth(req)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err
@@ -508,6 +509,7 @@ func (s *Server) cutLive(ctx context.Context, still []string) {
 	if err != nil {
 		return
 	}
+	s.go2rtcAuth(req)
 	if resp, err := http.DefaultClient.Do(req); err == nil {
 		resp.Body.Close()
 	} else {
