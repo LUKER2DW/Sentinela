@@ -200,7 +200,12 @@ are superseded where noted by ADR-0019 and ADR-0020.
     service-account key is `/data/fcm/service-account.json`, 0600, UID 1000.
     FCM tokens are bound to the user's login session and removed on logout/
     revocation; expired sessions do not receive messages. Event lookup is
-    authenticated, user-bound and expires after 15 minutes.
+    authenticated, user-bound and expires after 15 minutes. A user keeps at
+    most 10 browser subscriptions and 10 app tokens (the least recently
+    used go first); a subscription that never delivered and failed three
+    times in a row is dropped. Each user's deliveries have their own 20 s
+    (10 s per device), apart from the event snapshot, and users are served
+    side by side, so one account's devices cannot delay another's alerts.
 13. Detector endpoints require loopback and `/data/detector/token`.
     The sidecar consumes only the loopback substream restream, never camera
     credentials. Its accepted decode budget is ADR-0016; snapshot decoding
@@ -257,8 +262,16 @@ are superseded where noted by ADR-0019 and ADR-0020.
     - A tunnel or proxy on this host that forwards a public client address to
       the dashboard port (instead of `remote.proxy.listen`) is treated as the
       public zone it is. Anonymous requests on public listeners have a 15 s
-      read and 2 min write deadline, and the listeners facing the internet
-      cap open connections (2048 total, 64 per source).
+      read and 2 min write deadline from their first byte to the last one
+      net/http sends (only a signed-in request lifts them), headers up to
+      16 KiB and no body except the sign-in forms (at most 8 KiB, read
+      first). The port-forwarded listener keeps at most 1024 connections,
+      64 per source (IPv4 address or IPv6 /64) and 128 per network (IPv4
+      /24, IPv6 /48), of which 40 not yet signed in; when full, a newcomer
+      replaces an anonymous connection of the network holding the most
+      (idle ones first), never a signed-in one. Its HTTP/2 allows 32
+      streams and 512 KiB receive windows: strangers hold at most about
+      75 MB there (measured, `internal/api/publiclisten.go`).
     - TOTP is RFC 6238 with single-use steps, and outside login is audited.
       Five wrong codes in a row lock an account's code (by user id, any name
       or address) for 1 minute, doubling per further wrong code up to an hour

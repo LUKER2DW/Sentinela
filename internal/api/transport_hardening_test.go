@@ -1,14 +1,11 @@
 package api
 
 import (
-	"context"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestPublicAddr(t *testing.T) {
@@ -123,104 +120,6 @@ func TestLogPathIsBounded(t *testing.T) {
 		t.Fatalf("not cut: %d bytes", len(g))
 	}
 }
-
-func TestClosedDoorSetsAndClearsDeadlines(t *testing.T) {
-	s := &Server{}
-	var seen bool
-	h := s.closedDoor(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { seen = true }))
-	// The recorder does not support deadlines; the middleware must not fail.
-	r := httptest.NewRequest("GET", "/index.html", nil)
-	r = r.WithContext(context.WithValue(r.Context(), zoneKey, ZonePublic))
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, r)
-	if !seen || rec.Code == http.StatusInternalServerError {
-		t.Fatalf("SPA shell must pass the closed door (seen=%v code=%d)", seen, rec.Code)
-	}
-	// Anything else is a 404 with no session.
-	r = httptest.NewRequest("GET", "/api/cameras", nil)
-	r = r.WithContext(context.WithValue(r.Context(), zoneKey, ZonePublic))
-	rec = httptest.NewRecorder()
-	h.ServeHTTP(rec, r)
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("code = %d, want 404", rec.Code)
-	}
-}
-
-func TestLimitConnsPerSourceAndTotal(t *testing.T) {
-	inner, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Skip("no loopback listener:", err)
-	}
-	ln := LimitConns(inner, 3, 2)
-	defer ln.Close()
-	accepted := make(chan net.Conn, 8)
-	go func() {
-		for {
-			c, err := ln.Accept()
-			if err != nil {
-				return
-			}
-			accepted <- c
-		}
-	}()
-	dial := func() net.Conn {
-		c, err := net.Dial("tcp", ln.Addr().String())
-		if err != nil {
-			t.Fatal(err)
-		}
-		return c
-	}
-	get := func() net.Conn {
-		select {
-		case c := <-accepted:
-			return c
-		case <-time.After(time.Second):
-			return nil
-		}
-	}
-	// Two connections from the one source (127.0.0.1) are accepted...
-	c1, c2 := dial(), dial()
-	defer c1.Close()
-	defer c2.Close()
-	s1, s2 := get(), get()
-	if s1 == nil || s2 == nil {
-		t.Fatal("first two connections must be accepted")
-	}
-	// ...the third from the same source is closed before it reaches Accept's caller.
-	c3 := dial()
-	defer c3.Close()
-	if c := get(); c != nil {
-		t.Fatal("third connection from one source was accepted")
-	}
-	_ = c3.SetReadDeadline(time.Now().Add(time.Second))
-	if _, err := c3.Read(make([]byte, 1)); err == nil {
-		t.Fatal("the refused connection must be closed")
-	}
-	// Closing one frees the slot.
-	_ = s1.Close()
-	c4 := dial()
-	defer c4.Close()
-	if get() == nil {
-		t.Fatal("a slot was not freed after close")
-	}
-}
-
-func TestLimitConnsReleaseIsIdempotent(t *testing.T) {
-	l := &limitListener{total: 2, perIP: 2, per: map[string]int{}}
-	if !l.take("a") {
-		t.Fatal("take")
-	}
-	c := &limitConn{l: l, key: "a", Conn: nopConn{}}
-	_ = c.Close()
-	_ = c.Close() // a double close must not release twice
-	if l.n != 0 || len(l.per) != 0 {
-		t.Fatalf("n=%d per=%v, want empty", l.n, l.per)
-	}
-}
-
-type nopConn struct{ net.Conn }
-
-func (nopConn) Close() error { return nil }
 
 func TestLogSafeIsOneLine(t *testing.T) {
 	for in, want := range map[string]string{

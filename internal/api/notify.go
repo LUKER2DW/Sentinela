@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/LUKER2DW/sentinela/internal/push"
@@ -123,13 +124,27 @@ func (p NotifyPrefs) Enabled(typ string) bool {
 	return slices.Contains(p.Types, typ)
 }
 
+// Delivery bounds. Each user's notice has its own time, apart from the
+// event's snapshot and from the other users, and users are served side by
+// side: one user's many or slow devices (at most store.MaxPushSubs browsers
+// and store.MaxFCMTokens phones) cannot use up the others' share.
+const (
+	notifyUsersAtOnce   = 4
+	notifyDevicesAtOnce = 4 // of one user; phones and browsers take turns
+	notifyUserBudget    = 20 * time.Second
+	notifySendTimeout   = 10 * time.Second // one device
+)
+
 type notifier struct {
 	sender *push.Sender
 	fcm    *push.FCM
 	// fcmClient: the house's Firebase app config handed to the Android app.
 	fcmClient *push.FCMClient
-	mu        sync.Mutex
-	last      map[string]time.Time
+	// userBudget and sendTimeout replace notifyUserBudget and
+	// notifySendTimeout when set (tests).
+	userBudget, sendTimeout time.Duration
+	mu                      sync.Mutex
+	last                    map[string]time.Time
 	// streams are the Android app's open notification streams, by user.
 	streams map[chan []byte]int64
 	// An FCM wake-up contains only a random id. The event details remain here
@@ -219,6 +234,17 @@ func (n *notifier) stream(userID int64, payload []byte) int {
 	return sent
 }
 
+func (n *notifier) budgets() (user, send time.Duration) {
+	user, send = notifyUserBudget, notifySendTimeout
+	if n.userBudget > 0 {
+		user = n.userBudget
+	}
+	if n.sendTimeout > 0 {
+		send = n.sendTimeout
+	}
+	return user, send
+}
+
 // recent reports whether key notified within pushGap, and marks it now.
 func (n *notifier) recent(key string) bool {
 	n.mu.Lock()
@@ -280,6 +306,7 @@ func (s *Server) notify(ctx context.Context, cameraID, typ string, eventID int64
 		s.Log.Warn("notify: list users", "err", err)
 		return
 	}
+	var to []int64
 	for i := range users {
 		u := &users[i]
 		if u.Disabled || u.Pending || !u.CanSee(cameraID) || !prefsOf(u).Wants(mode, typ) {
@@ -288,8 +315,30 @@ func (s *Server) notify(ctx context.Context, cameraID, typ string, eventID int64
 		if s.push.recent(fmt.Sprintf("%d/%s", u.ID, cameraID)) {
 			continue
 		}
-		s.sendAll(ctx, u.ID, msg)
+		to = append(to, u.ID)
 	}
+	s.deliver(ctx, to, msg)
+}
+
+// deliver sends msg to the users in ids, notifyUsersAtOnce at a time, each
+// with a budget of its own whatever is left of ctx (an event's snapshot may
+// have used most of it).
+func (s *Server) deliver(ctx context.Context, ids []int64, msg map[string]any) {
+	budget, _ := s.push.budgets()
+	base := context.WithoutCancel(ctx)
+	sem := make(chan struct{}, notifyUsersAtOnce)
+	var wg sync.WaitGroup
+	for _, id := range ids {
+		sem <- struct{}{}
+		wg.Add(1)
+		go func() {
+			defer func() { <-sem; wg.Done() }()
+			uctx, cancel := context.WithTimeout(base, budget)
+			defer cancel()
+			s.sendAll(uctx, id, msg)
+		}()
+	}
+	wg.Wait()
 }
 
 // eventURL opens the recording at the event (a few seconds before it).
@@ -318,68 +367,133 @@ func eventTitle(typ string) string {
 	return "Evento"
 }
 
-// sendAll sends msg to one user's browsers and apps. FCM gets only an opaque
-// id; the app fetches msg from this server with its own session.
+// sendAll sends msg to one user's browsers and apps within ctx (the user's
+// budget), notifyDevicesAtOnce at a time, phones and browsers taking turns.
+// FCM gets only an opaque id; the app fetches msg from this server with its
+// own session.
 func (s *Server) sendAll(ctx context.Context, userID int64, msg map[string]any) int {
 	payload, _ := json.Marshal(msg)
 	sent := s.push.stream(userID, payload)
+	var web, apps []func(context.Context) bool
 	if s.push.sender != nil {
 		subs, err := s.Store.PushSubs(ctx, userID)
 		if err != nil {
 			s.Log.Warn("push: list subscriptions", "err", err)
-		} else {
-			for _, p := range subs {
-				err := s.push.sender.Send(ctx, push.Subscription{Endpoint: p.Endpoint, P256dh: p.P256dh, Auth: p.Auth}, payload, 10*time.Minute)
-				switch {
-				case err == nil:
-					sent++
-					s.Store.MarkPushOK(ctx, p.ID)
-				case errors.Is(err, push.ErrGone):
-					_ = s.Store.DeletePushSub(ctx, 0, p.Endpoint)
-				default:
-					s.Log.Warn("push failed", "err", err)
-				}
+		}
+		for _, p := range subs {
+			web = append(web, func(c context.Context) bool { return s.sendWebPush(ctx, c, p, payload) })
+		}
+	}
+	pendingID := ""
+	if s.push.fcm != nil {
+		tokens, err := s.Store.FCMTokens(ctx, userID)
+		if err != nil {
+			s.Log.Warn("fcm: list tokens", "err", err)
+		}
+		if len(tokens) > 0 {
+			if pendingID, err = s.push.putPending(userID, payload); err != nil {
+				s.Log.Warn("fcm: create wake-up", "err", err)
+				tokens = nil
+			}
+		}
+		for _, token := range tokens {
+			apps = append(apps, func(c context.Context) bool { return s.sendFCM(c, token, pendingID) })
+		}
+	}
+	type job struct {
+		app  bool
+		send func(context.Context) bool
+	}
+	var jobs []job
+	for i := range max(len(web), len(apps)) {
+		if i < len(apps) {
+			jobs = append(jobs, job{true, apps[i]})
+		}
+		if i < len(web) {
+			jobs = append(jobs, job{false, web[i]})
+		}
+	}
+	_, timeout := s.push.budgets()
+	var webOK, appsOK atomic.Int32
+	sem := make(chan struct{}, notifyDevicesAtOnce)
+	var wg sync.WaitGroup
+	for _, j := range jobs {
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done(): // the user's budget is over: the rest are not tried
+		}
+		if ctx.Err() != nil {
+			break
+		}
+		counter := &webOK
+		if j.app {
+			counter = &appsOK
+		}
+		wg.Add(1)
+		go func() {
+			defer func() { <-sem; wg.Done() }()
+			c, cancel := context.WithTimeout(ctx, timeout)
+			defer cancel()
+			if j.send(c) {
+				counter.Add(1)
+			}
+		}()
+	}
+	wg.Wait()
+	if pendingID != "" && appsOK.Load() == 0 {
+		s.push.mu.Lock()
+		delete(s.push.pending, pendingID)
+		s.push.mu.Unlock()
+	}
+	return sent + int(webOK.Load()+appsOK.Load())
+}
+
+// bookkeeping is a short context for recording a delivery's outcome after
+// the delivery's own context may have ended.
+func bookkeeping(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+}
+
+// sendWebPush delivers to one browser within c; userCtx is the user's budget.
+func (s *Server) sendWebPush(userCtx, c context.Context, p store.PushSub, payload []byte) bool {
+	err := s.push.sender.Send(c, push.Subscription{Endpoint: p.Endpoint, P256dh: p.P256dh, Auth: p.Auth}, payload, 10*time.Minute)
+	bk, cancel := bookkeeping(c)
+	defer cancel()
+	switch {
+	case err == nil:
+		s.Store.MarkPushOK(bk, p.ID)
+		return true
+	case errors.Is(err, push.ErrGone):
+		_ = s.Store.DeletePushSub(bk, 0, p.Endpoint)
+	default:
+		s.Log.Warn("push failed", "err", err)
+		// Only a definitive refusal of this subscription counts: a network
+		// outage or a push service's 5xx says nothing about it, nor does the
+		// end of the user's budget.
+		if userCtx.Err() == nil && errors.Is(err, push.ErrRejected) {
+			if dropped, _ := s.Store.PushFailed(bk, p.ID); dropped {
+				s.Log.Info("push: dropped a subscription that never delivered", "user", p.UserID)
 			}
 		}
 	}
-	if s.push.fcm == nil {
-		return sent
+	return false
+}
+
+// sendFCM wakes one phone with the pending notice id.
+func (s *Server) sendFCM(c context.Context, token, id string) bool {
+	err := s.push.fcm.Send(c, token, map[string]string{"id": id})
+	bk, cancel := bookkeeping(c)
+	defer cancel()
+	switch {
+	case err == nil:
+		s.Store.MarkFCMOK(bk, token)
+		return true
+	case errors.Is(err, push.ErrUnregistered):
+		_ = s.Store.DeleteFCMToken(bk, 0, token)
+	default:
+		s.Log.Warn("fcm: send failed", "err", err)
 	}
-	tokens, err := s.Store.FCMTokens(ctx, userID)
-	if err != nil {
-		s.Log.Warn("fcm: list tokens", "err", err)
-		return sent
-	}
-	if len(tokens) == 0 {
-		return sent
-	}
-	id, err := s.push.putPending(userID, payload)
-	if err != nil {
-		s.Log.Warn("fcm: create wake-up", "err", err)
-		return sent
-	}
-	fcmSent := 0
-	for _, token := range tokens {
-		callCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		err := s.push.fcm.Send(callCtx, token, map[string]string{"id": id})
-		cancel()
-		switch {
-		case err == nil:
-			fcmSent++
-			s.Store.MarkFCMOK(ctx, token)
-		case errors.Is(err, push.ErrUnregistered):
-			_ = s.Store.DeleteFCMToken(ctx, 0, token)
-		default:
-			s.Log.Warn("fcm: send failed", "err", err)
-		}
-	}
-	if fcmSent == 0 {
-		s.push.mu.Lock()
-		delete(s.push.pending, id)
-		s.push.mu.Unlock()
-	}
-	sent += fcmSent
-	return sent
+	return false
 }
 
 // ---------- HTTP ----------
@@ -448,7 +562,10 @@ func (s *Server) pushUnsubscribe(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) pushTest(w http.ResponseWriter, r *http.Request) {
-	n := s.sendAll(r.Context(), userFrom(r).ID, map[string]any{
+	budget, _ := s.push.budgets()
+	ctx, cancel := context.WithTimeout(r.Context(), budget)
+	defer cancel()
+	n := s.sendAll(ctx, userFrom(r).ID, map[string]any{
 		"title": "Sentinela", "body": "Notifications are working on this device.", "tag": "sentinela-test", "url": "/#/events",
 	})
 	writeJSON(w, http.StatusOK, map[string]int{"sent": n})

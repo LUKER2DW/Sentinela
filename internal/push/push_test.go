@@ -10,6 +10,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"io"
 	"math/big"
 	"net/http"
@@ -145,6 +146,14 @@ func TestSendSignsAndEncrypts(t *testing.T) {
 	status = http.StatusGone
 	if err := s.Send(context.Background(), sub, []byte(`{}`), time.Minute); err != ErrGone {
 		t.Fatalf("gone: %v", err)
+	}
+	// Only a definitive answer about this subscription is a rejection; an
+	// outage or a 5xx says nothing about it.
+	for code, rejected := range map[int]bool{400: true, 401: true, 403: true, 429: false, 500: false, 503: false} {
+		status = code
+		if err := s.Send(context.Background(), sub, []byte(`{}`), time.Minute); err == nil || errors.Is(err, ErrRejected) != rejected {
+			t.Errorf("HTTP %d: %v, rejected want %v", code, err, rejected)
+		}
 	}
 	sub.Endpoint = "https://192.168.1.10/x"
 	if err := s.Send(context.Background(), sub, []byte(`{}`), time.Minute); err == nil {

@@ -121,6 +121,8 @@ then one every 10 s.
 Modes Casa/Noite/Fora and per-user preferences decide which events notify.
 While detection is healthy, raw motion stays in the timeline but does not
 send a push. Each user/camera burst is limited to one notice per minute.
+Users are notified side by side, each with a delivery budget of their own
+(docs/SECURITY.md rule 12).
 
 - Browsers: Web Push with VAPID and RFC 8291 encryption.
 - Android: an FCM data message with a random id. The app fetches
@@ -182,7 +184,9 @@ uploads create containing folders, then send files; up to four files under
 32 MiB are parallel, larger files serial. Chunks go through XHR for byte
 progress; the panel shows speed (5 s window) and time left, and leaving
 the page during an upload asks first. Plain-HTTP downloads use
-sendfile; TLS listeners accept ~4 MiB HTTP/2 receive windows. The picker does not represent
+sendfile. The port-forwarded TLS listener's HTTP/2 receive window is 512 KiB
+(about 5 MB/s of upload at 100 ms round trip), the memory bound of
+SECURITY.md rule 14. The picker does not represent
 empty directories. A conflicting top folder gets a new name.
 
 Deletes enter the recycle bin; explicit trash purge is permanent. The owner

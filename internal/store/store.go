@@ -177,6 +177,10 @@ func (s *Store) Close() error {
 // DB exposes the shared index's handle.
 func (s *Store) DB() *sql.DB { return s.db }
 
+// PrivateDB exposes the private database handle (nil for OpenIndex), for
+// tests that inspect it.
+func (s *Store) PrivateDB() *sql.DB { return s.priv }
+
 // Ping checks that every open database file answers.
 func (s *Store) Ping(ctx context.Context) error {
 	if err := s.db.PingContext(ctx); err != nil {

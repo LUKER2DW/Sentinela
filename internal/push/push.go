@@ -127,6 +127,11 @@ func ValidEndpoint(u string) bool {
 // ErrGone means the subscription expired or was revoked: delete it.
 var ErrGone = errors.New("push subscription gone")
 
+// ErrRejected means this subscription was refused for good (its own data,
+// or the push service's definitive 4xx answer), unlike a passing failure
+// (no network, a 5xx, a rate limit) that says nothing about it.
+var ErrRejected = errors.New("push subscription rejected")
+
 // Sender posts encrypted messages to push services.
 type Sender struct {
 	Keys    *Keys
@@ -141,15 +146,15 @@ func (s *Sender) Allowed(endpoint string) bool { return ValidEndpoint(endpoint) 
 // Send delivers payload (≤ 3 KB of JSON) to one subscription.
 func (s *Sender) Send(ctx context.Context, sub Subscription, payload []byte, ttl time.Duration) error {
 	if !ValidEndpoint(sub.Endpoint) {
-		return errors.New("push endpoint not allowed")
+		return fmt.Errorf("%w: push endpoint not allowed", ErrRejected)
 	}
 	uaPub, err := b64.DecodeString(strings.TrimRight(sub.P256dh, "="))
 	if err != nil {
-		return fmt.Errorf("p256dh: %w", err)
+		return fmt.Errorf("%w: p256dh: %w", ErrRejected, err)
 	}
 	auth, err := b64.DecodeString(strings.TrimRight(sub.Auth, "="))
 	if err != nil {
-		return fmt.Errorf("auth: %w", err)
+		return fmt.Errorf("%w: auth: %w", ErrRejected, err)
 	}
 	body, err := Encrypt(payload, uaPub, auth, rand.Reader)
 	if err != nil {
@@ -181,6 +186,8 @@ func (s *Sender) Send(ctx context.Context, sub Subscription, payload []byte, ttl
 	switch {
 	case resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusGone:
 		return ErrGone
+	case resp.StatusCode == http.StatusBadRequest || resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
+		return fmt.Errorf("%w: push service: HTTP %d", ErrRejected, resp.StatusCode)
 	case resp.StatusCode >= 300:
 		return fmt.Errorf("push service: HTTP %d", resp.StatusCode)
 	}

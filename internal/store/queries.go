@@ -910,10 +910,56 @@ func (s *Store) MarkSeen(ctx context.Context, userID int64, ids []int64) error {
 	return tx.Commit()
 }
 
-// PurgeSeenBefore drops seen marks older than t (their events are gone).
+// PurgeSeenBefore drops seen marks older than t, and those whose event
+// retention deleted: a user keeps at most one mark per existing event.
 func (s *Store) PurgeSeenBefore(ctx context.Context, t time.Time) error {
-	_, err := s.priv.ExecContext(ctx, `DELETE FROM review_seen WHERE seen_at<?`, FormatTime(t))
+	if _, err := s.priv.ExecContext(ctx, `DELETE FROM review_seen WHERE seen_at<?`, FormatTime(t)); err != nil {
+		return err
+	}
+	// Events live in the shared index, marks in the private database: event
+	// ids only grow and retention deletes the oldest, so marks below the
+	// oldest event left are of deleted events (all of them when none is).
+	var oldest sql.NullInt64
+	if err := s.db.QueryRowContext(ctx, `SELECT min(id) FROM events`).Scan(&oldest); err != nil {
+		return err
+	}
+	if !oldest.Valid {
+		_, err := s.priv.ExecContext(ctx, `DELETE FROM review_seen`)
+		return err
+	}
+	_, err := s.priv.ExecContext(ctx, `DELETE FROM review_seen WHERE item_id<?`, oldest.Int64)
 	return err
+}
+
+// EventCameras returns the camera of each of ids that is an existing event.
+func (s *Store) EventCameras(ctx context.Context, ids []int64) (map[int64]string, error) {
+	out := make(map[int64]string, len(ids))
+	for chunk := range slices.Chunk(ids, 500) {
+		q := `SELECT id, camera_id FROM events WHERE id IN (?` + strings.Repeat(",?", len(chunk)-1) + `)`
+		args := make([]any, len(chunk))
+		for i, id := range chunk {
+			args[i] = id
+		}
+		rows, err := s.db.QueryContext(ctx, q, args...)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var id int64
+			var cam string
+			if err := rows.Scan(&id, &cam); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			out[id] = cam
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
 }
 
 // ---------- push and settings ----------
@@ -927,17 +973,42 @@ type PushSub struct {
 	Auth     string
 }
 
+// Devices one user keeps: registering one more drops the one used least
+// recently (its last delivery, or its registration).
+const (
+	MaxPushSubs  = 10 // browsers (Web Push subscriptions)
+	MaxFCMTokens = 10 // Android apps
+)
+
+// deadPushFails failed deliveries in a row drop a subscription that never
+// delivered: an endpoint a push service does not know (PushFailed).
+const deadPushFails = 3
+
 // SavePushSub inserts or refreshes a subscription (keyed by endpoint) and
-// binds it to the session that made it: it ends with that session.
+// binds it to the session that made it: it ends with that session. The
+// user keeps at most MaxPushSubs.
 func (s *Store) SavePushSub(ctx context.Context, userID int64, sessionHash []byte, endpoint, p256dh, auth, ua string) error {
 	var sh any // a nil session stores NULL (a subscription not tied to one)
 	if len(sessionHash) > 0 {
 		sh = sessionHash
 	}
-	_, err := s.priv.ExecContext(ctx, `INSERT INTO push_subscriptions(user_id,session_hash,endpoint,p256dh,auth,user_agent,created_at) VALUES(?,?,?,?,?,?,?)
-		ON CONFLICT(endpoint) DO UPDATE SET user_id=excluded.user_id, session_hash=excluded.session_hash, p256dh=excluded.p256dh, auth=excluded.auth, user_agent=excluded.user_agent`,
-		userID, sh, endpoint, p256dh, auth, ua, FormatTime(time.Now()))
-	return err
+	tx, err := s.priv.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `INSERT INTO push_subscriptions(user_id,session_hash,endpoint,p256dh,auth,user_agent,created_at) VALUES(?,?,?,?,?,?,?)
+		ON CONFLICT(endpoint) DO UPDATE SET user_id=excluded.user_id, session_hash=excluded.session_hash, p256dh=excluded.p256dh, auth=excluded.auth,
+		user_agent=excluded.user_agent, created_at=excluded.created_at, fails=0`,
+		userID, sh, endpoint, p256dh, auth, ua, FormatTime(time.Now())); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM push_subscriptions WHERE user_id=? AND id NOT IN (
+		SELECT id FROM push_subscriptions WHERE user_id=? ORDER BY max(created_at, COALESCE(last_ok,'')) DESC, id DESC LIMIT ?)`,
+		userID, userID, MaxPushSubs); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // DeletePushSub removes a subscription; userID 0 removes it for anyone (expired).
@@ -978,15 +1049,42 @@ func (s *Store) PushSubs(ctx context.Context, userID int64) ([]PushSub, error) {
 
 // MarkPushOK records a successful delivery.
 func (s *Store) MarkPushOK(ctx context.Context, id int64) {
-	_, _ = s.priv.ExecContext(ctx, `UPDATE push_subscriptions SET last_ok=? WHERE id=?`, FormatTime(time.Now()), id)
+	_, _ = s.priv.ExecContext(ctx, `UPDATE push_subscriptions SET last_ok=?, fails=0 WHERE id=?`, FormatTime(time.Now()), id)
+}
+
+// PushFailed counts a failed delivery to subscription id. One that never
+// delivered and failed deadPushFails times in a row is deleted (true).
+func (s *Store) PushFailed(ctx context.Context, id int64) (bool, error) {
+	if _, err := s.priv.ExecContext(ctx, `UPDATE push_subscriptions SET fails=fails+1 WHERE id=?`, id); err != nil {
+		return false, err
+	}
+	res, err := s.priv.ExecContext(ctx, `DELETE FROM push_subscriptions WHERE id=? AND last_ok IS NULL AND fails>=?`, id, deadPushFails)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
 }
 
 // SaveFCMToken registers (or moves to userID) an app's FCM token (ADR-0020).
+// The user keeps at most MaxFCMTokens.
 func (s *Store) SaveFCMToken(ctx context.Context, userID int64, sessionHash []byte, token, ua string) error {
-	_, err := s.priv.ExecContext(ctx, `INSERT INTO fcm_tokens(token,user_id,session_hash,user_agent,created_at) VALUES(?,?,?,?,?)
-		ON CONFLICT(token) DO UPDATE SET user_id=excluded.user_id, session_hash=excluded.session_hash, user_agent=excluded.user_agent`,
-		token, userID, sessionHash, ua, FormatTime(time.Now()))
-	return err
+	tx, err := s.priv.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `INSERT INTO fcm_tokens(token,user_id,session_hash,user_agent,created_at) VALUES(?,?,?,?,?)
+		ON CONFLICT(token) DO UPDATE SET user_id=excluded.user_id, session_hash=excluded.session_hash, user_agent=excluded.user_agent, created_at=excluded.created_at`,
+		token, userID, sessionHash, ua, FormatTime(time.Now())); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM fcm_tokens WHERE user_id=? AND token NOT IN (
+		SELECT token FROM fcm_tokens WHERE user_id=? ORDER BY max(created_at, last_ok) DESC, rowid DESC LIMIT ?)`,
+		userID, userID, MaxFCMTokens); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // DeleteFCMToken forgets a token; userID 0 removes it for anyone (expired).

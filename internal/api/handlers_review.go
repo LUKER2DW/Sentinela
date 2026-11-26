@@ -74,8 +74,13 @@ func (s *Server) listReview(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"items": out, "unseen": unseen})
 }
 
+// maxSeenIDs bounds one "ids" call (the page marks one item at a time);
+// "all" adds at most what the list shows (reviewItems reads 5000 events).
+const maxSeenIDs = 500
+
 // markSeen: POST /api/review/seen {"ids":[…]} or {"all":true} with the same
-// query range as the list ("mark all seen").
+// query range as the list ("mark all seen"). Only items that exist and that
+// the user may see are stored, so the marks stay bounded by the events.
 func (s *Server) markSeen(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		IDs []int64 `json:"ids"`
@@ -85,7 +90,15 @@ func (s *Server) markSeen(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	ids := body.IDs
+	if len(body.IDs) > maxSeenIDs {
+		writeErr(w, http.StatusBadRequest, "too many items")
+		return
+	}
+	ids, err := s.visibleEventIDs(r, body.IDs)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "database error")
+		return
+	}
 	if body.All {
 		items, ok := s.reviewItems(w, r)
 		if !ok {
@@ -97,13 +110,29 @@ func (s *Server) markSeen(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	if len(ids) > 5000 {
-		writeErr(w, http.StatusBadRequest, "too many items")
-		return
-	}
 	if err := s.Store.MarkSeen(r.Context(), userFrom(r).ID, ids); err != nil {
 		writeErr(w, http.StatusInternalServerError, "database error")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]int{"marked": len(ids)})
+}
+
+// visibleEventIDs keeps the ids (once each) of existing events of cameras
+// the user may see; anything else would be a mark for nothing.
+func (s *Server) visibleEventIDs(r *http.Request, ids []int64) ([]int64, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	cams, err := s.Store.EventCameras(r.Context(), ids)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]int64, 0, len(cams))
+	for _, id := range ids {
+		if cam, ok := cams[id]; ok && s.canSee(r, cam) {
+			out = append(out, id)
+			delete(cams, id)
+		}
+	}
+	return out, nil
 }

@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/netip"
@@ -106,50 +107,57 @@ func forwardedFromPublicAddr(r *http.Request) bool {
 // closedDoor: in public zones, a request without a 2FA session sees only
 // the SPA shell and the login endpoints; everything else is 404, so a bug
 // behind the login is not reachable from the internet (ADR-0019).
+//
+// It also bounds what such a request costs (publiclisten.go): it keeps the
+// anonymous deadlines to its last byte, including what net/http reads and
+// flushes after the handler, and carries no body except the sign-in forms,
+// read in full first. Only a signed-in request lifts the deadlines, and it
+// marks its connection as the household's (connPool never evicts those).
 func (s *Server) closedDoor(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !PublicZone(zoneFrom(r)) || userFrom(r) != nil {
+		if !PublicZone(zoneFrom(r)) {
+			// net/http resets a kept-alive HTTP/1 connection's write deadline
+			// only on a server with a WriteTimeout: one an anonymous public
+			// request left on the private listener (proxy traffic) must not
+			// cut the next request's stream.
+			if !serverBounded(r) {
+				_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
+			}
 			next.ServeHTTP(w, r)
 			return
 		}
+		if userFrom(r) != nil {
+			trustConn(r)
+			liftDeadlines(w)
+			next.ServeHTTP(w, r)
+			return
+		}
+		if !serverBounded(r) {
+			anonDeadlines(w)
+		}
 		p := r.URL.Path
-		open := r.Method == http.MethodGet && p == "/api/setup" ||
-			r.Method == http.MethodPost && (p == "/api/login" || p == "/api/logout" || p == "/api/invite/accept") ||
+		form := r.Method == http.MethodPost && (p == "/api/login" || p == "/api/logout" || p == "/api/invite/accept")
+		open := form || r.Method == http.MethodGet && p == "/api/setup" ||
 			(r.Method == http.MethodGet || r.Method == http.MethodHead) && p != "/healthz" &&
 				!strings.HasPrefix(p, "/api/") && !strings.HasPrefix(p, "/stream/") && !strings.HasPrefix(p, "/internal/")
-		// net/http reads up to 256 KB of an unread body before it can answer,
-		// and the server has no Read/WriteTimeout (long streams need that), so
-		// a client could hold the connection open for ever by sending nothing.
-		// Give requests with no session a bounded time.
-		anonDeadlines(w)
-		defer clearDeadlines(w)
+		if !form {
+			dropBody(r)
+		}
 		if !open {
 			writeErr(w, http.StatusNotFound, "not found")
 			return
 		}
+		if form {
+			if err := bufferBody(r); errors.Is(err, errAnonBody) {
+				writeErr(w, http.StatusRequestEntityTooLarge, "request too large")
+				return
+			} else if err != nil {
+				writeErr(w, http.StatusBadRequest, "could not read the request")
+				return
+			}
+		}
 		next.ServeHTTP(w, r)
 	})
-}
-
-// Deadlines for requests with no session on a public listener: the body is
-// at most 64 KiB (readJSON) and the largest static file a few MB.
-const (
-	anonReadTimeout  = 15 * time.Second
-	anonWriteTimeout = 2 * time.Minute
-)
-
-func anonDeadlines(w http.ResponseWriter) {
-	rc := http.NewResponseController(w)
-	now := time.Now()
-	_ = rc.SetReadDeadline(now.Add(anonReadTimeout))
-	_ = rc.SetWriteDeadline(now.Add(anonWriteTimeout))
-}
-
-// clearDeadlines leaves a kept-alive connection as it was found.
-func clearDeadlines(w http.ResponseWriter) {
-	rc := http.NewResponseController(w)
-	_ = rc.SetReadDeadline(time.Time{})
-	_ = rc.SetWriteDeadline(time.Time{})
 }
 
 // privateOnly refuses h in public zones: actions that grant access (users,
@@ -381,17 +389,17 @@ func (s *Server) loginNotice(u *store.User, always bool, msg map[string]any) {
 	defer cancel()
 	wants := func(x *store.User) bool { return always || prefsOf(x).Enabled("login") }
 	sent := map[int64]bool{u.ID: true}
+	var to []int64
 	if wants(u) {
-		s.sendAll(ctx, u.ID, msg)
+		to = append(to, u.ID)
 	}
-	users, err := s.Store.ListUsers(ctx)
-	if err != nil {
-		return
-	}
-	for _, a := range users {
-		if a.Role == auth.RoleAdmin && !sent[a.ID] && !a.Disabled && !a.Pending && wants(&a) {
-			sent[a.ID] = true
-			s.sendAll(ctx, a.ID, msg)
+	if users, err := s.Store.ListUsers(ctx); err == nil {
+		for _, a := range users {
+			if a.Role == auth.RoleAdmin && !sent[a.ID] && !a.Disabled && !a.Pending && wants(&a) {
+				sent[a.ID] = true
+				to = append(to, a.ID)
+			}
 		}
 	}
+	s.deliver(ctx, to, msg) // each with a budget of its own (notify.go)
 }

@@ -329,17 +329,25 @@ func serve(ctx context.Context, log *slog.Logger, cfgPath string) error {
 	go func() { defer wg.Done(); srv.WatchStorageNotices(ctx) }()
 
 	servers := []*http.Server{{Addr: cfg.Listen, Handler: srv.Handler()}}
-	// Listeners that face the internet directly get a cap on open connections
-	// (total and per source); the ones behind a local proxy cannot tell sources apart.
-	limits := map[*http.Server]connCaps{}
+	// Listeners that face the internet directly get a pool of open
+	// connections (api.LimitConns); the ones behind a local proxy cannot tell
+	// sources apart.
+	limits := map[*http.Server]api.ConnLimits{}
+	// Public zones: anonymous requests bounded end to end, small HTTP/2
+	// buffers (api.ConfigurePublicServer).
+	public := map[*http.Server]bool{}
 	// ADR-0019 trial: public listeners, mandatory 2FA and the closed door.
 	if l := cfg.Remote.FunnelListen; l != "" {
-		servers = append(servers, &http.Server{Addr: l, Handler: srv.PublicHandler(api.ZoneFunnel)})
+		hs := &http.Server{Addr: l, Handler: srv.PublicHandler(api.ZoneFunnel)}
+		servers = append(servers, hs)
+		public[hs] = true
 	}
 	// ADR-0025: a reverse proxy or tunnel on this host (Cloudflare Tunnel,
 	// Caddy, nginx...) forwards a domain here; same rules as the port-forward.
 	if p := cfg.Remote.Proxy; p.URL != "" {
-		servers = append(servers, &http.Server{Addr: p.Listen, Handler: srv.PublicHandler(api.ZoneProxy)})
+		hs := &http.Server{Addr: p.Listen, Handler: srv.PublicHandler(api.ZoneProxy)}
+		servers = append(servers, hs)
+		public[hs] = true
 	}
 	if p := cfg.Remote.Public; p.Domain != "" {
 		var tc *tls.Config
@@ -360,7 +368,8 @@ func serve(ctx context.Context, log *slog.Logger, cfgPath string) error {
 				// Facing the internet with nothing to stream: short Read/Write timeouts.
 				hs := &http.Server{Addr: p.HTTP01Listen, Handler: m.HTTPHandler(), ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second}
 				servers = append(servers, hs)
-				limits[hs] = connCaps{total: 256, perIP: 16}
+				// Nobody signs in here: every connection is anonymous.
+				limits[hs] = api.ConnLimits{Total: 256, PerSource: 16, PerNet: 32, Anon: 256}
 			}
 			wg.Add(1)
 			go func() { defer wg.Done(); m.Run(ctx) }()
@@ -370,17 +379,15 @@ func serve(ctx context.Context, log *slog.Logger, cfgPath string) error {
 		}
 		pub := &http.Server{Addr: p.Listen, Handler: srv.PublicHandler(api.ZonePublic), TLSConfig: tc}
 		servers = append(servers, pub)
-		limits[pub] = connCaps{total: 2048, perIP: 64}
+		public[pub] = true
+		limits[pub] = api.PublicConnLimits()
 	}
 	errc := make(chan error, len(servers))
 	for _, hs := range servers {
 		hs.ReadHeaderTimeout, hs.IdleTimeout, hs.MaxHeaderBytes = 10*time.Second, 2*time.Minute, 64<<10
-		// HTTP/2 (TLS listeners) lets a client send at most 1 MiB per round
-		// trip by default, which caps Cloud uploads on far links (~100 ms
-		// RTT → ~10 MB/s). Raise it to the documented maximum (< 4 MiB);
-		// buffers fill only while the disk lags behind the network.
-		const h2Window = 4<<20 - 1
-		hs.HTTP2 = &http.HTTP2Config{MaxReceiveBufferPerStream: h2Window, MaxReceiveBufferPerConnection: h2Window}
+		if public[hs] {
+			api.ConfigurePublicServer(hs)
+		}
 		go func() {
 			log.Info("sentinela serving", "addr", hs.Addr, "tls", hs.TLSConfig != nil, "version", version, "cameras", len(cfg.Cameras))
 			if c, ok := limits[hs]; ok {
@@ -389,7 +396,7 @@ func serve(ctx context.Context, log *slog.Logger, cfgPath string) error {
 					errc <- err
 					return
 				}
-				ln = api.LimitConns(ln, c.total, c.perIP)
+				ln = api.LimitConns(ln, c, hs)
 				if hs.TLSConfig != nil {
 					errc <- hs.ServeTLS(ln, "", "")
 				} else {
@@ -419,9 +426,6 @@ func serve(ctx context.Context, log *slog.Logger, cfgPath string) error {
 	wg.Wait()
 	return nil
 }
-
-// connCaps are the open-connection limits of a listener that faces the internet.
-type connCaps struct{ total, perIP int }
 
 // publicTLS gets and renews a Let's Encrypt certificate for domain only
 // (TLS-ALPN-01 on the same port, so the router forwards just 443 → listen).

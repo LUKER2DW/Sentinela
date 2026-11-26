@@ -317,8 +317,20 @@ func TestPrivateSchemaMatchesLegacy(t *testing.T) {
 		}
 		return b.String()
 	}
+	// Private migrations after the split may add columns after the legacy
+	// ones (the move copies the columns both have) but keep every legacy
+	// column and index.
+	cut := func(d string) (cols, idx string) {
+		if i := strings.Index(d, "index "); i >= 0 {
+			return d[:i], d[i:]
+		}
+		return d, ""
+	}
 	for _, table := range privateTables {
-		if got, want := describe(priv, table), describe(ix.DB(), table); got != want || want == "" {
+		got, want := describe(priv, table), describe(ix.DB(), table)
+		gc, gi := cut(got)
+		wc, wi := cut(want)
+		if want == "" || !strings.HasPrefix(gc, wc) || gi != wi {
 			t.Errorf("%s:\nprivate:\n%s\nlegacy:\n%s", table, got, want)
 		}
 	}
