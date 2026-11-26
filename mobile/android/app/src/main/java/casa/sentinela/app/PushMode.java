@@ -92,7 +92,7 @@ final class PushMode {
 
     /** Check for token changes and switch a direct connection to Firebase. */
     static void reconcile(Context c) {
-        if (!enabled(c) || !Notifier.allowed(c) || NotifyService.cookie(c) == null) return;
+        if (!enabled(c) || !Notifier.allowed(c) || Session.current(c) == null) return;
         SharedPreferences p = NotifyService.prefs(c);
         long gap = isFirebase(c) ? RECHECK_AFTER_MS : RETRY_AFTER_MS;
         if (System.currentTimeMillis() - p.getLong("fcm.last_attempt", 0) < gap) return;
@@ -110,8 +110,7 @@ final class PushMode {
     private static synchronized void fallback(Context c) {
         SharedPreferences p = NotifyService.prefs(c);
         String token = p.getString("fcm.token", "");
-        String server = Connection.savedUrl(c);
-        String cookie = NotifyService.cookie(c);
+        Session.Bound s = Session.current(c);
         p.edit().putBoolean("fcm.enabled", false).apply();
         try {
             FirebaseMessaging.getInstance().setAutoInitEnabled(false);
@@ -119,7 +118,7 @@ final class PushMode {
             // Firebase may be unavailable on this phone.
         }
         NotifyService.setEnabled(c, true);
-        if (!token.isEmpty() && unregister(server, cookie, token)) {
+        if (!token.isEmpty() && unregister(s, token)) {
             p.edit().remove("fcm.token").apply();
         }
     }
@@ -129,11 +128,11 @@ final class PushMode {
         if (BuildConfig.DEBUG) return false; // .dev has no Firebase registration
         SharedPreferences p = NotifyService.prefs(c);
         p.edit().putLong("fcm.last_attempt", System.currentTimeMillis()).apply();
-        String server = Connection.savedUrl(c);
-        String cookie = NotifyService.cookie(c);
-        if (server == null || cookie == null || !Notifier.allowed(c)) return false;
+        // The session of the house paired now, sent only to that house.
+        Session.Bound s = Session.current(c);
+        if (s == null || !Notifier.allowed(c)) return false;
         try {
-            JSONObject status = request(server, "/api/notify/fcm", "GET", cookie, null, null);
+            JSONObject status = request(s, "/api/notify/fcm", "GET", null, null);
             if (!status.optBoolean("available", false)) return false;
             JSONObject client = status.optJSONObject("client");
             if (!startFirebase(c, options(client))) return false;
@@ -142,10 +141,10 @@ final class PushMode {
             firebase.setAutoInitEnabled(true);
             String token = freshToken != null ? freshToken : Tasks.await(firebase.getToken(), 8, TimeUnit.SECONDS);
             if (token == null || token.isEmpty()) return false;
-            JSONObject me = request(server, "/api/me", "GET", cookie, null, null);
+            JSONObject me = request(s, "/api/me", "GET", null, null);
             String csrf = me.optString("csrf", "");
             if (csrf.isEmpty()) return false;
-            request(server, "/api/notify/fcm/token", "PUT", cookie, csrf, new JSONObject().put("token", token));
+            request(s, "/api/notify/fcm/token", "PUT", csrf, new JSONObject().put("token", token));
             p.edit().putString("fcm.token", token).putBoolean("fcm.enabled", true)
                     .putLong("fcm.last_attempt", System.currentTimeMillis()).apply();
             NotifyService.stopForFCM(c); // keeps the cookie for the wake-up fetch
@@ -159,12 +158,11 @@ final class PushMode {
         Context app = c.getApplicationContext();
         SharedPreferences p = NotifyService.prefs(c);
         String token = p.getString("fcm.token", "");
-        String server = Connection.savedUrl(c);
-        String cookie = NotifyService.cookie(c);
+        Session.Bound s = Session.current(c); // before setEnabled(false) drops it
         p.edit().putBoolean("fcm.enabled", false).remove("fcm.token").apply();
         NotifyService.setEnabled(c, false);
         new Thread(() -> {
-            unregister(server, cookie, token);
+            unregister(s, token);
             try {
                 FirebaseMessaging.getInstance().setAutoInitEnabled(false);
                 Tasks.await(FirebaseMessaging.getInstance().deleteToken(), 5, TimeUnit.SECONDS);
@@ -174,12 +172,12 @@ final class PushMode {
         }, "notify-disable").start();
     }
 
-    private static boolean unregister(String server, String cookie, String token) {
-        if (server == null || cookie == null || token.isEmpty()) return false;
+    private static boolean unregister(Session.Bound s, String token) {
+        if (s == null || token.isEmpty()) return false;
         try {
-            String csrf = request(server, "/api/me", "GET", cookie, null, null).optString("csrf", "");
+            String csrf = request(s, "/api/me", "GET", null, null).optString("csrf", "");
             if (csrf.isEmpty()) return false;
-            request(server, "/api/notify/fcm/token", "DELETE", cookie, csrf, new JSONObject().put("token", token));
+            request(s, "/api/notify/fcm/token", "DELETE", csrf, new JSONObject().put("token", token));
             return true;
         } catch (Exception ignored) {
             // Session deletion also removes the server token.
@@ -190,12 +188,11 @@ final class PushMode {
     /** The Google message contains only id; fetch the actual text and image. */
     static void deliver(Context c, String id) {
         if (!isFirebase(c) || !Notifier.allowed(c) || !id.matches("[A-Za-z0-9_-]{24}")) return;
-        String server = Connection.savedUrl(c);
-        String cookie = NotifyService.cookie(c);
-        if (server == null || cookie == null) return;
+        Session.Bound s = Session.current(c);
+        if (s == null) return;
         JSONObject message;
         try {
-            message = request(server, "/api/notify/pending/" + id, "GET", cookie, null, null);
+            message = request(s, "/api/notify/pending/" + id, "GET", null, null);
         } catch (Exception ignored) {
             // A visible generic notice preserves the alert when the house is
             // briefly unreachable (and keeps FCM high-priority eligibility).
@@ -209,18 +206,17 @@ final class PushMode {
                 return;
             }
         }
-        Notifier.show(c, message, server, cookie);
+        Notifier.show(c, message, s);
     }
 
-    /** All network calls use the app's pinned HTTPS connection and session. */
-    private static JSONObject request(String server, String path, String method, String cookie, String csrf, JSONObject body) throws Exception {
-        HttpURLConnection conn = Pin.open(server + path);
+    /** All network calls go to the session's own server, with its pin (Session.Bound). */
+    private static JSONObject request(Session.Bound s, String path, String method, String csrf, JSONObject body) throws Exception {
+        HttpURLConnection conn = s.open(path);
         try {
             conn.setConnectTimeout(5_000);
             conn.setReadTimeout(8_000);
             conn.setRequestMethod(method);
             conn.setUseCaches(false);
-            conn.setRequestProperty("Cookie", cookie);
             conn.setRequestProperty("Accept", "application/json");
             if (csrf != null) conn.setRequestProperty("X-CSRF-Token", csrf);
             if (body != null) {

@@ -16,6 +16,7 @@
     <string name="pair_message">The app will connect to %1$s.</string>
     <string name="pair_message_pin">The app will connect to %1$s, with this home\'s certificate.</string>
     <string name="pair_warning">Only confirm if this code came from System → App, in your home\'s Sentinela.</string>
+    <string name="pair_leaving">The app signs out of %1$s and turns its alerts off on this phone.</string>
     <string name="cancel">Cancel</string>
     <string name="connect">Connect</string>
     <string name="scan_unavailable">The QR code reader is not available on this phone (it needs Google Play services). Point the phone\'s camera app at the code, or paste the pairing code.</string>
@@ -30,6 +31,13 @@
     <string name="downloading">Downloading %1$s</string>
     <string name="download_saved">Saved to Downloads/Sentinela: %1$s</string>
     <string name="download_failed">Could not download %1$s</string>
+    <plurals name="download_confirm_title">
+        <item quantity="one">Save this file?</item>
+        <item quantity="other">Save %1$d files?</item>
+    </plurals>
+    <string name="download_confirm_text">It goes to Downloads/Sentinela, where other apps allowed to read your files can open it.</string>
+    <string name="download_more">and %1$d more</string>
+    <string name="download_save">Save</string>
 
     <!-- Notifications -->
     <string name="channel_events">Camera events</string>

@@ -80,7 +80,30 @@ final class Pin {
         return c;
     }
 
+    /**
+     * Opens a connection that trusts the system CAs and, when pin is set,
+     * exactly the certificate with that SHA-256: the pin a session was bound
+     * to (Session), not whatever the app is paired with by the time the
+     * handshake runs.
+     */
+    static HttpURLConnection open(String url, String pin) throws Exception {
+        HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+        if (c instanceof HttpsURLConnection && pin != null && !pin.isEmpty()) {
+            ((HttpsURLConnection) c).setSSLSocketFactory(factoryFor(pin.toLowerCase(Locale.ROOT)));
+        }
+        return c;
+    }
+
     private static SSLSocketFactory factory;
+    private static String boundPin;
+    private static SSLSocketFactory boundFactory;
+
+    private static synchronized SSLSocketFactory factoryFor(String pin) throws Exception {
+        if (boundFactory != null && pin.equals(boundPin)) return boundFactory;
+        boundFactory = build(der -> pin.equals(sha256(der)));
+        boundPin = pin;
+        return boundFactory;
+    }
 
     private static X509TrustManager systemTrust() throws Exception {
         TrustManagerFactory tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
@@ -153,6 +176,12 @@ final class Pin {
     private static synchronized SSLSocketFactory factory() throws Exception {
         // matches() reads the current pin on every handshake: one factory serves all.
         if (factory != null) return factory;
+        factory = build(der -> matches(der));
+        return factory;
+    }
+
+    /** System trust, plus the leaf certificate when pinned accepts its DER bytes. */
+    private static SSLSocketFactory build(java.util.function.Predicate<byte[]> pinned) throws Exception {
         final X509TrustManager sys = systemTrust();
         TrustManager tm = new X509TrustManager() {
             @Override
@@ -162,7 +191,7 @@ final class Pin {
 
             @Override
             public void checkServerTrusted(X509Certificate[] chain, String authType) throws CertificateException {
-                if (chain != null && chain.length > 0 && matches(chain[0].getEncoded())) return;
+                if (chain != null && chain.length > 0 && pinned.test(chain[0].getEncoded())) return;
                 if (sys == null) throw new CertificateException("no system trust");
                 sys.checkServerTrusted(chain, authType);
             }
@@ -174,7 +203,6 @@ final class Pin {
         };
         SSLContext ctx = SSLContext.getInstance("TLS");
         ctx.init(null, new TrustManager[] {tm}, null);
-        factory = ctx.getSocketFactory();
-        return factory;
+        return ctx.getSocketFactory();
     }
 }

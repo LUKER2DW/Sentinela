@@ -7,11 +7,11 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
-import android.net.Uri;
 import android.os.Build;
 
 import androidx.core.app.NotificationCompat;
@@ -22,7 +22,7 @@ import org.json.JSONObject;
 
 import java.io.InputStream;
 import java.net.HttpURLConnection;
-import java.net.URL;
+import java.security.SecureRandom;
 
 /**
  * Shows the server's notifications (the same JSON a browser's service
@@ -33,6 +33,10 @@ final class Notifier {
     static final String CHANNEL = "events";
     static final String CHANNEL_SERVICE = "service";
     static final String EXTRA_PATH = "casa.sentinela.app.PATH";
+    /** HMAC of EXTRA_PATH under this install's key: only the app's own notifications carry a valid one. */
+    static final String EXTRA_TOKEN = "casa.sentinela.app.TOKEN";
+    /** The action of the app's own notification taps (never in the manifest's intent filters). */
+    static final String ACTION_OPEN = "casa.sentinela.app.OPEN";
     private static final int MAX_SNAPSHOT = 2 << 20;
 
     private Notifier() {}
@@ -84,22 +88,51 @@ final class Notifier {
         return PendingIntent.getActivity(ctx, request, i, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
     }
 
-    /** Opens the app on an in-app path such as "/#/events". */
+    /**
+     * Opens the app on an in-app page such as "/#/events". MainActivity is
+     * exported, so the path carries a token only this install can make; an
+     * intent from any other app or a web page cannot steer the WebView.
+     */
     static PendingIntent openApp(Context ctx, String path, int request) {
         Intent open = new Intent(ctx, MainActivity.class)
-                .setAction(Intent.ACTION_VIEW)
+                .setAction(ACTION_OPEN)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-        if (path != null) open.putExtra(EXTRA_PATH, path);
+        if (path != null && AppLinks.isAppRoute(path)) {
+            open.putExtra(EXTRA_PATH, path).putExtra(EXTRA_TOKEN, AppLinks.sign(linkKey(ctx), path));
+        }
         return PendingIntent.getActivity(ctx, request, open, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     }
 
-    /** Shows one notification; the snapshot follows in a second update. */
-    static void show(Context ctx, JSONObject m, String server, String cookie) {
+    /** True when path came from one of this app's own notifications (openApp). */
+    static boolean fromOwnNotification(Context ctx, String action, String path, String token) {
+        return ACTION_OPEN.equals(action) && AppLinks.verify(linkKey(ctx), path, token);
+    }
+
+    /** This install's random key for notification tokens: app-private, never backed up (allowBackup=false). */
+    private static synchronized byte[] linkKey(Context ctx) {
+        SharedPreferences p = ctx.getSharedPreferences("links", Context.MODE_PRIVATE);
+        String saved = p.getString("key", "");
+        if (!saved.isEmpty()) {
+            try {
+                byte[] k = android.util.Base64.decode(saved, android.util.Base64.NO_WRAP);
+                if (k.length == 32) return k;
+            } catch (IllegalArgumentException ignored) {
+                // corrupt: make a new one (old notifications then open the home page)
+            }
+        }
+        byte[] k = new byte[32];
+        new SecureRandom().nextBytes(k);
+        p.edit().putString("key", android.util.Base64.encodeToString(k, android.util.Base64.NO_WRAP)).commit();
+        return k;
+    }
+
+    /** Shows one notification; the snapshot follows in a second update. s: the session it came with. */
+    static void show(Context ctx, JSONObject m, Session.Bound s) {
         if (!allowed(ctx)) return;
         createChannels(ctx);
         String tag = m.optString("tag", "sentinela");
         String path = m.optString("url", "/#/events");
-        if (!path.startsWith("/") || path.startsWith("//")) path = "/#/events";
+        if (!AppLinks.isAppRoute(path)) path = "/#/events";
         NotificationCompat.Builder b = new NotificationCompat.Builder(ctx, CHANNEL)
                 .setSmallIcon(R.drawable.ic_stat_sentinela)
                 .setColor(Color.parseColor("#3E7C88"))
@@ -119,8 +152,8 @@ final class Notifier {
             return; // permission revoked meanwhile
         }
         String image = m.optString("image", "");
-        if (server != null && image.startsWith("/") && !image.startsWith("//")) {
-            Bitmap bmp = fetchSnapshot(server, cookie, image);
+        if (s != null && image.startsWith("/") && !image.startsWith("//")) {
+            Bitmap bmp = fetchSnapshot(s, image);
             if (bmp == null) return;
             b.setLargeIcon(bmp)
                     .setStyle(new NotificationCompat.BigPictureStyle().bigPicture(bmp).bigLargeIcon((Bitmap) null))
@@ -134,19 +167,17 @@ final class Notifier {
     }
 
     /**
-     * GET the snapshot from the Sentinela server itself (pinned certificate),
-     * scaled down: a full camera frame as a Bitmap would cost ~8 MB.
+     * GET the snapshot from the Sentinela server the session belongs to
+     * (Session.Bound: same origin, its pin, no redirects), scaled down: a
+     * full camera frame as a Bitmap would cost ~8 MB.
      */
-    static Bitmap fetchSnapshot(String server, String cookie, String path) {
+    static Bitmap fetchSnapshot(Session.Bound s, String path) {
         HttpURLConnection c = null;
         try {
-            Uri base = Uri.parse(server);
-            URL u = new URL(base.buildUpon().encodedPath(path).encodedQuery(null).build().toString());
-            if (!u.getHost().equals(base.getHost())) return null;
-            c = Pin.open(u.toString());
+            int q = path.indexOf('?');
+            c = s.open(q < 0 ? path : path.substring(0, q));
             c.setConnectTimeout(5000);
             c.setReadTimeout(8000);
-            if (cookie != null) c.setRequestProperty("Cookie", cookie);
             if (c.getResponseCode() != 200 || c.getContentLength() > MAX_SNAPSHOT) return null;
             byte[] data;
             try (InputStream in = c.getInputStream()) {

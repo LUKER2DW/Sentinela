@@ -53,9 +53,14 @@ import java.net.HttpURLConnection;
  * - an app lock (fingerprint/face or the phone's screen lock) after 5 min in
  *   the background, so a borrowed unlocked phone does not open the cameras;
  * - downloads (Nuvem files, exported clips) through Android's DownloadManager,
- *   carrying the session cookie only to the Sentinela server itself.
+ *   carrying the session cookie only to the Sentinela server itself, and
+ *   only after the person confirms them here.
  * Notifications come from NotifyService (a foreground service holding the
  * server's event stream, NotifyPlugin); tapping one opens its page here.
+ * This activity is exported (launcher, sentinela:// links), so what an
+ * intent may make it do is narrow: open a "/#/" page carried by one of the
+ * app's own notifications (signed, Notifier.openApp), open an invite handed
+ * over by the browser, or ask to pair with a house. Other extras are dropped.
  * It also makes the WebView behave like an app: the back button walks the
  * pages (twice to leave), no page zoom or scrollbars, a server that does not
  * answer brings back the start screen, and a killed renderer reloads
@@ -83,6 +88,11 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(CredentialsPlugin.class);
         Connection.migrate(this);
         Pin.init(this);
+        // After pairing another house: its page must not get this one's cookies.
+        Session.wipeWebCookiesIfPending(this);
+        // What this launch may open, read before the bridge sees the intent;
+        // every other extra is dropped (Capacitor would read them as settings).
+        String launchPath = takePath(getIntent());
         // This launch's server (or the bundled start screen), before the bridge loads.
         config = Connection.capConfig(this);
         super.onCreate(savedInstanceState);
@@ -107,7 +117,7 @@ public class MainActivity extends BridgeActivity {
         // Also after the process was killed in the background (the time is
         // kept on disk): a cold start past the limit asks too.
         lockPending = savedInstanceState == null ? lockDue() : savedInstanceState.getBoolean("locked", false) || lockDue();
-        if (!pairFromLink(getIntent())) openFromNotification(getIntent());
+        if (!pairFromLink(getIntent())) openPath(launchPath);
     }
 
     @Override
@@ -127,9 +137,10 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     protected void onNewIntent(Intent intent) {
+        String path = takePath(intent);
         super.onNewIntent(intent);
         if (pairFromLink(intent)) return;
-        openFromNotification(intent);
+        openPath(path);
     }
 
     /**
@@ -153,6 +164,9 @@ public class MainActivity extends BridgeActivity {
         String host = android.net.Uri.parse(url).getHost();
         String msg = getString(pin == null || pin.isEmpty() ? R.string.pair_message : R.string.pair_message_pin, Connection.trimSlashes(url))
                 + "\n\n" + getString(R.string.pair_warning);
+        // Another house: this one's session and alerts stay behind (Session.switchedHouse).
+        String leaving = Connection.leaving(this, url, pin);
+        if (leaving != null) msg += "\n\n" + getString(R.string.pair_leaving, leaving);
         new android.app.AlertDialog.Builder(this)
                 .setTitle(getString(R.string.pair_title, host))
                 .setMessage(msg)
@@ -170,23 +184,49 @@ public class MainActivity extends BridgeActivity {
     }
 
     /**
-     * A notification carries an in-app path such as "/#/events"; an invite
-     * or password-reset link opened in the phone's browser hands one over as
-     * {@code sentinela://open?path=/%23/invite...}. Only "/#/" pages of the
-     * chosen server are opened, never another site.
+     * The in-app page an intent asks for, or null, consuming it (a recreate
+     * does not open it again) and dropping every other extra.
+     * - One of the app's own notifications: an in-app route ("/#/events",
+     *   "/#/recordings?...") with the token only this install can make
+     *   (Notifier.openApp). Any other app, or a web page through an intent:
+     *   URI, can start this exported activity with any extra, so an extra
+     *   without that token is ignored.
+     * - An invite opened in the phone's browser hands its page over as
+     *   {@code sentinela://open?path=/%23/invite...}: invite pages only.
+     * Only "/#/" pages: the part after "#" never reaches the server, so no
+     * intent can make the signed-in WebView fetch an API path (an export, a
+     * Cloud file) or any other site.
      */
-    private void openFromNotification(Intent intent) {
-        String path = intent == null ? null : intent.getStringExtra(Notifier.EXTRA_PATH);
-        if (path != null) {
-            intent.removeExtra(Notifier.EXTRA_PATH);
-        } else if (intent != null && Intent.ACTION_VIEW.equals(intent.getAction()) && intent.getData() != null
-                && "sentinela".equals(intent.getData().getScheme()) && "open".equals(intent.getData().getHost())) {
-            path = intent.getData().getQueryParameter("path");
-            intent.setData(null);
-            if (path == null || !path.startsWith("/#/")) return;
+    private String takePath(Intent intent) {
+        if (intent == null) return null;
+        String path = null;
+        try {
+            String extra = intent.getStringExtra(Notifier.EXTRA_PATH);
+            if (extra != null && Notifier.fromOwnNotification(this, intent.getAction(), extra, intent.getStringExtra(Notifier.EXTRA_TOKEN))) {
+                path = extra;
+            }
+        } catch (RuntimeException e) {
+            // extras that do not unparcel (a hostile sender): ignore them
         }
-        if (path == null || !path.startsWith("/") || path.startsWith("//")) return;
-        if (rendererGone) return;
+        intent.replaceExtras((Bundle) null);
+        Uri data = intent.getData();
+        if (data != null && Intent.ACTION_VIEW.equals(intent.getAction())
+                && "sentinela".equals(data.getScheme()) && "open".equals(data.getHost())) {
+            intent.setData(null);
+            String asked;
+            try {
+                asked = data.getQueryParameter("path");
+            } catch (RuntimeException e) {
+                asked = null; // not a hierarchical URI
+            }
+            if (path == null && AppLinks.isHandoffRoute(asked)) path = asked;
+        }
+        return path;
+    }
+
+    /** Opens a page takePath() accepted, on the chosen server. */
+    private void openPath(String path) {
+        if (path == null || !AppLinks.isAppRoute(path) || rendererGone) return;
         String server = getBridge().getServerUrl();
         if (server == null) return; // start screen: no server chosen yet
         web().loadUrl(Connection.trimSlashes(server) + path);
@@ -202,7 +242,7 @@ public class MainActivity extends BridgeActivity {
         // Keep the notification service's copy of the session current and
         // bring it back after a sign-in (it stops when the session ends).
         if (getBridge() != null && getBridge().getServerUrl() != null) {
-            NotifyService.refreshCookie(this);
+            Session.refresh(this);
             NotifyService.start(this);
             PushMode.reconcile(this);
         }
@@ -211,6 +251,9 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onStop() {
         super.onStop();
+        // A download nobody confirmed before leaving is dropped.
+        if (downloadDialog != null) downloadDialog.dismiss();
+        pendingDownloads.clear();
         if (!isChangingConfigurations()) {
             lockPrefs().edit().putLong("background_at", System.currentTimeMillis()).apply();
         }
@@ -400,48 +443,105 @@ public class MainActivity extends BridgeActivity {
 
     // ---------- downloads ----------
 
+    /** A file the page asked to download, waiting for the person's OK. */
+    private static final class PendingDownload {
+        final String url, userAgent, mime, name;
+
+        PendingDownload(String url, String userAgent, String mime, String name) {
+            this.url = url;
+            this.userAgent = userAgent;
+            this.mime = mime;
+            this.name = name;
+        }
+    }
+
+    private static final int MAX_PENDING_DOWNLOADS = 50;
+    private final java.util.List<PendingDownload> pendingDownloads = new java.util.ArrayList<>();
+    private android.app.AlertDialog downloadDialog;
+
+    private boolean locked() {
+        return lockPending || (cover != null && cover.getVisibility() == View.VISIBLE);
+    }
+
     private void installDownloads() {
         WebView web = web();
         final String server = getBridge().getServerUrl();
-        final Uri serverUri = server == null ? null : Uri.parse(server);
         web.setDownloadListener((url, userAgent, disposition, mime, length) -> {
-            Uri uri = Uri.parse(url);
             // Only files from the Sentinela server itself, over HTTPS.
-            if (serverUri == null || !"https".equals(uri.getScheme()) || !"https".equals(serverUri.getScheme())
-                    || !String.valueOf(serverUri.getHost()).equals(uri.getHost())
-                    || serverUri.getPort() != uri.getPort()) {
-                return;
-            }
-            String name = URLUtil.guessFileName(url, disposition, mime);
-            if (Pin.active()) {
-                // DownloadManager trusts only the system CAs: on the public
-                // address (self-signed, pinned) the app downloads by itself.
-                pinnedDownload(url, name, mime, userAgent);
-                return;
-            }
-            DownloadManager.Request req;
-            try {
-                req = new DownloadManager.Request(uri);
-                req.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "Sentinela/" + name);
-            } catch (RuntimeException e) {
-                pinnedDownload(url, name, mime, userAgent);
-                return;
-            }
-            String cookie = CookieManager.getInstance().getCookie(url);
-            if (cookie != null) req.addRequestHeader("Cookie", cookie);
-            req.addRequestHeader("User-Agent", userAgent);
-            req.setTitle(name);
-            req.setMimeType(mime);
-            req.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
-            try {
-                DownloadManager dm = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
-                dm.enqueue(req);
-                Toast.makeText(this, getString(R.string.downloading, name), Toast.LENGTH_SHORT).show();
-            } catch (RuntimeException e) {
-                // Download manager switched off, or no Downloads folder.
-                pinnedDownload(url, name, mime, userAgent);
-            }
+            if (server == null || !AppLinks.sameOrigin(server, url)) return;
+            // Nothing is saved while the app is locked, nor without a tap
+            // here: the file lands in the shared Downloads folder, where other
+            // apps allowed to read files can open it.
+            if (locked() || pendingDownloads.size() >= MAX_PENDING_DOWNLOADS) return;
+            pendingDownloads.add(new PendingDownload(url, userAgent, mime, URLUtil.guessFileName(url, disposition, mime)));
+            askDownload();
         });
+    }
+
+    /** One question for every file the page asked for (a multi-file download asks once). */
+    private void askDownload() {
+        if (isFinishing() || pendingDownloads.isEmpty()) return;
+        int n = pendingDownloads.size();
+        StringBuilder msg = new StringBuilder(getString(R.string.download_confirm_text)).append('\n');
+        int shown = Math.min(n, 5);
+        for (int i = 0; i < shown; i++) msg.append("\n\u2022 ").append(pendingDownloads.get(i).name);
+        if (n > shown) msg.append("\n").append(getString(R.string.download_more, n - shown));
+        String title = getResources().getQuantityString(R.plurals.download_confirm_title, n, n);
+        if (downloadDialog != null && downloadDialog.isShowing()) {
+            downloadDialog.setTitle(title);
+            downloadDialog.setMessage(msg);
+            return;
+        }
+        downloadDialog = new android.app.AlertDialog.Builder(this)
+                .setTitle(title)
+                .setMessage(msg)
+                .setNegativeButton(R.string.cancel, null)
+                .setPositiveButton(R.string.download_save, (d, w) -> {
+                    java.util.List<PendingDownload> all = new java.util.ArrayList<>(pendingDownloads);
+                    pendingDownloads.clear();
+                    if (locked()) return;
+                    for (PendingDownload p : all) startDownload(p.url, p.name, p.mime, p.userAgent);
+                })
+                .setOnDismissListener(d -> {
+                    pendingDownloads.clear();
+                    downloadDialog = null;
+                })
+                .create();
+        downloadDialog.show();
+    }
+
+    /** A confirmed download, still only from the chosen server. */
+    private void startDownload(String url, String name, String mime, String userAgent) {
+        String server = getBridge().getServerUrl();
+        if (server == null || !AppLinks.sameOrigin(server, url)) return;
+        if (Pin.active()) {
+            // DownloadManager trusts only the system CAs: on the public
+            // address (self-signed, pinned) the app downloads by itself.
+            pinnedDownload(url, name, mime, userAgent);
+            return;
+        }
+        DownloadManager.Request req;
+        try {
+            req = new DownloadManager.Request(Uri.parse(url));
+            req.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "Sentinela/" + name);
+        } catch (RuntimeException e) {
+            pinnedDownload(url, name, mime, userAgent);
+            return;
+        }
+        String cookie = CookieManager.getInstance().getCookie(url);
+        if (cookie != null) req.addRequestHeader("Cookie", cookie);
+        req.addRequestHeader("User-Agent", userAgent);
+        req.setTitle(name);
+        req.setMimeType(mime);
+        req.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+        try {
+            DownloadManager dm = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
+            dm.enqueue(req);
+            Toast.makeText(this, getString(R.string.downloading, name), Toast.LENGTH_SHORT).show();
+        } catch (RuntimeException e) {
+            // Download manager switched off, or no Downloads folder.
+            pinnedDownload(url, name, mime, userAgent);
+        }
     }
 
     private boolean pairingRefreshed;
@@ -455,19 +555,17 @@ public class MainActivity extends BridgeActivity {
     private void refreshPairing(String server) {
         if (pairingRefreshed) return;
         pairingRefreshed = true;
-        final String base = Connection.trimSlashes(server);
-        final String cookie = CookieManager.getInstance().getCookie(base);
-        if (cookie == null) {
+        final Session.Bound s = Session.web(this, Connection.trimSlashes(server));
+        if (s == null || s.cookie == null) {
             pairingRefreshed = false; // not signed in yet: try on a later page
             return;
         }
         new Thread(() -> {
             HttpURLConnection c = null;
             try {
-                c = Pin.open(base + "/api/app/pairing");
+                c = s.open("/api/app/pairing");
                 c.setConnectTimeout(10000);
                 c.setReadTimeout(15000);
-                c.setRequestProperty("Cookie", cookie);
                 if (c.getResponseCode() != 200) return;
                 ByteArrayOutputStream out = new ByteArrayOutputStream();
                 try (InputStream in = c.getInputStream()) {
@@ -486,16 +584,17 @@ public class MainActivity extends BridgeActivity {
 
     /** Download over the pinned connection into Downloads/Sentinela. */
     private void pinnedDownload(String url, String name, String mime, String userAgent) {
+        String server = getBridge().getServerUrl();
+        final Session.Bound s = server == null ? null : Session.web(this, server);
+        if (s == null) return;
         Toast.makeText(this, getString(R.string.downloading, name), Toast.LENGTH_SHORT).show();
-        final String cookie = CookieManager.getInstance().getCookie(url);
         new Thread(() -> {
             String msg;
             HttpURLConnection c = null;
             try {
-                c = Pin.open(url);
+                c = s.openUrl(url);
                 c.setConnectTimeout(10000);
                 c.setReadTimeout(60000);
-                if (cookie != null) c.setRequestProperty("Cookie", cookie);
                 c.setRequestProperty("User-Agent", userAgent);
                 if (c.getResponseCode() != 200) throw new IOException("HTTP " + c.getResponseCode());
                 try (InputStream in = c.getInputStream(); OutputStream out = openDownload(name, mime)) {

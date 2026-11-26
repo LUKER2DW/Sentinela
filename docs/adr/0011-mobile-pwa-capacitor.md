@@ -30,6 +30,16 @@ unsupported device by transcoding on the server.
 - Native code covers biometric/device-lock protection after five minutes
   away, downloads with authenticated pinned HTTPS, notifications (ADR-0020)
   and sideloaded updates.
+- MainActivity is exported, so intents only open `/#/` pages: a path in
+  an extra counts only with the token the app's own notifications carry
+  (HMAC under a per-install key), and `sentinela://open` hands over invite
+  pages only. A download is saved only after the person confirms it. The
+  native session copy is bound to the server and pin it came from, and
+  every native request carrying it stays on that origin and pin, without
+  redirects. Pairing another house (not one of the current house's listed
+  addresses) clears that copy, the push registration and, before the new
+  page loads, the WebView's cookies: the app signs out and alerts are
+  turned on again there.
 - The SPA uses bottom tabs, a grouped More (*Mais*) menu, visible subpage/folder back
   buttons and safe-area spacing. Camera configuration, users and audit
   remain desktop tasks.

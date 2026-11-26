@@ -51,7 +51,7 @@ public class NotifyPlugin extends Plugin {
     @PluginMethod
     public void sync(PluginCall call) {
         getActivity().runOnUiThread(() -> {
-            NotifyService.refreshCookie(getContext());
+            Session.refresh(getContext());
             NotifyService.start(getContext());
             PushMode.reconcile(getContext());
             call.resolve(status());
@@ -85,8 +85,8 @@ public class NotifyPlugin extends Plugin {
 
     private void turnOn(PluginCall call) {
         getActivity().runOnUiThread(() -> {
-            NotifyService.refreshCookie(getContext());
-            if (NotifyService.cookie(getContext()) == null) {
+            Session.refresh(getContext());
+            if (Session.current(getContext()) == null) {
                 call.reject(getContext().getString(R.string.sign_in_first));
                 return;
             }

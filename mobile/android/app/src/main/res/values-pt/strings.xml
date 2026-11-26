@@ -10,6 +10,7 @@
     <string name="pair_message">O app vai se conectar a %1$s.</string>
     <string name="pair_message_pin">O app vai se conectar a %1$s, com o certificado desta casa.</string>
     <string name="pair_warning">Só confirme se este código veio de Sistema → App, no Sentinela da sua casa.</string>
+    <string name="pair_leaving">O app sai da conta em %1$s e desliga os avisos dela neste celular.</string>
     <string name="cancel">Cancelar</string>
     <string name="connect">Conectar</string>
     <string name="scan_unavailable">O leitor de QR code não está disponível neste celular (ele precisa do Google Play Services). Aponte o app de câmera do celular para o código, ou cole o código de pareamento.</string>
@@ -22,6 +23,13 @@
     <string name="downloading">Baixando %1$s</string>
     <string name="download_saved">Salvo em Downloads/Sentinela: %1$s</string>
     <string name="download_failed">Não foi possível baixar %1$s</string>
+    <plurals name="download_confirm_title">
+        <item quantity="one">Salvar este arquivo?</item>
+        <item quantity="other">Salvar %1$d arquivos?</item>
+    </plurals>
+    <string name="download_confirm_text">Ele vai para Downloads/Sentinela, onde outros apps com acesso aos seus arquivos podem abri-lo.</string>
+    <string name="download_more">e mais %1$d</string>
+    <string name="download_save">Salvar</string>
 
     <string name="channel_events">Eventos das câmeras</string>
     <string name="channel_events_desc">Pessoa, veículo, movimento e câmera mexida, como escolhido em Minha conta</string>

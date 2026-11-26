@@ -10,6 +10,7 @@ are superseded where noted by ADR-0019 and ADR-0020.
 | Camera attacked from the internet | Never forward camera ports. Cloud/P2P, UPnP and WAN egress isolation remain operator checks; do not assume they are complete |
 | Public server login attacked | Only the approved TLS/WebRTC path; closed door, rate limits, outside-login alert, optional TOTP (ADR-0019 amendment) |
 | Stolen phone/session | Native app lock, revocable sessions, expiration and session-bound FCM tokens |
+| Another app or web page on the phone | The Android app opens only `/#/` pages from its own signed notifications and invite hand-offs, and saves a download only after a tap; its native session copy is bound to the paired server and certificate pin, and pairing another house signs the app out |
 | LAN guest or IoT attack | Firewall and camera isolation; a separate camera VLAN where available |
 | Secrets in Git/logs/bundles | Runtime secret files, redaction, ignored local release files and review before commit |
 | CSRF/XSS | Same-origin cookies, CSRF header and Origin check, CSP and file-response restrictions |

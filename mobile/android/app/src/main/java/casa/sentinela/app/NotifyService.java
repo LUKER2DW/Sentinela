@@ -11,7 +11,6 @@ import android.net.Network;
 import android.os.Build;
 import android.os.IBinder;
 import android.os.SystemClock;
-import android.webkit.CookieManager;
 
 import androidx.annotation.NonNull;
 import androidx.core.app.NotificationCompat;
@@ -33,12 +32,12 @@ import java.nio.charset.StandardCharsets;
  * how self-hosted ntfy delivers "instantly" too; Android requires the small
  * permanent notification of the {@link Notifier#CHANNEL_SERVICE} channel.
  * The session cookie is copied from the WebView (MainActivity refreshes it
- * on every resume): the service never loads a WebView itself.
+ * on every resume) and bound to its server (Session): the service never
+ * loads a WebView itself, and never sends the copy to another server.
  */
 public class NotifyService extends Service {
     private static final String PREFS = "notify";
     private static final int ONGOING_ID = 7;
-    private static final int RELOGIN_ID = 8;
     private static final long MIN_BACKOFF = 2_000, MAX_BACKOFF = 60_000;
 
     /** True while the worker is connected to the server. */
@@ -62,9 +61,8 @@ public class NotifyService extends Service {
     }
 
     static void setEnabled(Context c, boolean on) {
-        SharedPreferences.Editor e = prefs(c).edit().putBoolean("enabled", on);
-        if (!on) e.remove("cookie");
-        e.apply();
+        prefs(c).edit().putBoolean("enabled", on).apply();
+        if (!on) Session.forget(c);
         if (on) start(c);
         else c.stopService(new Intent(c, NotifyService.class));
     }
@@ -78,38 +76,13 @@ public class NotifyService extends Service {
 
     /** Starts (or pokes) the service when notifications are on. */
     static void start(Context c) {
-        if (!enabled(c) || !Notifier.allowed(c) || Connection.savedUrl(c) == null || cookie(c) == null) return;
+        if (!enabled(c) || !Notifier.allowed(c) || Session.current(c) == null) return;
         try {
             ContextCompat.startForegroundService(c, new Intent(c, NotifyService.class));
         } catch (RuntimeException e) {
             // Android 12+ refuses starts from the background; the next app
             // launch or boot starts it again.
         }
-    }
-
-    /** Copies the WebView's session cookie for the server (UI thread). */
-    static void refreshCookie(Context c) {
-        String server = Connection.savedUrl(c);
-        if (server == null) return;
-        String ck;
-        try {
-            ck = CookieManager.getInstance().getCookie(server);
-        } catch (RuntimeException e) {
-            return; // WebView being updated
-        }
-        if (ck != null && ck.contains("sentinela_session=")) {
-            SharedPreferences p = prefs(c);
-            SharedPreferences.Editor edit = p.edit().putString("cookie", ck);
-            // A fresh login has a new session. Register its FCM token now;
-            // otherwise the old session's token is correctly gone from DB.
-            if (!ck.equals(p.getString("cookie", null))) edit.putLong("fcm.last_attempt", 0);
-            edit.apply();
-            NotificationManagerCompat.from(c).cancel(RELOGIN_ID);
-        }
-    }
-
-    static String cookie(Context c) {
-        return prefs(c).getString("cookie", null);
     }
 
     // ---------- service ----------
@@ -211,20 +184,21 @@ public class NotifyService extends Service {
     private void loop() {
         long backoff = MIN_BACKOFF;
         while (running) {
-            String server = Connection.savedUrl(this);
-            String ck = cookie(this);
-            if (server == null || ck == null) {
+            // Re-read on every reconnect: after a switch to another house the
+            // copy is gone (or bound elsewhere) and the service stops.
+            Session.Bound s = Session.current(this);
+            if (s == null) {
                 stopSelf();
                 return;
             }
             long started = SystemClock.elapsedRealtime();
-            int code = stream(server, ck);
+            int code = stream(s);
             if (!running) return;
             // 401/403: signed out, password changed, account disabled. 404: the
             // public listener hides everything from a session it does not honour.
             if (code == 401 || code == 403 || code == 404) {
                 askRelogin();
-                prefs(this).edit().remove("cookie").apply();
+                Session.forget(this, s);
                 stopSelf();
                 return;
             }
@@ -241,15 +215,14 @@ public class NotifyService extends Service {
     }
 
     /** One connection; returns the HTTP status, or -1 when the network failed. */
-    private int stream(String server, String ck) {
+    private int stream(Session.Bound s) {
         HttpURLConnection c = null;
         try {
-            c = Pin.open(server + "/api/notify/stream");
+            c = s.open("/api/notify/stream");
             conn = c;
             c.setConnectTimeout(15_000);
             c.setReadTimeout(120_000); // the server pings every 45 s
             c.setUseCaches(false);
-            c.setRequestProperty("Cookie", ck);
             c.setRequestProperty("Accept", "text/event-stream");
             c.setRequestProperty("User-Agent", "SentinelaApp/1 (notifications; Android " + Build.VERSION.RELEASE + ")");
             int code = c.getResponseCode();
@@ -260,7 +233,7 @@ public class NotifyService extends Service {
                 StringBuilder data = new StringBuilder();
                 for (String line; running && (line = in.readLine()) != null; ) {
                     if (line.isEmpty()) {
-                        if ("notify".equals(event) && data.length() > 0) deliver(server, ck, data.toString());
+                        if ("notify".equals(event) && data.length() > 0) deliver(s, data.toString());
                         event = "";
                         data.setLength(0);
                     } else if (line.startsWith("event:")) {
@@ -280,11 +253,11 @@ public class NotifyService extends Service {
         }
     }
 
-    private void deliver(String server, String ck, String json) {
+    private void deliver(Session.Bound s, String json) {
         try {
             JSONObject m = new JSONObject(json);
             // The snapshot download must not hold up the stream.
-            new Thread(() -> Notifier.show(getApplicationContext(), m, server, ck), "notify-show").start();
+            new Thread(() -> Notifier.show(getApplicationContext(), m, s), "notify-show").start();
         } catch (Exception ignored) {
             // malformed message: nothing to show
         }
@@ -297,9 +270,9 @@ public class NotifyService extends Service {
                 .setContentTitle(getString(R.string.paused_title))
                 .setContentText(getString(R.string.paused_text))
                 .setAutoCancel(true)
-                .setContentIntent(Notifier.openApp(this, null, RELOGIN_ID));
+                .setContentIntent(Notifier.openApp(this, null, Session.RELOGIN_ID));
         try {
-            NotificationManagerCompat.from(this).notify(RELOGIN_ID, b.build());
+            NotificationManagerCompat.from(this).notify(Session.RELOGIN_ID, b.build());
         } catch (SecurityException ignored) {
             // permission revoked meanwhile
         }

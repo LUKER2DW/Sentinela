@@ -8,7 +8,6 @@ import android.content.pm.Signature;
 import android.net.Uri;
 import android.os.Build;
 import android.provider.Settings;
-import android.webkit.CookieManager;
 
 import androidx.core.content.FileProvider;
 
@@ -92,7 +91,7 @@ public class UpdatePlugin extends Plugin {
         new Thread(() -> {
             try {
                 File f = apk();
-                if (!(f.length() == size && sha.equals(digest(f)))) download(url, f, size);
+                if (!(f.length() == size && sha.equals(digest(f)))) download(server, url, f, size);
                 if (!sha.equals(digest(f))) {
                     //noinspection ResultOfMethodCallIgnored
                     f.delete();
@@ -126,13 +125,13 @@ public class UpdatePlugin extends Plugin {
         }, "app-update").start();
     }
 
-    private void download(String url, File f, long size) throws Exception {
-        String cookie = CookieManager.getInstance().getCookie(url);
-        HttpURLConnection c = Pin.open(url);
+    private void download(String server, String url, File f, long size) throws Exception {
+        Session.Bound s = Session.web(getContext(), Connection.trimSlashes(server));
+        if (s == null) throw new IOException("no server");
+        HttpURLConnection c = s.openUrl(url);
         try {
             c.setConnectTimeout(10000);
             c.setReadTimeout(60000);
-            if (cookie != null) c.setRequestProperty("Cookie", cookie);
             if (c.getResponseCode() != 200) throw new IOException("HTTP " + c.getResponseCode());
             File tmp = new File(f.getPath() + ".part");
             long sent = 0;

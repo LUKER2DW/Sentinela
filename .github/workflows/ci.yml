@@ -178,6 +178,11 @@ jobs:
       - run: ./scripts/build-apk.sh
         env:
           SENTINELA_GENERIC_APK: "1"
+      # Plain JVM tests of the app's link and session rules (app/src/test).
+      - run: ./gradlew testReleaseUnitTest --no-daemon -q
+        working-directory: mobile/android
+        env:
+          SENTINELA_GENERIC_APK: "1"
 
   # The one check to require: green only when every job above passed.
   ci:

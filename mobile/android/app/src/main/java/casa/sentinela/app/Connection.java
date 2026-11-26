@@ -157,22 +157,47 @@ final class Connection {
         // An address typed without a pin: keep the one already trusted for it,
         // so it is saved with the address and survives any later update.
         if (pin.isEmpty()) pin = knownPin(c, url);
+        pin = pin.toLowerCase(java.util.Locale.ROOT);
         offline = null;
-        boolean known = false;
-        org.json.JSONArray alts = alternatives(c);
-        for (int i = 0; i < alts.length(); i++) {
-            org.json.JSONObject o = alts.optJSONObject(i);
-            if (o != null && o.optString("url").equals(trimSlashes(url))) known = true;
-        }
+        boolean known = sameHouse(c, url, pin);
+        // Another house (or the same address with another certificate):
+        // nothing of the current one's session may reach it.
+        if (!known) Session.switchedHouse(c);
         SharedPreferences.Editor ed = prefs(c).edit();
         if (!known) ed.remove("alts");
         ed.apply();
         prefs(c).edit()
                 .putString("mode", MODE)
                 .putString("url." + MODE, trimSlashes(url))
-                .putString("pin." + MODE, pin.toLowerCase(java.util.Locale.ROOT))
+                .putString("pin." + MODE, pin)
                 .apply();
         return null;
+    }
+
+    /**
+     * True when url with pin is the house the app is paired with now: the
+     * current address and certificate, or one of the ways in the house itself
+     * listed over a verified connection (alternatives), with its pin. A
+     * first pairing, a typed address or a code for anything else is another
+     * house.
+     */
+    static boolean sameHouse(Context c, String url, String pin) {
+        java.util.List<String[]> listed = new java.util.ArrayList<>();
+        org.json.JSONArray alts = alternatives(c);
+        for (int i = 0; i < alts.length(); i++) {
+            org.json.JSONObject o = alts.optJSONObject(i);
+            if (o != null) listed.add(new String[] {o.optString("url", ""), o.optString("pin", "")});
+        }
+        return AppLinks.sameHouse(url(c), pin(c), listed, url, pin);
+    }
+
+    /** What the pairing dialog shows as the house being left, or null when nothing is left. */
+    static String leaving(Context c, String url, String pin) {
+        String current = trimSlashes(url(c));
+        if (current.isEmpty()) return null;
+        String p = pin == null ? "" : pin.replace(":", "").trim();
+        if (p.isEmpty()) p = knownPin(c, url); // as save() does
+        return sameHouse(c, url, p) ? null : current;
     }
 
     /** The server to talk to in the background (notifications), or null. */
