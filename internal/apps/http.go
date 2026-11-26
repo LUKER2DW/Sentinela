@@ -138,7 +138,7 @@ func (a *Agent) view(app *App, r *svcState) View {
 		st.State = "running"
 	case app.Desired == Running && r != nil && a.now().Before(r.pauseTill):
 		st.State = "crashloop"
-	case app.Desired == Running && a.now().Before(a.startAfter):
+	case app.Desired == Running && (a.now().Before(a.startAfter) || r != nil && r.fwHeld):
 		st.State = "waiting"
 	case app.Desired == Running:
 		st.State = "exited"
@@ -664,23 +664,61 @@ func (a *Agent) Logs(ctx context.Context, id string, tail int) ([]LogLine, error
 	} else {
 		targets = []named{{containerName(id), ""}}
 	}
-	lines := []LogLine{}
+	// Lines are cut at maxLogLine by the engine, and at most tail lines and
+	// maxLogBytes of text are kept, also while a container's lines arrive.
+	out := &logTail{n: tail, max: maxLogBytes}
 	for _, t := range targets {
+		cur := &logTail{n: tail, max: maxLogBytes}
 		err := a.Eng.Logs(ctx, t.name, LogOptions{Tail: tail, Timestamps: true}, func(s int, text string) {
-			lines = append(lines, LogLine{Stream: s, Text: a.safeText(id, text), Service: t.svc})
+			cur.add(LogLine{Stream: s, Text: a.safeText(id, text), Service: t.svc})
 		})
 		if err != nil && !errors.Is(err, errNotFound) {
 			return nil, err
 		}
-	}
-	if len(targets) > 1 {
-		// Lines start with an RFC 3339 timestamp: they sort as text.
-		sort.SliceStable(lines, func(i, j int) bool { return lines[i].Text < lines[j].Text })
-		if len(lines) > tail {
-			lines = lines[len(lines)-tail:]
+		cur.trim()
+		out.lines = append(out.lines, cur.lines...)
+		out.size += cur.size
+		if len(targets) > 1 {
+			// Lines start with an RFC 3339 timestamp: they sort as text.
+			sort.SliceStable(out.lines, func(i, j int) bool { return out.lines[i].Text < out.lines[j].Text })
 		}
+		out.trim()
 	}
-	return lines, nil
+	if out.lines == nil {
+		return []LogLine{}, nil
+	}
+	return out.lines, nil
+}
+
+// maxLogBytes bounds the text of one logs answer, and what is held while
+// building it; the newest lines are kept.
+const maxLogBytes = 2 << 20
+
+// logTail keeps the newest lines within a count and a size.
+type logTail struct {
+	lines  []LogLine
+	size   int
+	n, max int
+}
+
+func (l *logTail) add(x LogLine) {
+	l.lines = append(l.lines, x)
+	l.size += len(x.Text)
+	if len(l.lines) > 2*l.n || l.size > 2*l.max {
+		l.trim()
+	}
+}
+
+// trim drops the oldest lines beyond n lines or max bytes.
+func (l *logTail) trim() {
+	drop := 0
+	for drop < len(l.lines) && (len(l.lines)-drop > l.n || l.size > l.max) {
+		l.size -= len(l.lines[drop].Text)
+		drop++
+	}
+	if drop > 0 {
+		l.lines = append(l.lines[:0], l.lines[drop:]...)
+	}
 }
 
 // ---------- HTTP ----------

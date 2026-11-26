@@ -297,7 +297,9 @@ are superseded where noted by ADR-0019 and ADR-0020.
     fine-grained read-only token stored 0600 under `/var/lib/sentinela-apps`.
     Services publish only on `apps.port_first..last`; `apps-firewall.sh`
     keeps them off private ranges and off the internet unless marked
-    *Internet* by the owner (who also forwards the port). A public service
+    *Internet* by the owner (who also forwards the port). No service starts
+    before that firewall has verified its rules for the current boot
+    (marker `/run/sentinela-apps/firewall-ready`). A public service
     has no Sentinela authentication in front of it. Compose files are
     checked against an allow-list (ADR-0021): no privileged mode, host
     namespaces, devices, extra capabilities, Docker socket or provider

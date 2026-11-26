@@ -40,12 +40,14 @@ const (
 	minFreeMB = 400
 	// Disk usage of a service folder is measured every diskEvery, the first
 	// time firstDiskDelay after the service is first seen. The walk reads
-	// at most diskMaxEntries entries in diskBatch-sized batches within diskLimit.
+	// at most diskMaxEntries entries in diskBatch-sized batches within
+	// diskLimit, at most diskMaxDepth folders deep (dirsize.go).
 	diskEvery      = 10 * time.Minute
 	firstDiskDelay = 2 * time.Minute
 	diskLimit      = 3 * time.Second
-	diskBatch      = 256
+	diskBatch      = 128
 	diskMaxEntries = 200_000
+	diskMaxDepth   = 48
 	// maxInspect bounds concurrent source inspections (each may extract up
 	// to 1 GiB into the system disk and read it back).
 	maxInspect = 2
@@ -67,6 +69,8 @@ type Agent struct {
 	portFree   func(port int, proto string) bool
 	tailnetIP  func() string
 	lanIP      func() string
+	firewall   func() (firewallState, error) // what the services firewall verified (firewall.go)
+	fwWait     time.Duration                 // how long a deploy waits for it
 	settleTime time.Duration
 	fileMu     sync.Mutex // source imports, uploads and editor mutations
 	inspectSem chan struct{}
@@ -82,6 +86,7 @@ type Agent struct {
 	// startAfter: no service starts before this (host boot delay).
 	startAfter time.Time
 	lastPublic string
+	fwAsked    time.Time // last request to apply the firewall again
 }
 
 // svcState holds live container data and the persisted diagnostic history.
@@ -93,6 +98,7 @@ type svcState struct {
 	members      []Summary
 	crashed      []string // members that exited with an error or OOM
 	composeUp    bool
+	fwHeld       bool // err says supervision waits for the firewall
 	samples      map[string]*Sample
 	cpu          float64
 	mem          Sample
@@ -124,6 +130,7 @@ type Job struct {
 func NewAgent(cfg config.Apps, eng Engine, sources map[string]Source, log *slog.Logger) *Agent {
 	return &Agent{Cfg: cfg, Eng: eng, Sources: sources, Log: log, now: time.Now, memFreeMB: memAvailableMB,
 		bootID: hostBootID, uptime: hostUptime, portFree: portFree, tailnetIP: tailnetIPv4, lanIP: lanIPv4, settleTime: 10 * time.Second,
+		firewall: func() (firewallState, error) { return readFirewallMarker(firewallMarker) }, fwWait: firewallWait,
 		run: map[string]*svcState{}, jobs: make(chan string, 64), vaults: map[string]secretVault{},
 		inspectSem: make(chan struct{}, maxInspect)}
 }
@@ -250,6 +257,7 @@ func (a *Agent) Load() error {
 	for _, app := range a.apps {
 		a.loadDiagnostics(app.ID)
 	}
+	a.loadPublicPorts()
 	return a.saveLocked()
 }
 
@@ -544,6 +552,11 @@ func (a *Agent) deploy(ctx context.Context, id string, job *Job, logf func(strin
 			return fail(err)
 		}
 	}
+	// Setup steps and classic builds run on sn-apps, and the start follows:
+	// none of them before the services firewall is in place.
+	if err := a.awaitFirewall(ctx, app.Exposure, app.Ports); err != nil {
+		return fail(err)
+	}
 	a.setPhase(id, "build")
 	switch app.Mode {
 	case ModeScript:
@@ -672,6 +685,9 @@ func (a *Agent) ensureImage(ctx context.Context, image string, logf func(string,
 // runSetup runs the setup script once in a throwaway container with the
 // build caps, against the new release only.
 func (a *Agent) runSetup(ctx context.Context, app *App, dep *Deployment, logf func(string, ...any)) error {
+	if err := a.firewallGate("", nil); err != nil {
+		return err
+	}
 	name := containerName(app.ID) + "-setup"
 	_ = a.Eng.Remove(ctx, name)
 	spec := a.scriptSpec(app, dep)
@@ -722,6 +738,10 @@ func (a *Agent) runSetup(ctx context.Context, app *App, dep *Deployment, logf fu
 // firewall does not filter; that retry needs the owner's consent
 // (App.UnfilteredBuilds).
 func (a *Agent) build(ctx context.Context, image, work string, unfiltered bool, logf func(string, ...any)) (bool, error) {
+	// The classic builder runs its steps on sn-apps.
+	if err := a.firewallGate("", nil); err != nil {
+		return false, err
+	}
 	var buf bytes.Buffer
 	if err := TarDir(work, &buf); err != nil {
 		return false, err
@@ -823,6 +843,9 @@ func (a *Agent) recreate(ctx context.Context, id string, logf func(string, ...an
 		return nil
 	}
 	logf("Applying the settings")
+	if err := a.awaitFirewall(ctx, app.Exposure, app.Ports); err != nil {
+		return err
+	}
 	if app.Mode == ModeCompose {
 		if err := a.canStart(app); err != nil {
 			return err
@@ -866,8 +889,14 @@ func (a *Agent) activate(ctx context.Context, app *App, dep *Deployment, logf fu
 	if err := a.canStart(app); err != nil {
 		return err
 	}
+	if err := a.firewallGate(app.Exposure, app.Ports); err != nil {
+		return err
+	}
 	spec, err := a.spec(app, dep)
 	if err != nil {
+		return err
+	}
+	if err := a.checkSingleBinds(app, dep); err != nil {
 		return err
 	}
 	name := containerName(app.ID)
@@ -978,6 +1007,18 @@ func (a *Agent) scriptSpec(app *App, dep *Deployment) Spec {
 	}
 }
 
+// checkSingleBinds refuses to (re)start a single-container service whose
+// bind folders are, or pass through, a link: the daemon resolves them again
+// at every start, not only when the container is created.
+func (a *Agent) checkSingleBinds(app *App, dep *Deployment) error {
+	base := a.appDir(app.ID)
+	paths := []string{filepath.Join(base, "data")}
+	if app.Mode == ModeScript && dep != nil {
+		paths = append(paths, a.releaseDir(app.ID, dep.Release), filepath.Join(base, "cache"))
+	}
+	return checkHostPaths(base, paths)
+}
+
 // spec is the service container for a deployment.
 func (a *Agent) spec(app *App, dep *Deployment) (Spec, error) {
 	var s Spec
@@ -1071,6 +1112,8 @@ func (a *Agent) envFor(app *App, dep *Deployment, script bool) []string {
 // ones (with a pause after repeated crashes), samples resource usage and
 // publishes the internet-exposed ports for the host firewall.
 func (a *Agent) Reconcile(ctx context.Context) {
+	// The list first: a start below waits until the host applied it.
+	a.writePublicPorts(false)
 	a.mu.Lock()
 	ids := make([]string, 0, len(a.apps))
 	for _, app := range a.apps {
@@ -1083,7 +1126,7 @@ func (a *Agent) Reconcile(ctx context.Context) {
 		}
 		a.reconcileOne(ctx, id)
 	}
-	a.writePublicPorts()
+	a.writePublicPorts(false)
 }
 
 // noteRestart records a restart and reports whether the service may be
@@ -1143,6 +1186,12 @@ func (a *Agent) reconcileOne(ctx context.Context, id string) error {
 		if now.Before(startAfter) {
 			return nil
 		}
+		// Waiting for the firewall is not a crash: it does not count below.
+		if err := a.firewallGate(app.Exposure, app.Ports); err != nil {
+			a.holdForFirewall(id, err)
+			return nil
+		}
+		a.releaseFirewallHold(id)
 		// Every attempt counts toward the crash-loop pause, so a service that
 		// cannot start is not retried every 15 s forever.
 		a.mu.Lock()
@@ -1155,7 +1204,10 @@ func (a *Agent) reconcileOne(ctx context.Context, id string) error {
 		if st == nil {
 			err = a.activate(ctx, app, app.Deployed, func(string, ...any) {})
 		} else if err = a.canStart(app); err == nil {
-			err = a.Eng.Start(ctx, name)
+			// The daemon resolves the bind folders again at every start.
+			if err = a.checkSingleBinds(app, app.Deployed); err == nil {
+				err = a.Eng.Start(ctx, name)
+			}
 		}
 		a.noteErr(id, err)
 		if now, ierr := a.Eng.Inspect(ctx, name); ierr == nil {
@@ -1215,7 +1267,17 @@ func (a *Agent) reconcileCompose(ctx context.Context, app *App) error {
 		return nil
 	case now.Before(startAfter):
 		return nil
+	}
+	// Waiting for the firewall is not a crash: it does not count below.
+	gate := a.firewallGate(app.Exposure, app.Ports)
+	switch {
 	case !upDone || len(members) == 0:
+		if gate != nil {
+			a.holdForFirewall(id, gate)
+			a.sample(ctx, id, running)
+			return nil
+		}
+		a.releaseFirewallHold(id)
 		a.mu.Lock()
 		ok := a.noteRestart(r, id, now)
 		a.mu.Unlock()
@@ -1253,6 +1315,22 @@ func (a *Agent) reconcileCompose(ctx context.Context, app *App) error {
 	a.mu.Lock()
 	r.crashed = crashed
 	a.mu.Unlock()
+	if len(crashed) > 0 {
+		if gate != nil {
+			a.holdForFirewall(id, gate)
+			a.sample(ctx, id, running)
+			return nil
+		}
+		// The daemon resolves every bind source again when it starts a
+		// member: a link planted since `up` stops the project instead of
+		// being followed.
+		if err := checkHostPaths(a.appDir(id), bindPaths(a.runningBinds(id))); err != nil {
+			return a.composeBlocked(ctx, id, &blockedError{err})
+		}
+	}
+	if gate == nil {
+		a.releaseFirewallHold(id)
+	}
 	for _, name := range crashed {
 		a.mu.Lock()
 		ok := a.noteRestart(r, id, now)
@@ -1354,7 +1432,7 @@ func (a *Agent) sample(ctx context.Context, id string, names []string) {
 // writePublicPorts lists the host ports open to the internet, for the host
 // firewall (scripts/apps-firewall.sh, via a systemd path unit). Every other
 // service port only answers private addresses.
-func (a *Agent) writePublicPorts() {
+func (a *Agent) writePublicPorts(force bool) {
 	a.mu.Lock()
 	var lines []string
 	for _, app := range a.apps {
@@ -1363,7 +1441,7 @@ func (a *Agent) writePublicPorts() {
 		}
 		for _, p := range app.Ports {
 			if p.Host != 0 {
-				lines = append(lines, fmt.Sprintf("%d/%s", p.Host, p.Proto))
+				lines = append(lines, portKey(p))
 			}
 		}
 	}
@@ -1372,8 +1450,8 @@ func (a *Agent) writePublicPorts() {
 	changed := body != a.lastPublic
 	a.lastPublic = body
 	a.mu.Unlock()
-	p := filepath.Join(a.Cfg.StateDir, "public-ports")
-	if _, err := os.Stat(p); err == nil && !changed {
+	p := a.publicPortsFile()
+	if _, err := os.Stat(p); err == nil && !changed && !force {
 		return
 	}
 	tmp := p + ".tmp"
@@ -1467,58 +1545,6 @@ func lanIPv4() string {
 		}
 		return ip.IsPrivate()
 	})
-}
-
-// dirSize sums file sizes under dir, giving up after limit.
-func dirSize(dir string, limit time.Duration) int64 {
-	n, _ := dirSizeBounded(dir, limit, diskMaxEntries)
-	return n
-}
-
-// dirSizeBounded sums file sizes under dir without following links. Each
-// folder is read in batches of diskBatch entries (never whole, so a folder a
-// service filled with millions of names cannot exhaust the agent's memory),
-// the deadline and the entry cap are checked per batch, and complete is
-// false when either stopped the walk early (the sum is then a lower bound).
-func dirSizeBounded(dir string, limit time.Duration, maxEntries int) (total int64, complete bool) {
-	deadline := time.Now().Add(limit)
-	entries := 0
-	stack := []string{dir}
-	for len(stack) > 0 {
-		cur := stack[len(stack)-1]
-		stack = stack[:len(stack)-1]
-		f, err := os.Open(cur)
-		if err != nil {
-			continue
-		}
-		for {
-			if time.Now().After(deadline) {
-				f.Close()
-				return total, false
-			}
-			batch, err := f.ReadDir(diskBatch)
-			for _, e := range batch {
-				if entries++; entries > maxEntries {
-					f.Close()
-					return total, false
-				}
-				switch {
-				case e.IsDir():
-					stack = append(stack, filepath.Join(cur, e.Name()))
-				case e.Type()&fs.ModeSymlink != 0:
-				default:
-					if info, err := e.Info(); err == nil {
-						total += info.Size()
-					}
-				}
-			}
-			if err != nil { // io.EOF or a read error: this folder is done
-				break
-			}
-		}
-		f.Close()
-	}
-	return total, true
 }
 
 func firstLine(s string) string {

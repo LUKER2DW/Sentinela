@@ -199,13 +199,7 @@ func collectEnv(ctx context.Context, dir string) (secretVault, error) {
 	}
 	defer root.Close()
 	var names []string
-	err = fs.WalkDir(root.FS(), ".", func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if err := ctx.Err(); err != nil {
-			return err
-		}
+	err = walkBounded(ctx, root, maxEntries, false, func(p string, d fs.DirEntry) error {
 		if d.IsDir() {
 			if skipDir(d.Name()) {
 				return fs.SkipDir

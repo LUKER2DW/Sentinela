@@ -316,6 +316,8 @@ func newTestAgent(t *testing.T) (*Agent, *fakeEngine, *fakeSource) {
 	a.portFree = func(int, string) bool { return true }
 	a.tailnetIP = func() string { return "100.64.0.9" }
 	a.lanIP = func() string { return "192.168.1.10" }
+	a.firewall = func() (firewallState, error) { return firewallState{boot: "boot-1"}, nil }
+	a.fwWait = 0
 	if err := a.Load(); err != nil {
 		t.Fatal(err)
 	}

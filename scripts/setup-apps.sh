@@ -4,10 +4,13 @@
 # enable: state folder on the system disk, the token folder, the marker that
 #   makes deploy.sh start the "apps" container, `apps: {enabled: true}` in
 #   config.yaml (added if the section is missing), the services firewall
-#   (DOCKER-USER rules + a path unit that follows the public ports), then
-#   (re)starts sentinela and the agent.
-# disable: stops every service and the agent, removes the firewall rules
-#   and the marker. Services' files stay in /var/lib/sentinela-apps.
+#   (DOCKER-USER rules + a path unit that follows the public ports; applied
+#   again now, so a run after an update installs the current units), then
+#   (re)starts sentinela and the agent. The agent starts no service until
+#   the firewall has verified its rules (scripts/apps-firewall.sh).
+# disable: closes that start gate, stops the agent, then every service, and
+#   removes the firewall rules only once no service container runs.
+#   Services' files stay in /var/lib/sentinela-apps.
 # Nothing here opens the router: a service on "Internet" also needs the
 # owner to forward its port there.
 set -euo pipefail
@@ -18,7 +21,8 @@ source "$HERE/scripts/lib/safe.sh"
 MARK=/etc/sentinela/apps-enabled
 CFG=/etc/sentinela/config.yaml
 STATE=/var/lib/sentinela-apps
-UNITS=(sentinela-apps-firewall.service sentinela-apps-firewall-reapply.service sentinela-apps-firewall.path)
+UNITS=(sentinela-apps-firewall.service sentinela-apps-firewall-reapply.service sentinela-apps-firewall.path
+  sentinela-apps-firewall-check.service sentinela-apps-firewall-check.timer)
 compose() {
   (cd "$HERE/deploy" && SENTINELA_DOCKER_GID="$(getent group docker | cut -d: -f3)" COMPOSE_PROFILES=apps docker compose "$@")
 }
@@ -38,7 +42,10 @@ case "${1:-status}" in
     fi
     for u in "${UNITS[@]}"; do install -m 0644 "$HERE/deploy/host/$u" /etc/systemd/system/; done
     systemctl daemon-reload
-    systemctl enable --now sentinela-apps-firewall.service sentinela-apps-firewall.path >/dev/null
+    systemctl enable sentinela-apps-firewall.service sentinela-apps-firewall.path >/dev/null
+    systemctl restart sentinela-apps-firewall.service
+    systemctl start sentinela-apps-firewall.path
+    systemctl enable --now sentinela-apps-firewall-check.timer >/dev/null
     # Config is read on process startup: an unchanged bind mount does not
     # make Compose restart the API after apps.enabled was changed.
     compose up -d --no-build --force-recreate --no-deps sentinela apps
@@ -46,10 +53,32 @@ case "${1:-status}" in
     ;;
   disable)
     rm -f "$MARK"
-    docker ps -q --filter label=sentinela.app | xargs -r docker stop >/dev/null
-    compose stop apps >/dev/null 2>&1 || true
-    compose rm -f apps >/dev/null 2>&1 || true
-    systemctl disable --now sentinela-apps-firewall.path sentinela-apps-firewall.service >/dev/null 2>&1 || true
+    # 1. The agent starts nothing without the firewall's marker: from here
+    #    on it cannot restart a service it sees stopped.
+    "$HERE/scripts/apps-firewall.sh" unready
+    # 2. The supervisor goes before the services (it never stops them
+    #    itself), so nothing restarts them while they stop.
+    compose stop apps >/dev/null
+    compose rm -f apps >/dev/null
+    if [[ -n "$(compose ps -q apps 2>/dev/null)" ]]; then
+      echo "the apps agent is still running: firewall kept; run disable again" >&2
+      exit 1
+    fi
+    # 3. Every service and helper container, until none runs (they have no
+    #    restart policy, so they stay stopped).
+    for _ in 1 2 3; do
+      ids="$(docker ps -q --filter label=sentinela.app)"
+      [[ -n "$ids" ]] || break
+      xargs -r docker stop <<<"$ids" >/dev/null || true
+    done
+    if [[ -n "$(docker ps -q --filter label=sentinela.app)" ]]; then
+      echo "service containers are still running: firewall kept; stop them (docker ps --filter label=sentinela.app) and run disable again" >&2
+      exit 1
+    fi
+    # 4. Only now the rules.
+    systemctl disable --now sentinela-apps-firewall.path sentinela-apps-firewall-check.timer sentinela-apps-firewall.service >/dev/null 2>&1 || true
+    # A re-apply the agent queued before it stopped must not put them back.
+    systemctl stop sentinela-apps-firewall-reapply.service >/dev/null 2>&1 || true
     "$HERE/scripts/apps-firewall.sh" remove
     echo "disabled. Set apps.enabled: false in $CFG and redeploy to hide the page."
     ;;

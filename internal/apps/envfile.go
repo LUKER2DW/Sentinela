@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"regexp"
 	"strings"
@@ -108,17 +107,16 @@ func readDotEnv(work string) ([]EnvVar, error) {
 		return nil, fmt.Errorf("open the .env folder: %w", err)
 	}
 	defer root.Close()
-	f, err := root.Open(".env")
+	// Never blocking on a FIFO, and only a regular file of bounded size.
+	b, err := readCapped(root, ".env", maxTextFile)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
-	if err != nil {
-		return nil, errors.New("could not open the .env inside the project")
+	if errors.Is(err, errTooLarge) {
+		return nil, errors.New(".env: the file is too large")
 	}
-	defer f.Close()
-	b, err := io.ReadAll(io.LimitReader(f, maxTextFile+1))
 	if err != nil {
-		return nil, errors.New("could not read the .env")
+		return nil, errors.New("could not read the .env inside the project")
 	}
 	return parseDotEnv(b)
 }

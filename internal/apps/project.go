@@ -134,21 +134,7 @@ func copyProject(ctx context.Context, src *os.Root, dir string) error {
 	}
 	defer dst.Close()
 	var total int64
-	count := 0
-	return fs.WalkDir(src.FS(), ".", func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if p == "." {
-			return nil
-		}
-		count++
-		if count > maxEntries {
-			return errors.New("the project has too many files")
-		}
+	err = walkBounded(ctx, src, maxEntries, false, func(p string, d fs.DirEntry) error {
 		if d.IsDir() {
 			return dst.MkdirAll(p, 0o700)
 		}
@@ -167,15 +153,19 @@ func copyProject(ctx context.Context, src *os.Root, dir string) error {
 		if err != nil {
 			return err
 		}
-		total += st.Size()
-		if total > maxExtract {
+		n, err := copyRegular(src, dst, p, st.Mode(), maxExtract-total)
+		if total += n; errors.Is(err, errTooLarge) {
 			return errors.New("the project is larger than 1 GB")
 		}
-		if err := copyFile(src, dst, p, st.Mode()); err != nil {
+		if err != nil {
 			return err
 		}
 		return dst.Chmod(p, 0o600|st.Mode()&0o111)
 	})
+	if errors.Is(err, errTooManyEntries) {
+		return errors.New("the project has too many files")
+	}
+	return err
 }
 
 // zipPath rejects paths rather than cleaning away traversal attempts.

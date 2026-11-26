@@ -152,6 +152,9 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - /data/apps-agent:/data/apps-agent:ro
       - /var/lib/sentinela-apps:/var/lib/sentinela-apps
+      # The services firewall's marker (scripts/apps-firewall.sh): no service
+      # starts before the host has verified its rules for this boot.
+      - /run/sentinela-apps:/run/sentinela-apps:ro
       - /srv/nas:/srv/nas
     tmpfs: [/tmp]
     restart: unless-stopped

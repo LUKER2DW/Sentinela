@@ -1,0 +1,11 @@
+# Runs the services firewall check every 2 minutes (see the .service).
+[Unit]
+Description=Check the Sentinela self-hosted services firewall every 2 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=2min
+AccuracySec=15s
+
+[Install]
+WantedBy=timers.target

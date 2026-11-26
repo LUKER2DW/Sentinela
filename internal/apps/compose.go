@@ -1375,6 +1375,15 @@ func (a *Agent) runningBinds(id string) []hostBind {
 	return out
 }
 
+// bindPaths are the host paths of binds.
+func bindPaths(binds []hostBind) []string {
+	out := make([]string, 0, len(binds))
+	for _, b := range binds {
+		out = append(out, b.Path)
+	}
+	return out
+}
+
 func (a *Agent) saveBinds(id string, binds []hostBind) error {
 	b, err := json.Marshal(binds)
 	if err == nil {
@@ -1397,6 +1406,10 @@ type composeCall struct {
 	// env is the helper's whole environment.
 	env []string
 }
+
+// maxComposeOutput bounds what the agent keeps of the helper's standard
+// output (the Compose file it reads is at most maxDetectFile).
+const maxComposeOutput = 4 << 20
 
 // composeHelper runs `docker compose -p sapp-<id> args...` in a throwaway
 // container and returns its standard output; stderr lines go to logf.
@@ -1448,12 +1461,20 @@ func (a *Agent) composeHelper(ctx context.Context, app *App, call composeCall, a
 	}
 	tctx, cancel := context.WithTimeout(ctx, limit)
 	defer cancel()
+	// Standard output (the rendered project of `config`) is kept up to
+	// maxComposeOutput; a longer line or output fails the call instead of
+	// being held whole or cut into invalid JSON.
 	var out strings.Builder
+	tooLarge := false
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		_ = a.Eng.Logs(tctx, name, LogOptions{Follow: true}, func(stream int, s string) {
+		_ = a.Eng.Logs(tctx, name, LogOptions{Follow: true, MaxLine: maxComposeOutput + 1}, func(stream int, s string) {
 			if stream == 1 {
+				if tooLarge || out.Len()+len(s)+1 > maxComposeOutput {
+					tooLarge = true
+					return
+				}
 				out.WriteString(s)
 				out.WriteByte('\n')
 			} else {
@@ -1471,6 +1492,9 @@ func (a *Agent) composeHelper(ctx context.Context, app *App, call composeCall, a
 	}
 	if code != 0 {
 		return "", fmt.Errorf("docker compose %s exited with code %d", composeVerb(args), code)
+	}
+	if tooLarge {
+		return "", fmt.Errorf("docker compose %s printed more than %d MiB", composeVerb(args), maxComposeOutput>>20)
 	}
 	return out.String(), nil
 }
@@ -1979,6 +2003,9 @@ func (a *Agent) composeRun(ctx context.Context, app *App, work string, build boo
 		args = append(args, "--no-build")
 	}
 	logf("Starting %d service(s): %s", len(plan.services), strings.Join(plan.services, ", "))
+	if err := a.firewallGate(app.Exposure, want.Ports); err != nil {
+		return nil, nil, nil, err
+	}
 	// The folders were checked a moment ago and may have changed since: look
 	// again just before the helper runs `up`, refusing any link met now.
 	if err := checkHostPaths(a.appDir(app.ID), plan.hostPaths); err != nil {

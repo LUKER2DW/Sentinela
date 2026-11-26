@@ -117,7 +117,11 @@ services every 15 s check, pausing 5 min after 5 stops in 10 min. After a
 host boot (new `boot_id`), only services marked to start automatically
 come back, and none before the host has been up `boot_delay_seconds`
 (default 120 s), so the NVR starts first. Compose one-off jobs that exit 0
-are left alone.
+are left alone. No container on the services' networks (service, setup
+step, classic build, Compose `up` or restart) starts before the services
+firewall is in place for this boot (2026-11-26): see *Network and
+exposure*. Every start re-checks the bind folders for links, also the
+restart of a crashed Compose member, which stops the project instead.
 Startup validation waits 10 seconds. Deployment errors, last exit code,
 OOM/SIGILL explanation, restart count, pause deadline and 40 diagnostic
 events persist across agent restarts. A failed single-container update
@@ -139,7 +143,19 @@ published ports bypass ufw, `scripts/apps-firewall.sh` keeps a
 private range (camera, router, LAN, tailnet); their ports answer private
 addresses, and the internet only on ports the agent lists in
 `/var/lib/sentinela-apps/public-ports` (re-applied by a systemd path unit).
-Services reaching the host itself meet ufw's default deny.
+Services reaching the host itself meet ufw's default deny. Runs of the
+script are serialized; only after an apply has checked that DOCKER-USER
+jumps first to the complete chain does it write
+`/run/sentinela-apps/firewall-ready` (boot id and the ports it opened; on
+tmpfs, mounted read-only into the agent). A failed apply, the unit's stop
+(also when Docker stops) and `setup-apps.sh disable` remove it, a failed
+boot apply is retried, and the agent asks for a new apply while the marker
+is missing. The agent starts nothing without a marker of the current boot,
+nor a non-internet service on a port the applied list still opens.
+`disable` closes this gate, stops the agent, then the services, and
+removes the rules only once no service container runs. Updated units are
+installed by running `setup-apps.sh enable` again; the script's lock and
+marker also work with the earlier units.
 
 This amends AGENTS.md §2.5 (a second, per-service public exception,
 owner-chosen and off by default), §2.8 (a new container), SECURITY.md
@@ -175,7 +191,14 @@ Added after a security review; none of it changes the model above.
   disk walk waits two minutes after start, and a folder too big to walk is
   reported as a lower bound (`disk_partial`). At most two source
   inspections run at once, and their temporary folders are removed at start.
-  FIFOs planted in a service's `data` are not opened blocking.
+  FIFOs planted in a service's `data` are not opened blocking. Since
+  2026-11-26 the disk walk opens each folder relative to its parent
+  (`openat`, no links, non-blocking, folders only) and holds one batch of
+  names per level, at most 48 levels; local and imported project folders
+  are walked in batches with the entry cap enforced before a listing is
+  held, and copied files are checked and bounded once open. Container
+  output is cut at 4 KiB per line, a logs answer at 2 MiB, and the Compose
+  helper's output at 4 MiB.
 
 ## Compose allow-list (2026-11-26)
 Added after a second security review. The normalized file is checked

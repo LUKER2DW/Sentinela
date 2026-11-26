@@ -74,7 +74,7 @@ func (s LocalSource) open(rel string) (*os.Root, error) {
 
 // Resolve reads the branch and commit from the folder's .git; without git
 // the snapshot is named by its newest modification time.
-func (s LocalSource) Resolve(_ context.Context, app *App) (Version, error) {
+func (s LocalSource) Resolve(ctx context.Context, app *App) (Version, error) {
 	r, err := s.open(app.Path)
 	if err != nil {
 		return Version{}, err
@@ -84,10 +84,7 @@ func (s LocalSource) Resolve(_ context.Context, app *App) (Version, error) {
 		return v, nil
 	}
 	newest := time.Time{}
-	_ = fs.WalkDir(r.FS(), ".", func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
+	err = walkBounded(ctx, r, maxEntries, true, func(p string, d fs.DirEntry) error {
 		if d.IsDir() && skipDir(d.Name()) {
 			return fs.SkipDir
 		}
@@ -96,6 +93,12 @@ func (s LocalSource) Resolve(_ context.Context, app *App) (Version, error) {
 		}
 		return nil
 	})
+	if errors.Is(err, errTooManyEntries) {
+		return Version{}, errors.New("the folder has too many files")
+	}
+	if err != nil {
+		return Version{}, err
+	}
 	if newest.IsZero() {
 		return Version{}, errors.New("the folder is empty")
 	}
@@ -128,20 +131,7 @@ func (s LocalSource) Snapshot(ctx context.Context, app *App, _ Version, dir stri
 	}
 	defer dst.Close()
 	var total int64
-	n := 0
-	return fs.WalkDir(src.FS(), ".", func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		if p == "." {
-			return nil
-		}
-		if n++; n > maxEntries {
-			return errors.New("the folder has too many files")
-		}
+	err = walkBounded(ctx, src, maxEntries, false, func(p string, d fs.DirEntry) error {
 		switch {
 		case d.IsDir():
 			if skipDir(d.Name()) {
@@ -159,32 +149,16 @@ func (s LocalSource) Snapshot(ctx context.Context, app *App, _ Version, dir stri
 			if err != nil {
 				return err
 			}
-			if total += info.Size(); total > maxExtract {
+			n, err := copyRegular(src, dst, p, info.Mode(), maxExtract-total)
+			if total += n; errors.Is(err, errTooLarge) {
 				return errors.New("the folder is larger than 1 GB")
 			}
-			return copyFile(src, dst, p, info.Mode())
+			return err
 		}
 		return nil
 	})
-}
-
-func copyFile(src, dst *os.Root, p string, mode fs.FileMode) error {
-	in, err := src.Open(p)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-	m := fs.FileMode(0o644)
-	if mode&0o111 != 0 {
-		m = 0o755
-	}
-	out, err := dst.OpenFile(p, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, m)
-	if err != nil {
-		return err
-	}
-	_, err = io.Copy(out, in)
-	if cerr := out.Close(); err == nil {
-		err = cerr
+	if errors.Is(err, errTooManyEntries) {
+		return errors.New("the folder has too many files")
 	}
 	return err
 }

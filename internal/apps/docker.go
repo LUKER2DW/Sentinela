@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // Engine is the part of the Docker Engine API the agent uses. Docker is
@@ -68,7 +69,13 @@ type LogOptions struct {
 	Tail       int
 	Follow     bool
 	Timestamps bool
+	// MaxLine cuts longer lines (default maxLogLine): container output is
+	// never held whole, whatever a service prints without a newline.
+	MaxLine int
 }
+
+// maxLogLine is the default cut of one log line, in bytes.
+const maxLogLine = 4 << 10
 
 // Spec is a container to create (a small, safe subset of Docker's config).
 type Spec struct {
@@ -441,40 +448,93 @@ func (d *Docker) Logs(ctx context.Context, name string, opt LogOptions, line fun
 		return err
 	}
 	defer resp.Body.Close()
-	return demux(resp.Body, line)
+	return demux(resp.Body, opt.MaxLine, line)
 }
 
-// demux splits Docker's multiplexed log stream into lines.
-func demux(r io.Reader, line func(int, string)) error {
+// maxLogFrame is the largest multiplexed frame accepted (Docker sends at
+// most 32 KiB; the json-file driver splits lines at 16 KiB).
+const maxLogFrame = 1 << 20
+
+// demux splits Docker's multiplexed log stream into lines of at most
+// maxLine bytes (maxLogLine if 0): a longer line is cut, marked with "…",
+// and the rest of it up to the next newline is dropped. What it holds is
+// one frame plus one cut line per stream, whatever the container prints.
+func demux(r io.Reader, maxLine int, line func(int, string)) error {
+	if maxLine <= 0 {
+		maxLine = maxLogLine
+	}
 	br := bufio.NewReader(r)
 	var hdr [8]byte
-	partial := map[int]string{}
+	type pending struct {
+		buf []byte
+		cut bool
+	}
+	var streams [3]pending // stdin, stdout, stderr
+	emit := func(st int) {
+		p := &streams[st]
+		s := strings.TrimRight(string(p.buf), "\r")
+		if p.cut {
+			s += "…"
+		}
+		line(st, s)
+		p.buf, p.cut = p.buf[:0], false
+	}
+	flush := func() {
+		for st := range streams {
+			if len(streams[st].buf) > 0 || streams[st].cut {
+				emit(st)
+			}
+		}
+	}
+	var frame []byte
 	for {
 		if _, err := io.ReadFull(br, hdr[:]); err != nil {
-			for st, p := range partial {
-				if p != "" {
-					line(st, p)
-				}
-			}
+			flush()
 			if err == io.EOF || errors.Is(err, io.ErrUnexpectedEOF) {
 				return nil
 			}
 			return err
 		}
 		stream, n := int(hdr[0]), binary.BigEndian.Uint32(hdr[4:])
-		if n > 1<<20 {
+		if stream > 2 {
+			flush()
+			return errors.New("docker: not a multiplexed log stream")
+		}
+		if n > maxLogFrame {
+			flush()
 			return errors.New("docker: log frame too large")
 		}
-		buf := make([]byte, n)
-		if _, err := io.ReadFull(br, buf); err != nil {
+		if cap(frame) < int(n) {
+			frame = make([]byte, n)
+		}
+		data := frame[:n]
+		if _, err := io.ReadFull(br, data); err != nil {
+			flush()
 			return nil
 		}
-		text := partial[stream] + string(buf)
-		parts := strings.Split(text, "\n")
-		for _, p := range parts[:len(parts)-1] {
-			line(stream, strings.TrimRight(p, "\r"))
+		p := &streams[stream]
+		for {
+			i := bytes.IndexByte(data, '\n')
+			seg := data
+			if i >= 0 {
+				seg = data[:i]
+			}
+			if !p.cut {
+				if room := maxLine - len(p.buf); len(seg) > room {
+					for room > 0 && !utf8.RuneStart(seg[room]) {
+						room-- // cut between characters
+					}
+					p.buf, p.cut = append(p.buf, seg[:room]...), true
+				} else {
+					p.buf = append(p.buf, seg...)
+				}
+			}
+			if i < 0 {
+				break
+			}
+			emit(stream)
+			data = data[i+1:]
 		}
-		partial[stream] = parts[len(parts)-1]
 	}
 }
 

@@ -1,0 +1,11 @@
+# Checks that the self-hosted services firewall is still in place (ADR-0021):
+# rules flushed within a boot (iptables-restore, a reload, a hand edit)
+# remove the marker, so the agent starts nothing until an apply restores
+# them. Started by sentinela-apps-firewall-check.timer.
+[Unit]
+Description=Check the Sentinela self-hosted services firewall
+After=docker.service sentinela-apps-firewall.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/sentinela/scripts/apps-firewall.sh check

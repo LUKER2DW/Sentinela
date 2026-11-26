@@ -1,7 +1,8 @@
-# Started by sentinela-apps-firewall.path when the public ports change.
+# Started by sentinela-apps-firewall.path when the public ports change (or
+# when the agent asks for the firewall again). The script serializes runs.
 [Unit]
 Description=Re-apply the Sentinela self-hosted services firewall
-After=docker.service
+After=docker.service sentinela-apps-firewall.service
 
 [Service]
 Type=oneshot
