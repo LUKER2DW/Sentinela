@@ -49,7 +49,15 @@ recorder container and can create a short gap.
 
 Five-minute fragmented MP4 segments are the default. Regular retention is
 15 days, alert segments 30 days, and the disk cap is 90%. Protected
-segments are not automatically deleted.
+segments are not deleted by age, and under disk pressure only once nothing
+unprotected is left (recording never stops on a full disk); that writes an
+audit row, which the API turns into a notice to the admins. Protection is
+capped at 5% of the recordings disk per camera and 10% in total
+(`recording.max_protected_camera_percent`, `max_protected_percent`); the
+server refuses more. A removed camera's protected clips no longer count
+and cannot be unprotected, so they age out after the longer of
+`alert_retention_days` and `default_retention_days` (never by age when
+either is 0).
 
 Playback supports HTTP ranges and `?at=<seconds>` (0 when absent): the init
 boxes, a generated `sidx` segment index, then the fragments beginning at the
@@ -83,7 +91,12 @@ zone-editor frame are coalesced per camera: one at a time, answer reused
 for seconds (`?fresh=1` only for operators, at most every 2 s).
 
 Pan and tilt are configurable independently (`invert_pan`, `invert_tilt`)
-and inherit `invert_pan_tilt` when unset. Talk uses go2rtc's backchannel.
+and inherit `invert_pan_tilt` when unset. Talk uses go2rtc's backchannel,
+which only the `<id>_talk` stream carries; the API gives it to operators
+only, and `<id>`/`<id>_sub` (what viewers get) have no way to the speaker.
+A new camera whose id is another camera's `<id>_sub` or `<id>_talk` is
+refused; in a config that already has one, that shared go2rtc name is left
+out and refused for live view (recording goes on), with a warning at start.
 There is no browser-to-camera connection.
 
 ### 2.4 Events and notifications

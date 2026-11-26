@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -320,6 +321,7 @@ func (s *Server) startSession(w http.ResponseWriter, r *http.Request, userID int
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 	if sess := sessionFrom(r); sess != nil {
 		_ = s.Store.DeleteSession(r.Context(), sess.IDHash)
+		s.LiveMediaChanged() // its live streams end too
 	}
 	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: "", Path: "/", MaxAge: -1, HttpOnly: true,
 		Secure: s.Cfg.SecureCookies || isHTTPS(r), SameSite: http.SameSiteStrictMode})
@@ -353,6 +355,7 @@ func (s *Server) revokeSession(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "session not found")
 		return
 	}
+	s.LiveMediaChanged()
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
@@ -404,6 +407,7 @@ func (s *Server) changeOwnPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.audit(r, "user.password", u.Username, true, "self")
+	s.LiveMediaChanged()
 	// Old sessions were revoked; keep this device logged in.
 	s.startSession(w, r, u.ID, sessionFrom(r).MFA, sessionFrom(r).Remember)
 }
@@ -429,9 +433,17 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
 		Password string   `json:"password"`
 		Role     string   `json:"role"`
 		Cameras  []string `json:"cameras"`
+		// Cloud says what to do with a folder or recycle bin already named
+		// after the account: "adopt" gives them to it, "archive" moves them
+		// aside first (cloudLeftovers). Unset, the request is refused.
+		Cloud string `json:"cloud"`
 	}
 	if err := readJSON(r, &body); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if !slices.Contains([]string{"", cloudAdopt, cloudArchive}, body.Cloud) {
+		writeErr(w, http.StatusBadRequest, `cloud must be "adopt" or "archive"`)
 		return
 	}
 	body.Email = strings.TrimSpace(body.Email)
@@ -447,13 +459,24 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid username or role")
 		return
 	}
-	if err := s.validCameras(body.Cameras); err != nil {
+	cams, err := s.validCameras(body.Cameras)
+	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	body.Cameras = cams
+	if body.Email != "" {
+		if _, err := s.Store.UserByLogin(r.Context(), body.Email); err == nil {
+			writeErr(w, http.StatusConflict, "username or e-mail already exists")
+			return
+		}
+	}
+	cloudNote, archive, ok := s.cloudForNewUser(w, r, body.Username, body.Cloud)
+	if !ok {
 		return
 	}
 	var (
 		id     int64
-		err    error
 		invite string
 	)
 	if body.Password != "" {
@@ -478,6 +501,19 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, "username or e-mail already exists")
 		return
 	}
+	// Only once the account exists are the folders left under its name
+	// moved aside (a refused account moves nothing); if that fails, the
+	// account goes again rather than take them over.
+	if archive {
+		folder, bin, err := s.nas.RetireUser(body.Username, time.Now())
+		if err != nil {
+			_ = s.Store.DeleteUser(context.WithoutCancel(r.Context()), id)
+			s.Log.Warn("cloud: moving a folder aside", "err", err)
+			writeErr(w, http.StatusInternalServerError, "the existing Cloud folder could not be moved aside")
+			return
+		}
+		cloudNote = " cloud=existing moved to " + folder + " " + bin
+	}
 	if len(body.Cameras) > 0 {
 		if err := s.Store.UpdateUserCameras(r.Context(), id, body.Cameras); err != nil {
 			writeErr(w, http.StatusInternalServerError, "database error")
@@ -485,7 +521,7 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.audit(r, "user.create", body.Username, true, body.Role+" cameras="+strings.Join(body.Cameras, ",")+
-		map[bool]string{true: " invite", false: ""}[invite != ""])
+		map[bool]string{true: " invite", false: ""}[invite != ""]+cloudNote)
 	u, _ := s.Store.UserByID(r.Context(), id)
 	writeJSON(w, http.StatusCreated, s.invited(u, invite))
 }
@@ -531,12 +567,60 @@ func (s *Server) usernameFromEmail(ctx context.Context, email string) string {
 	}
 	name := base
 	for i := 2; i < 100; i++ {
+		// Free as an account and in Cloud: a derived name never lands on
+		// someone's leftover folder or recycle bin.
 		if _, err := s.Store.UserByName(ctx, name); errors.Is(err, store.ErrNotFound) {
-			return name
+			if left, err := s.cloudLeftovers(name); err == nil && !left {
+				return name
+			}
 		}
 		name = fmt.Sprintf("%s%d", base, i)
 	}
 	return name
+}
+
+// What createUser does with a Cloud folder or recycle bin already named
+// after the new account.
+const (
+	cloudAdopt   = "adopt"
+	cloudArchive = "archive"
+)
+
+// cloudLeftovers reports whether name already has a Cloud folder or
+// recycle bin (false when this server has no Cloud).
+func (s *Server) cloudLeftovers(name string) (bool, error) {
+	if s.nas == nil {
+		return false, nil
+	}
+	return s.nas.Leftovers(name)
+}
+
+// cloudForNewUser keeps a new account from silently taking over a folder or
+// recycle bin left under its name (a deleted account's, or made over SMB):
+// without the admin's choice it answers 409; with "archive" the caller
+// moves them aside once the account exists. It returns a note for the
+// audit, whether to move them, and whether to go on.
+func (s *Server) cloudForNewUser(w http.ResponseWriter, r *http.Request, name, choice string) (note string, archive, ok bool) {
+	if _, err := s.Store.UserByName(r.Context(), name); err == nil {
+		writeErr(w, http.StatusConflict, "username or e-mail already exists")
+		return "", false, false
+	}
+	left, err := s.cloudLeftovers(name)
+	if err != nil {
+		s.Log.Warn("cloud: checking a new account's folder", "err", err)
+		writeErr(w, http.StatusInternalServerError, "the Cloud folder could not be checked")
+		return "", false, false
+	}
+	switch {
+	case !left:
+		return "", false, true
+	case choice == cloudAdopt:
+		return " cloud=existing folder given", false, true
+	case choice == cloudArchive:
+		return "", true, true
+	}
+	writeErr(w, http.StatusConflict, "a Cloud folder or recycle bin named after this user already exists")
+	return "", false, false
 }
 
 // reinvite issues a new invite code for an account (lost password): its
@@ -556,6 +640,7 @@ func (s *Server) reinvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.audit(r, "user.invite", u.Username, true, "new invite")
+	s.LiveMediaChanged()
 	u, _ = s.Store.UserByID(r.Context(), u.ID)
 	writeJSON(w, http.StatusOK, s.invited(u, code))
 }
@@ -723,15 +808,16 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request) {
 		s.audit(r, "user.role", u.Username, true, *body.Role)
 	}
 	if body.Cameras != nil {
-		if err := s.validCameras(*body.Cameras); err != nil {
+		cams, err := s.validCameras(*body.Cameras)
+		if err != nil {
 			writeErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		if err := s.Store.UpdateUserCameras(r.Context(), u.ID, *body.Cameras); err != nil {
+		if err := s.Store.UpdateUserCameras(r.Context(), u.ID, cams); err != nil {
 			writeErr(w, http.StatusInternalServerError, "database error")
 			return
 		}
-		s.audit(r, "user.cameras", u.Username, true, strings.Join(*body.Cameras, ","))
+		s.audit(r, "user.cameras", u.Username, true, strings.Join(cams, ","))
 	}
 	if body.Password != nil {
 		hash, err := auth.HashPasswordContext(r.Context(), *body.Password)
@@ -756,20 +842,27 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request) {
 		}
 		s.audit(r, "user.totp", u.Username, true, "reset by admin")
 	}
+	// Disabled, demoted, narrowed or signed out: open live media ends now.
+	s.LiveMediaChanged()
 	u, _ = s.Store.UserByID(r.Context(), u.ID)
 	writeJSON(w, http.StatusOK, u)
 }
 
-// validCameras accepts an empty list (all cameras) or known, unique ids.
-func (s *Server) validCameras(ids []string) error {
-	seen := map[string]bool{}
+// validCameras returns the grant to store: an empty list (every camera),
+// or the listed ids that are configured, once each. Ids of cameras that are
+// not configured (a removed camera still on a stale form) are dropped, and
+// a list left with none is refused: it must never become "every camera".
+func (s *Server) validCameras(ids []string) ([]string, error) {
+	out := []string{}
 	for _, id := range ids {
-		if s.Cfg.Camera(id) == nil || seen[id] {
-			return fmt.Errorf("unknown or repeated camera %q", id)
+		if s.Cfg.Camera(id) != nil && !slices.Contains(out, id) {
+			out = append(out, id)
 		}
-		seen[id] = true
 	}
-	return nil
+	if len(ids) > 0 && len(out) == 0 {
+		return nil, errors.New("none of these cameras is configured")
+	}
+	return out, nil
 }
 
 func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request) {
@@ -790,7 +883,22 @@ func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = os.Remove(s.avatarPath(u.ID))
-	s.audit(r, "user.delete", u.Username, true, "")
+	s.LiveMediaChanged()
+	// The username is free again: its Cloud folder goes to the admins'
+	// "Contas removidas" and its recycle bin out of the name's path, so a
+	// later account with the same name starts empty. If this fails they
+	// stay, and creating that name again asks the admin first.
+	note := ""
+	if s.nas != nil {
+		folder, bin, err := s.nas.RetireUser(u.Username, time.Now())
+		if err != nil {
+			s.Log.Warn("cloud: moving a deleted account's folder aside", "user", u.Username, "err", err)
+			note = "cloud folder not moved: " + err.Error()
+		} else if folder != "" || bin != "" {
+			note = "cloud moved to " + strings.TrimSpace(folder+" "+bin)
+		}
+	}
+	s.audit(r, "user.delete", u.Username, true, note)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 

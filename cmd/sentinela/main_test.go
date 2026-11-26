@@ -1,14 +1,18 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/LUKER2DW/sentinela/internal/config"
+	"github.com/LUKER2DW/sentinela/internal/store"
 )
 
 func TestSplitRoleFlag(t *testing.T) {
@@ -31,6 +35,66 @@ func TestSplitRoleFlag(t *testing.T) {
 	if _, _, err := splitRoleFlag([]string{"add", "bob", "-role"}, "viewer"); err == nil {
 		t.Error("dangling -role accepted")
 	}
+}
+
+// scripts/add-camera.sh asks check-camera-id before adding a camera: an
+// id in use, or one a removed camera had, is refused; a new one passes.
+func TestCheckCameraID(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	cfg := "data_dir: " + filepath.ToSlash(dir) + "\ncameras:\n  - {id: cam1, host: 192.168.1.20, user_env: U, password_env: P}\n"
+	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	st, err := store.Open(ctx, filepath.Join(dir, "db", "sentinela.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := st.SyncCameraIDs(ctx, []string{"cam1", "cam2"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := st.SyncCameraIDs(ctx, []string{"cam1"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	st.Close()
+	for _, tc := range []struct {
+		args []string
+		ok   bool
+	}{
+		{[]string{"cam3"}, true},
+		{[]string{"cam2"}, false},      // retired
+		{[]string{"cam1"}, false},      // configured
+		{[]string{"cam1_sub"}, false},  // cam1's substream in go2rtc
+		{[]string{"cam1_talk"}, false}, // cam1's talk stream
+		{nil, false},
+	} {
+		if err := checkCameraID(ctx, cfgPath, tc.args); (err == nil) != tc.ok {
+			t.Errorf("%v: err %v, want ok=%v", tc.args, err, tc.ok)
+		}
+	}
+	// No database to ask: refused, never assumed free.
+	if err := checkCameraID(ctx, filepath.Join(dir, "missing.yaml"), []string{"cam3"}); err == nil {
+		t.Error("an unreadable config must fail closed")
+	}
+}
+
+// A camera-id sync that failed at start is tried again until it works.
+func TestRetryUntil(t *testing.T) {
+	calls, fails := 0, 0
+	retryUntil(context.Background(), time.Millisecond, 4*time.Millisecond, func(context.Context) error {
+		calls++
+		if calls < 3 {
+			return errors.New("database busy")
+		}
+		return nil
+	}, func(error) { fails++ })
+	if calls != 3 || fails != 2 {
+		t.Fatalf("calls %d, failures %d; want 3, 2", calls, fails)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	retryUntil(ctx, time.Hour, time.Hour, func(context.Context) error { t.Fatal("tried after the end"); return nil }, func(error) {})
 }
 
 func TestCredentialNames(t *testing.T) {

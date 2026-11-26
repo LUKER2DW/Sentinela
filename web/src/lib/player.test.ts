@@ -202,6 +202,17 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+describe("stream tickets", () => {
+  it("asks for the talk stream only in talk mode, the watching stream otherwise", async () => {
+    const watch = createPlayer({ stream: "sub" }).player;
+    await connect(watch);
+    expect(vi.mocked(api).mock.calls.at(-1)?.[1]).toBe("/api/cameras/cam1/stream-ticket?stream=sub");
+    const talk = createPlayer({ stream: "sub", talk: true }).player;
+    await connect(talk);
+    expect(vi.mocked(api).mock.calls.at(-1)?.[1]).toBe("/api/cameras/cam1/stream-ticket?stream=talk");
+  });
+});
+
 describe("live player reconnect ownership", () => {
   it("ignores a sourceopen delivered after another stream replaced it", async () => {
     const { player, status } = createPlayer();

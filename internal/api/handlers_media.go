@@ -14,24 +14,88 @@ import (
 	"strings"
 	"time"
 
+	"github.com/LUKER2DW/sentinela/internal/auth"
+	"github.com/LUKER2DW/sentinela/internal/config"
 	"github.com/LUKER2DW/sentinela/internal/store"
 )
 
+// Stream ticket kinds: "main" and "sub" watch; "talk" also sends the
+// microphone to the camera's speaker.
+const (
+	streamMain = "main"
+	streamSub  = "sub"
+	streamTalk = "talk"
+)
+
 // streamTicket issues a single-use, 60 s ticket for one camera stream.
+// Talking plays sound through the camera's speaker: an operator's right, so
+// only operators get a talk ticket, and only the talk stream can reach the
+// speaker (config.WriteGo2RTC). Whatever a viewer's client offers to send
+// on a watching stream has nowhere to go.
 func (s *Server) streamTicket(w http.ResponseWriter, r *http.Request) {
 	cam := s.camera(w, r)
 	if cam == nil {
 		return
 	}
 	stream := r.URL.Query().Get("stream")
-	if stream != "sub" {
-		stream = "main"
+	switch stream {
+	case streamMain, streamSub:
+	case streamTalk:
+		if !auth.RoleAtLeast(userFrom(r).Role, auth.RoleOperator) {
+			writeErr(w, http.StatusForbidden, "talking through the camera needs an operator account")
+			return
+		}
+		if !cam.HasTalk() {
+			writeErr(w, http.StatusNotFound, "this camera has no speaker")
+			return
+		}
+	default:
+		stream = streamMain
+	}
+	if src := go2rtcSource(auth.Ticket{CameraID: cam.ID, Stream: stream}); s.Cfg.Go2RTCStreamOff(src) {
+		writeErr(w, http.StatusConflict, fmt.Sprintf("live view of this stream is off: go2rtc stream %q would be shared with another camera; give one of them a new id", src))
+		return
+	}
+	if s.refuseCooledDown(w, userFrom(r).ID) {
+		return
 	}
 	tok, exp := s.tickets.Issue(userFrom(r).ID, cam.ID, stream)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"url":     "/stream/ws?ticket=" + tok,
 		"expires": exp.UTC(),
 	})
+}
+
+// refuseCooledDown answers 429 while the account may not open live streams
+// (livemedia.go: it made go2rtc restart again and again).
+func (s *Server) refuseCooledDown(w http.ResponseWriter, user int64) bool {
+	wait := s.live.coolDown(user)
+	if wait <= 0 {
+		return false
+	}
+	w.Header().Set("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
+	writeErr(w, http.StatusTooManyRequests, fmt.Sprintf("live view is paused for this account for %d min: its streams had to be cut by force again and again", int(wait.Minutes())+1))
+	return true
+}
+
+// go2rtcSource is the go2rtc stream a ticket opens.
+func go2rtcSource(tk auth.Ticket) string {
+	switch tk.Stream {
+	case streamSub:
+		return tk.CameraID + config.Go2RTCSubSuffix
+	case streamTalk:
+		return tk.CameraID + config.Go2RTCTalkSuffix
+	}
+	return tk.CameraID
+}
+
+// streamAllowed reports whether u may still use a ticket's stream: the
+// camera is visible to them and, for talk, they are still an operator.
+func streamAllowed(u *store.User, tk auth.Ticket) bool {
+	if u == nil || !u.CanSee(tk.CameraID) {
+		return false
+	}
+	return tk.Stream != streamTalk || auth.RoleAtLeast(u.Role, auth.RoleOperator)
 }
 
 // streamWS validates a ticket and proxies the WebSocket to go2rtc (loopback).
@@ -42,31 +106,47 @@ func (s *Server) streamWS(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusForbidden, "invalid or expired stream ticket")
 		return
 	}
-	// The ticket may be up to 60 s old: the camera must still be allowed now.
-	if !userFrom(r).CanSee(tk.CameraID) {
+	// The ticket may be up to 60 s old: the camera (and, for talk, the
+	// role) must still be allowed now.
+	if !streamAllowed(userFrom(r), tk) {
 		writeErr(w, http.StatusForbidden, "invalid or expired stream ticket")
 		return
 	}
-	src := tk.CameraID
-	if tk.Stream == "sub" {
-		src += "_sub"
-	}
+	src := go2rtcSource(tk)
 	// The WebSocket outlives this check: re-read the session while it is open
 	// and cancel the proxied request (which closes both sides) once the user is
 	// signed out, revoked, disabled or no longer allowed to see the camera.
+	// A WebRTC consumer can outlive the WebSocket: the live media guard
+	// (livemedia.go) follows it by its tag.
+	sess := r
+	allowed := func(ctx context.Context) bool {
+		u, ok := s.reloadUser(ctx, sess)
+		return ok && streamAllowed(u, tk)
+	}
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
+	tag, closed, err := s.live.open(tk.UserID, userFrom(r).Username, allowed, cancel)
+	switch {
+	case errors.Is(err, errLiveCoolDown):
+		s.refuseCooledDown(w, tk.UserID)
+		return
+	case err != nil:
+		writeErr(w, http.StatusServiceUnavailable, "too many live streams; try again shortly")
+		return
+	}
+	defer closed()
 	r = r.WithContext(ctx)
 	go func() {
-		t := time.NewTicker(streamRecheckEvery)
+		t := time.NewTicker(streamRecheckEvery())
 		defer t.Stop()
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case <-t.C:
-				if u, ok := s.reloadUser(ctx, r); !ok || !u.CanSee(tk.CameraID) {
+				if !allowed(ctx) {
 					cancel()
+					s.live.revoke(tag)
 					return
 				}
 			}
@@ -80,9 +160,11 @@ func (s *Server) streamWS(w http.ResponseWriter, r *http.Request) {
 			pr.Out.URL.Path = "/api/ws"
 			pr.Out.URL.RawQuery = "src=" + src
 			pr.Out.Host = target.Host
-			// go2rtc sees a same-host, cookie-less local client.
+			// go2rtc sees a same-host, cookie-less local client, named by
+			// the stream's tag (it keeps it on the consumer it creates).
 			pr.Out.Header.Del("Origin")
 			pr.Out.Header.Del("Cookie")
+			pr.Out.Header.Set("User-Agent", liveTagPrefix+tag)
 		},
 		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, err error) {
 			s.Log.Warn("go2rtc proxy error", "err", err)
@@ -218,11 +300,46 @@ func (s *Server) protectSegment(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := s.Store.SetSegmentProtected(r.Context(), seg.ID, body.Protected); err != nil {
+	if !body.Protected {
+		if err := s.Store.SetSegmentProtected(r.Context(), seg.ID, false); err != nil {
+			writeErr(w, http.StatusInternalServerError, "database error")
+			return
+		}
+		s.audit(r, "segment.protect", strconv.FormatInt(seg.ID, 10), true, "false")
+		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+		return
+	}
+	// Protected footage is never freed by retention while anything else is
+	// left: it is capped as a share of the recordings disk, per camera and
+	// in total, so it can neither fill the disk nor push other cameras'
+	// recordings out (config: recording.max_protected_*).
+	rec := s.Cfg.Recording
+	d, err := s.diskUsage(filepath.Join(s.Cfg.DataDir, "recordings"))
+	if err != nil || d.Total == 0 {
+		writeErr(w, http.StatusServiceUnavailable, "the recordings disk cannot be checked right now")
+		return
+	}
+	camCap := int64(d.Total / 100 * uint64(rec.MaxProtectedCameraPercent))
+	totalCap := int64(d.Total / 100 * uint64(rec.MaxProtectedPercent))
+	if s.Cfg.Camera(seg.CameraID) == nil {
+		writeErr(w, http.StatusConflict, "the camera of this recording was removed; its recordings are no longer protected")
+		return
+	}
+	configured := make([]string, 0, len(s.Cfg.Cameras))
+	for _, c := range s.Cfg.Cameras {
+		configured = append(configured, c.ID)
+	}
+	err = s.Store.ProtectSegmentWithin(r.Context(), seg.ID, camCap, totalCap, configured)
+	s.audit(r, "segment.protect", strconv.FormatInt(seg.ID, 10), err == nil, "true")
+	switch {
+	case errors.Is(err, store.ErrProtectLimit):
+		writeErr(w, http.StatusConflict, fmt.Sprintf("protected recordings are limited to %d%% of the disk per camera and %d%% in total; unprotect older clips first",
+			rec.MaxProtectedCameraPercent, rec.MaxProtectedPercent))
+		return
+	case err != nil:
 		writeErr(w, http.StatusInternalServerError, "database error")
 		return
 	}
-	s.audit(r, "segment.protect", strconv.FormatInt(seg.ID, 10), true, strconv.FormatBool(body.Protected))
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 

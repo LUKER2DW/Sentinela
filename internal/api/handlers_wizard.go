@@ -8,6 +8,7 @@ import (
 	"net/netip"
 	"os/exec"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -115,7 +116,12 @@ func (s *Server) testCamera(w http.ResponseWriter, r *http.Request) {
 	}
 	defer s.wizardMu.Unlock()
 
-	res := cameraTest{SuggestedID: s.nextCameraID()}
+	next, err := s.nextCameraID(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "database error")
+		return
+	}
+	res := cameraTest{SuggestedID: next}
 	for _, c := range s.Cfg.Cameras {
 		if c.Host == cam.Host {
 			res.Known = c.ID
@@ -221,12 +227,15 @@ func (s *Server) probeRTSP(ctx context.Context, cam *config.Camera, stream int) 
 	return out
 }
 
-// nextCameraID proposes the first free "camN".
-func (s *Server) nextCameraID() string {
-	for n := len(s.Cfg.Cameras) + 1; ; n++ {
-		id := fmt.Sprintf("cam%d", n)
-		if s.Cfg.Camera(id) == nil {
-			return id
-		}
+// nextCameraID proposes the first "camN" that no camera has or had: a
+// removed camera's id is never given again (cameraids.go). Without the
+// list of removed ids it proposes none rather than risk reissuing one.
+func (s *Server) nextCameraID(ctx context.Context) (string, error) {
+	retired, err := s.retiredCameraIDs(ctx)
+	if err != nil {
+		return "", err
 	}
+	return freeCameraID(len(s.Cfg.Cameras)+1, func(id string) bool {
+		return s.Cfg.Camera(id) != nil || slices.Contains(retired, id)
+	}), nil
 }

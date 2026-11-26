@@ -238,6 +238,19 @@ func (s *Server) preset(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	switch body.Action {
+	case "goto":
+	case "set", "clear":
+		// Saving and deleting change the camera itself (and where tours
+		// go): admins only, as the Saved positions card (CAMERAS.md).
+		if userFrom(r).Role != auth.RoleAdmin {
+			writeErr(w, http.StatusForbidden, "saving or deleting a position needs an admin")
+			return
+		}
+	default:
+		writeErr(w, http.StatusBadRequest, "action must be goto, set or clear")
+		return
+	}
 	s.takeControl(r, cam.ID)
 	ctx, cancel := context.WithTimeout(r.Context(), 2*dvrip.DefaultTimeout)
 	defer cancel()

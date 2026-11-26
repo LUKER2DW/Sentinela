@@ -96,7 +96,8 @@ type CameraFeatures struct {
 	Light *bool `yaml:"light"`
 	// Talk: a speaker for push-to-talk. XMEye default: on (DVRIP
 	// backchannel); other vendors default off and, when on, use the
-	// camera's RTSP/ONVIF backchannel through go2rtc.
+	// camera's RTSP/ONVIF backchannel through go2rtc. Off: go2rtc has no
+	// way to the speaker at all (no "<id>_talk" stream).
 	Talk *bool `yaml:"talk"`
 }
 
@@ -186,6 +187,7 @@ func (cam *Camera) Go2RTCURL(stream int) string {
 
 // Go2RTCBackchannel is the DVRIP source go2rtc uses for two-way audio
 // (XMEye with talk on; "" otherwise: no extra DVRIP session for nothing).
+// It goes in the "<id>_talk" stream only (Go2RTCTalkSources).
 func (cam *Camera) Go2RTCBackchannel() string {
 	if !cam.HasDVRIP() || !cam.HasTalk() {
 		return ""

@@ -3,9 +3,12 @@ package recording
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/LUKER2DW/sentinela/internal/config"
@@ -19,7 +22,12 @@ import (
 // oldest-first while the disk is above MaxDiskPercent, alert or not.
 // A retention of 0 days means no age limit: the disk fills up to
 // MaxDiskPercent and the oldest recordings are overwritten from then on.
-// Protected segments are never deleted.
+// Protected segments are kept from both, with one exception: when the disk
+// is above the limit and nothing unprotected is left, the oldest protected
+// ones go too, so recording never stops on a full disk. (Protection is
+// capped per camera and in total, so this only happens after the caps were
+// lowered or something else filled the disk.) A removed camera's protected
+// segments age out too: nobody can unprotect them any more.
 type Retention struct {
 	Root  string
 	Store *store.Store
@@ -66,6 +74,24 @@ func (r *Retention) Enforce(ctx context.Context) (int, error) {
 		alertCutoff = r.now().Add(-time.Duration(alertDays) * 24 * time.Hour)
 	}
 	alertTypes := review.AlertTypes()
+	ageOut := func(cameraID string, days int) error {
+		cutoff := r.now().Add(-time.Duration(days) * 24 * time.Hour)
+		for {
+			segs, err := r.Store.SegmentsForAgeRetention(ctx, cameraID, cutoff, alertCutoff, alertTypes, 200)
+			if err != nil {
+				return err
+			}
+			if len(segs) == 0 {
+				return nil
+			}
+			for _, s := range segs {
+				if err := r.remove(ctx, s); err != nil {
+					return err
+				}
+				deleted++
+			}
+		}
+	}
 	for i := range r.Cfg.Cameras {
 		cam := &r.Cfg.Cameras[i]
 		if cam.RetentionDays <= 0 {
@@ -73,25 +99,46 @@ func (r *Retention) Enforce(ctx context.Context) (int, error) {
 			continue
 		}
 		maxDays = max(maxDays, cam.RetentionDays)
-		cutoff := r.now().Add(-time.Duration(cam.RetentionDays) * 24 * time.Hour)
-		for {
-			segs, err := r.Store.SegmentsForAgeRetention(ctx, cam.ID, cutoff, alertCutoff, alertTypes, 200)
-			if err != nil {
+		if err := ageOut(cam.ID, cam.RetentionDays); err != nil {
+			return deleted, err
+		}
+	}
+	// A removed camera's recordings stay under its id (never given to
+	// another camera) until default_retention_days, or disk pressure when
+	// that is 0. Nobody can unprotect its protected clips any more, so they
+	// go as well, after the longer of alert_retention_days and
+	// default_retention_days (kept like its alert clips when that is 0).
+	if days := r.Cfg.Recording.DefaultRetentionDays; days > 0 {
+		ids, err := r.Store.SegmentCameraIDs(ctx)
+		if err != nil {
+			return deleted, err
+		}
+		for _, id := range ids {
+			if r.Cfg.Camera(id) != nil {
+				continue
+			}
+			maxDays = max(maxDays, days)
+			if err := ageOut(id, days); err != nil {
 				return deleted, err
 			}
-			if len(segs) == 0 {
-				break
+			if alertDays <= 0 {
+				continue
 			}
-			for _, s := range segs {
-				if err := r.remove(ctx, s); err != nil {
-					return deleted, err
-				}
-				deleted++
+			n, err := r.ageOutProtected(ctx, id, max(days, alertDays))
+			deleted += n
+			if err != nil {
+				return deleted, err
 			}
 		}
 	}
 	// Disk pressure: delete oldest until 2 points below the limit.
 	limit := float64(r.Cfg.Recording.MaxDiskPercent)
+	valve, valveCams := 0, map[string]bool{}
+	defer func() {
+		if valve > 0 {
+			r.auditValve(ctx, valve, valveCams)
+		}
+	}()
 	for guard := 0; guard < 10000; guard++ {
 		d, err := r.Disk(r.Root)
 		if err != nil {
@@ -107,14 +154,24 @@ func (r *Retention) Enforce(ctx context.Context) (int, error) {
 			return deleted, err
 		}
 		if len(segs) == 0 {
-			r.Log.Error("disk above limit but no deletable segments", "pct", d.Pct)
-			break
+			if segs, err = r.Store.OldestProtectedSegments(ctx, 20); err != nil {
+				return deleted, err
+			}
+			if len(segs) == 0 {
+				r.Log.Error("disk above limit but no recordings left to delete", "pct", d.Pct)
+				break
+			}
+			r.Log.Error("disk above limit with only protected recordings left: deleting the oldest protected ones so recording goes on", "pct", d.Pct, "count", len(segs))
 		}
 		for _, s := range segs {
 			if err := r.remove(ctx, s); err != nil {
 				return deleted, err
 			}
 			deleted++
+			if s.Protected {
+				valve++
+				valveCams[s.CameraID] = true
+			}
 		}
 	}
 	// Events (and their review state) live as long as the longest tier;
@@ -130,6 +187,43 @@ func (r *Retention) Enforce(ctx context.Context) (int, error) {
 		}
 	}
 	return deleted, nil
+}
+
+// auditValve records that the full-disk valve deleted protected clips: the
+// API turns the row into a notice to the admins (the recorder never calls
+// the API). A failed write is only logged; recording goes on.
+func (r *Retention) auditValve(ctx context.Context, n int, cams map[string]bool) {
+	ids := make([]string, 0, len(cams))
+	for id := range cams {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	detail := fmt.Sprintf("%d protected clips deleted: the recordings disk was above %d%% with nothing unprotected left", n, r.Cfg.Recording.MaxDiskPercent)
+	if err := r.Store.Audit(context.WithoutCancel(ctx), 0, "", store.AuditProtectValve, strings.Join(ids, ","), true, detail); err != nil {
+		r.Log.Warn("audit of deleted protected recordings failed", "err", err)
+	}
+}
+
+// ageOutProtected deletes a removed camera's protected segments that ended
+// more than days ago.
+func (r *Retention) ageOutProtected(ctx context.Context, cameraID string, days int) (int, error) {
+	cutoff := r.now().Add(-time.Duration(days) * 24 * time.Hour)
+	n := 0
+	for {
+		segs, err := r.Store.ProtectedSegmentsOlderThan(ctx, cameraID, cutoff, 200)
+		if err != nil || len(segs) == 0 {
+			if n > 0 {
+				r.Log.Info("retention: removed camera's protected recordings aged out", "camera", cameraID, "count", n)
+			}
+			return n, err
+		}
+		for _, s := range segs {
+			if err := r.remove(ctx, s); err != nil {
+				return n, err
+			}
+			n++
+		}
+	}
 }
 
 func (r *Retention) remove(ctx context.Context, s store.Segment) error {

@@ -403,10 +403,13 @@ func (s *Store) UpsertSegment(ctx context.Context, seg Segment) error {
 }
 
 // SegmentPaths returns the indexed paths (and sizes) of a camera's segments
-// starting at or after since; the zero time selects all of them.
+// starting at or after since; the zero time selects all of them. Segments
+// archived from an earlier camera with the same id ("<id>~…", see
+// SyncCameraIDs) still live in its folder, so they are included.
 func (s *Store) SegmentPaths(ctx context.Context, cameraID string, since time.Time) (map[string]int64, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT path,bytes FROM segments WHERE camera_id=? AND start_utc>=?`,
-		cameraID, FormatTime(since))
+	rows, err := s.db.QueryContext(ctx, `SELECT path,bytes FROM segments
+		WHERE (camera_id=? OR (camera_id>? AND camera_id<?)) AND start_utc>=?`,
+		cameraID, cameraID+ArchiveSep, cameraID+ArchiveSep+ArchiveSep, FormatTime(since)) // ArchiveID stamps are [0-9A-Z], below "~"
 	if err != nil {
 		return nil, err
 	}
@@ -521,13 +524,107 @@ func (s *Store) DeleteSegmentByPath(ctx context.Context, path string) error {
 	return err
 }
 
-// SetSegmentProtected marks a segment as protected from retention.
+// SetSegmentProtected marks a segment as protected from retention, or not.
+// Callers that let people protect use ProtectSegmentWithin (capped).
 func (s *Store) SetSegmentProtected(ctx context.Context, id int64, protected bool) error {
 	v := 0
 	if protected {
 		v = 1
 	}
 	return s.execOne(ctx, `UPDATE segments SET protected=? WHERE id=?`, v, id)
+}
+
+// ErrProtectLimit: protecting the segment would pass a cap.
+var ErrProtectLimit = errors.New("protected recordings limit reached")
+
+// ProtectSegmentWithin protects a segment of one of the configured cameras
+// only while the protected bytes of its camera stay within cameraCap and
+// those of every configured camera within totalCap (one statement, so two
+// requests cannot both pass a cap). A removed camera's protected clips do
+// not count: nobody can unprotect them, and retention ages them out
+// (recording.Retention). An already protected segment is left as it is.
+func (s *Store) ProtectSegmentWithin(ctx context.Context, id, cameraCap, totalCap int64, configured []string) error {
+	if len(configured) == 0 {
+		return ErrProtectLimit
+	}
+	in := strings.TrimSuffix(strings.Repeat("?,", len(configured)), ",")
+	args := []any{id}
+	for _, c := range configured {
+		args = append(args, c)
+	}
+	args = append(args, cameraCap)
+	for _, c := range configured {
+		args = append(args, c)
+	}
+	args = append(args, totalCap)
+	res, err := s.db.ExecContext(ctx, `UPDATE segments SET protected=1 WHERE id=? AND protected=0 AND camera_id IN (`+in+`)
+		AND bytes + (SELECT coalesce(sum(p.bytes),0) FROM segments p WHERE p.protected=1 AND p.camera_id=segments.camera_id) <= ?
+		AND bytes + (SELECT coalesce(sum(p.bytes),0) FROM segments p WHERE p.protected=1 AND p.camera_id IN (`+in+`)) <= ?`, args...)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 1 {
+		return nil
+	}
+	var protected bool
+	switch err := s.db.QueryRowContext(ctx, `SELECT protected FROM segments WHERE id=?`, id).Scan(&protected); {
+	case errors.Is(err, sql.ErrNoRows):
+		return ErrNotFound
+	case err != nil:
+		return err
+	case protected:
+		return nil
+	}
+	return ErrProtectLimit
+}
+
+// ProtectedBytes returns the protected bytes of one camera and of all.
+func (s *Store) ProtectedBytes(ctx context.Context, cameraID string) (camera, total int64, err error) {
+	err = s.db.QueryRowContext(ctx, `SELECT coalesce(sum(CASE WHEN camera_id=? THEN bytes END),0), coalesce(sum(bytes),0)
+		FROM segments WHERE protected=1`, cameraID).Scan(&camera, &total)
+	return camera, total, err
+}
+
+// ProtectedSegmentsOlderThan returns up to limit protected segments of a
+// camera that ended before t, oldest first (a removed camera's, which
+// nobody can unprotect any more).
+func (s *Store) ProtectedSegmentsOlderThan(ctx context.Context, cameraID string, t time.Time, limit int) ([]Segment, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT `+segCols+` FROM segments WHERE camera_id=? AND protected=1 AND end_utc<? ORDER BY start_utc LIMIT ?`,
+		cameraID, FormatTime(t), limit)
+	if err != nil {
+		return nil, err
+	}
+	return scanSegments(rows)
+}
+
+// OldestProtectedSegments returns up to limit protected segments, oldest
+// first: what retention frees only when nothing unprotected is left and
+// recording would otherwise stop on a full disk.
+func (s *Store) OldestProtectedSegments(ctx context.Context, limit int) ([]Segment, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT `+segCols+` FROM segments WHERE protected=1 ORDER BY start_utc LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	return scanSegments(rows)
+}
+
+// SegmentCameraIDs returns the camera ids that have recordings, configured
+// or not (a removed camera's stay until retention).
+func (s *Store) SegmentCameraIDs(ctx context.Context) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT camera_id FROM segments ORDER BY camera_id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
 }
 
 // SegmentStats summarizes stored recordings per camera.
@@ -979,6 +1076,36 @@ func (s *Store) Audit(ctx context.Context, userID int64, username, action, targe
 	_, err := s.db.ExecContext(ctx, `INSERT INTO audit(at,user_id,username,action,target,ok,detail) VALUES(?,?,?,?,?,?,?)`,
 		Now(), uid, clip(username, auditMaxUser), clip(action, auditMaxAction), clip(target, auditMaxTarget), ok, clip(detail, auditMaxDetail))
 	return err
+}
+
+// AuditProtectValve is the audit action of protected clips deleted by the
+// full-disk valve (recording.Retention); the API notifies the admins.
+const AuditProtectValve = "segment.protect.valve"
+
+// AuditAfter returns up to limit audit rows of action with an id above
+// afterID, oldest first.
+func (s *Store) AuditAfter(ctx context.Context, action string, afterID int64, limit int) ([]AuditEntry, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id,at,username,action,target,ok,detail FROM audit WHERE action=? AND id>? ORDER BY id LIMIT ?`, action, afterID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []AuditEntry
+	for rows.Next() {
+		var e AuditEntry
+		if err := rows.Scan(&e.ID, &e.At, &e.Username, &e.Action, &e.Target, &e.OK, &e.Detail); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// LastAuditID returns the id of the newest audit row (0 when none).
+func (s *Store) LastAuditID(ctx context.Context) (int64, error) {
+	var id int64
+	err := s.db.QueryRowContext(ctx, `SELECT coalesce(max(id),0) FROM audit`).Scan(&id)
+	return id, err
 }
 
 // PruneAudit deletes audit rows older than maxAge and, beyond that, the oldest

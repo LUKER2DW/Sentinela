@@ -210,6 +210,13 @@ type Recording struct {
 	// (tiered retention, PLAN Phase 9 Wave 2).
 	AlertRetentionDays int `yaml:"alert_retention_days"`
 	StallSeconds       int `yaml:"stall_seconds"`
+	// MaxProtectedPercent caps protected recordings (kept from retention)
+	// at this share of the recordings disk, all cameras together, and
+	// MaxProtectedCameraPercent the share of one camera. Protecting more is
+	// refused, so retention always has unprotected footage to free and one
+	// camera's protected clips cannot crowd out the others'.
+	MaxProtectedPercent       int `yaml:"max_protected_percent"`
+	MaxProtectedCameraPercent int `yaml:"max_protected_camera_percent"`
 	// VolumeMarker is a file, relative to data_dir, that exists only on the
 	// dedicated recording disk (scripts/install-server.sh creates it). While
 	// it is missing (the disk did not mount) nothing is recorded, so the
@@ -411,6 +418,8 @@ func (c *Config) applyDefaults() {
 	// MaxDiskPercent, then overwrite the oldest (owner decision, 2026-11-06).
 	defInt(&c.Recording.MaxDiskPercent, 95)
 	defInt(&c.Recording.StallSeconds, 20)
+	defInt(&c.Recording.MaxProtectedPercent, 10)
+	defInt(&c.Recording.MaxProtectedCameraPercent, min(5, c.Recording.MaxProtectedPercent))
 	def(&c.Recording.VolumeMarker, DefaultVolumeMarker)
 	def(&c.AppUpdates.GitHub, DefaultAppRepo)
 	for i := range c.Cameras {
@@ -437,6 +446,12 @@ func (c *Config) validate() error {
 	}
 	if c.Recording.MaxDiskPercent < 50 || c.Recording.MaxDiskPercent > 98 {
 		errs = append(errs, errors.New("recording.max_disk_percent must be 50..98"))
+	}
+	if p := c.Recording.MaxProtectedPercent; p < 1 || p > 40 {
+		errs = append(errs, errors.New("recording.max_protected_percent must be 1..40"))
+	}
+	if p := c.Recording.MaxProtectedCameraPercent; p < 1 || p > c.Recording.MaxProtectedPercent {
+		errs = append(errs, errors.New("recording.max_protected_camera_percent must be 1..max_protected_percent"))
 	}
 	if r := c.AppUpdates.GitHub; r != "none" && !repoPattern.MatchString(r) {
 		errs = append(errs, errors.New(`app_updates.github must be "owner/repo" or "none"`))
@@ -534,6 +549,9 @@ func (c *Config) validate() error {
 		}
 		errs = append(errs, cam.validateONVIF()...)
 	}
+	// Ids whose go2rtc streams clash (StreamClashes) are not an error here:
+	// an existing config must keep recording. Adding such a camera is
+	// refused where cameras are added (the settings editor, check-config).
 	return errors.Join(errs...)
 }
 

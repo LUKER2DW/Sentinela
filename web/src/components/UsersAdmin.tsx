@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, get, type AuditEntry, type Camera, type Role, type User } from "../lib/api";
+import { api, ApiError, get, type AuditEntry, type Camera, type Role, type User } from "../lib/api";
 import { useSession, useToast } from "../lib/session";
 import { fmtBytes, fmtDate, relative } from "../lib/time";
 import { useCameras } from "../pages/LivePage";
@@ -9,6 +9,7 @@ import { Icon } from "./Icon";
 
 import { t, translated } from "../lib/i18n";
 import { copyText } from "../lib/clipboard";
+import { configuredGrant, grantToSave, sameSelection } from "../lib/cameraAccess";
 export const roleLabel: Record<Role, string> = translated({ admin: "Administrator", operator: "Operator", viewer: "Viewer" });
 
 const ROLES: { role: Role; icon: string; text: string }[] = [
@@ -53,6 +54,8 @@ const actionLabel: Record<string, string> = {
   "recording.export": t("Exported video"),
   "recording.timelapse": "Timelapse",
   "segment.protect": t("Clip protection"),
+  "segment.protect.valve": t("Protected clips freed (disk full)"),
+  "live.cut": t("Live view cut by force"),
   "nas.upload": t("Uploaded file"),
   "nas.mkdir": t("Created folder"),
   "nas.move": t("Moved/renamed"),
@@ -213,7 +216,11 @@ function UserPanel({ id, onGone }: { id: number; onGone: () => void }) {
           <p className="muted small">{ROLES.find((r) => r.role === u.role)?.text}</p>
           {multiCam && u.role !== "admin" && (
             <p className="small">
-              {t("Cameras:")}{" "}{u.cameras.length === 0 ? t("all") : u.cameras.map((c) => cams.data?.find((x) => x.id === c)?.name ?? c).join(", ")}{" "}
+              {t("Cameras:")}{" "}
+              {u.cameras.length === 0
+                ? t("all")
+                : configuredGrant(u.cameras, cams.data?.map((c) => c.id) ?? []).map((c) => cams.data?.find((x) => x.id === c)?.name ?? c).join(", ") ||
+                  t("none (its cameras were removed)")}{" "}
               <button className="linkish" onClick={() => setDialog("cameras")}>
                 {t("change")}
               </button>
@@ -368,6 +375,7 @@ function translate(msg: string): string {
   if (msg.includes("already used")) return t("This email already belongs to another account.");
   if (msg.includes("invalid e-mail")) return t("Invalid email.");
   if (msg.includes("invalid username")) return t("Invalid name: use 3 to 32 letters, numbers, dot, hyphen or underscore.");
+  if (msg.includes("none of these cameras")) return t("None of the ticked cameras exists any more. Reload the page.");
   return msg;
 }
 
@@ -480,17 +488,24 @@ function CreateUserDialog({ onClose, onCreated }: { onClose: () => void; onCreat
   const [role, setRole] = useState<Role>("viewer");
   const [picked, setPicked] = useState<string[]>([]);
   const [made, setMade] = useState<InvitedUser | null>(null);
+  // A Cloud folder or recycle bin already has this name (a removed
+  // account's, or made over the network): the server waits for a choice.
+  const [leftover, setLeftover] = useState(false);
   const nameOk = name === "" || /^[A-Za-z0-9._-]{3,32}$/.test(name);
   const emailOk = email === "" || EMAIL.test(email);
   const valid = nameOk && emailOk && (name !== "" || email !== "");
   const create = useMutation({
-    mutationFn: () => api<InvitedUser>("POST", "/api/users", { username: name, email, role, cameras: role === "admin" ? [] : picked }),
+    mutationFn: (cloud?: "adopt" | "archive") =>
+      api<InvitedUser>("POST", "/api/users", { username: name, email, role, cameras: role === "admin" ? [] : picked, ...(cloud ? { cloud } : {}) }),
     onSuccess: (u) => {
       void qc.invalidateQueries({ queryKey: ["users"] });
       onCreated(u.id);
       setMade(u);
     },
-    onError: (e: Error) => toast(translate(e.message), true),
+    onError: (e: Error) => {
+      if (e instanceof ApiError && e.status === 409 && e.message.includes("Cloud folder")) setLeftover(true);
+      else toast(translate(e.message), true);
+    },
   });
   if (made?.invite_code) return <InviteCodeDialog user={made} onClose={onClose} />;
   return (
@@ -499,7 +514,7 @@ function CreateUserDialog({ onClose, onCreated }: { onClose: () => void; onCreat
         className="dialog wide create-user"
         onSubmit={(e) => {
           e.preventDefault();
-          if (valid) create.mutate();
+          if (valid) create.mutate(undefined);
         }}
       >
         <div className="dialog-head">
@@ -521,7 +536,7 @@ function CreateUserDialog({ onClose, onCreated }: { onClose: () => void; onCreat
               className="input"
               type="email"
               value={email}
-              onChange={(e) => setEmail(e.target.value.trim())}
+              onChange={(e) => (setEmail(e.target.value.trim()), setLeftover(false))}
               autoFocus
               autoComplete="off"
               spellCheck={false}
@@ -535,7 +550,7 @@ function CreateUserDialog({ onClose, onCreated }: { onClose: () => void; onCreat
               id="nu-name"
               className="input"
               value={name}
-              onChange={(e) => setName(e.target.value.trim())}
+              onChange={(e) => (setName(e.target.value.trim()), setLeftover(false))}
               autoComplete="off"
               spellCheck={false}
               placeholder={email ? t("empty = {v0}", { v0: email.split("@")[0] }) : t("e.g. maria")}
@@ -565,11 +580,24 @@ function CreateUserDialog({ onClose, onCreated }: { onClose: () => void; onCreat
             ))}
           </fieldset>
         )}
+        {leftover && (
+          <div className="notice">
+            <p>{t("Cloud already has a folder or recycle bin with this name, perhaps from a removed account. Give it to this person only if it is theirs.")}</p>
+            <div className="row-gap">
+              <button type="button" className="btn small" disabled={create.isPending} onClick={() => create.mutate("archive")}>
+                {t("Start empty (move it to Contas removidas)")}
+              </button>
+              <button type="button" className="btn ghost small" disabled={create.isPending} onClick={() => create.mutate("adopt")}>
+                {t("It is theirs: give it to the account")}
+              </button>
+            </div>
+          </div>
+        )}
         <div className="dialog-actions">
           <button type="button" className="btn ghost" onClick={onClose}>
             {t("Cancel")}
           </button>
-          <button className="btn primary" disabled={!valid || create.isPending}>
+          <button className="btn primary" disabled={!valid || create.isPending || leftover}>
             <Icon name="plus" />{" "}{t("Authorize and create invite")}
           </button>
         </div>
@@ -591,7 +619,7 @@ function DeleteUserDialog({ user, onClose, onDelete, busy }: { user: User; onClo
       >
         <h2 id="del-title">{t("Remove")}{" "}{user.username}?</h2>
         <p className="muted">
-          {t("The account is deleted and signed out of every device. Its files in Cloud stay on disk, in the folder")}{" "}<strong>{user.username}</strong>{t(". To just block access, use Disable account.")}
+          {t("The account is deleted and signed out of every device. Its Cloud folder is kept for the administrators in")}{" "}<strong>{t("Contas removidas")}</strong>{t(", and its recycle bin empties on schedule. To just block access, use Disable account.")}
         </p>
         <div className="field">
           <label htmlFor="del-confirm">{t("Enter")}{" "}{user.username}{" "}{t("to confirm")}</label>
@@ -610,21 +638,28 @@ function DeleteUserDialog({ user, onClose, onDelete, busy }: { user: User; onClo
   );
 }
 
-// Which cameras a non-admin user sees. Nothing ticked = every camera.
+// Which cameras a non-admin user sees. Nothing ticked = every camera. The
+// account's list may still name removed cameras: only configured ones are
+// shown and saved, and Save stays off until the ticks change, so opening
+// and saving never widens an account to every camera.
 function CameraAccessDialog({ user, cameras, onClose, onSave }: { user: User; cameras: Camera[]; onClose: () => void; onSave: (ids: string[]) => void }) {
-  const [picked, setPicked] = useState<string[]>(user.cameras);
+  const ids = cameras.map((c) => c.id);
+  const initial = configuredGrant(user.cameras, ids);
+  const [picked, setPicked] = useState<string[]>(initial);
   const toggle = (id: string) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
+  const seesNone = user.cameras.length > 0 && initial.length === 0;
   return (
     <div className="dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="cams-title" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <form
         className="dialog"
         onSubmit={(e) => {
           e.preventDefault();
-          onSave(picked.length === cameras.length ? [] : picked);
+          onSave(grantToSave(picked, ids));
         }}
       >
         <h2 id="cams-title">{t("Cameras of")}{" "}{user.username}</h2>
         <p className="muted">{t("Live, recordings, events and notices only from the ticked cameras. None ticked = all.")}</p>
+        {seesNone && <p className="notice">{t("This account sees none of the cameras now: the ones it had were removed.")}</p>}
         {cameras.map((c) => (
           <label key={c.id} className="check-row">
             <input type="checkbox" checked={picked.includes(c.id)} onChange={() => toggle(c.id)} /> {c.name}
@@ -634,7 +669,9 @@ function CameraAccessDialog({ user, cameras, onClose, onSave }: { user: User; ca
           <button type="button" className="btn ghost" onClick={onClose}>
             {t("Cancel")}
           </button>
-          <button className="btn primary">{t("Save")}</button>
+          <button className="btn primary" disabled={sameSelection(picked, initial, ids)}>
+            {t("Save")}
+          </button>
         </div>
       </form>
     </div>

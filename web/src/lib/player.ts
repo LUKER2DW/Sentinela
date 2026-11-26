@@ -117,6 +117,11 @@ function rememberWebrtc(ok: boolean) {
   }
 }
 
+/** The stream a ticket asks for: watching streams never reach the speaker. */
+export function ticketStream(talk: boolean | undefined, stream: "main" | "sub"): "main" | "sub" | "talk" {
+  return talk ? "talk" : stream;
+}
+
 export function canTalk(): boolean {
   // Talk rides WebRTC, which Tailscale Funnel and HTTP tunnels cannot carry
   // (ADR-0019, ADR-0025).
@@ -227,9 +232,11 @@ export class LivePlayer {
     this.emit({ state: this.retry ? "reconnecting" : "connecting" });
     let url: string;
     try {
+      // Talk has a stream of its own (main picture plus the camera's
+      // speaker), which the server gives to operators only.
       const t = await api<{ url: string }>(
         "POST",
-        `/api/cameras/${encodeURIComponent(this.opts.cameraId)}/stream-ticket?stream=${this.streamNow}`,
+        `/api/cameras/${encodeURIComponent(this.opts.cameraId)}/stream-ticket?stream=${ticketStream(this.opts.talk, this.streamNow)}`,
       );
       url = t.url;
     } catch (e) {

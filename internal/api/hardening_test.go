@@ -25,9 +25,9 @@ func twoCameras(srv *Server) {
 // shortRecheck makes open streams re-read their session quickly.
 func shortRecheck(t *testing.T) {
 	t.Helper()
-	old := streamRecheckEvery
-	streamRecheckEvery = 50 * time.Millisecond
-	t.Cleanup(func() { streamRecheckEvery = old })
+	old := streamRecheck.Load()
+	streamRecheck.Store(int64(50 * time.Millisecond))
+	t.Cleanup(func() { streamRecheck.Store(old) })
 }
 
 // restrictedViewer creates a viewer limited to cams and signs it in.

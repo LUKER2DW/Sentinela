@@ -495,7 +495,7 @@ func NormalizeInviteCode(code string) string {
 type Ticket struct {
 	UserID   int64
 	CameraID string
-	Stream   string // "main" or "sub"
+	Stream   string // "main", "sub" or "talk" (operators only)
 	Expires  time.Time
 }
 

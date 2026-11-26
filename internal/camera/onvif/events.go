@@ -132,7 +132,11 @@ func (w *Watcher) Run(ctx context.Context) {
 // 32 slots (/event_service/0..31) and never frees one (docs/CAMERA.md).
 const pullPointScan = 32
 
-func (w *Watcher) settingKey() string { return "onvif.pullpoint." + w.CameraID }
+// PullPointSettingKey is the setting that remembers a camera's event
+// subscription (dropped with the camera when it is removed).
+func PullPointSettingKey(cameraID string) string { return "onvif.pullpoint." + cameraID }
+
+func (w *Watcher) settingKey() string { return PullPointSettingKey(w.CameraID) }
 
 // pullPoint returns a working subscription. It reuses the remembered one
 // first: this camera never frees a subscription (Unsubscribe and expiry are

@@ -31,6 +31,26 @@ func TestMigrateIdempotent(t *testing.T) {
 	}
 }
 
+// The recorder runs migrations too: a migration that runs again (its row
+// lost, or two versions of a file) must not fail and stop it.
+func TestMigrationsRerun(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "t.db")
+	s, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM schema_migrations WHERE version IN ('0014_camera_ids','0015_protected_segments')`); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	s, err = Open(ctx, path)
+	if err != nil {
+		t.Fatalf("re-run: %v", err)
+	}
+	s.Close()
+}
+
 func TestNotifyOptInMigration(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "t.db")

@@ -55,7 +55,7 @@ bullet gets no PTZ pad and a camera without a speaker gets no talk button.
 |---|---|---|
 | Has PTZ (moves and zooms) | `features.ptz` | XMEye: on (DVRIP). Others: off; on = ONVIF PTZ |
 | Has a white light | `features.light` | XMEye: on. Others: not available |
-| Has a speaker | `features.talk` | XMEye: on (DVRIP). Others: off; on = the camera's ONVIF/RTSP backchannel through go2rtc |
+| Has a speaker | `features.talk` | XMEye: on (DVRIP). Others: off; on = the camera's ONVIF/RTSP backchannel through go2rtc (a second camera session while someone talks). Only operators talk: the server keeps the speaker on its own go2rtc stream |
 | Uses ONVIF (events, clock, PTZ) | `onvif` | on; off for an RTSP-only camera (its motion then comes from the video) |
 | ONVIF port | `onvif_port` | 80; XMEye 8899, Reolink 8000, Tapo 2020 |
 | ONVIF address | `onvif_path` | `/onvif/device_service` |
@@ -82,7 +82,7 @@ a control or a tour runs: ContinuousMove (with a 2 s Timeout, so the camera
 stops by itself if Sentinela goes away; resent while the button is held and
 stopped within a second of release) and Stop; GotoPreset; SetPreset (saved
 as "Preset N", or over the same preset) and RemovePreset, from the *Saved
-positions* card (admins). Nothing else is written to the camera: no image,
+positions* card (admins only; the server refuses an operator). Nothing else is written to the camera: no image,
 network, user or firmware setting. Focus and iris are not sent over ONVIF.
 
 ## Presets

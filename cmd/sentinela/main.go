@@ -28,6 +28,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -81,9 +82,14 @@ func main() {
 		err = healthcheck(*cfgPath)
 	case "check-config":
 		err = checkConfig(*cfgPath, *against)
+	case "check-camera-id":
+		err = checkCameraID(ctx, *cfgPath, fl.Args())
 	case "go2rtc-config":
 		var cfg *config.Config
 		if cfg, err = config.LoadLayout(*cfgPath); err == nil {
+			for name, ids := range cfg.StreamClashes() {
+				fmt.Fprintf(os.Stderr, "warning: go2rtc stream %q left out: cameras %s would share it; give one a new id\n", name, strings.Join(ids, ", "))
+			}
 			err = cfg.WriteGo2RTC(os.Stdout)
 		}
 	case "public-ports":
@@ -101,12 +107,50 @@ func main() {
 	case "version":
 		fmt.Println(version)
 	default:
-		err = fmt.Errorf("unknown command %q (serve|record|apps|user|healthcheck|check-config|go2rtc-config|public-ports|credential-names|proxy-port|version)", cmd)
+		err = fmt.Errorf("unknown command %q (serve|record|apps|user|healthcheck|check-config|check-camera-id|go2rtc-config|public-ports|credential-names|proxy-port|version)", cmd)
 	}
 	if err != nil {
 		log.Error("fatal", "cmd", cmd, "err", err)
 		os.Exit(1)
 	}
+}
+
+// checkCameraID fails unless id was never used by a camera (configured,
+// retired, or named by recordings, events or grants) and its go2rtc streams
+// would not clash with a configured camera's (scripts/add-camera.sh runs it
+// in the running API container before adding a camera).
+func checkCameraID(ctx context.Context, cfgPath string, args []string) error {
+	if len(args) != 1 {
+		return errors.New("usage: sentinela check-camera-id <id>")
+	}
+	id := args[0]
+	cfg, err := config.LoadLayout(cfgPath)
+	if err != nil {
+		return err
+	}
+	if cfg.Camera(id) != nil {
+		return fmt.Errorf("camera id %q is in use", id)
+	}
+	// The new camera may get a speaker later: count its talk stream too.
+	talk := true
+	cand := *cfg
+	cand.Cameras = append(slices.Clone(cfg.Cameras), config.Camera{ID: id, Features: config.CameraFeatures{Talk: &talk}})
+	if err := config.NewStreamClash(&cand, cfg); err != nil {
+		return err
+	}
+	st, err := store.Open(ctx, cfg.DBPath)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	known, err := st.CameraIDKnown(ctx, id)
+	if err != nil {
+		return err
+	}
+	if known {
+		return fmt.Errorf("camera id %q belonged to a removed camera and is never given to another one: choose a new id", id)
+	}
+	return nil
 }
 
 // checkConfig loads the config with its secrets and prints the cameras
@@ -118,6 +162,10 @@ func checkConfig(path, against string) error {
 	if err != nil {
 		return err
 	}
+	// A clash of go2rtc stream names is refused for a camera the installed
+	// config does not have; an installed (or restored) config keeps
+	// recording with the clashing live stream off. add-camera.sh checks its
+	// new id with check-camera-id.
 	if against != "" {
 		old, err := os.ReadFile(against)
 		if err != nil {
@@ -129,6 +177,13 @@ func checkConfig(path, against string) error {
 		}
 		if err := config.CheckDashboardChange(old, cand); err != nil {
 			return fmt.Errorf("policy: %w", err)
+		}
+		installed, err := config.LoadLayout(against)
+		if err != nil {
+			return fmt.Errorf("installed config: %w", err)
+		}
+		if err := config.NewStreamClash(cfg, installed); err != nil {
+			return err
 		}
 	}
 	for _, c := range cfg.Cameras {
@@ -196,6 +251,9 @@ func serve(ctx context.Context, log *slog.Logger, cfgPath string) error {
 		log.Warn("web UI not embedded; build it with `npm run build` in web/")
 	}
 
+	for name, ids := range cfg.StreamClashes() {
+		log.Warn("camera ids clash in go2rtc: that live stream is off (recording goes on); give one camera a new id", "stream", name, "cameras", strings.Join(ids, ","))
+	}
 	srv, err := api.New(cfg, st, webFS, log)
 	if srv != nil {
 		srv.ConfigPath = cfgPath
@@ -204,8 +262,22 @@ func serve(ctx context.Context, log *slog.Logger, cfgPath string) error {
 		return err
 	}
 	defer srv.Close()
-
+	// A removed camera's id is retired (never given to another camera), and
+	// its grants and settings go. Failing here does not keep the API down:
+	// it is tried again until it works, and no new camera id is handed out
+	// meanwhile.
 	var wg sync.WaitGroup
+	if err := srv.SyncCameraIDs(ctx); err != nil {
+		log.Error("camera ids not synced; trying again, adding cameras waits for it", "err", err)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			retryUntil(ctx, 15*time.Second, 5*time.Minute, srv.SyncCameraIDs, func(err error) {
+				log.Warn("camera ids still not synced", "err", err)
+			})
+		}()
+	}
+
 	for i := range cfg.Cameras {
 		cam := &cfg.Cameras[i]
 		if !cam.UsesONVIF() {
@@ -219,8 +291,12 @@ func serve(ctx context.Context, log *slog.Logger, cfgPath string) error {
 	wg.Add(2)
 	go func() { defer wg.Done(); maintenance(ctx, log, cfg, st, srv) }()
 	go func() { defer wg.Done(); srv.WatchDetector(ctx) }()
-	wg.Add(1)
+	wg.Add(3)
 	go func() { defer wg.Done(); srv.MirrorAppReleases(ctx) }()
+	// Revoked live video stops in go2rtc too, not only its WebSocket.
+	go func() { defer wg.Done(); srv.GuardLiveMedia(ctx) }()
+	// Protected clips the recorder had to delete on a full disk: admins hear of it.
+	go func() { defer wg.Done(); srv.WatchStorageNotices(ctx) }()
 
 	servers := []*http.Server{{Addr: cfg.Listen, Handler: srv.Handler()}}
 	// Listeners that face the internet directly get a cap on open connections
@@ -384,6 +460,23 @@ func maintenance(ctx context.Context, log *slog.Logger, cfg *config.Config, st *
 			return
 		case <-t.C:
 		}
+	}
+}
+
+// retryUntil calls try after first, then after doubling waits up to limit,
+// until it succeeds or ctx ends; failed reports each failure.
+func retryUntil(ctx context.Context, first, limit time.Duration, try func(context.Context) error, failed func(error)) {
+	for wait := first; ; wait = min(2*wait, limit) {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(wait):
+		}
+		err := try(ctx)
+		if err == nil {
+			return
+		}
+		failed(err)
 	}
 }
 

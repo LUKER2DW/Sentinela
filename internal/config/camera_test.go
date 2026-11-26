@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -44,9 +45,9 @@ cameras:
 	}
 	out := b.String()
 	for _, s := range []string{
-		`"rtsp://10.0.0.2:554/user=${U}&password=${P}&channel=1&stream=0.sdp?real_stream"`,
+		`"rtsp://10.0.0.2:554/user=${U}&password=${P}&channel=1&stream=0.sdp?real_stream#backchannel=0"`,
 		`"dvrip://${U}:${P}@10.0.0.2:34567?channel=0&subtype=0&backchannel=1"`,
-		`"rtsp://${U}:${P}@10.0.0.3:554/Streaming/Channels/202"`,
+		`"rtsp://${U}:${P}@10.0.0.3:554/Streaming/Channels/202#backchannel=0"`,
 		"  x: \"video&audio\"",
 	} {
 		if !strings.Contains(out, s) {
@@ -55,6 +56,81 @@ cameras:
 	}
 	if strings.Contains(out, "Pa55word") || strings.Contains(out, "  g: \"video&audio\"") {
 		t.Errorf("secret or unwanted preload in go2rtc config:\n%s", out)
+	}
+}
+
+// go2rtcStreams parses the generated streams section: name -> sources.
+func go2rtcStreams(t *testing.T, c *Config) map[string][]string {
+	t.Helper()
+	var b strings.Builder
+	if err := c.WriteGo2RTC(&b); err != nil {
+		t.Fatal(err)
+	}
+	out := map[string][]string{}
+	name, in := "", false
+	for _, line := range strings.Split(b.String(), "\n") {
+		switch {
+		case line == "streams:":
+			in = true
+		case !in || line == "":
+		case strings.HasPrefix(line, "    - "):
+			src, err := strconv.Unquote(strings.TrimPrefix(line, "    - "))
+			if err != nil {
+				t.Fatalf("source %q: %v", line, err)
+			}
+			out[name] = append(out[name], src)
+		case strings.HasPrefix(line, "  "):
+			name = strings.TrimSuffix(strings.TrimSpace(line), ":")
+		}
+	}
+	return out
+}
+
+// Watching streams carry no way to a camera's speaker: only the talk stream,
+// which the API gives to operators, links a client's audio to it.
+func TestGo2RTCTalkOnlyOnTalkStream(t *testing.T) {
+	c, err := Parse([]byte(`
+cameras:
+  - {id: x, host: 10.0.0.2, user_env: U, password_env: P}
+  - {id: mute, host: 10.0.0.3, user_env: U, password_env: P, features: {talk: false}}
+  - {id: h, host: 10.0.0.4, vendor: hikvision, user_env: U, password_env: P, features: {talk: true}}
+  - {id: d, host: 10.0.0.5, vendor: dahua, user_env: U, password_env: P}
+`), env(map[string]string{"U": "admin", "P": "Pa55word"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	streams := go2rtcStreams(t, c)
+	for _, id := range []string{"x", "mute", "h", "d"} {
+		for _, name := range []string{id, id + Go2RTCSubSuffix} {
+			srcs := streams[name]
+			if len(srcs) != 1 || !strings.HasPrefix(srcs[0], "rtsp://") || !strings.HasSuffix(srcs[0], "#backchannel=0") {
+				t.Errorf("%s: a watching stream is one RTSP source without backchannel, got %q", name, srcs)
+			}
+		}
+	}
+	want := map[string][]string{
+		"x_talk": {"rtsp://127.0.0.1:8554/x#backchannel=0", "dvrip://${U}:${P}@10.0.0.2:34567?channel=0&subtype=0&backchannel=1"},
+		"h_talk": {"rtsp://${U}:${P}@10.0.0.4:554/Streaming/Channels/101#backchannel=1"},
+	}
+	for name, srcs := range want {
+		if got := streams[name]; strings.Join(got, "|") != strings.Join(srcs, "|") {
+			t.Errorf("%s = %q, want %q", name, got, srcs)
+		}
+	}
+	for _, name := range []string{"mute_talk", "d_talk"} {
+		if _, ok := streams[name]; ok {
+			t.Errorf("%s: a camera without a speaker has no talk stream", name)
+		}
+	}
+	for name, srcs := range streams {
+		if strings.HasSuffix(name, Go2RTCTalkSuffix) {
+			continue
+		}
+		for _, src := range srcs {
+			if strings.Contains(src, "backchannel=1") {
+				t.Errorf("%s: backchannel source %q outside the talk stream", name, src)
+			}
+		}
 	}
 }
 

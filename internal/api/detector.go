@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/LUKER2DW/sentinela/internal/auth"
+	"github.com/LUKER2DW/sentinela/internal/config"
 )
 
 // Object detector integration (ADR-0016). The detector sidecar runs on the
@@ -342,8 +343,8 @@ func (s *Server) detectorConfig(w http.ResponseWriter, r *http.Request) {
 		c := &s.Cfg.Cameras[i]
 		d := s.detection(r.Context(), c.ID)
 		video := s.videoMotion(c)
-		if !d.Enabled && !video {
-			continue
+		if !d.Enabled && !video || s.Cfg.Go2RTCStreamOff(c.ID+config.Go2RTCSubSuffix) {
+			continue // nothing to watch, or its substream clashes (StreamClashes)
 		}
 		out = append(out, camDTO{
 			ID: c.ID, Stream: "rtsp://127.0.0.1:8554/" + c.ID + "_sub", Detect: d.Enabled, VideoMotion: video,

@@ -23,6 +23,11 @@ const Shared = "Compartilhado"
 // Trash is the recycle bin folder, shared with Samba (deploy/nas/smb.conf).
 const Trash = ".lixeira"
 
+// Removed keeps the Cloud folders of deleted accounts for the admins. Its
+// name has a space, which no username has, so it is never anyone's own
+// folder and only admins see it.
+const Removed = "Contas removidas"
+
 const partSuffix = ".sentinela-part"
 
 // Errors safe to show to API clients.
@@ -145,6 +150,59 @@ func (s *Share) Ensure(a Access) error {
 		}
 	}
 	return nil
+}
+
+// Leftovers reports whether user already has a folder or a recycle bin in
+// the share (left by a deleted account with that name, or made over SMB):
+// a new account must not take them over without the admin saying so.
+func (s *Share) Leftovers(user string) (bool, error) {
+	own := Access{User: user}.ownRoot()
+	if own == "" {
+		return false, nil
+	}
+	for _, p := range []string{own, path.Join(Trash, own)} {
+		_, err := s.root.Lstat(p)
+		if err == nil {
+			return true, nil
+		}
+		if !errors.Is(err, fs.ErrNotExist) {
+			return false, mapErr(err)
+		}
+	}
+	return false, nil
+}
+
+// RetireUser moves a user's folder into Removed and their recycle bin to a
+// name no user has, so whoever is given the username later starts empty.
+// The folder is kept for the admins; the bin's items are still purged 30
+// days after they were deleted. It returns where each went ("" when there
+// was nothing to move).
+func (s *Share) RetireUser(user string, at time.Time) (folder, bin string, err error) {
+	own := Access{User: user}.ownRoot()
+	if own == "" {
+		return "", "", nil
+	}
+	stamp := own + " " + at.UTC().Format("20060102-150405")
+	move := func(from, to string) (string, error) {
+		if _, err := s.root.Lstat(from); errors.Is(err, fs.ErrNotExist) {
+			return "", nil
+		} else if err != nil {
+			return "", mapErr(err)
+		}
+		if err := s.root.MkdirAll(path.Dir(to), 0o775); err != nil {
+			return "", mapErr(err)
+		}
+		to = s.freeName(to)
+		if err := s.root.Rename(from, to); err != nil {
+			return "", mapErr(err)
+		}
+		return to, nil
+	}
+	if folder, err = move(own, path.Join(Removed, stamp)); err != nil {
+		return "", "", err
+	}
+	bin, err = move(path.Join(Trash, own), path.Join(Trash, stamp))
+	return folder, bin, err
 }
 
 // List returns the folder's entries, folders first, hiding dot files.

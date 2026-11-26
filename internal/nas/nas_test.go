@@ -301,3 +301,56 @@ func TestThumbPruneKeepsRecent(t *testing.T) {
 		t.Error("recent thumbnail removed")
 	}
 }
+
+// A deleted account's folder goes to the admins' Removed folder and its bin
+// out of the name's path: whoever gets the username next starts empty.
+func TestRetireUser(t *testing.T) {
+	s, dir := newShare(t)
+	write(t, dir, "ana/private.txt", "hello")
+	write(t, dir, ".lixeira/ana/ana/old.txt", "old")
+	write(t, dir, "Contas removidas/ana 20261126-150405/x", "an earlier one")
+	for _, tc := range []struct {
+		user string
+		want bool
+	}{{"ana", true}, {"bia", false}, {".lixeira", false}, {Shared, false}} {
+		if got, err := s.Leftovers(tc.user); err != nil || got != tc.want {
+			t.Errorf("Leftovers(%q) = %v %v, want %v", tc.user, got, err, tc.want)
+		}
+	}
+	at := time.Date(2026, 11, 26, 15, 4, 5, 0, time.UTC)
+	folder, bin, err := s.RetireUser("ana", at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if folder != "Contas removidas/ana 20261126-150405 (2)" || bin != ".lixeira/ana 20261126-150405" {
+		t.Fatalf("moved to %q and %q", folder, bin)
+	}
+	if left, _ := s.Leftovers("ana"); left {
+		t.Fatal("the name still has a folder or bin")
+	}
+	// The new "ana" sees nothing of it; admins do.
+	if _, _, err := s.OpenFile(ana, folder+"/private.txt"); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("new ana reads the old folder: %v", err)
+	}
+	if _, err := s.List(ana, bin); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("new ana lists the old bin: %v", err)
+	}
+	if err := s.Purge(ana, bin); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("new ana purges the old bin: %v", err)
+	}
+	if f, _, err := s.OpenFile(root, folder+"/private.txt"); err != nil {
+		t.Fatalf("admin cannot read the kept folder: %v", err)
+	} else {
+		f.Close()
+	}
+	if got, err := s.List(ana, ""); err != nil || len(got) != 3 { // ana (new, empty), Compartilhado, .lixeira
+		t.Fatalf("new ana's root = %v %v", got, err)
+	}
+	if got, _ := s.List(ana, "ana"); len(got) != 0 {
+		t.Fatalf("new ana's folder is not empty: %v", got)
+	}
+	// Nothing to move: no error, nothing moved.
+	if f, b, err := s.RetireUser("bia", at); err != nil || f != "" || b != "" {
+		t.Fatalf("retire without folders = %q %q %v", f, b, err)
+	}
+}

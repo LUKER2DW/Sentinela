@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, get } from "../lib/api";
 import { useToast } from "../lib/session";
 import { isPublicZone } from "../lib/access";
+import { nextCameraId } from "../lib/cameraAccess";
 import { Icon } from "./Icon";
 
 import { t } from "../lib/i18n";
@@ -78,6 +79,8 @@ interface SettingsInfo {
   pending: boolean;
   last: { at: string; state: "applying" | "applied" | "failed"; message: string } | null;
   host: boolean;
+  /** Ids of removed cameras: never given to a new one. */
+  retired_ids?: string[];
 }
 
 const vendorLabel: Record<string, string> = {
@@ -316,6 +319,7 @@ export function CamerasEditor() {
   });
   if (!draft) return <EditorUnavailable q={q} />;
   const known = new Set(q.data?.settings.cameras.map((c) => c.id));
+  const retired = new Set(q.data?.retired_ids ?? []);
   const setCam = (i: number, patch: Partial<SettingsCamera>) =>
     setDraft({ ...draft, cameras: draft.cameras.map((c, j) => (j === i ? { ...c, ...patch } : c)) });
   // ONVIF fills the stream paths of any camera: the largest picture is the
@@ -336,10 +340,11 @@ export function CamerasEditor() {
       },
     });
   };
+  // A removed camera's id is never given again: its recordings and the
+  // accounts that had it must not pass to the new camera.
   const add = () => {
-    let n = draft.cameras.length + 1;
-    while (draft.cameras.some((c) => c.id === `cam${n}`)) n++;
-    const c = blankCamera(n);
+    const id = nextCameraId(draft.cameras.length + 1, (id) => retired.has(id) || draft.cameras.some((c) => c.id === id));
+    const c = blankCamera(Number(id.slice(3)));
     setDraft({ ...draft, cameras: [...draft.cameras, c] });
     setOpen(c.id);
   };
@@ -364,7 +369,13 @@ export function CamerasEditor() {
                 <div className="settings-body">
                   <div className="settings-grid">
                     <TextField label={t("Name")} value={c.name} onChange={(v) => setCam(i, { name: v })} />
-                    <TextField label={t("Identifier")} value={c.id} onChange={(v) => setCam(i, { id: v.toLowerCase() })} hint={isNew ? t("Letters, numbers, - and _ (cannot be changed later).") : t("Cannot be changed.")} />
+                    <TextField label={t("Identifier")} value={c.id} onChange={(v) => setCam(i, { id: v.toLowerCase() })} hint={
+                        !isNew
+                          ? t("Cannot be changed.")
+                          : retired.has(c.id)
+                            ? t("This identifier belonged to a removed camera; pick another.")
+                            : t("Letters, numbers, - and _ (cannot be changed later).")
+                      } />
                     <TextField label={t("IP address")} value={c.host} onChange={(v) => setCam(i, { host: v.trim() })} placeholder="192.168.1.20" />
                     <label className="field">
                       <span>{t("Brand")}</span>
@@ -488,7 +499,7 @@ export function CamerasEditor() {
         <div className="dialog-backdrop" role="dialog" aria-modal="true" onClick={(e) => e.target === e.currentTarget && setRemove(null)}>
           <div className="dialog">
             <h2>{t("Remove the camera")}{" "}{remove}?</h2>
-            <p className="muted">{t("It stops recording and disappears from live view when you save. Recordings already made stay on disk until normal cleanup.")}</p>
+            <p className="muted">{t("It stops recording and disappears from live view when you save. Recordings already made stay on disk until normal cleanup. Its identifier is never given to another camera, and accounts limited to it lose it.")}</p>
             <div className="dialog-actions">
               <button className="btn ghost" onClick={() => setRemove(null)}>
                 {t("Cancel")}

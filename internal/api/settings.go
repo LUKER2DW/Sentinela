@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -241,14 +242,21 @@ func (s *Server) currentSettings() SettingsDoc {
 
 // getSettings: GET /api/settings (admin): the editable settings, whether
 // the host can apply them, and the last apply's result.
-func (s *Server) getSettings(w http.ResponseWriter, _ *http.Request) {
+// retired_ids are removed cameras' ids, which a new camera cannot take.
+func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 	_, pendingErr := os.Stat(filepath.Join(s.settingsDir(), "request"))
+	retired, err := s.retiredCameraIDs(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "database error")
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"settings": s.currentSettings(),
-		"vendors":  config.Vendors(),
-		"pending":  pendingErr == nil,
-		"last":     hostJSON(s.Cfg.ConfigApplyFile),
-		"host":     fileExists(s.Cfg.ConfigUnitsMarker) && s.ConfigPath != "",
+		"settings":    s.currentSettings(),
+		"vendors":     config.Vendors(),
+		"pending":     pendingErr == nil,
+		"last":        hostJSON(s.Cfg.ConfigApplyFile),
+		"host":        fileExists(s.Cfg.ConfigUnitsMarker) && s.ConfigPath != "",
+		"retired_ids": retired,
 	})
 }
 
@@ -263,8 +271,9 @@ func credEnv(id string) (string, string) {
 
 // buildCandidate merges doc into the current config.yaml text (other keys,
 // such as apps and remote.public, are kept) and returns the new YAML, the
-// credentials to add or change, and the parsed result for validation.
-func (s *Server) buildCandidate(doc SettingsDoc) ([]byte, map[string]string, error) {
+// credentials to add or change, and the parsed result for validation. A
+// new camera cannot take a removed camera's id (retired).
+func (s *Server) buildCandidate(doc SettingsDoc, retired []string) ([]byte, map[string]string, error) {
 	raw, err := os.ReadFile(s.ConfigPath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("read config: %w", err)
@@ -325,6 +334,9 @@ func (s *Server) buildCandidate(doc SettingsDoc) ([]byte, map[string]string, err
 			return nil, nil, fmt.Errorf("camera id %q is used twice", c.ID)
 		}
 		seen[c.ID] = true
+		if known[c.ID] == nil && slices.Contains(retired, c.ID) {
+			return nil, nil, fmt.Errorf("camera id %q belonged to a removed camera and is never given to another; pick a new one", c.ID)
+		}
 		userEnv, passEnv := credEnv(c.ID)
 		if old := known[c.ID]; old != nil {
 			userEnv, passEnv = old.UserEnv, old.PasswordEnv
@@ -387,7 +399,11 @@ func (s *Server) buildCandidate(doc SettingsDoc) ([]byte, map[string]string, err
 	}
 	out = append([]byte("# Sentinela settings. Edited from System in the dashboard (ADR-0024);\n"+
 		"# earlier versions are kept as config.yaml.bak-<time> next to this file.\n"), out...)
-	if _, err := config.Parse(out, func(k string) string { return env[k] }); err != nil {
+	cand, err := config.Parse(out, func(k string) string { return env[k] })
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := config.NewStreamClash(cand, s.Cfg); err != nil {
 		return nil, nil, err
 	}
 	return out, secrets, nil
@@ -412,7 +428,12 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, "other changes are being applied; wait a moment")
 		return
 	}
-	yml, secrets, err := s.buildCandidate(doc)
+	retired, err := s.retiredCameraIDs(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "database error")
+		return
+	}
+	yml, secrets, err := s.buildCandidate(doc, retired)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return

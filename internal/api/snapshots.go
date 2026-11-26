@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/LUKER2DW/sentinela/internal/config"
 	"github.com/LUKER2DW/sentinela/internal/store"
 	"github.com/LUKER2DW/sentinela/internal/sysinfo"
 )
@@ -126,7 +127,10 @@ func (s *Server) takeSnapshot(ctx context.Context, cameraID string, eventID int6
 
 // grabFrame asks go2rtc for one substream keyframe as JPEG.
 func (s *Server) grabFrame(ctx context.Context, cameraID string) ([]byte, error) {
-	u := s.go2rtc.String() + "/api/frame.jpeg?src=" + cameraID + "_sub"
+	if s.Cfg.Go2RTCStreamOff(cameraID + config.Go2RTCSubSuffix) {
+		return nil, errors.New("substream off: its go2rtc name clashes with another camera")
+	}
+	u := s.go2rtc.String() + "/api/frame.jpeg?src=" + cameraID + config.Go2RTCSubSuffix
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return nil, err

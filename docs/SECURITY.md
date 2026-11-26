@@ -30,15 +30,47 @@ are superseded where noted by ADR-0019 and ADR-0020.
    or calls the camera directly.
 3. go2rtc's API/restream are loopback-only. Stream tickets are random,
    single-use, 60-second, stored hashed, user/camera-bound, and require an
-   authenticated session when consumed. Loopback keeps the network out, but
-   every container uses the host network and shares that loopback, and go2rtc's
+   authenticated session when consumed. Talk needs an operator: only the
+   `<id>_talk` go2rtc stream reaches a camera's speaker, only operators get
+   a ticket for it, and watching streams carry no backchannel at all.
+   Loopback keeps the network out, but every container uses the host network and shares that loopback, and go2rtc's
    API has no credential of its own: a compromised detector (it decodes camera
    video) could talk to it. Giving the API a credential or a private network
    namespace is still open work. Requests to cameras (ONVIF) never follow
    HTTP redirects, so a device at a camera address cannot point them there.
    Live streams (`/stream/ws`, event and notification streams) re-check the
    session every 45 s and end when it is revoked or the account is
-   disabled; a narrowed camera list applies to open streams too.
+   disabled; a narrowed camera list applies to open streams too. WebRTC media does not end with its WebSocket in go2rtc, so
+   the API tags every stream it opens there and sweeps go2rtc's consumers:
+   one left by a revoked session, a disabled, demoted or deleted account or
+   a camera taken away is cut. go2rtc 1.9 cannot drop one consumer or one
+   stream's consumers (`DELETE /api/streams` leaves them running), so a cut
+   restarts go2rtc: every live view and talk reconnects, and the detector's
+   restream and event snapshots pause for a few seconds (detection is blind
+   meanwhile). Recording does not use go2rtc. Cuts are rationed: one cut
+   takes every stale consumer found, cuts are at least 2 minutes apart, and
+   each is charged to the account whose stream it cut (an admin's change to
+   the account it changed). An account's first cut in an hour is free;
+   each further one refuses it new stream tickets for 10 minutes, doubling
+   up to a day, with a `live.cut` audit row naming it (in memory; a quiet
+   day after the cool-down clears it). The web client closes its WebRTC
+   media with its WebSocket and never causes a cut. An admin change, a
+   revoked session or a sign-out sweeps at once and the media stops about
+   10 s later (or at the next cut slot); otherwise (an expired session)
+   within 45 s more.
+   A camera id is never given to a second camera (grants, recordings and
+   events name only the id): removing a camera retires its id, drops it
+   from every account's camera list (an account limited to that camera
+   alone keeps it and sees none of the others, never all) and from its
+   per-camera settings; its recordings and events stay under the retired id
+   until retention (`default_retention_days`, else disk pressure). The
+   dashboard, the wizard and `scripts/add-camera.sh` (fail closed, through
+   `sentinela check-camera-id`) refuse a retired id. If a hand edit of
+   `config.yaml` brings one back, it is a new camera: at the API's start the
+   old camera's recordings, events and remaining grants move to an archive
+   id (`<id>~<retired at>`, never valid in a configuration) and its
+   settings go, so nothing of the old camera attaches to it. Recording of
+   every camera goes on throughout.
 4. Passwords use argon2id (64 MiB, 3 iterations, one lane). Policy is at
    least 10 characters mixing two kinds, or a 16-character passphrase;
    common passwords are rejected. Remembered browser sessions last 30 days
@@ -237,7 +269,11 @@ are superseded where noted by ADR-0019 and ADR-0020.
     Release 1.11 omitted its pin; recover with a manual same-key 1.12 install,
     without removing the existing app.
 16. Cloud viewers are blocked at the API. Operators use their own folder
-    and the shared folder (*Shared*); admins can access the share.
+    and the shared folder (*Shared*); admins can access the share. Folders
+    are keyed by username, so deleting an account moves its folder to
+    *Contas removidas* (admins only) and its recycle bin out of the name
+    (still purged after 30 days); a new account never takes over a folder
+    or bin already under its name unless the admin chooses to give it.
     Top-level folders are protected from API rename/move/delete. Explicit recycle-bin purge is
     permanent. Profile uploads accept bounded JPEG/PNG/WebP data and are
     resized on the client; they are not a new server image-processing pipeline.

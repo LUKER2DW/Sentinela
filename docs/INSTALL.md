@@ -53,6 +53,8 @@ an old CPU without HEVC hardware decode is enough.
 Size `/data` for your cameras: one stream at ~2 Mbit/s writes about
 20 GB per day. By default recordings fill the disk and the oldest are
 overwritten (`max_disk_percent`); `retention_days` caps the age instead.
+Protected clips are kept from that, up to 10 % of the disk in total and
+5 % per camera (`max_protected_percent`, `max_protected_camera_percent`).
 
 **Network.** Wired Ethernet for the server; cameras wired or on good
 Wi-Fi. A DHCP reservation (or static address) for the server and each
@@ -172,7 +174,9 @@ from releases or are built on a development PC (section 11).
    fills and playback works.
 5. Create the other people's accounts in **System → Users** (*System →
    Users*, desktop): *viewer* (cameras, recordings and events),
-   *operator* (also Cloud and camera control) or *admin*.
+   *operator* (also Cloud and camera control: move, go to saved positions,
+   light, day/night, talk) or *admin* (also saves and deletes saved
+   positions, and everything else).
 
 If a password is lost:
 
@@ -481,12 +485,17 @@ sudo VENDOR=generic RTSP_MAIN=/stream1 RTSP_SUB=/stream2 \
   /opt/sentinela/scripts/add-camera.sh yard 192.168.1.31 "Yard"
 ```
 
-The password is asked silently and stored only in `secrets.env`. The new
-config is validated before it replaces the old one, go2rtc's stream list is
+The id must be new: one a removed camera had is refused (its recordings,
+events and account grants stay under it), so pick another (`cam3`, …);
+the stack must be running for that check. The password is asked silently
+and stored only in `secrets.env`. The new config is validated before it
+replaces the old one, go2rtc's stream list is
 regenerated from `config.yaml` (`scripts/gen-go2rtc-cameras.sh`) and
 recording pauses for a few seconds. You can also edit
 `/etc/sentinela/config.yaml` by hand (see `deploy/config.example.yaml`) and
-run `./scripts/deploy.sh`, which regenerates the stream list.
+run `./scripts/deploy.sh`, which regenerates the stream list. A removed
+camera's id written back by hand makes a new camera: the old one's
+recordings, events and grants are archived away from it, not reattached.
 
 ---
 

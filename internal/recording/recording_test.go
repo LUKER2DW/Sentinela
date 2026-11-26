@@ -3,6 +3,7 @@ package recording
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -363,5 +364,207 @@ func TestVolumeReadyNeedsMarker(t *testing.T) {
 	}
 	if err := (&Recorder{}).volumeReady(); err != nil {
 		t.Fatalf("check off: %v", err)
+	}
+}
+
+// Disk pressure frees unprotected recordings first, whatever camera they
+// belong to; protected ones go only when nothing else is left, so a full
+// disk never stops recording.
+func TestDiskPressureProtectedLast(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	root := filepath.Join(dir, "recordings")
+	st, err := store.Open(ctx, filepath.Join(dir, "db", "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	start := time.Now().UTC().Truncate(time.Hour).Add(-3 * time.Hour)
+	var protected []string
+	for i := 0; i < 6; i++ {
+		cam := "cam1" // protected, and older
+		if i >= 3 {
+			cam = "cam2"
+		}
+		s := start.Add(time.Duration(i) * 5 * time.Minute)
+		rel := cam + "/" + s.Format("2006/01/02/15-04-05") + ".mp4"
+		writeSeg(t, root, rel, 4096, s.Add(5*time.Minute))
+		if err := st.UpsertSegment(ctx, store.Segment{CameraID: cam, Start: s, End: s.Add(5 * time.Minute), Path: rel, Bytes: 4096}); err != nil {
+			t.Fatal(err)
+		}
+		if cam == "cam1" {
+			segs, _ := st.SegmentsBetween(ctx, cam, s, s.Add(time.Second))
+			if err := st.SetSegmentProtected(ctx, segs[0].ID, true); err != nil {
+				t.Fatal(err)
+			}
+			protected = append(protected, rel)
+		}
+	}
+	ret := NewRetention(root, st, testCfg(t), quiet) // limit 90 %
+	full := func() {
+		pcts := []float64{96, 80}
+		ret.Disk = func(string) (sysinfo.Disk, error) {
+			p := pcts[0]
+			if len(pcts) > 1 {
+				pcts = pcts[1:]
+			}
+			return sysinfo.Disk{Total: 100, Pct: p}, nil
+		}
+	}
+	full()
+	if n, err := ret.Enforce(ctx); err != nil || n != 3 {
+		t.Fatalf("first pass deleted %d err=%v, want the 3 unprotected", n, err)
+	}
+	for _, rel := range protected {
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel))); err != nil {
+			t.Fatalf("protected %s deleted while unprotected footage was left: %v", rel, err)
+		}
+	}
+	full()
+	if n, err := ret.Enforce(ctx); err != nil || n != 3 {
+		t.Fatalf("only protected left on a full disk: deleted %d err=%v, want 3", n, err)
+	}
+	if left, _ := st.OldestProtectedSegments(ctx, 10); len(left) != 0 {
+		t.Fatalf("%d protected segments kept on a full disk", len(left))
+	}
+	// Not silently: an audit row names how many and whose (the API turns
+	// it into a notice to the admins).
+	rows, _ := st.AuditAfter(ctx, store.AuditProtectValve, 0, 10)
+	if len(rows) != 1 || rows[0].Target != "cam1" || !strings.HasPrefix(rows[0].Detail, "3 protected clips deleted") {
+		t.Fatalf("valve audit rows: %+v", rows)
+	}
+}
+
+// A removed camera's recordings (left under its retired id) age out with
+// default_retention_days; with 0 they wait for disk pressure.
+func TestRemovedCameraAgesOutWithDefault(t *testing.T) {
+	ctx := context.Background()
+	for _, tc := range []struct {
+		days int
+		left int
+	}{{0, 2}, {10, 1}} {
+		dir := t.TempDir()
+		root := filepath.Join(dir, "recordings")
+		st, err := store.Open(ctx, filepath.Join(dir, "db", "t.db"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		cfg := testCfg(t)
+		cfg.Recording.DefaultRetentionDays = tc.days
+		for i, age := range []time.Duration{20 * 24 * time.Hour, time.Hour} {
+			s := time.Now().UTC().Add(-age)
+			rel := fmt.Sprintf("gone/%d.mp4", i)
+			writeSeg(t, root, rel, 10, s)
+			if err := st.UpsertSegment(ctx, store.Segment{CameraID: "gone", Start: s, End: s.Add(time.Minute), Path: rel, Bytes: 10}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		ret := NewRetention(root, st, cfg, quiet)
+		ret.Disk = func(string) (sysinfo.Disk, error) { return sysinfo.Disk{Total: 100, Pct: 10}, nil }
+		if _, err := ret.Enforce(ctx); err != nil {
+			t.Fatal(err)
+		}
+		left, _ := st.SegmentsBetween(ctx, "gone", time.Now().Add(-30*24*time.Hour), time.Now())
+		if len(left) != tc.left {
+			t.Errorf("default %d days: %d segments left, want %d", tc.days, len(left), tc.left)
+		}
+		st.Close()
+	}
+}
+
+// A removed camera's protected clips cannot be unprotected by anyone: they
+// age out after the longer of the alert and default tiers, and are kept
+// like its alert clips when alerts have no age limit. A configured
+// camera's protected clips never age out.
+func TestRemovedCameraProtectedAgesOut(t *testing.T) {
+	ctx := context.Background()
+	for _, tc := range []struct {
+		alert, def int
+		goneLeft   int
+	}{
+		{30, 10, 2}, // 20 and 1 days old: both within 30 days
+		{15, 10, 1}, // the 20-day-old one goes
+		{0, 10, 2},  // alerts kept without an age limit: so are these
+	} {
+		dir := t.TempDir()
+		root := filepath.Join(dir, "recordings")
+		st, err := store.Open(ctx, filepath.Join(dir, "db", "t.db"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		cfg := testCfg(t)
+		cfg.Recording.AlertRetentionDays, cfg.Recording.DefaultRetentionDays = tc.alert, tc.def
+		cfg.Cameras[0].RetentionDays = 7
+		for _, cam := range []string{"gone", "cam1"} {
+			for i, age := range []time.Duration{20 * 24 * time.Hour, 24 * time.Hour} {
+				s := time.Now().UTC().Add(-age)
+				rel := fmt.Sprintf("%s/%d.mp4", cam, i)
+				writeSeg(t, root, rel, 10, s)
+				if err := st.UpsertSegment(ctx, store.Segment{CameraID: cam, Start: s, End: s.Add(time.Minute), Path: rel, Bytes: 10}); err != nil {
+					t.Fatal(err)
+				}
+				segs, _ := st.SegmentsBetween(ctx, cam, s, s.Add(time.Second))
+				if err := st.SetSegmentProtected(ctx, segs[0].ID, true); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		ret := NewRetention(root, st, cfg, quiet)
+		ret.Disk = func(string) (sysinfo.Disk, error) { return sysinfo.Disk{Total: 100, Pct: 10}, nil }
+		if _, err := ret.Enforce(ctx); err != nil {
+			t.Fatal(err)
+		}
+		gone, _ := st.SegmentsBetween(ctx, "gone", time.Now().Add(-30*24*time.Hour), time.Now())
+		kept, _ := st.SegmentsBetween(ctx, "cam1", time.Now().Add(-30*24*time.Hour), time.Now())
+		if len(gone) != tc.goneLeft || len(kept) != 2 {
+			t.Errorf("alert %d, default %d: removed camera kept %d (want %d), configured kept %d (want 2)", tc.alert, tc.def, len(gone), tc.goneLeft, len(kept))
+		}
+		st.Close()
+	}
+}
+
+// A removed camera's id configured again: the indexer walks the same
+// folder, and the old camera's archived recordings stay archived (not
+// handed to the new camera, nor probed again on every scan).
+func TestIndexerKeepsArchivedSegments(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	root := filepath.Join(dir, "recordings")
+	st, err := store.Open(ctx, filepath.Join(dir, "db", "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	old := time.Now().UTC().Add(-48 * time.Hour).Truncate(time.Second)
+	rel := "cam2/" + old.Format("2006/01/02/15-04-05") + ".mp4"
+	writeSeg(t, root, rel, 4096, old.Add(5*time.Minute))
+	ix := NewIndexer(root, st, quiet)
+	probes := 0
+	ix.Probe = func(context.Context, string) (time.Duration, error) { probes++; return 5 * time.Minute, nil }
+	if err := ix.Scan(ctx); err != nil || probes != 1 {
+		t.Fatalf("first scan: probes %d err %v", probes, err)
+	}
+	for _, ids := range [][]string{{"cam2"}, {}, {"cam2"}} { // added, removed, configured again
+		if _, _, _, err := st.SyncCameraIDs(ctx, ids, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := ix.Scan(ctx); err != nil || probes != 1 {
+		t.Fatalf("scan after revival: probes %d err %v", probes, err)
+	}
+	if segs, _ := st.SegmentsBetween(ctx, "cam2", old.Add(-time.Hour), time.Now()); len(segs) != 0 {
+		t.Fatalf("the old camera's recording is on the new camera: %+v", segs)
+	}
+	ids, _ := st.SegmentCameraIDs(ctx)
+	if len(ids) != 1 || !strings.HasPrefix(ids[0], "cam2"+store.ArchiveSep) {
+		t.Fatalf("segment camera ids %v", ids)
+	}
+	// Its file deleted by hand: the archived row goes with it.
+	_ = os.Remove(filepath.Join(root, filepath.FromSlash(rel)))
+	if err := ix.Scan(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if ids, _ := st.SegmentCameraIDs(ctx); len(ids) != 0 {
+		t.Fatalf("row of a deleted archived file kept: %v", ids)
 	}
 }

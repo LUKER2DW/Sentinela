@@ -12,6 +12,8 @@
 # RTSP_PORT (554), DVRIP_PORT (34567), ONVIF_PORT (8899 for xmeye, else 80),
 # RETENTION_DAYS (0 = until the disk is full), INVERT_PAN_TILT (false).
 #
+# The id must be new: one a removed camera had is refused (checked by the
+# running API container, so the stack must be up).
 # The password is read silently and written only to /etc/sentinela/secrets.env
 # (0600). The new config (credentials included) is validated with
 # `sentinela check-config` before it replaces the old one (backups:
@@ -25,7 +27,7 @@ say()  { printf '\n\033[1;33m==> %s\033[0m\n' "$*"; }
 warn() { printf '\033[1;31m!! %s\033[0m\n' "$*" >&2; }
 
 [[ $EUID -eq 0 ]] || { warn "run with sudo"; exit 1; }
-[[ $# -ge 2 ]] || { sed -n '2,19p' "$0"; exit 1; }
+[[ $# -ge 2 ]] || { sed -n '2,21p' "$0"; exit 1; }
 ID="$1" HOST="$2" NAME="${3:-$1}"
 VENDOR="${VENDOR:-xmeye}" CHANNEL="${CHANNEL:-1}" RTSP_MAIN="${RTSP_MAIN:-}" RTSP_SUB="${RTSP_SUB:-}"
 case "$VENDOR" in xmeye) DEF_ONVIF=8899 ;; reolink) DEF_ONVIF=8000 ;; tapo) DEF_ONVIF=2020 ;; *) DEF_ONVIF=80 ;; esac
@@ -41,6 +43,13 @@ for p in "$CHANNEL" "$RTSP_PORT" "$DVRIP_PORT" "$ONVIF_PORT" "$RETENTION_DAYS"; 
 [[ "$INVERT_PAN_TILT" == true || "$INVERT_PAN_TILT" == false ]] || { warn "INVERT_PAN_TILT: true or false"; exit 1; }
 if grep -qE "^[[:space:]]*-[[:space:]]*id:[[:space:]]*${ID}([[:space:]]|$)" "$ETC/config.yaml"; then warn "camera id $ID already exists"; exit 1; fi
 if grep -qE "^[[:space:]]*host:[[:space:]]*${HOST//./\\.}([[:space:]]|$)" "$ETC/config.yaml"; then warn "a camera at $HOST already exists"; exit 1; fi
+# A removed camera's id is never given to another camera (grants,
+# recordings and events name only the id): the running API container checks
+# the database. If it cannot tell, nothing is added.
+if ! OUT="$(cd "$DIR/deploy" && docker compose exec -T sentinela /usr/local/bin/sentinela check-camera-id "$ID" 2>&1)"; then
+  printf '%s\n' "$OUT" >&2
+  warn "camera id $ID belonged to a removed camera, or could not be checked (is the stack running?): nothing was changed"; exit 1
+fi
 
 ENV="$(printf '%s' "${ID^^}" | tr -- '-' '_')"
 read -r -p "Username of $HOST [admin]: " CAM_USER; CAM_USER="${CAM_USER:-admin}"

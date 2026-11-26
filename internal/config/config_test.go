@@ -1,7 +1,9 @@
 package config
 
 import (
+	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -58,6 +60,106 @@ func TestVolumeMarker(t *testing.T) {
 		if err := c.validate(); err == nil || !strings.Contains(err.Error(), "volume_marker") {
 			t.Errorf("%s: %v", m, err)
 		}
+	}
+}
+
+func TestProtectedCaps(t *testing.T) {
+	cases := []struct {
+		yml         string
+		total, cam  int
+		wantInvalid bool
+	}{
+		{"", 10, 5, false},
+		{"recording: {max_protected_percent: 3}", 3, 3, false},
+		{"recording: {max_protected_percent: 20, max_protected_camera_percent: 20}", 20, 20, false},
+		{"recording: {max_protected_percent: 41}", 0, 0, true},
+		{"recording: {max_protected_percent: 10, max_protected_camera_percent: 11}", 0, 0, true},
+		{"recording: {max_protected_percent: -1}", 0, 0, true},
+	}
+	for _, tc := range cases {
+		c, err := Parse([]byte(tc.yml+"\n"), env(nil))
+		if tc.wantInvalid {
+			if err == nil {
+				t.Errorf("%q: accepted", tc.yml)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("%q: %v", tc.yml, err)
+			continue
+		}
+		if c.Recording.MaxProtectedPercent != tc.total || c.Recording.MaxProtectedCameraPercent != tc.cam {
+			t.Errorf("%q: caps %d/%d, want %d/%d", tc.yml, c.Recording.MaxProtectedPercent, c.Recording.MaxProtectedCameraPercent, tc.total, tc.cam)
+		}
+	}
+}
+
+// A camera id that is another camera's "<id>_sub" or "<id>_talk" would share
+// that go2rtc stream (its viewers could get the other's picture or speaker).
+// An installed config with such ids still loads (recording must go on): the
+// shared name is left out of go2rtc and only a new camera is refused.
+func TestCameraIDsClashingWithStreams(t *testing.T) {
+	cam := func(id string, talk bool) string {
+		return fmt.Sprintf("  - {id: %s, host: 192.168.1.20, user_env: U, password_env: P, features: {talk: %v}}\n", id, talk)
+	}
+	parse := func(cams ...string) *Config {
+		t.Helper()
+		c, err := Parse([]byte("cameras:\n"+strings.Join(cams, "")), env(map[string]string{"U": "admin", "P": "Pa@ss"}))
+		if err != nil {
+			t.Fatalf("an existing clash must not stop the config loading: %v", err)
+		}
+		return c
+	}
+	cases := []struct {
+		cams  []string
+		clash []string
+	}{
+		{[]string{cam("cam1", true), cam("cam2", true)}, nil},
+		{[]string{cam("cam1_talk", true)}, nil}, // no camera "cam1"
+		{[]string{cam("cam1", true), cam("cam1_talk", false)}, []string{"cam1_talk"}},
+		{[]string{cam("cam1", false), cam("cam1_talk", false)}, nil}, // cam1 has no talk stream
+		{[]string{cam("cam1_sub", false), cam("cam1", false)}, []string{"cam1_sub"}},
+		{[]string{cam("front", false), cam("front-sub", false)}, nil},
+	}
+	for _, tc := range cases {
+		c := parse(tc.cams...)
+		var got []string
+		for name := range c.StreamClashes() {
+			got = append(got, name)
+		}
+		slices.Sort(got)
+		if !slices.Equal(got, tc.clash) {
+			t.Errorf("%v: clashes %v, want %v", tc.cams, got, tc.clash)
+		}
+		if err := NewStreamClash(c, nil); (err == nil) != (len(tc.clash) == 0) {
+			t.Errorf("%v: adding them = %v", tc.cams, err)
+		}
+	}
+
+	// x and x_sub: the shared name goes from go2rtc, the rest stays; x_sub's
+	// talk stream (picture from its clashing main stream) goes too.
+	c := parse(cam("x", false), cam("x_sub", true))
+	var b strings.Builder
+	if err := c.WriteGo2RTC(&b); err != nil {
+		t.Fatal(err)
+	}
+	out := b.String()
+	for _, name := range []string{"x", "x_sub_sub"} {
+		if !strings.Contains(out, "\n  "+name+":\n") {
+			t.Errorf("stream %s missing:\n%s", name, out)
+		}
+	}
+	for _, name := range []string{"x_sub", "x_sub_talk"} {
+		if strings.Contains(out, "\n  "+name+":") || !c.Go2RTCStreamOff(name) {
+			t.Errorf("stream %s should be left out:\n%s", name, out)
+		}
+	}
+	// Installed already: only warned about. Added now: refused.
+	if err := NewStreamClash(c, c); err != nil {
+		t.Errorf("existing clash refused: %v", err)
+	}
+	if err := NewStreamClash(c, parse(cam("x", false))); err == nil || !strings.Contains(err.Error(), `"x_sub"`) {
+		t.Errorf("new clashing camera: %v", err)
 	}
 }
 

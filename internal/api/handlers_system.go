@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/LUKER2DW/sentinela/internal/config"
@@ -113,8 +114,13 @@ func (h *Hub) unsubscribe(c chan hubMsg) {
 
 // streamRecheckEvery is how often a long-lived stream (live events, live
 // video) re-reads its session: a signed-out, revoked, disabled or narrowed
-// account stops receiving within this time. A variable so tests can shorten it.
-var streamRecheckEvery = 45 * time.Second
+// account stops receiving within this time. Atomic so tests can shorten it
+// while streams of an earlier test still read it.
+var streamRecheck atomic.Int64
+
+func init() { streamRecheck.Store(int64(45 * time.Second)) }
+
+func streamRecheckEvery() time.Duration { return time.Duration(streamRecheck.Load()) }
 
 // reloadUser re-reads the session behind a long-lived request. It returns the
 // current user, so changes to the cameras they may see apply to a stream that is
@@ -148,7 +154,7 @@ func (s *Server) eventStream(w http.ResponseWriter, r *http.Request) {
 	user := userFrom(r)
 	ping := time.NewTicker(25 * time.Second)
 	defer ping.Stop()
-	recheck := time.NewTicker(streamRecheckEvery)
+	recheck := time.NewTicker(streamRecheckEvery())
 	defer recheck.Stop()
 	for {
 		select {

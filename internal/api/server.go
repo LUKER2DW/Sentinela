@@ -20,6 +20,7 @@ import (
 	"github.com/LUKER2DW/sentinela/internal/nas"
 	"github.com/LUKER2DW/sentinela/internal/push"
 	"github.com/LUKER2DW/sentinela/internal/store"
+	"github.com/LUKER2DW/sentinela/internal/sysinfo"
 )
 
 // Version is set by main.
@@ -62,6 +63,9 @@ type Server struct {
 	tourGoto    tourGoto   // tests replace the camera move
 	evWatch     eventWatch // ONVIF event subscription health per camera
 	hub         *Hub
+	live        *liveMedia // live streams and the go2rtc consumers they opened
+	idsMu       sync.Mutex // camera ids recorded and retired (SyncCameraIDs)
+	idsSynced   bool
 	control     camReads[*dvrip.State] // /control per camera
 	clock       camReads[clockReading] // /clock per camera
 
@@ -71,8 +75,9 @@ type Server struct {
 	tl        tlJobs        // timelapses being written to disk
 	det       detectorState // object detector sidecar (ADR-0016)
 	frames    frameCache
-	segs      segCache   // fragment indexes and timeline previews
-	wizardMu  sync.Mutex // one camera search/test at a time
+	segs      segCache                           // fragment indexes and timeline previews
+	diskUsage func(string) (sysinfo.Disk, error) // tests replace it
+	wizardMu  sync.Mutex                         // one camera search/test at a time
 	push      notifier
 
 	// Self-hosted services: proxy to the apps agent (ADR-0021).
@@ -93,8 +98,8 @@ func New(cfg *config.Config, st *store.Store, web fs.FS, log *slog.Logger) (*Ser
 	s := &Server{Cfg: cfg, Store: st, Log: log, Web: web, Started: time.Now(), FFmpeg: "ffmpeg", lanIP: lanIPv4, instance: newInstanceID(), mirrorKick: make(chan struct{}, 1),
 		tickets: auth.NewTickets(60 * time.Second), loginRL: auth.NewLimiter(5, time.Minute),
 		homeLim: newLoginLimits(false), pubLim: newLoginLimits(true), codes: auth.NewCodeGuard(),
-		go2rtc: g, ctrl: map[string]*dvrip.Controller{}, ptzDrv: map[string]ptzDriver{}, onvifPTZ: map[string]*onvif.PTZ{}, hub: NewHub(),
-		tlSem: make(chan struct{}, 1), exportSem: make(chan struct{}, 2)}
+		go2rtc: g, ctrl: map[string]*dvrip.Controller{}, ptzDrv: map[string]ptzDriver{}, onvifPTZ: map[string]*onvif.PTZ{}, hub: NewHub(), live: newLiveMedia(),
+		tlSem: make(chan struct{}, 1), exportSem: make(chan struct{}, 2), diskUsage: sysinfo.DiskUsage}
 	s.control.log, s.clock.log, s.frames.log = log, log, log
 	for i := range cfg.Cameras {
 		cam := &cfg.Cameras[i]
