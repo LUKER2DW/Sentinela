@@ -45,11 +45,40 @@ are superseded where noted by ADR-0019 and ADR-0020.
    for HTTPS. Unsafe requests require CSRF and a valid Origin. Forwarded
    headers are trusted only from loopback. Limits include 5 requests/minute
    per IP, 10 failed outside logins/account/source/hour (300 from all sources
-   together) and 20 failed sign-ins or invite codes/IP/hour (IPv6 clients count per /64). The limiters track at
-   most 20 000 keys and refuse new ones when full; at most 2 password hashes
-   run at once with a short, bounded queue behind them, and a busy server
-   answers 503 instead of piling up work. Audit entries are length-capped and
-   pruned after 180 days. Setup works only before the first user exists.
+   together; an account counts by user id, so its username and e-mail share
+   them) and 20 failed sign-ins or invite codes/IP/hour (IPv6 clients count
+   per /64). The all-sources count is a trade-off: a stranger who knows a
+   username can spend those 300 (10 from each of 30 addresses) and keep that
+   account out of outside sign-in for the hour, again every hour; home and
+   tailnet sign-in and existing outside sessions (the app) keep working. In public zones an IPv4 /24 or IPv6 /48 also shares 30
+   attempts/minute and 100 failures/hour. Everyone behind one carrier-grade
+   NAT or mobile network shares that budget, so a guesser there can keep the
+   whole network out of outside sign-in for as long as they keep at it: any
+   request spends the minute budget, and 100 failures (bad invite codes cost
+   no hash) close it for the hour (home and tailnet sign-in are not
+   affected). A tunnel or reverse proxy that does not send
+   `X-Forwarded-For` makes every outside client look like 127.0.0.1: they all
+   share one address and network budget, so one stranger's wrong passwords
+   lock everyone out of the public door for the hour. One that passes on the
+   client's own `X-Forwarded-For` lets each client choose the address the
+   limits count, so it can mint fresh keys or spend someone else's budget:
+   the proxy must set the header itself (INSTALL.md §8.3). Home
+   (LAN/tailnet) and public zones keep separate tables; each tracks at most
+   20 000 keys (about 3 MB; login names are hashed, so long names cost no
+   more) and never forgets a live counter; with every table a stranger can
+   fill full, about 23 MB. A key that a full table cannot track is not
+   counted and never locked, so filling a table locks nobody out; the network
+   and account tables behind it still count (accounts by user id, which
+   strangers cannot fill). Residual: while the tables of names that match no
+   account are full (20 000 failed sign-ins with distinct names within the
+   hour, each a hash), a made-up name no longer locks, so 11 wrong passwords
+   from one address (or 301 from many) can tell it from a real account. Names
+   over 254 bytes are refused without a hash and do not count as failures.
+   At most 2 password hashes run at once; public-zone work uses at most one of
+   them with its own short queue, so the internet cannot starve home sign-ins,
+   and a busy server answers 503 instead of piling up work. Audit entries are
+   length-capped and pruned after 180 days. Setup works only before the first
+   user exists.
 5. Camera writes are allow-listed and audited. Persistent writes use
    read/modify/read-back/restore. User access changes and file API writes
    are audited. Do not put secret token values in audit targets or details.
@@ -148,11 +177,15 @@ are superseded where noted by ADR-0019 and ADR-0020.
     - Access-granting account administration and ordinary TOTP management
       require LAN/tailnet; invited first access can enroll TOTP through its
       one-time invite flow.
-    - A session is tied to the host it was created on (`sessions.host`); in a
-      public zone a token presented under another host is refused, so a
-      cookie that a service on another port of the same address (browsers
-      share cookies across ports) or the LAN panel received cannot be replayed
-      at the public address. Camera probes (`/api/cameras/test`, `discover`)
+    - A session records the zone of the listener it was created on
+      (`sessions.zone`, decided by the server) and its host (`sessions.host`).
+      A public listener accepts only sessions created on that same zone and
+      host, so a LAN-panel or tailnet cookie cannot be replayed from the
+      internet whatever Host header is sent; sessions from before this check
+      work only at home. No binding stops a cookie made at the public address
+      that leaks to a service on another port of that address (browsers share
+      cookies across ports): keep *Internet* services (ADR-0021) on another
+      host name. Camera probes (`/api/cameras/test`, `discover`)
       and the service file/secret/folder reads are LAN/tailnet only; from the
       internet the Services page shows status and logs and starts, stops,
       restarts or redeploys. Version strings are not sent to the internet.
@@ -162,6 +195,13 @@ are superseded where noted by ADR-0019 and ADR-0020.
       read and 2 min write deadline, and the listeners facing the internet
       cap open connections (2048 total, 64 per source).
     - TOTP is RFC 6238 with single-use steps, and outside login is audited.
+      Five wrong codes in a row lock an account's code (by user id, any name
+      or address) for 1 minute, doubling per further wrong code up to an hour
+      (about 24 codes a day). Home and public zones count apart, and a good
+      code at home clears the outside lock. Locks are always audited
+      (`login.code_locked`, in the activity log) and alert the account and
+      every admin, whatever their notice choices (at most daily). The count
+      is in memory; a restart, or a day without wrong codes, clears it.
     - The household currently uses a self-signed IP certificate because
       normal ACME challenge ports are unavailable. Do not disable TLS
       checks: the Android app accepts only normal system trust or the exact

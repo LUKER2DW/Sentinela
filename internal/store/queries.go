@@ -289,13 +289,17 @@ type Session struct {
 	// session made before 0012. Public zones accept the session on that
 	// Host only.
 	Host string
+	// Zone is the access zone of the listener the session was created on
+	// (decided by the server); '' for a session made before 0013. Public
+	// zones accept only sessions created on that same zone.
+	Zone string
 }
 
 // CreateSession stores a session keyed by the token hash, bound to host (the
-// Host it was created on).
-func (s *Store) CreateSession(ctx context.Context, idHash []byte, userID int64, csrf string, expires time.Time, ua string, mfa, remember bool, host string) error {
-	_, err := s.db.ExecContext(ctx, `INSERT INTO sessions(id_hash,user_id,csrf,created_at,expires_at,user_agent,mfa,remember,host) VALUES(?,?,?,?,?,?,?,?,?)`,
-		idHash, userID, csrf, Now(), FormatTime(expires), ua, mfa, remember, host)
+// Host it was created on) and zone (the listener's access zone).
+func (s *Store) CreateSession(ctx context.Context, idHash []byte, userID int64, csrf string, expires time.Time, ua string, mfa, remember bool, host, zone string) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO sessions(id_hash,user_id,csrf,created_at,expires_at,user_agent,mfa,remember,host,zone) VALUES(?,?,?,?,?,?,?,?,?,?)`,
+		idHash, userID, csrf, Now(), FormatTime(expires), ua, mfa, remember, host, zone)
 	return err
 }
 
@@ -303,9 +307,9 @@ func (s *Store) CreateSession(ctx context.Context, idHash []byte, userID int64, 
 func (s *Store) SessionByHash(ctx context.Context, idHash []byte) (*Session, *User, error) {
 	var sess Session
 	var exp string
-	err := s.db.QueryRowContext(ctx, `SELECT s.id_hash,s.user_id,s.csrf,s.expires_at,s.mfa,s.remember,s.host
+	err := s.db.QueryRowContext(ctx, `SELECT s.id_hash,s.user_id,s.csrf,s.expires_at,s.mfa,s.remember,s.host,s.zone
 		FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.id_hash=? AND s.expires_at>? AND u.disabled=0 AND u.pw_hash<>''`, idHash, Now()).
-		Scan(&sess.IDHash, &sess.UserID, &sess.CSRF, &exp, &sess.MFA, &sess.Remember, &sess.Host)
+		Scan(&sess.IDHash, &sess.UserID, &sess.CSRF, &exp, &sess.MFA, &sess.Remember, &sess.Host, &sess.Zone)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil, ErrNotFound
 	}

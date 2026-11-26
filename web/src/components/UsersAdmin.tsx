@@ -34,6 +34,7 @@ interface UserDetail {
 
 const actionLabel: Record<string, string> = {
   login: t("Signed in"),
+  "login.code_locked": t("Two-step verification locked"),
   setup: t("Initial setup"),
   "user.create": t("Created user"),
   "user.delete": t("Removed user"),

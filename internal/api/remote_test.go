@@ -44,6 +44,53 @@ func TestOutsideLoginNoticeRequiresOptIn(t *testing.T) {
 	}
 }
 
+// A code lock means someone else may hold the password, so its alert does
+// not wait for the login-notice opt-in (off by default): it reaches the
+// account and every active admin, and no one else.
+func TestCodeLockAlertNeedsNoOptIn(t *testing.T) {
+	_, srv := newTestServer(t)
+	ctx := context.Background()
+	admin, err := srv.Store.CreateFirstUser(ctx, "admin", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := map[string]int64{"admin": admin}
+	for _, u := range []struct{ name, role string }{
+		{"ana", auth.RoleViewer}, {"other", auth.RoleViewer}, {"old-admin", auth.RoleAdmin},
+	} {
+		if ids[u.name], err = srv.Store.CreateUser(ctx, u.name, "hash", u.role); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := srv.Store.SetUserDisabled(ctx, ids["old-admin"], true); err != nil {
+		t.Fatal(err)
+	}
+	streams := map[string]chan []byte{}
+	for name, id := range ids {
+		streams[name] = srv.push.subscribe(id)
+		defer srv.push.unsubscribe(streams[name])
+	}
+	ana, err := srv.Store.UserByID(ctx, ids["ana"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.alertCodeLocked(ana, "203.0.113.5", ZoneProxy, auth.CodeLockAfter)
+	for name, want := range map[string]bool{"ana": true, "admin": true, "other": false, "old-admin": false} {
+		select {
+		case msg := <-streams[name]:
+			if !want {
+				t.Errorf("%s was alerted: %s", name, msg)
+			} else if !strings.Contains(string(msg), "sentinela-code-locked") {
+				t.Errorf("%s got %s", name, msg)
+			}
+		default:
+			if want {
+				t.Errorf("%s was not alerted", name)
+			}
+		}
+	}
+}
+
 // newPublicServer serves srv on a second listener in a public zone. The
 // cookie jar ignores ports, so a client's cookies from the private test
 // server reach this one too — like a stolen home cookie would.
@@ -146,12 +193,118 @@ func TestPublicZoneTwoStepLogin(t *testing.T) {
 func TestPublicAccountLockout(t *testing.T) {
 	_, srv := newTestServer(t)
 	pub := newPublicServer(t, srv, ZonePublic)
-	srv.loginRL = auth.NewLimiter(1000, time.Minute) // isolate the per-account limit
+	srv.pubLim.attempts = auth.NewLimiter(1000, time.Minute) // isolate the per-account limit
+	srv.pubLim.attemptNets = auth.NewLimiter(1000, time.Minute)
 	c := newClient(t, pub.URL)
 	for i := 0; i < 10; i++ {
 		c.do("POST", "/api/login", `{"username":"admin","password":"wrong password"}`)
 	}
 	if code, _, _ := c.do("POST", "/api/login", `{"username":"Admin","password":"wrong password"}`); code != 429 {
 		t.Fatalf("11th attempt = %d, want 429", code)
+	}
+}
+
+// wrongCode is a 6-digit code that matches none of the steps VerifyTOTP
+// accepts now.
+func wrongCode(t *testing.T, secret string) string {
+	t.Helper()
+	cur := auth.TOTPStep(time.Now())
+	for _, c := range []string{"000000", "111111", "222222", "333333"} {
+		clash := false
+		for st := cur - 2; st <= cur+2; st++ {
+			if good, _ := auth.TOTPCode(secret, st); good == c {
+				clash = true
+			}
+		}
+		if !clash {
+			return c
+		}
+	}
+	t.Fatal("no wrong code found")
+	return ""
+}
+
+// The audit's lead: with the password, about 300 codes an hour could be
+// guessed from the internet, and twice that with the e-mail alias. Wrong
+// codes in a row now lock the factor for the account, whatever the name or
+// address; the lock is audited, alerts the account (no notice choice
+// needed) and never locks the owner out at home.
+func TestWrongCodesLockSecondFactor(t *testing.T) {
+	priv, srv := newTestServer(t)
+	ctx := context.Background()
+	hash, err := auth.HashPassword("long enough pw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := srv.Store.CreateFirstUser(ctx, "ana", hash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret := auth.NewTOTPSecret()
+	if err := srv.Store.UpdateUserEmail(ctx, id, "ana@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if err := srv.Store.SetUserTOTP(ctx, id, secret); err != nil {
+		t.Fatal(err)
+	}
+	stream := srv.push.subscribe(id) // no login notices chosen
+	defer srv.push.unsubscribe(stream)
+	pub := newPublicServer(t, srv, ZonePublic)
+	for _, l := range []*loginLimits{srv.pubLim, srv.homeLim} { // isolate the code lock
+		l.attempts = auth.NewLimiter(1000, time.Minute)
+		l.fails = auth.NewLimiter(1000, time.Hour)
+	}
+	srv.pubLim.attemptNets = auth.NewLimiter(1000, time.Minute)
+	srv.pubLim.failNets = auth.NewLimiter(1000, time.Hour)
+	srv.pubLim.acct = auth.NewLimiter(1000, time.Hour)
+
+	bad := wrongCode(t, secret)
+	out := newClient(t, pub.URL)
+	login := func(c *client, name, code string) (int, string) {
+		code2, _, body := c.do("POST", "/api/login", `{"username":"`+name+`","password":"long enough pw","code":"`+code+`"}`)
+		return code2, body
+	}
+	for i := 0; i < auth.CodeLockAfter; i++ {
+		name := []string{"ana", "ANA@example.com"}[i%2]
+		if code, body := login(out, name, bad); code != 401 {
+			t.Fatalf("wrong code %d = %d %s", i+1, code, body)
+		}
+	}
+	// Locked: even the right code is not checked from outside, under any name.
+	cur := auth.TOTPStep(time.Now())
+	good, _ := auth.TOTPCode(secret, cur)
+	for _, name := range []string{"ana", "ana@example.com"} {
+		if code, body := login(out, name, good); code != 429 || !strings.Contains(body, "locked") {
+			t.Fatalf("right code while locked (%s) = %d %s, want 429", name, code, body)
+		}
+	}
+	select {
+	case <-stream:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the account was not alerted")
+	}
+	rows, err := srv.Store.ListAudit(ctx, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	locked := false
+	for _, r := range rows {
+		locked = locked || r.Action == "login.code_locked"
+	}
+	if !locked {
+		t.Fatal("the lock was not audited")
+	}
+	// At home the factor still works, and a good code there unlocks outside.
+	home := newClient(t, priv.URL)
+	if code, body := login(home, "ana", good); code != 200 {
+		t.Fatalf("home login with the right code = %d %s", code, body)
+	}
+	next, _ := auth.TOTPCode(secret, cur+1)
+	if code, body := login(out, "ana", next); code != 200 {
+		t.Fatalf("outside login after the home unlock = %d %s", code, body)
+	}
+	// The step used outside is not good again.
+	if code, _ := login(newClient(t, pub.URL), "ana", next); code != 401 {
+		t.Fatalf("reused step = %d, want 401", code)
 	}
 }

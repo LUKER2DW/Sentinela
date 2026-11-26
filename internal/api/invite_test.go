@@ -102,7 +102,7 @@ func TestInviteFromOutsideWithoutTwoStep(t *testing.T) {
 
 func TestFailedLoginsBlockAddress(t *testing.T) {
 	priv, srv := newTestServer(t)
-	srv.loginRL = auth.NewLimiter(1000, time.Minute) // isolate the hourly limit
+	srv.homeLim.attempts = auth.NewLimiter(1000, time.Minute) // isolate the hourly limit
 	c := newClient(t, priv.URL)
 	c.do("POST", "/api/setup", `{"username":"admin","password":"long enough pw"}`)
 	other := newClient(t, priv.URL)

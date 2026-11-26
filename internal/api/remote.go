@@ -55,7 +55,13 @@ func withZone(fixed string, next http.Handler) http.Handler {
 				}
 			}
 		}
-		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), zoneKey, z)))
+		ctx := context.WithValue(r.Context(), zoneKey, z)
+		if !PublicZone(z) {
+			// Home requests may use every password-hash slot; the rest
+			// share one, so the internet cannot starve home sign-ins.
+			ctx = auth.WithHomeLane(ctx)
+		}
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
@@ -203,9 +209,23 @@ func (p *pendingTOTP) drop(uid int64) {
 	delete(p.m, uid)
 }
 
-// checkOwnPassword verifies the caller's password, rate limited per user.
-func (s *Server) checkOwnPassword(u *store.User, pw string) bool {
-	return s.loginRL.Allow("pw:"+strconv.FormatInt(u.ID, 10)) && auth.VerifyPassword(u.PWHash, pw)
+// checkOwnPassword verifies the caller's password, rate limited per user. It
+// answers the request itself (403, or 503 when no hash could run) and
+// returns false unless the password is right.
+func (s *Server) checkOwnPassword(w http.ResponseWriter, r *http.Request, u *store.User, pw string) bool {
+	if !s.loginRL.Allow("pw:" + strconv.FormatInt(u.ID, 10)) {
+		writeErr(w, http.StatusForbidden, "current password is wrong")
+		return false
+	}
+	good, err := auth.VerifyPasswordContext(r.Context(), u.PWHash, pw)
+	if notRun(err) {
+		busy(w, err)
+		return false
+	}
+	if !good {
+		writeErr(w, http.StatusForbidden, "current password is wrong")
+	}
+	return good
 }
 
 // totpSetup starts enrollment: a new secret, as text and as a QR code.
@@ -218,8 +238,7 @@ func (s *Server) totpSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	u := userFrom(r)
-	if !s.checkOwnPassword(u, body.Password) {
-		writeErr(w, http.StatusForbidden, "current password is wrong")
+	if !s.checkOwnPassword(w, r, u, body.Password) {
 		return
 	}
 	secret := auth.NewTOTPSecret()
@@ -277,8 +296,7 @@ func (s *Server) totpDisable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	u := userFrom(r)
-	if !s.checkOwnPassword(u, body.Password) {
-		writeErr(w, http.StatusForbidden, "current password is wrong")
+	if !s.checkOwnPassword(w, r, u, body.Password) {
 		return
 	}
 	if err := s.Store.SetUserTOTP(r.Context(), u.ID, ""); err != nil {
@@ -312,25 +330,58 @@ func qrSVG(text string) (string, error) {
 	return b.String(), nil
 }
 
-// alertOutsideLogin tells users who opted in about a login from a public zone.
-func (s *Server) alertOutsideLogin(u *store.User, ip, zone string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	how := "via the domain"
+// zoneHow says in words how a request reached the server.
+func zoneHow(zone string) string {
 	switch zone {
 	case ZoneFunnel:
-		how = "via Tailscale Funnel"
+		return "via Tailscale Funnel"
 	case ZoneProxy:
-		how = "via the tunnel / reverse proxy"
+		return "via the tunnel / reverse proxy"
+	case ZonePublic:
+		return "via the domain"
+	case ZoneTailnet:
+		return "over the tailnet"
 	}
-	msg := map[string]any{
+	return "at home"
+}
+
+// alertOutsideLogin tells users who opted in about a login from a public zone.
+func (s *Server) alertOutsideLogin(u *store.User, ip, zone string) {
+	s.loginNotice(u, false, map[string]any{
 		"title": "Novo acesso de fora de casa",
-		"body":  fmt.Sprintf("%s signed in %s (IP %s). Not you? Sign it out in My account → Devices.", u.Username, how, ip),
+		"body":  fmt.Sprintf("%s signed in %s (IP %s). Not you? Sign it out in My account → Devices.", u.Username, zoneHow(zone), ip),
 		"tag":   "sentinela-login",
 		"url":   "/#/system",
+	})
+}
+
+// alertCodeLocked tells the account and every admin that its two-step code
+// locked after wrong codes. Whoever typed them had the password, so it does
+// not wait for the login-notice opt-in (off by default); auth.CodeGuard sends
+// it at most once a day per account and kind of zone.
+func (s *Server) alertCodeLocked(u *store.User, ip, zone string, fails int) {
+	advice := "Someone knows the password: change it in My account."
+	if !PublicZone(zone) { // at home it is most likely the owner mistyping
+		advice = "If that was not you, someone knows the password: change it in My account."
 	}
+	s.loginNotice(u, true, map[string]any{
+		"title": "Login em duas etapas bloqueado",
+		"body": fmt.Sprintf("%d wrong two-step codes in a row for %s after the right password, %s (IP %s). %s",
+			fails, u.Username, zoneHow(zone), ip, advice),
+		"tag": "sentinela-code-locked",
+		"url": "/#/system",
+	})
+}
+
+// loginNotice sends msg to u and to the active admins: all of them when
+// always is set, otherwise only those who selected login notices (opt-in,
+// like every notice).
+func (s *Server) loginNotice(u *store.User, always bool, msg map[string]any) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	wants := func(x *store.User) bool { return always || prefsOf(x).Enabled("login") }
 	sent := map[int64]bool{u.ID: true}
-	if prefsOf(u).Enabled("login") {
+	if wants(u) {
 		s.sendAll(ctx, u.ID, msg)
 	}
 	users, err := s.Store.ListUsers(ctx)
@@ -338,7 +389,7 @@ func (s *Server) alertOutsideLogin(u *store.User, ip, zone string) {
 		return
 	}
 	for _, a := range users {
-		if a.Role == auth.RoleAdmin && !sent[a.ID] && !a.Disabled && !a.Pending && prefsOf(&a).Enabled("login") {
+		if a.Role == auth.RoleAdmin && !sent[a.ID] && !a.Disabled && !a.Pending && wants(&a) {
 			sent[a.ID] = true
 			s.sendAll(ctx, a.ID, msg)
 		}

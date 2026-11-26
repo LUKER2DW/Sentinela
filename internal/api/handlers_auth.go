@@ -84,34 +84,6 @@ func busy(w http.ResponseWriter, err error) {
 	writeErr(w, http.StatusServiceUnavailable, "request canceled")
 }
 
-// tooManyFailures: an address (an IPv6 /64, see limiterKey) that failed 20
-// sign-ins (or invite codes) in an hour is refused until the hour is over,
-// whatever the account. key is a limiterKey, not the raw address.
-func (s *Server) tooManyFailures(key string) bool { return s.failRL.Over("fail:" + key) }
-
-func (s *Server) failed(key string) { s.failRL.Allow("fail:" + key) }
-
-// acctKeys are the limiter keys of one account's failed logins: from this
-// source (address, IPv6 as /64) and from everywhere.
-func acctKeys(account, source string) (perSource, all string) {
-	a := strings.ToLower(strings.TrimSpace(account))
-	return "acct:" + a + "|" + source, "acctall:" + a
-}
-
-// acctLocked: the account used up its failed attempts from this source, or
-// from all sources together.
-func (s *Server) acctLocked(account, source string) bool {
-	per, all := acctKeys(account, source)
-	return s.acctRL.Over(per) || s.acctAllRL.Over(all)
-}
-
-// acctFailed counts one failed login (bad password or bad code) of account.
-func (s *Server) acctFailed(account, source string) {
-	per, all := acctKeys(account, source)
-	s.acctRL.Allow(per)
-	s.acctAllRL.Allow(all)
-}
-
 func (s *Server) setupStatus(w http.ResponseWriter, r *http.Request) {
 	n, err := s.Store.CountUsers(r.Context())
 	if err != nil {
@@ -128,7 +100,7 @@ func (s *Server) setupStatus(w http.ResponseWriter, r *http.Request) {
 
 // setup creates the first admin. It only works while no user exists.
 func (s *Server) setup(w http.ResponseWriter, r *http.Request) {
-	if !s.loginRL.Allow("setup:" + limiterKey(clientIP(r))) {
+	if lim, src := s.limitsFor(r); !lim.allowAttempt("setup", src) {
 		writeErr(w, http.StatusTooManyRequests, "too many attempts, wait a minute")
 		return
 	}
@@ -174,13 +146,13 @@ func (s *Server) setup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
-	ip := clientIP(r)    // exact address: logs, audit, alerts
-	rl := limiterKey(ip) // rate-limit key: IPv6 counted per /64
-	if s.tooManyFailures(rl) {
+	ip := clientIP(r) // exact address: logs, audit, alerts
+	lim, src := s.limitsFor(r)
+	if lim.tooManyFailures(src) {
 		writeErr(w, http.StatusTooManyRequests, "too many failed attempts from this address, wait an hour")
 		return
 	}
-	if !s.loginRL.Allow("login:" + rl) {
+	if !lim.allowAttempt("login", src) {
 		writeErr(w, http.StatusTooManyRequests, "too many attempts, wait a minute")
 		return
 	}
@@ -193,30 +165,34 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	public := PublicZone(zone)
 	name := strings.TrimSpace(c.Username)
 	if len(name) > 254 {
-		// Longer than any username or e-mail: refused before it becomes a
-		// rate-limit key or reaches the database.
-		s.failed(rl)
+		// Longer than any username or e-mail: refused before it reaches the
+		// database. Not a failed sign-in: it costs no hash, so counting it
+		// would let a flood fill the failure tables for free (the attempt
+		// limits above still apply).
 		writeErr(w, http.StatusUnauthorized, "invalid username or password")
 		return
+	}
+	u, err := s.Store.UserByLogin(r.Context(), name)
+	if err != nil {
+		u = nil
 	}
 	// From the internet, an account takes 10 failed attempts per hour from one
 	// source (ADR-0019). Only failures count, and per source: a stranger who
 	// knows the username can no longer lock the owner out by spending the
 	// owner's attempts. A much higher count from all sources together still
-	// stops a guess spread over many addresses.
-	if public && s.acctLocked(name, rl) {
+	// stops a guess spread over many addresses. Real accounts count by id, so
+	// the username and the e-mail share one budget.
+	acct := accountOf(u, name)
+	if public && lim.acctLocked(acct, src) {
 		_ = s.Store.Audit(r.Context(), 0, auditField(name), "login", ip, false, zone+": account locked")
 		writeErr(w, http.StatusTooManyRequests, "too many attempts for this account, wait an hour")
 		return
 	}
 	failed := func() {
-		s.failed(rl)
-		if public {
-			s.acctFailed(name, rl)
-		}
+		lim.failed(src)
+		lim.acctFailed(acct, src)
 	}
-	u, err := s.Store.UserByLogin(r.Context(), name)
-	if err != nil {
+	if u == nil {
 		if err := auth.VerifyDummyContext(r.Context(), c.Password); err != nil {
 			busy(w, err) // no hash ran: not counted as a failed sign-in
 			return
@@ -261,19 +237,54 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "code required", "mfa": true})
 			return
 		}
+		// Wrong codes after the right password mean someone holds it: a few
+		// in a row lock the factor of the account (all its names and source
+		// addresses) with a doubling wait. The lock is checked before the
+		// code, so a locked factor tells nothing about the code.
+		if wait := s.codes.Locked(u.ID, public); wait > 0 {
+			failed()
+			_ = s.Store.Audit(r.Context(), u.ID, u.Username, "login", ip, false, zone+": code locked")
+			w.Header().Set("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
+			writeErr(w, http.StatusTooManyRequests, codeLockedMessage(wait, public))
+			return
+		}
+		// A step is good once (UseTOTPStep refuses an equal or earlier one).
 		step, ok := auth.VerifyTOTP(u.TOTPSecret, c.Code, time.Now(), u.TOTPStep)
 		if !ok || s.Store.UseTOTPStep(r.Context(), u.ID, step) != nil {
 			failed()
+			f := s.codes.Failed(u.ID, public)
 			_ = s.Store.Audit(r.Context(), u.ID, u.Username, "login", ip, false, zone+": bad code")
+			if f.Lock > 0 {
+				// Always audited (admins see it in the activity log) and
+				// pushed to the account and every admin, whatever their
+				// notice choices: someone else may hold the password.
+				_ = s.Store.Audit(r.Context(), u.ID, u.Username, "login.code_locked", ip, false,
+					fmt.Sprintf("%s: %d wrong codes in a row, locked for %s", zone, f.Fails, f.Lock))
+				if f.Alert {
+					go s.alertCodeLocked(u, ip, zone, f.Fails)
+				}
+			}
 			writeErr(w, http.StatusUnauthorized, "invalid code")
 			return
 		}
+		s.codes.Passed(u.ID, public)
 	}
 	_ = s.Store.Audit(r.Context(), u.ID, u.Username, "login", ip, true, zone)
 	if public {
 		go s.alertOutsideLogin(u, ip, zone)
 	}
 	s.startSession(w, r, u.ID, u.TOTP, c.remember())
+}
+
+// codeLockedMessage tells a person with the right password why the code is
+// not checked now ("for this account" is what the SPA recognises).
+func codeLockedMessage(wait time.Duration, public bool) string {
+	mins := int((wait + time.Minute - 1) / time.Minute)
+	msg := fmt.Sprintf("too many wrong codes for this account: two-step login is locked for %d min", mins)
+	if public {
+		msg += " (a good code at home unlocks it)"
+	}
+	return msg
 }
 
 // startSession logs userID in on this device; mfa marks a two-step login.
@@ -292,7 +303,7 @@ func (s *Server) startSession(w http.ResponseWriter, r *http.Request, userID int
 	if len(ua) > maxUA {
 		ua = ua[:maxUA]
 	}
-	if err := s.Store.CreateSession(r.Context(), auth.HashToken(tok), userID, csrf, exp, ua, mfa, remember, effectiveHost(r)); err != nil {
+	if err := s.Store.CreateSession(r.Context(), auth.HashToken(tok), userID, csrf, exp, ua, mfa, remember, effectiveHost(r), zoneFrom(r)); err != nil {
 		writeErr(w, http.StatusInternalServerError, "could not create session")
 		return
 	}
@@ -553,13 +564,13 @@ func (s *Server) reinvite(w http.ResponseWriter, r *http.Request) {
 // person proves the code and picks a password. Two-step login is optional
 // and is turned on later in Minha conta (ADR-0019 amendment).
 func (s *Server) acceptInvite(w http.ResponseWriter, r *http.Request) {
-	ip := clientIP(r)    // exact address: logs, audit, alerts
-	rl := limiterKey(ip) // rate-limit key: IPv6 counted per /64
-	if s.tooManyFailures(rl) {
+	ip := clientIP(r) // exact address: logs, audit, alerts
+	lim, src := s.limitsFor(r)
+	if lim.tooManyFailures(src) {
 		writeErr(w, http.StatusTooManyRequests, "too many failed attempts from this address, wait an hour")
 		return
 	}
-	if !s.loginRL.Allow("invite:" + rl) {
+	if !lim.allowAttempt("invite", src) {
 		writeErr(w, http.StatusTooManyRequests, "too many attempts, wait a minute")
 		return
 	}
@@ -581,12 +592,12 @@ func (s *Server) acceptInvite(w http.ResponseWriter, r *http.Request) {
 	sum := auth.HashToken(auth.NormalizeInviteCode(body.Code))
 	if err != nil || !u.Pending || len(u.InviteHash) == 0 || subtle.ConstantTimeCompare(sum, u.InviteHash) != 1 ||
 		store.FormatTime(time.Now()) > u.InviteExpires {
-		s.failed(rl)
+		lim.failed(src)
 		_ = s.Store.Audit(ctx, 0, auditField(login), "invite.accept", ip, false, zone+": bad or expired code")
 		writeErr(w, http.StatusUnauthorized, "invalid or expired invite")
 		return
 	}
-	if public && s.acctLocked(u.Username, rl) {
+	if public && lim.acctLocked(accountOf(u, login), src) {
 		writeErr(w, http.StatusTooManyRequests, "too many attempts for this account, wait an hour")
 		return
 	}

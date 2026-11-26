@@ -3,6 +3,7 @@ import { t } from "../lib/i18n";
 import { ApiError, api, type User } from "../lib/api";
 import { canChangeConnection, changeConnection, zoneLabel } from "../lib/access";
 import { policyError } from "../lib/password";
+import { loginError } from "../lib/loginError";
 import { offerToSavePassword, pickSavedPassword } from "../lib/credentials";
 import { appIntentURL, currentAppPath, isAndroidBrowser, tryOpenInAppOnce } from "../lib/openInApp";
 import { LighthouseMark } from "../components/Lighthouse";
@@ -57,19 +58,6 @@ function saveLogin(name: string, remember: boolean) {
   } catch {
     // private window: nothing to remember
   }
-}
-
-/** Portuguese text for the server's sign-in errors. */
-function loginError(msg: string): string {
-  if (msg.includes("invalid username")) return t("Wrong username, email or password.");
-  if (msg.includes("invalid code")) return t("Wrong or already used code. Wait for the next code and try again.");
-  if (msg.includes("from this address")) return t("Too many wrong attempts from this address. Wait an hour.");
-  if (msg.includes("for this account")) return t("Too many attempts on this account. Wait an hour.");
-  if (msg.includes("too many")) return t("Too many attempts. Wait a minute and try again.");
-  if (msg.includes("invalid or expired invite")) return t("Invalid or expired invite. Ask the administrator for a new one.");
-  if (msg.includes("disabled")) return t("This account is disabled.");
-  if (msg.includes("at least") || msg.includes("too weak") || msg.includes("too common")) return t("Weak password: use 10+ characters mixing letters with numbers or symbols.");
-  return msg;
 }
 
 export function AuthPage({ mode, onDone, downMessage, onRetry }: Props) {

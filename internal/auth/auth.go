@@ -49,30 +49,41 @@ const (
 // caller should answer "try again shortly" (HTTP 503) instead of waiting.
 var ErrBusy = errors.New("auth: too many password checks in progress")
 
-// Limits of the hash queue: 2 hashes run at once (64 MiB each); at most
-// argonMaxWaiting more may wait, each for at most argonMaxWait.
+// Limits of the hash queue: 2 hashes run at once (64 MiB each). Work for a
+// request from home (LAN or tailnet, see WithHomeLane) may use both slots
+// and queue up to argonMaxWaiting behind them. Any other work, above all
+// anonymous logins from the internet, runs on at most argonPublicSlots slot
+// with its own queue of argonPublicMaxWaiting: a flood from outside keeps at
+// most one core busy and can neither take every slot nor fill the queue that
+// home sign-ins use. Nobody waits longer than argonMaxWait.
 const (
-	argonSlots      = 2
-	argonMaxWaiting = 8
-	argonMaxWait    = 5 * time.Second
+	argonSlots            = 2
+	argonMaxWaiting       = 8
+	argonPublicSlots      = 1
+	argonPublicMaxWaiting = 4
+	argonMaxWait          = 5 * time.Second
 )
 
 // argonGate bounds concurrent hashes so a login burst cannot exhaust a small
-// host's RAM, and bounds the queue behind them (length and wait) so a flood
+// host's RAM, and bounds the queues behind them (length and wait) so a flood
 // of requests cannot pile up work. Waiting honours the request context, so an
 // abandoned request never runs its hash.
 type argonGate struct {
-	slots      chan struct{}
-	waiting    atomic.Int32
-	maxWaiting int32
-	maxWait    time.Duration
+	slots  chan struct{} // held by every running hash
+	public chan struct{} // also held by every running public-lane hash
+	// Each lane's queue. A public hash queues for its lane token, then
+	// (holding it, so at most cap(public) of them) for a slot.
+	homeWaiting, publicWaiting       atomic.Int32
+	maxHomeWaiting, maxPublicWaiting int32
+	maxWait                          time.Duration
 }
 
-func newArgonGate(slots, maxWaiting int, maxWait time.Duration) *argonGate {
-	return &argonGate{slots: make(chan struct{}, slots), maxWaiting: int32(maxWaiting), maxWait: maxWait}
+func newArgonGate(slots, maxWaiting, publicSlots, maxPublicWaiting int, maxWait time.Duration) *argonGate {
+	return &argonGate{slots: make(chan struct{}, slots), public: make(chan struct{}, publicSlots),
+		maxHomeWaiting: int32(maxWaiting), maxPublicWaiting: int32(maxPublicWaiting), maxWait: maxWait}
 }
 
-var argonSem = newArgonGate(argonSlots, argonMaxWaiting, argonMaxWait)
+var argonSem = newArgonGate(argonSlots, argonMaxWaiting, argonPublicSlots, argonPublicMaxWaiting, argonMaxWait)
 
 // argonRuns counts argon2id computations since start (hashes and checks).
 var argonRuns atomic.Uint64
@@ -81,29 +92,44 @@ var argonRuns atomic.Uint64
 // to prove a code path did not hash.
 func ArgonRuns() uint64 { return argonRuns.Load() }
 
-// acquire takes a slot. It returns ErrBusy when the queue is full or the wait
-// exceeds maxWait, and the context's error when ctx ends first. On nil the
-// caller must call release.
-func (g *argonGate) acquire(ctx context.Context) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
+type homeLaneKey struct{}
+
+// WithHomeLane marks ctx as belonging to a request from a private zone (LAN
+// or tailnet): its password hashes may use every slot. Work without the mark
+// gets the restricted public lane, so a path that forgets it fails safe.
+func WithHomeLane(ctx context.Context) context.Context {
+	return context.WithValue(ctx, homeLaneKey{}, true)
+}
+
+// HomeLane reports whether ctx carries the WithHomeLane mark.
+func HomeLane(ctx context.Context) bool {
+	home, _ := ctx.Value(homeLaneKey{}).(bool)
+	return home
+}
+
+// take puts a token in ch: at once when there is room, otherwise after
+// waiting, unless the queue counted by waiting already holds max (ErrBusy).
+// The wait ends with ErrBusy at deadline or with ctx's error. A nil waiting
+// means the caller bounds the waiters itself.
+func take(ctx context.Context, ch chan struct{}, waiting *atomic.Int32, max int32, deadline time.Time) error {
 	select {
-	case g.slots <- struct{}{}:
+	case ch <- struct{}{}:
 		return nil
 	default:
 	}
-	if g.waiting.Add(1) > g.maxWaiting {
-		g.waiting.Add(-1)
-		return ErrBusy
+	if waiting != nil {
+		if waiting.Add(1) > max {
+			waiting.Add(-1)
+			return ErrBusy
+		}
+		defer waiting.Add(-1)
 	}
-	defer g.waiting.Add(-1)
-	t := time.NewTimer(g.maxWait)
+	t := time.NewTimer(time.Until(deadline))
 	defer t.Stop()
 	select {
-	case g.slots <- struct{}{}:
-		if err := ctx.Err(); err != nil { // gave up while we got the slot
-			<-g.slots
+	case ch <- struct{}{}:
+		if err := ctx.Err(); err != nil { // gave up while we got the token
+			<-ch
 			return err
 		}
 		return nil
@@ -114,14 +140,36 @@ func (g *argonGate) acquire(ctx context.Context) error {
 	}
 }
 
-// acquireWait takes a slot with no queue or time limit (internal one-time
-// work only, never request-driven).
-func (g *argonGate) acquireWait() error {
-	g.slots <- struct{}{}
-	return nil
+// acquire takes a slot on ctx's lane. It returns ErrBusy when that lane's
+// queue is full or the wait exceeds maxWait, and the context's error when
+// ctx ends first. On success the caller must call release once.
+func (g *argonGate) acquire(ctx context.Context) (release func(), err error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	deadline := time.Now().Add(g.maxWait)
+	if HomeLane(ctx) {
+		if err := take(ctx, g.slots, &g.homeWaiting, g.maxHomeWaiting, deadline); err != nil {
+			return nil, err
+		}
+		return func() { <-g.slots }, nil
+	}
+	if err := take(ctx, g.public, &g.publicWaiting, g.maxPublicWaiting, deadline); err != nil {
+		return nil, err
+	}
+	if err := take(ctx, g.slots, nil, 0, deadline); err != nil {
+		<-g.public
+		return nil, err
+	}
+	return func() { <-g.slots; <-g.public }, nil
 }
 
-func (g *argonGate) release() { <-g.slots }
+// acquireWait takes a slot with no queue or time limit (internal one-time
+// work only, never request-driven).
+func (g *argonGate) acquireWait() (func(), error) {
+	g.slots <- struct{}{}
+	return func() { <-g.slots }, nil
+}
 
 // HashPassword returns a PHC-formatted argon2id hash. When the hash queue is
 // saturated it fails with ErrBusy; request handlers use HashPasswordContext.
@@ -132,10 +180,10 @@ func HashPassword(pw string) (string, error) {
 // HashPasswordContext is HashPassword that gives up with ErrBusy (queue full
 // or waited too long) or ctx's error instead of waiting without limit.
 func HashPasswordContext(ctx context.Context, pw string) (string, error) {
-	return hashPassword(pw, func() error { return argonSem.acquire(ctx) }, argonSem.release)
+	return hashPassword(pw, func() (func(), error) { return argonSem.acquire(ctx) })
 }
 
-func hashPassword(pw string, acquire func() error, release func()) (string, error) {
+func hashPassword(pw string, acquire func() (func(), error)) (string, error) {
 	if err := CheckPasswordPolicy(pw); err != nil {
 		return "", err
 	}
@@ -143,7 +191,8 @@ func hashPassword(pw string, acquire func() error, release func()) (string, erro
 	if _, err := rand.Read(salt); err != nil {
 		return "", err
 	}
-	if err := acquire(); err != nil {
+	release, err := acquire()
+	if err != nil {
 		return "", err
 	}
 	argonRuns.Add(1)
@@ -165,10 +214,10 @@ func VerifyPassword(hash, pw string) bool {
 // VerifyPasswordContext is VerifyPassword with a bounded, cancellable wait:
 // the error is ErrBusy or ctx's error when no hash was run.
 func VerifyPasswordContext(ctx context.Context, hash, pw string) (bool, error) {
-	return verifyPassword(hash, pw, func() error { return argonSem.acquire(ctx) }, argonSem.release)
+	return verifyPassword(hash, pw, func() (func(), error) { return argonSem.acquire(ctx) })
 }
 
-func verifyPassword(hash, pw string, acquire func() error, release func()) (bool, error) {
+func verifyPassword(hash, pw string, acquire func() (func(), error)) (bool, error) {
 	parts := strings.Split(hash, "$")
 	if len(parts) != 6 || parts[1] != "argon2id" {
 		return false, nil
@@ -185,7 +234,8 @@ func verifyPassword(hash, pw string, acquire func() error, release func()) (bool
 	if err1 != nil || err2 != nil || len(want) == 0 {
 		return false, nil
 	}
-	if err := acquire(); err != nil {
+	release, err := acquire()
+	if err != nil {
 		return false, err
 	}
 	argonRuns.Add(1)
@@ -199,7 +249,7 @@ func verifyPassword(hash, pw string, acquire func() error, release func()) (bool
 // otherwise sit in RSS from process start (budget: 80 MB, AGENTS.md §2.3).
 // It waits for a slot (once, never cached as a failure).
 var dummyHash = sync.OnceValue(func() string {
-	h, _ := hashPassword("timing-equalizer-not-a-password", argonSem.acquireWait, argonSem.release)
+	h, _ := hashPassword("timing-equalizer-not-a-password", argonSem.acquireWait)
 	return h
 })
 
@@ -284,33 +334,46 @@ func EqualToken(a, b string) bool { return subtle.ConstantTimeCompare([]byte(a),
 
 // ---------- rate limiter ----------
 
-// DefaultLimiterKeys is how many distinct keys a Limiter tracks at once
-// (about 150 bytes each, so a few MB at most). Keys come from the network, so
-// the count must not follow the attacker.
+// DefaultLimiterKeys is how many distinct keys a Limiter tracks at once.
+// Keys come from the network, so the count must not follow the attacker. A
+// short key (an address, a network, a user id, a hashed login name) costs
+// about 135-160 bytes, so a full table is about 3 MB (measured).
 const DefaultLimiterKeys = 20000
 
 // Limiter is a fixed-window counter keyed by client (e.g. IP). It tracks at
-// most maxKeys live keys: when full of unexpired keys, Allow refuses a new key
-// (fail closed) rather than evicting a key that may be counting someone's
-// failures. Expired keys are swept at most once per sweepEvery, not on every
-// call, so the cost under the mutex stays amortised O(1).
+// most maxKeys live keys and never forgets a live counter to make room:
+// forgetting one would hand whoever it was counting a fresh window.
+//
+// While the table is full of unexpired keys a new key is not tracked: Allow
+// lets it through uncounted and Over reports false for it. Anyone who can
+// mint keys can fill a table, and that must never lock out someone else: a
+// key that is not tracked never inherits a lock. Filling a table only means
+// that new keys go uncounted in it until keys expire, so callers back every
+// table strangers can fill with one they cannot (a network budget, accounts
+// keyed by user id).
+//
+// Keys sit in a queue in the order their window started, which is also the
+// order they expire, so expired keys are dropped from the front without
+// scanning the table: every call costs amortised O(1) under the mutex.
 type Limiter struct {
-	mu         sync.Mutex
-	max        int
-	maxKeys    int
-	window     time.Duration
-	hits       map[string]*window
-	now        func() time.Time
-	sweepEvery time.Duration
-	nextSweep  time.Time
-	lastSweep  time.Time
-	sweeps     int // number of full scans, for tests
+	mu      sync.Mutex
+	max     int
+	maxKeys int
+	window  time.Duration
+	hits    map[string]window
+	queue   []string // keys by window start, oldest first, from head on
+	head    int
+	peak    int // largest len(hits) since the map was last rebuilt
+	now     func() time.Time
+	pruned  int // entries examined by prune, for tests
 }
 
 type window struct {
 	start time.Time
 	n     int
 }
+
+func (l *Limiter) expired(w window, now time.Time) bool { return now.Sub(w.start) > l.window }
 
 // NewLimiter allows max events per window per key, over at most
 // DefaultLimiterKeys keys.
@@ -320,94 +383,76 @@ func NewLimiter(max int, per time.Duration) *Limiter {
 
 // NewLimiterCap is NewLimiter with an explicit cap on live keys.
 func NewLimiterCap(max int, per time.Duration, maxKeys int) *Limiter {
-	every := min(max64(per/2, time.Second), time.Minute)
-	return &Limiter{max: max, maxKeys: maxKeys, window: per, hits: map[string]*window{}, now: time.Now,
-		sweepEvery: every}
+	return &Limiter{max: max, maxKeys: maxKeys, window: per, hits: map[string]window{}, now: time.Now}
 }
 
-func max64(a, b time.Duration) time.Duration {
-	if a > b {
-		return a
-	}
-	return b
-}
-
-// sweep drops expired keys. Callers hold l.mu.
-func (l *Limiter) sweep(now time.Time) {
-	l.sweeps++
-	l.lastSweep, l.nextSweep = now, now.Add(l.sweepEvery)
-	before := len(l.hits)
-	for k, w := range l.hits {
-		if now.Sub(w.start) > l.window {
-			delete(l.hits, k)
+// prune drops expired keys from the front of the queue. A key's window only
+// starts when it is pushed, so with a clock that does not go back the queue
+// stays in expiry order. Callers hold l.mu.
+func (l *Limiter) prune(now time.Time) {
+	for l.head < len(l.queue) {
+		k := l.queue[l.head]
+		l.pruned++
+		if w, ok := l.hits[k]; ok && !l.expired(w, now) {
+			break
 		}
+		delete(l.hits, k)
+		l.queue[l.head] = ""
+		l.head++
 	}
-	// A Go map keeps its buckets after deletes: rebuild one that shrank a lot.
-	if removed := before - len(l.hits); removed > 1024 && removed > len(l.hits) {
-		kept := make(map[string]*window, len(l.hits))
+	// Give memory back after a flood: the queue's dead prefix, and a map
+	// that shrank a lot (a Go map keeps its buckets after deletes).
+	if l.head > 1024 && l.head*2 > len(l.queue) {
+		l.queue = append([]string(nil), l.queue[l.head:]...)
+		l.head = 0
+	}
+	if l.peak > 1024 && len(l.hits)*4 < l.peak {
+		kept := make(map[string]window, len(l.hits))
 		for k, w := range l.hits {
 			kept[k] = w
 		}
-		l.hits = kept
+		l.hits, l.peak = kept, len(kept)
 	}
 }
 
-// evictProbes is how many map entries Allow looks at when it needs room.
-const evictProbes = 64
-
-// makeRoom frees one slot for a new key by evicting an entry that has not
-// used up its limit: a source that is already limited keeps its counter (that
-// is the brute-force protection), while sources that only touched the limiter
-// once or twice are the cheap ones to forget. It looks at a bounded number of
-// entries (Go's map order is random), so the cost stays constant; false means
-// every entry it saw is limited and the caller should refuse the new key.
-// Callers hold l.mu.
-func (l *Limiter) makeRoom() bool {
-	probes := 0
-	for k, w := range l.hits {
-		if w.n < l.max {
-			delete(l.hits, k)
-			return true
-		}
-		if probes++; probes >= evictProbes {
-			break
-		}
-	}
-	return false
-}
+func (l *Limiter) full() bool { return l.maxKeys > 0 && len(l.hits) >= l.maxKeys }
 
 // Allow records one event for key and reports whether it is within the limit.
-// When the limiter is full of live keys it makes room by forgetting a source
-// that is not limited; only if it finds none is the new key refused (fail
-// closed), so a flood of fresh sources cannot lock genuine users out.
+// A new key while the table is full is not tracked: it is allowed and not
+// counted (see Limiter).
 func (l *Limiter) Allow(key string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := l.now()
-	full := l.maxKeys > 0 && len(l.hits) >= l.maxKeys
-	// Once per interval; when full, at most once a second so a flood of new
-	// keys cannot make every call a full scan.
-	if !now.Before(l.nextSweep) || full && now.Sub(l.lastSweep) >= time.Second {
-		l.sweep(now)
-	}
-	w, ok := l.hits[key]
-	if !ok || now.Sub(w.start) > l.window {
-		if !ok && l.maxKeys > 0 && len(l.hits) >= l.maxKeys && !l.makeRoom() {
-			return false
+	l.prune(now)
+	if w, ok := l.hits[key]; ok {
+		if l.expired(w, now) {
+			// Only after the clock went back (the queue is then out of
+			// order): restart the window in place.
+			w = window{start: now}
 		}
-		l.hits[key] = &window{start: now, n: 1}
+		w.n++
+		l.hits[key] = w
+		return w.n <= l.max
+	}
+	if l.full() {
 		return true
 	}
-	w.n++
-	return w.n <= l.max
+	l.hits[key] = window{start: now, n: 1}
+	l.queue = append(l.queue, key)
+	l.peak = max(l.peak, len(l.hits))
+	return 1 <= l.max
 }
 
-// Over reports whether key already used up its window, without counting.
+// Over reports whether key already used up its window, without counting. A
+// key the table does not track is never over.
 func (l *Limiter) Over(key string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	now := l.now()
+	l.prune(now)
 	w, ok := l.hits[key]
-	return ok && l.now().Sub(w.start) <= l.window && w.n >= l.max
+	return ok && !l.expired(w, now) && w.n >= l.max
 }
 
 // ---------- invites ----------

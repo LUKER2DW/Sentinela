@@ -207,7 +207,7 @@ func TestFCMTokenFollowsSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	hash := []byte("test-session-hash")
-	if err := s.CreateSession(ctx, hash, userID, "csrf", time.Now().Add(time.Hour), "Android", true, true, ""); err != nil {
+	if err := s.CreateSession(ctx, hash, userID, "csrf", time.Now().Add(time.Hour), "Android", true, true, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.SaveFCMToken(ctx, userID, hash, "a-very-long-valid-device-token", "SentinelaApp/1"); err != nil {
@@ -235,7 +235,7 @@ func TestPushSubscriptionSessionBinding(t *testing.T) {
 	}
 	h1, h2 := []byte("session-one-hash"), []byte("session-two-hash")
 	for _, h := range [][]byte{h1, h2} {
-		if err := s.CreateSession(ctx, h, uid, "csrf", time.Now().Add(time.Hour), "ua", false, false, ""); err != nil {
+		if err := s.CreateSession(ctx, h, uid, "csrf", time.Now().Add(time.Hour), "ua", false, false, "", ""); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -280,7 +280,7 @@ func TestPushSubscriptionSessionBinding(t *testing.T) {
 		t.Fatalf("expired session's subscription still listed: %d", count())
 	}
 	// Re-subscribing the same endpoint moves it to the new session.
-	if err := s.CreateSession(ctx, []byte("session-three-hash"), uid, "csrf", time.Now().Add(time.Hour), "ua", false, false, ""); err != nil {
+	if err := s.CreateSession(ctx, []byte("session-three-hash"), uid, "csrf", time.Now().Add(time.Hour), "ua", false, false, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.SavePushSub(ctx, uid, []byte("session-three-hash"), "https://push/2", "k", "a", "ua"); err != nil {
@@ -309,7 +309,7 @@ func TestPushSubscriptionsDroppedWithAccess(t *testing.T) {
 				t.Fatal(err)
 			}
 			h := []byte("session-hash-ana")
-			_ = s.CreateSession(ctx, h, uid, "c", time.Now().Add(time.Hour), "ua", false, false, "")
+			_ = s.CreateSession(ctx, h, uid, "c", time.Now().Add(time.Hour), "ua", false, false, "", "")
 			_ = s.SavePushSub(ctx, uid, h, "https://push/ana", "k", "a", "ua")
 			_ = s.SavePushSub(ctx, uid, nil, "https://push/ana-legacy", "k", "a", "ua")
 			_ = s.SavePushSub(ctx, other, nil, "https://push/bia", "k", "a", "ua")
@@ -376,17 +376,22 @@ func TestSessionKeepsItsHost(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, host := range []string{"nvr.example.org:8443", ""} { // "" = a session from before 0012
-		hash := []byte("host-session-" + host)
-		if err := s.CreateSession(ctx, hash, uid, "csrf", time.Now().Add(time.Hour), "ua", false, false, host); err != nil {
+	cases := []struct{ host, zone string }{
+		{"nvr.example.org:8443", "public"},
+		{"192.168.1.5:8080", "lan"},
+		{"", ""}, // a session from before 0012/0013
+	}
+	for _, c := range cases {
+		hash := []byte("host-session-" + c.host)
+		if err := s.CreateSession(ctx, hash, uid, "csrf", time.Now().Add(time.Hour), "ua", false, false, c.host, c.zone); err != nil {
 			t.Fatal(err)
 		}
 		sess, _, err := s.SessionByHash(ctx, hash)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if sess.Host != host {
-			t.Errorf("session host = %q, want %q", sess.Host, host)
+		if sess.Host != c.host || sess.Zone != c.zone {
+			t.Errorf("session host/zone = %q/%q, want %q/%q", sess.Host, sess.Zone, c.host, c.zone)
 		}
 	}
 }

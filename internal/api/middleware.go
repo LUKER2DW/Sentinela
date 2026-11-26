@@ -82,9 +82,9 @@ func (s *Server) session(next http.Handler) http.Handler {
 			if err == nil && PublicZone(zoneFrom(r)) && u.TOTP && !sess.MFA {
 				err = store.ErrNotFound
 			}
-			// Cookies are not isolated by port: in a public zone a session
-			// counts on the Host it was created on only.
-			if err == nil && !sessionHostOK(r, sess) {
+			// In a public zone a session counts only on the zone and Host it
+			// was created on (sessionBindingOK).
+			if err == nil && !sessionBindingOK(r, sess) {
 				err = store.ErrNotFound
 			}
 			if err == nil && sess.Remember {
@@ -302,16 +302,25 @@ func effectiveHost(r *http.Request) string {
 	return strings.ToLower(strings.TrimSpace(h))
 }
 
-// sessionHostOK reports whether sess may be used for r. Browsers do not
-// isolate cookies by port, so a service on another port of the same machine
-// could replay a session at a public listener: there a session works only on
-// the Host it was created on. Sessions made before 0012 (empty host) and
-// requests from LAN or tailnet zones are not bound.
-func sessionHostOK(r *http.Request, sess *store.Session) bool {
-	if sess.Host == "" || !PublicZone(zoneFrom(r)) {
+// sessionBindingOK reports whether sess may be used for r. In a public zone
+// a session counts only if it was created on that same zone, a value the
+// server took from the listener at login and not from any header: a cookie
+// from the LAN panel (which can travel in clear text over plain HTTP), from
+// the tailnet or from another public path is refused from the internet
+// whatever Host or X-Forwarded-Host it is sent with. The Host it was created
+// on must match too; that second check stops nothing on its own, since the
+// client chooses the header. Sessions made before 0013 (no zone) are refused
+// there. LAN and tailnet requests accept every session.
+//
+// No binding helps when a cookie made at the public address leaks to a
+// service on another port of that same address and is replayed with the
+// right Host: keep ADR-0021 Internet services off the dashboard host name.
+func sessionBindingOK(r *http.Request, sess *store.Session) bool {
+	z := zoneFrom(r)
+	if !PublicZone(z) {
 		return true
 	}
-	return sess.Host == effectiveHost(r)
+	return sess.Zone == z && sess.Host != "" && sess.Host == effectiveHost(r)
 }
 
 // limiterKey is the part of an address that rate limits count. IPv4 is kept
@@ -328,6 +337,21 @@ func limiterKey(ip string) string {
 		return a.Unmap().String()
 	}
 	return netip.PrefixFrom(a, 64).Masked().String()
+}
+
+// limiterNet is the network around an address, for the budgets that one
+// holder of many addresses shares: IPv4 /24, IPv6 /48 (a common site
+// allocation). Only public zones use it: at home the whole LAN is one /24.
+func limiterNet(ip string) string {
+	a, err := netip.ParseAddr(ip)
+	if err != nil {
+		return ip
+	}
+	a = a.WithZone("").Unmap()
+	if a.Is4() {
+		return netip.PrefixFrom(a, 24).Masked().String()
+	}
+	return netip.PrefixFrom(a, 48).Masked().String()
 }
 
 // isHTTPS reports whether the browser reached us over HTTPS: TLS here, or

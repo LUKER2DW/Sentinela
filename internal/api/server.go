@@ -37,11 +37,14 @@ type Server struct {
 	// the settings editor); "" disables editing.
 	ConfigPath string
 
-	tickets     *auth.Tickets
+	tickets *auth.Tickets
+	// loginRL throttles per-user and admin actions (fixed keys, never an
+	// address); sign-in budgets per address and account are in homeLim and
+	// pubLim, one set per kind of zone (login_limits.go).
 	loginRL     *auth.Limiter
-	acctRL      *auth.Limiter // failed logins per account AND source in public zones (ADR-0019)
-	acctAllRL   *auth.Limiter // failed logins per account from all sources: a backstop against a spread-out guess
-	failRL      *auth.Limiter // failed sign-ins / invite codes per address, per hour
+	homeLim     *loginLimits
+	pubLim      *loginLimits
+	codes       *auth.CodeGuard // wrong TOTP codes in a row, per account
 	totpPending pendingTOTP
 	go2rtc      *url.URL
 	ctrl        map[string]*dvrip.Controller
@@ -94,7 +97,7 @@ func New(cfg *config.Config, st *store.Store, web fs.FS, log *slog.Logger) (*Ser
 	}
 	s := &Server{Cfg: cfg, Store: st, Log: log, Web: web, Started: time.Now(), FFmpeg: "ffmpeg", lanIP: lanIPv4, instance: newInstanceID(), mirrorKick: make(chan struct{}, 1),
 		tickets: auth.NewTickets(60 * time.Second), loginRL: auth.NewLimiter(5, time.Minute),
-		acctRL: auth.NewLimiter(10, time.Hour), acctAllRL: auth.NewLimiter(300, time.Hour), failRL: auth.NewLimiter(20, time.Hour),
+		homeLim: newLoginLimits(false), pubLim: newLoginLimits(true), codes: auth.NewCodeGuard(),
 		go2rtc: g, ctrl: map[string]*dvrip.Controller{}, ptzDrv: map[string]ptzDriver{}, onvifPTZ: map[string]*onvif.PTZ{}, hub: NewHub(), stateTTL: map[string]cachedState{},
 		tlSem: make(chan struct{}, 1), exportSem: make(chan struct{}, 2)}
 	for i := range cfg.Cameras {

@@ -42,8 +42,9 @@ func TestEffectiveHost(t *testing.T) {
 	}
 }
 
-// signedIn makes a session for a fresh admin bound to host and returns its token.
-func signedIn(t *testing.T, srv *Server, host string) string {
+// signedIn makes a session for a fresh admin created on zone and host and
+// returns its token.
+func signedIn(t *testing.T, srv *Server, zone, host string) string {
 	t.Helper()
 	ctx := context.Background()
 	id, err := srv.Store.CreateFirstUser(ctx, "admin", "hash")
@@ -51,7 +52,7 @@ func signedIn(t *testing.T, srv *Server, host string) string {
 		t.Fatal(err)
 	}
 	tok := auth.NewToken()
-	if err := srv.Store.CreateSession(ctx, auth.HashToken(tok), id, "csrf", time.Now().Add(time.Hour), "ua", false, true, host); err != nil {
+	if err := srv.Store.CreateSession(ctx, auth.HashToken(tok), id, "csrf", time.Now().Add(time.Hour), "ua", false, true, host, zone); err != nil {
 		t.Fatal(err)
 	}
 	return tok
@@ -59,32 +60,43 @@ func signedIn(t *testing.T, srv *Server, host string) string {
 
 func TestSessionBoundToHost(t *testing.T) {
 	const home = "nvr.example.org"
+	const lanHost = "192.168.1.5:8080"
 	cases := []struct {
-		name    string
-		created string // Host the session was created on
-		public  string // "" = private listener, else the public zone
-		remote  string
-		host    string
-		xfh     string
-		want    int
+		name        string
+		createdZone string // zone the session was created on ("" = before 0013)
+		created     string // Host the session was created on
+		public      string // "" = private listener, else the public zone
+		remote      string
+		host        string
+		xfh         string
+		want        int
 	}{
-		{"public, same host", home, ZonePublic, "203.0.113.7:5000", home, "", 200},
-		{"public, host case does not matter", home, ZonePublic, "203.0.113.7:5000", "NVR.example.org", "", 200},
-		{"public, other host", home, ZonePublic, "203.0.113.7:5000", "192.0.2.10:20001", "", 401},
-		{"public, same name other port", home, ZonePublic, "203.0.113.7:5000", home + ":20001", "", 401},
-		{"public, port was part of the host", home + ":8443", ZonePublic, "203.0.113.7:5000", home + ":8443", "", 200},
-		{"public, legacy session without host", "", ZonePublic, "203.0.113.7:5000", "192.0.2.10:20001", "", 200},
-		{"funnel zone is bound too", home, ZoneFunnel, "203.0.113.7:5000", "other.example.org", "", 401},
-		{"proxy, forwarded host matches", home, ZoneProxy, "127.0.0.1:41000", "127.0.0.1:8080", home, 200},
-		{"proxy, forwarded host differs", home, ZoneProxy, "127.0.0.1:41000", home, "other.example.org", 401},
-		{"public from the network, forwarded host ignored", home, ZonePublic, "203.0.113.7:5000", "other.example.org", home, 401},
-		{"LAN is not bound", home, "", "192.168.1.9:5000", "192.168.1.5:8080", "", 200},
-		{"tailnet is not bound", home, "", "127.0.0.1:41000", "nvr.tailnet.ts.net", "", 200},
+		{"public, same host", ZonePublic, home, ZonePublic, "203.0.113.7:5000", home, "", 200},
+		{"public, host case does not matter", ZonePublic, home, ZonePublic, "203.0.113.7:5000", "NVR.example.org", "", 200},
+		{"public, other host", ZonePublic, home, ZonePublic, "203.0.113.7:5000", "192.0.2.10:20001", "", 401},
+		{"public, same name other port", ZonePublic, home, ZonePublic, "203.0.113.7:5000", home + ":20001", "", 401},
+		{"public, port was part of the host", ZonePublic, home + ":8443", ZonePublic, "203.0.113.7:5000", home + ":8443", "", 200},
+		{"funnel zone is bound too", ZoneFunnel, home, ZoneFunnel, "203.0.113.7:5000", "other.example.org", "", 401},
+		{"proxy, forwarded host matches", ZoneProxy, home, ZoneProxy, "127.0.0.1:41000", "127.0.0.1:8080", home, 200},
+		{"proxy, forwarded host differs", ZoneProxy, home, ZoneProxy, "127.0.0.1:41000", home, "other.example.org", 401},
+		{"public from the network, forwarded host ignored", ZonePublic, home, ZonePublic, "203.0.113.7:5000", "other.example.org", home, 401},
+		// The audit's lead: the Host header is the replaying client's own
+		// choice, so a session made elsewhere must be refused whatever it says.
+		{"LAN session replayed at the public listener with its LAN host", ZoneLAN, lanHost, ZonePublic, "203.0.113.7:5000", lanHost, "", 401},
+		{"LAN session replayed through the proxy with a forwarded LAN host", ZoneLAN, lanHost, ZoneProxy, "127.0.0.1:41000", "127.0.0.1:7444", lanHost, 401},
+		{"tailnet session replayed at the public listener", ZoneTailnet, "nvr.tailnet.ts.net", ZonePublic, "203.0.113.7:5000", "nvr.tailnet.ts.net", "", 401},
+		{"session of one public path at another", ZonePublic, home, ZoneProxy, "127.0.0.1:41000", "127.0.0.1:7444", home, 401},
+		{"public, legacy session without zone", "", home, ZonePublic, "203.0.113.7:5000", home, "", 401},
+		{"public, legacy session without host", "", "", ZonePublic, "203.0.113.7:5000", "192.0.2.10:20001", "", 401},
+		{"LAN is not bound", ZonePublic, home, "", "192.168.1.9:5000", lanHost, "", 200},
+		{"LAN accepts its own sessions", ZoneLAN, lanHost, "", "192.168.1.9:5000", lanHost, "", 200},
+		{"tailnet is not bound", ZoneLAN, home, "", "127.0.0.1:41000", "nvr.tailnet.ts.net", "", 200},
+		{"legacy sessions still work at home", "", "", "", "192.168.1.9:5000", lanHost, "", 200},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			_, srv := newTestServer(t)
-			tok := signedIn(t, srv, c.created)
+			tok := signedIn(t, srv, c.createdZone, c.created)
 			h := srv.Handler()
 			if c.public != "" {
 				h = srv.PublicHandler(c.public)
@@ -105,6 +117,63 @@ func TestSessionBoundToHost(t *testing.T) {
 				t.Errorf("GET /api/me = %d, want %d", w.Code, c.want)
 			}
 		})
+	}
+}
+
+// End to end: a cookie from a LAN login, the Host it was made on and a
+// matching forwarded host do not open the public listeners.
+func TestLANLoginCookieIsRefusedOutside(t *testing.T) {
+	_, srv := newTestServer(t)
+	post := func(h http.Handler, path, body string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+		r.RemoteAddr, r.Host = "192.168.1.9:5000", "nvr.lan:8080"
+		r.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w
+	}
+	if w := post(srv.Handler(), "/api/setup", `{"username":"owner","password":"long enough pw"}`); w.Code != 200 {
+		t.Fatalf("setup = %d %s", w.Code, w.Body.String())
+	}
+	w := post(srv.Handler(), "/api/login", `{"username":"owner","password":"long enough pw"}`)
+	var tok string
+	for _, c := range w.Result().Cookies() {
+		if c.Name == sessionCookie {
+			tok = c.Value
+		}
+	}
+	if w.Code != 200 || tok == "" {
+		t.Fatalf("LAN login = %d %s", w.Code, w.Body.String())
+	}
+	sess, _, err := srv.Store.SessionByHash(context.Background(), auth.HashToken(tok))
+	if err != nil || sess.Zone != ZoneLAN {
+		t.Fatalf("session zone = %v %v, want lan", sess, err)
+	}
+	for _, c := range []struct{ zone, remote, host, xfh string }{
+		{ZonePublic, "203.0.113.7:5000", "nvr.lan:8080", ""},
+		{ZoneFunnel, "127.0.0.1:41000", "nvr.lan:8080", ""},
+		{ZoneProxy, "127.0.0.1:41000", "127.0.0.1:7444", "nvr.lan:8080"},
+	} {
+		r := httptest.NewRequest(http.MethodGet, "/api/me", nil)
+		r.RemoteAddr, r.Host = c.remote, c.host
+		if c.xfh != "" {
+			r.Header.Set("X-Forwarded-Host", c.xfh)
+		}
+		r.AddCookie(&http.Cookie{Name: sessionCookie, Value: tok})
+		w := httptest.NewRecorder()
+		srv.PublicHandler(c.zone).ServeHTTP(w, r)
+		if w.Code == 200 {
+			t.Errorf("%s: LAN cookie accepted from the internet: %s", c.zone, w.Body.String())
+		}
+	}
+	// It still works at home.
+	r := httptest.NewRequest(http.MethodGet, "/api/me", nil)
+	r.RemoteAddr, r.Host = "192.168.1.9:5000", "nvr.lan:8080"
+	r.AddCookie(&http.Cookie{Name: sessionCookie, Value: tok})
+	w = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, r)
+	if w.Code != 200 {
+		t.Fatalf("LAN cookie at home = %d", w.Code)
 	}
 }
 
@@ -129,8 +198,8 @@ func TestSessionStoresHostItWasCreatedOn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sess.Host != "nvr.lan:8080" {
-		t.Errorf("session host = %q, want nvr.lan:8080", sess.Host)
+	if sess.Host != "nvr.lan:8080" || sess.Zone != ZoneLAN {
+		t.Errorf("session host/zone = %q/%q, want nvr.lan:8080/lan", sess.Host, sess.Zone)
 	}
 }
 
@@ -161,7 +230,7 @@ func TestSetupVersionHiddenFromTheInternet(t *testing.T) {
 
 func TestCameraProbesAreHomeOnly(t *testing.T) {
 	_, srv := newTestServer(t)
-	tok := signedIn(t, srv, "")
+	tok := signedIn(t, srv, ZonePublic, "nvr.example.org")
 	for _, path := range []string{"/api/cameras/test", "/api/cameras/discover"} {
 		r := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"host":"192.168.1.50"}`))
 		r.RemoteAddr, r.Host = "203.0.113.7:5000", "nvr.example.org"

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/LUKER2DW/sentinela/internal/auth"
@@ -177,5 +178,58 @@ func TestLoginLimitsAggregateIPv6(t *testing.T) {
 	}
 	if code := post("192.0.2.11:4000"); code != http.StatusUnauthorized {
 		t.Fatalf("other IPv4 = %d, want 401", code)
+	}
+}
+
+// Password hashes of home requests (LAN, tailnet) may use every argon2 slot;
+// requests on public listeners, or that a local tunnel forwards from a public
+// address, get the restricted lane.
+func TestHomeLaneFollowsZone(t *testing.T) {
+	cases := []struct {
+		name, fixed, remote, xff string
+		home                     bool
+	}{
+		{"LAN", "", "192.168.1.9:5000", "", true},
+		{"tailnet via loopback", "", "127.0.0.1:41000", "100.101.102.103", true},
+		{"tunnel on the dashboard port", "", "127.0.0.1:41000", "203.0.113.7", false},
+		{"public listener", ZonePublic, "203.0.113.7:5000", "", false},
+		{"proxy listener", ZoneProxy, "127.0.0.1:41000", "203.0.113.7", false},
+		{"funnel listener", ZoneFunnel, "127.0.0.1:41000", "", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var got bool
+			h := withZone(c.fixed, http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+				got = auth.HomeLane(r.Context())
+			}))
+			r := httptest.NewRequest("POST", "/api/login", nil)
+			r.RemoteAddr = c.remote
+			if c.xff != "" {
+				r.Header.Set("X-Forwarded-For", c.xff)
+			}
+			h.ServeHTTP(httptest.NewRecorder(), r)
+			if got != c.home {
+				t.Errorf("home lane = %v, want %v", got, c.home)
+			}
+		})
+	}
+}
+
+func TestCodeLockedMessage(t *testing.T) {
+	cases := []struct {
+		wait   time.Duration
+		public bool
+		want   string
+	}{
+		{time.Minute, false, "locked for 1 min"},
+		{61 * time.Second, false, "locked for 2 min"},
+		{time.Hour, true, "locked for 60 min (a good code at home unlocks it)"},
+	}
+	for _, c := range cases {
+		got := codeLockedMessage(c.wait, c.public)
+		// The SPA maps "for this account" to its own text.
+		if !strings.HasSuffix(got, c.want) || !strings.Contains(got, "for this account") {
+			t.Errorf("codeLockedMessage(%v, %v) = %q, want suffix %q", c.wait, c.public, got, c.want)
+		}
 	}
 }
