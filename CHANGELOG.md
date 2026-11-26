@@ -7,6 +7,14 @@ All notable changes to Sentinela. The format follows
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-11-26
+
+A security review of the whole code, fixed: sign-in from the internet, the
+public door, cameras and detector, live media, the containers, self-hosted
+services, host scripts and the Android app. Back up first (the accounts
+move to their own database), then update with the usual
+`./scripts/deploy.sh`; read **Changed** first.
+
 ### Changed
 Read before updating.
 - **Accounts move to their own database.** On its first start the API copies
@@ -432,7 +440,8 @@ The first public release. Highlights of what is in it:
   with checksum checks and automatic rollback; System → Updates shows
   the schedule and these notes.
 
-[Unreleased]: https://github.com/LUKER2DW/Sentinela/compare/v1.7.0...HEAD
+[Unreleased]: https://github.com/LUKER2DW/Sentinela/compare/v1.8.0...HEAD
+[1.8.0]: https://github.com/LUKER2DW/Sentinela/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/LUKER2DW/Sentinela/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/LUKER2DW/Sentinela/compare/v1.5.1...v1.6.0
 [1.5.1]: https://github.com/LUKER2DW/Sentinela/compare/v1.5.0...v1.5.1
