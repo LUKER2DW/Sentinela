@@ -148,10 +148,14 @@ jobs:
           install -d -m 700 "$ks"
           trap 'rm -rf "$ks"' EXIT
           printf '%s' "$KEYSTORE_B64" | base64 -d > "$ks/release.jks"
+          # The same password (the app's key was made with one), in two files:
+          # apksigner reads a file named twice line by line, so the key's
+          # password would hit the end of a one-line file.
           printf '%s' "$KEYSTORE_PASSWORD" > "$ks/keystore.pass"
-          chmod 600 "$ks/release.jks" "$ks/keystore.pass"
+          printf '%s' "$KEYSTORE_PASSWORD" > "$ks/key.pass"
+          chmod 600 "$ks/release.jks" "$ks/keystore.pass" "$ks/key.pass"
           "$bt/apksigner" sign --ks "$ks/release.jks" --ks-key-alias sentinela \
-            --ks-pass "file:$ks/keystore.pass" --key-pass "file:$ks/keystore.pass" \
+            --ks-pass "file:$ks/keystore.pass" --key-pass "file:$ks/key.pass" \
             --out out/sentinela.apk "$apk"
           rm -rf "$ks"
           "$bt/apksigner" verify --print-certs out/sentinela.apk
