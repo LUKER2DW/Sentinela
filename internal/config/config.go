@@ -289,6 +289,10 @@ type Camera struct {
 
 var idPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,31}$`)
 
+// CameraIDPattern is the rule every camera id follows (checked when the
+// config loads); code that builds a path from an id checks it again.
+var CameraIDPattern = idPattern
+
 // Load reads path, applies defaults, resolves secrets from the environment and validates.
 func Load(path string) (*Config, error) {
 	raw, err := os.ReadFile(path)

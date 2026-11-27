@@ -88,10 +88,15 @@ func (s *Server) eventStarted(cameraID, typ string, eventID int64, at time.Time,
 	}()
 }
 
-func (s *Server) snapshotPath(cameraID string, eventID int64) string {
-	// Camera ids come from the configuration (validated when it loads);
-	// Base keeps the id a single path element whatever the caller passes.
-	return filepath.Join(s.Cfg.DataDir, "snapshots", filepath.Base(cameraID), strconv.FormatInt(eventID, 10)+".jpg")
+// snapshotPath is where an event's picture lives. Camera ids come from the
+// configuration (validated when it loads); the id rule is checked again so
+// no id ("..", say) can name a path outside the snapshots folder. false: no
+// such path.
+func (s *Server) snapshotPath(cameraID string, eventID int64) (string, bool) {
+	if !config.CameraIDPattern.MatchString(cameraID) {
+		return "", false
+	}
+	return filepath.Join(s.Cfg.DataDir, "snapshots", cameraID, strconv.FormatInt(eventID, 10)+".jpg"), true
 }
 
 // snapshotSlot takes the gate key's slot: false when its last snapshot
@@ -160,6 +165,10 @@ func (s *Server) saveSnapshot(cameraID string, eventID int64, jpg []byte) (err e
 	if len(jpg) == 0 || len(jpg) > snapshotMax {
 		return fmt.Errorf("unexpected snapshot size %d", len(jpg))
 	}
+	dst, ok := s.snapshotPath(cameraID, eventID)
+	if !ok {
+		return errors.New("invalid camera id")
+	}
 	if err := s.reserveSnapshot(int64(len(jpg))); err != nil {
 		return err
 	}
@@ -170,7 +179,6 @@ func (s *Server) saveSnapshot(cameraID string, eventID int64, jpg []byte) (err e
 			s.snaps.budgetMu.Unlock()
 		}
 	}()
-	dst := s.snapshotPath(cameraID, eventID)
 	if err := os.MkdirAll(filepath.Dir(dst), 0o750); err != nil {
 		return err
 	}
@@ -223,7 +231,11 @@ func (s *Server) reserveSnapshot(n int64) error {
 }
 
 func (s *Server) hasSnapshot(e store.Event) bool {
-	_, err := os.Stat(s.snapshotPath(e.CameraID, e.ID))
+	p, ok := s.snapshotPath(e.CameraID, e.ID)
+	if !ok {
+		return false
+	}
+	_, err := os.Stat(p)
 	return err == nil
 }
 
@@ -238,7 +250,12 @@ func (s *Server) eventSnapshot(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "event not found")
 		return
 	}
-	f, err := os.Open(s.snapshotPath(e.CameraID, e.ID))
+	p, ok := s.snapshotPath(e.CameraID, e.ID)
+	if !ok {
+		writeErr(w, http.StatusNotFound, "no snapshot for this event")
+		return
+	}
+	f, err := os.Open(p)
 	if err != nil {
 		writeErr(w, http.StatusNotFound, "no snapshot for this event")
 		return
