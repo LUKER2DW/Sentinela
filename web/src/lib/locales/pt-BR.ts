@@ -892,9 +892,9 @@ export const ptBR: Record<string, string> = {
   "Today's summary": "Resumo de hoje",
   "Rectangle": "Retângulo",
   "Run as root inside the container": "Rodar como root dentro do contêiner",
-  "Allow builds outside the firewall": "Permitir builds fora do firewall",
-  "Compose builds and Dockerfiles that need BuildKit run on Docker's own network: their steps can reach the cameras, the home network and this server. Turn on only for code you trust.":
-    "Builds do Compose e Dockerfiles que precisam do BuildKit rodam na rede do próprio Docker: os passos podem alcançar as câmeras, a rede de casa e este servidor. Ative só para código em que você confia.",
+  "Allow builds and downloads outside the firewall": "Permitir builds e downloads fora do firewall",
+  "Compose builds, Dockerfiles that need BuildKit or download with ADD, and images from a registry other than the well-known public ones (Docker Hub, GitHub, Quay, LinuxServer, GitLab, Google, Microsoft, Amazon) run on this server's own network: they can reach the cameras, the home network and this server. Turn on only for code you trust.":
+    "Builds do Compose, Dockerfiles que precisam do BuildKit ou baixam com ADD e imagens de um registry que não seja um dos públicos conhecidos (Docker Hub, GitHub, Quay, LinuxServer, GitLab, Google, Microsoft, Amazon) rodam na rede deste servidor: podem alcançar as câmeras, a rede de casa e este servidor. Ative só para código em que você confia.",
   "Tour": "Ronda",
   "Tour active": "Ronda ativa",
   "Tour started": "Ronda iniciada",

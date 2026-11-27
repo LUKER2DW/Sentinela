@@ -754,12 +754,18 @@ func (a *Agent) build(ctx context.Context, image, work string, unfiltered bool, 
 		return false, errors.New("contexto de build grande demais")
 	}
 	if !unfiltered {
-		// The daemon itself fetches an ADD <url>, from the host's network:
-		// outside the sn-* firewall, like a BuildKit build.
-		if remote, err := dockerfileFetches(work); err != nil {
+		// The daemon itself fetches an ADD <url> and pulls the FROM images,
+		// from the host's network: outside the sn-* firewall, like a
+		// BuildKit build.
+		text, err := readDockerfile(work)
+		if err != nil {
 			return false, err
-		} else if remote {
+		}
+		if addFetches(text) {
 			return false, errUnfilteredBuild("This Dockerfile downloads with ADD, which")
+		}
+		if from := dockerfileRegistries(text); len(from) > 0 {
+			return false, errForeignPull([]string{"The base image " + strings.Join(from, ", ")})
 		}
 	}
 	logf("Construindo a imagem (Dockerfile, %.1f MB de contexto)", float64(buf.Len())/(1<<20))
@@ -779,24 +785,25 @@ func (a *Agent) build(ctx context.Context, image, work string, unfiltered bool, 
 	return false, err
 }
 
-// dockerfileFetches reports whether the Dockerfile in work has an ADD that
-// may download (a URL, a git source, or a variable that could expand to
-// one): the daemon runs those downloads on the host's network. Continuation
-// lines are joined first; the escape directive is honoured. An ONBUILD
-// trigger of the base image is not seen here (ADR-0021).
-func dockerfileFetches(work string) (bool, error) {
+// readDockerfile reads the Dockerfile in work (capped, inside work).
+func readDockerfile(work string) (string, error) {
 	root, err := os.OpenRoot(work)
 	if err != nil {
-		return false, err
+		return "", err
 	}
 	defer root.Close()
 	b, err := readCapped(root, "Dockerfile", 1<<20)
 	if err != nil {
-		return false, fmt.Errorf("reading the Dockerfile: %w", err)
+		return "", fmt.Errorf("reading the Dockerfile: %w", err)
 	}
-	return addFetches(string(b)), nil
+	return string(b), nil
 }
 
+// addFetches reports whether a Dockerfile has an ADD that may download (a
+// URL, a git source, or a variable that could expand to one): the daemon
+// runs those downloads on the host's network. Continuation lines are joined
+// first; the escape directive is honoured. An ONBUILD trigger of the base
+// image is not seen here (ADR-0021).
 func addFetches(dockerfile string) bool {
 	lines := strings.Split(strings.ReplaceAll(dockerfile, "\r\n", "\n"), "\n")
 	escape := `\`

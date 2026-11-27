@@ -790,7 +790,7 @@ function AccessFields({ cfg, set, info, hosts }: { cfg: AppConfig; set: SetCfg; 
         <>
           <label className="toggle-row">
             <span>
-              <Icon name="shield" />{" "}{t("Allow builds outside the firewall")}
+              <Icon name="shield" />{" "}{t("Allow builds and downloads outside the firewall")}
             </span>
             <button
               type="button"
@@ -801,7 +801,7 @@ function AccessFields({ cfg, set, info, hosts }: { cfg: AppConfig; set: SetCfg; 
             />
           </label>
           <span className="hint">
-            {t("Compose builds and Dockerfiles that need BuildKit run on Docker's own network: their steps can reach the cameras, the home network and this server. Turn on only for code you trust.")}
+            {t("Compose builds, Dockerfiles that need BuildKit or download with ADD, and images from a registry other than the well-known public ones (Docker Hub, GitHub, Quay, LinuxServer, GitLab, Google, Microsoft, Amazon) run on this server's own network: they can reach the cameras, the home network and this server. Turn on only for code you trust.")}
           </span>
         </>
       )}

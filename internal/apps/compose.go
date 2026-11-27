@@ -1632,7 +1632,7 @@ func (a *Agent) adoptImages(ctx context.Context, app *App, images map[string]str
 	}
 	hint := "deploy the service again (Update) to build it"
 	if !app.UnfilteredBuilds {
-		hint += `; builds run outside the services firewall, so turn on "Allow builds outside the firewall" in the service's settings first, if you trust this code`
+		hint += `; builds run outside the services firewall, so turn on "Allow builds and downloads outside the firewall" in the service's settings first, if you trust this code`
 	}
 	return &blockedError{fmt.Errorf("the image built for %s is not on the server under the name Sentinela now runs (%s), and no container of the project runs it: %s",
 		strings.Join(missing, ", "), composeImage(app.ID, missing[0]), hint)}
@@ -1856,7 +1856,7 @@ func (a *Agent) composeBudget(app *App, containers int) error {
 // errUnfilteredBuild refuses an image build that would run outside the
 // services firewall without the owner's consent (ADR-0021).
 func errUnfilteredBuild(what string) error {
-	return fmt.Errorf("%s builds outside the services firewall: its steps could reach the cameras, the home network and this server. Turn on \"Allow builds outside the firewall\" in the service's settings only if you trust this code", what)
+	return fmt.Errorf("%s builds outside the services firewall: its steps could reach the cameras, the home network and this server. Turn on \"Allow builds and downloads outside the firewall\" in the service's settings only if you trust this code", what)
 }
 
 // composeUp normalizes, checks and rewrites the project in work, assigns
@@ -1922,6 +1922,18 @@ func (a *Agent) composeRun(ctx context.Context, app *App, work string, build boo
 	}
 	if build && len(plan.builds) > 0 && !app.UnfilteredBuilds {
 		return nil, nil, nil, errUnfilteredBuild("This Compose project (" + strings.Join(plan.builds, ", ") + ")")
+	}
+	// `up` pulls a missing image (or one whose policy pulls again) through
+	// the daemon, on the host's network: from another registry only with
+	// the same consent, checked before anything reaches the socket.
+	if !app.UnfilteredBuilds {
+		pulls, err := plan.foreignPulls(ctx, a.Eng.ImageExists)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		if len(pulls) > 0 {
+			return nil, nil, nil, &blockedError{errForeignPull(pulls)}
+		}
 	}
 	if err := a.composeBudget(app, len(plan.services)); err != nil {
 		return nil, nil, nil, err

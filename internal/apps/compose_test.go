@@ -533,7 +533,7 @@ func TestUnfilteredBuildsNeedConsent(t *testing.T) {
 		got := deployCompose(t, a, eng, src, App{Name: "Site"}, func(string) string {
 			return `{"services":{"web":{"build":{"context":"@WORK@"}}}}`
 		})
-		if got.Status.Job.Phase != "failed" || !strings.Contains(got.Status.Job.Error, "Allow builds outside the firewall") {
+		if got.Status.Job.Phase != "failed" || !strings.Contains(got.Status.Job.Error, "Allow builds and downloads outside the firewall") {
 			t.Fatalf("deploy: %+v", got.Status.Job)
 		}
 		if n := len(helperSpecs(eng, got.ID)); n != 1 || got.Deployed != nil {
@@ -562,6 +562,94 @@ func TestUnfilteredBuildsNeedConsent(t *testing.T) {
 			t.Fatalf("deploy: %+v", got.Status.Job)
 		}
 	})
+	// The daemon pulls on the host's network: an image from a registry other
+	// than the well-known public ones needs the same consent, before `up`.
+	t.Run("pull from another registry", func(t *testing.T) {
+		a, eng, src := newTestAgent(t)
+		got := deployCompose(t, a, eng, src, App{Name: "Site"}, func(string) string {
+			return `{"services":{"web":{"image":"192.168.1.5:5000/web:1"},"db":{"image":"postgres:17"}}}`
+		})
+		if got.Status.Job.Phase != "failed" || !strings.Contains(got.Status.Job.Error, "web (192.168.1.5:5000/web:1)") ||
+			strings.Contains(got.Status.Job.Error, "postgres") || !strings.Contains(got.Status.Job.Error, "Allow builds and downloads outside the firewall") {
+			t.Fatalf("deploy: %+v", got.Status.Job)
+		}
+		if n := len(helperSpecs(eng, got.ID)); n != 1 {
+			t.Fatalf("helper ran %d times: `up` was reached", n)
+		}
+	})
+	t.Run("another registry with consent, or already here", func(t *testing.T) {
+		a, eng, src := newTestAgent(t)
+		got := deployCompose(t, a, eng, src, App{Name: "Site", UnfilteredBuilds: true}, func(string) string {
+			return `{"services":{"web":{"image":"registry.example.org/web:1"}}}`
+		})
+		if got.Status.Job.Phase != "done" {
+			t.Fatalf("with consent: %+v", got.Status.Job)
+		}
+		a, eng, src = newTestAgent(t)
+		eng.images["registry.example.org/web:1"] = true
+		got = deployCompose(t, a, eng, src, App{Name: "Site"}, func(string) string {
+			return `{"services":{"web":{"image":"registry.example.org/web:1"},"job":{"image":"registry.example.org/job:1","pull_policy":"never"}}}`
+		})
+		if got.Status.Job.Phase != "done" {
+			t.Fatalf("present image / never pulled: %+v", got.Status.Job)
+		}
+		a, eng, src = newTestAgent(t)
+		eng.images["registry.example.org/web:1"] = true
+		got = deployCompose(t, a, eng, src, App{Name: "Site"}, func(string) string {
+			return `{"services":{"web":{"image":"registry.example.org/web:1","pull_policy":"always"}}}`
+		})
+		if got.Status.Job.Phase != "failed" {
+			t.Fatalf("pull_policy always from another registry: %+v", got.Status.Job)
+		}
+	})
+	t.Run("dockerfile base image from another registry", func(t *testing.T) {
+		a, eng, src := newTestAgent(t)
+		src.files = map[string]string{"Dockerfile": "ARG REG=nas:5000\nFROM ${REG}/base\nRUN true\n"}
+		v, err := a.Create(App{Name: "Img", Source: SourceGitHub, Repo: "ana/img", Mode: ModeDockerfile, Ports: []Port{{Container: 8080}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		a.Enqueue(v.ID, "deploy")
+		runQueued(t, a)
+		got, _ := a.viewOf(v.ID)
+		if got.Status.Job.Phase != "failed" || !strings.Contains(got.Status.Job.Error, "nas:5000/base") || len(eng.builds) != 0 {
+			t.Fatalf("deploy %+v builds %+v", got.Status.Job, eng.builds)
+		}
+	})
+}
+
+func TestForeignRegistry(t *testing.T) {
+	for ref, want := range map[string]bool{
+		"nginx": false, "nginx:1.27": false, "library/nginx": false, "docker.io/library/nginx": false,
+		"ghcr.io/ana/app:1": false, "lscr.io/linuxserver/jellyfin": false, "QUAY.IO/x/y": false,
+		"nginx@sha256:0123": false, "ghcr.io/${OWNER}/app": false,
+		"192.168.1.5:5000/x": true, "localhost/x": true, "localhost:5000/x": true, "nas.lan/x": true,
+		"registry.example.org/x": true, "ghcr.io:443/x": true, "[::1]:5000/x": true,
+		"${REG}/x": true, "node:${V}": true, "$IMAGE": true,
+	} {
+		if got := foreignRegistry(ref); got != want {
+			t.Errorf("foreignRegistry(%q) = %v, want %v", ref, got, want)
+		}
+	}
+}
+
+func TestDockerfileRegistries(t *testing.T) {
+	for _, tc := range []struct {
+		dockerfile string
+		want       string
+	}{
+		{"FROM node:22\nRUN true\n", ""},
+		{"ARG V=22\nFROM node:${V}-alpine AS build\nFROM build\nFROM scratch\n", ""},
+		{"FROM --platform=$BUILDPLATFORM golang:1.26 AS b\nFROM gcr.io/distroless/static\nCOPY --from=b /x /x\n", ""},
+		{"ARG REG=192.168.1.5:5000\nFROM $REG/base\n", "192.168.1.5:5000/base"},
+		{"FROM node AS ok\nARG LATER=nas:5000\nFROM ${LATER}/x\n", "${LATER}/x"},
+		{"FROM \\\n  localhost:5000/base\n", "localhost:5000/base"},
+		{"FROM ${UNSET}\n", "${UNSET}"},
+	} {
+		if got := strings.Join(dockerfileRegistries(tc.dockerfile), ","); got != tc.want {
+			t.Errorf("%q: got %q, want %q", tc.dockerfile, got, tc.want)
+		}
+	}
 }
 
 // renderedDoc reads the Compose file the agent last rendered for id.
@@ -665,7 +753,7 @@ func TestComposeUpgradeAdoptsBuiltImages(t *testing.T) {
 		}
 		v, _ := a.viewOf(id)
 		if v.Desired != Stopped || !v.NeedsDeploy || lastEvent(v) != "blocked" ||
-			!strings.Contains(v.Status.Error, "deploy the service again") || !strings.Contains(v.Status.Error, "Allow builds outside the firewall") {
+			!strings.Contains(v.Status.Error, "deploy the service again") || !strings.Contains(v.Status.Error, "Allow builds and downloads outside the firewall") {
 			t.Fatalf("desired %s, needs deploy %v, event %q, error %q", v.Desired, v.NeedsDeploy, lastEvent(v), v.Status.Error)
 		}
 		// It stays stopped: no retry every 15 s.

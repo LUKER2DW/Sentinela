@@ -276,11 +276,19 @@ accepted and dropped from the rendered file: Compose reads some of them.
   `NAME`. These are the only variables `up` gets, so services also receive
   variables with reserved names. The helper mounts the release and `data`
   read-only, not the whole service folder.
-- **Builds outside the firewall need consent.** A Compose project with
-  `build:`, or a Dockerfile that needs BuildKit, deploys only when the
-  service's *Allow builds outside the firewall* setting (`unfiltered_builds`)
-  is on; otherwise the deploy stops before anything is built. The setting is
-  off for existing services: the next deploy of one that builds asks for it.
+- **Builds and downloads outside the firewall need consent.** A Compose
+  project with `build:`, a Dockerfile that needs BuildKit or downloads with
+  `ADD`, and an image the daemon would pull (missing on the server, or a
+  pull policy that pulls again) from a registry other than the well-known
+  public ones (Docker Hub, `ghcr.io`, `quay.io`, `lscr.io`,
+  `registry.gitlab.com`, `gcr.io`, `registry.k8s.io`, `mcr.microsoft.com`,
+  `public.ecr.aws`; a Dockerfile's `FROM` too) deploy only when the
+  service's *Allow builds and downloads outside the firewall* setting
+  (`unfiltered_builds`) is on: the daemon pulls on the host's network, and a
+  registry or the token service it names could be a camera, the router or a
+  service on this server. Otherwise the deploy stops before anything is
+  built or pulled. The setting is off for existing services: the next
+  deploy of one that needs it asks for it.
 - **Services deployed before these rules.** Their first `up` after the
   update (`--no-build`) recreates their containers and networks once. A
   build's image is given its new name from the image ID a container of the
