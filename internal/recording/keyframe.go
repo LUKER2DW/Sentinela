@@ -7,12 +7,24 @@ import (
 	"time"
 )
 
+// The preview lives in memory, so its parts are capped well below what the
+// index reader accepts for a box: a camera's keyframe is a few hundred KB
+// even at 8 MP. Anything larger is served as the whole fragment, straight
+// from the file (FragIndex.GOP).
+const (
+	maxKeyFrameSample = 2 << 20
+	maxKeyFrameHead   = 256 << 10 // ftyp + moov, and the moof: a few KB each
+	// MaxKeyFrameBytes bounds what KeyFrame returns.
+	MaxKeyFrameBytes = maxKeyFrameSample + 2*maxKeyFrameHead + 64
+)
+
 // KeyFrame builds the smallest file a browser can show a picture from: the
 // init boxes with only the video track, then one moof+mdat holding just the
 // keyframe that starts the fragment at `at` (no audio, no other frames of
 // the GOP). It is the timeline's hover preview: a fraction of the GOP's
 // bytes, and the browser decodes a single frame. The samples are copied as
-// they are, nothing is decoded or re-encoded here (AGENTS.md §2.1).
+// they are, nothing is decoded or re-encoded here (AGENTS.md §2.1). The
+// result is at most MaxKeyFrameBytes.
 func (idx *FragIndex) KeyFrame(r io.ReaderAt, at time.Duration) ([]byte, time.Duration, error) {
 	i := -1
 	for j, f := range idx.Fragments {
@@ -26,6 +38,9 @@ func (idx *FragIndex) KeyFrame(r io.ReaderAt, at time.Duration) ([]byte, time.Du
 	f := idx.Fragments[i]
 
 	// init: ftyp etc. as they are, moov without the non-video tracks.
+	if idx.InitEnd > maxKeyFrameHead {
+		return nil, 0, errors.New("fmp4: init too large for a preview")
+	}
 	head, err := readBody(r, 0, idx.InitEnd)
 	if err != nil {
 		return nil, 0, err
@@ -48,6 +63,9 @@ func (idx *FragIndex) KeyFrame(r io.ReaderAt, at time.Duration) ([]byte, time.Du
 	_, hdr, n, err := boxHeader(r, f.Offset)
 	if err != nil || n <= hdr {
 		return nil, 0, errors.New("fmp4: bad moof")
+	}
+	if n-hdr > maxKeyFrameHead {
+		return nil, 0, errors.New("fmp4: moof too large for a preview")
 	}
 	moof, err := readBody(r, f.Offset+hdr, n-hdr)
 	if err != nil {
@@ -125,8 +143,8 @@ func (idx *FragIndex) KeyFrame(r io.ReaderAt, at time.Duration) ([]byte, time.Du
 		}
 		size = binary.BigEndian.Uint32(first[off:])
 	}
-	if size == 0 || size > 8<<20 {
-		return nil, 0, errors.New("fmp4: bad sample size")
+	if size == 0 || size > maxKeyFrameSample {
+		return nil, 0, errors.New("fmp4: keyframe too large for a preview")
 	}
 	sample := make([]byte, size)
 	if _, err := r.ReadAt(sample, f.Offset+int64(dataOff)); err != nil {

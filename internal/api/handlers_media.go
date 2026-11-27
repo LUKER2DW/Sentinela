@@ -270,8 +270,12 @@ func (s *Server) recording(w http.ResponseWriter, r *http.Request) {
 		if idx, err := s.segs.index(path, f, info.Size(), info.ModTime()); err == nil {
 			d := time.Duration(at * float64(time.Second))
 			w.Header().Set("Cache-Control", "private, max-age=3600")
-			if b, err := s.segs.preview(path, f, idx, d); err == nil {
+			if b, done, err := s.segs.preview(r.Context(), path, f, idx, d); err == nil {
+				defer done()
 				http.ServeContent(w, r, filepath.Base(path), info.ModTime(), bytes.NewReader(b))
+				return
+			}
+			if r.Context().Err() != nil {
 				return
 			}
 			if rs, _ := idx.GOP(f, d); rs != nil {
