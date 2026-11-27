@@ -286,6 +286,12 @@ public class MainActivity extends BridgeActivity {
         webView = w;
     }
 
+    /** The address of the page the WebView shows (UI thread), or null. */
+    String pageUrl() {
+        WebView web = webView;
+        return web == null ? null : web.getUrl();
+    }
+
     private void tuneWebView() {
         WebView web = webView;
         web.setVerticalScrollBarEnabled(false);

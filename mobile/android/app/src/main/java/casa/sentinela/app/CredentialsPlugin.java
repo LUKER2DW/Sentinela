@@ -6,7 +6,6 @@ import android.content.SharedPreferences;
 import android.os.CancellationSignal;
 import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyProperties;
-import android.webkit.WebView;
 
 import androidx.annotation.NonNull;
 import androidx.core.content.ContextCompat;
@@ -153,8 +152,10 @@ public class CredentialsPlugin extends Plugin {
     private House pairedPage() {
         House h = House.current(getContext());
         if (h == null) return null;
-        WebView web = getBridge().getWebView();
-        String page = web == null ? null : web.getUrl();
+        // Through MainActivity's hardened WebView field (it never hands the
+        // WebView out), not the bridge's getter.
+        Activity activity = getActivity();
+        String page = activity instanceof MainActivity ? ((MainActivity) activity).pageUrl() : null;
         String bridge = getBridge().getServerUrl();
         return AppLinks.sameOrigin(h.server, page) && AppLinks.sameOrigin(h.server, bridge) ? h : null;
     }
