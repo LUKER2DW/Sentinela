@@ -109,6 +109,21 @@ final class AppLinks {
     }
 
     /**
+     * The text a saved password is bound to (CredentialsPlugin, which keys it
+     * with the Keystore): the server's origin, its certificate pin ("" =
+     * publicly trusted), the account and the password, each length-prefixed
+     * so no two different sets give the same text. Null when server is not
+     * an HTTPS origin or a part is missing.
+     */
+    static String credentialBinding(String server, String pin, String user, String password) {
+        String o = origin(server);
+        if (o == null || pin == null || user == null || user.isEmpty() || password == null || password.isEmpty()) return null;
+        String p = pin.toLowerCase(Locale.ROOT);
+        return "sentinela-credential\n" + o.length() + ":" + o + "\n" + p.length() + ":" + p + "\n"
+                + user.length() + ":" + user + "\n" + password.length() + ":" + password;
+    }
+
+    /**
      * A session copied for boundOrigin with boundPin may go to server, which
      * the app now trusts with pin: same origin and the same certificate pin
      * ("" = publicly trusted). A copy with no recorded origin never matches.

@@ -164,4 +164,25 @@ public class AppLinksTest {
         assertNull(AppLinks.sessionValue("a=1"));
         assertNull(AppLinks.sessionValue(null));
     }
+
+    @Test
+    public void credentialBinding() {
+        String pin = twice("ab");
+        String a = AppLinks.credentialBinding("https://casa.example.org:8443/", pin, "ana", "pw one");
+        assertEquals(a, AppLinks.credentialBinding("https://CASA.example.org:8443", pin.toUpperCase(java.util.Locale.ROOT), "ana", "pw one"));
+        // another port, pin, account or password is another binding
+        assertFalse(a.equals(AppLinks.credentialBinding("https://casa.example.org", pin, "ana", "pw one")));
+        assertFalse(a.equals(AppLinks.credentialBinding("https://casa.example.org:8443", twice("cd"), "ana", "pw one")));
+        assertFalse(a.equals(AppLinks.credentialBinding("https://casa.example.org:8443", "", "ana", "pw one")));
+        assertFalse(a.equals(AppLinks.credentialBinding("https://casa.example.org:8443", pin, "bia", "pw one")));
+        assertFalse(a.equals(AppLinks.credentialBinding("https://casa.example.org:8443", pin, "ana", "pw two")));
+        // the parts cannot slide into each other
+        assertFalse(AppLinks.credentialBinding("https://casa.example.org", "", "a\n1:b", "c").equals(
+                AppLinks.credentialBinding("https://casa.example.org", "", "a", "b\n1:c")));
+        assertNull(AppLinks.credentialBinding("http://casa.example.org", pin, "ana", "pw"));
+        assertNull(AppLinks.credentialBinding("https://ana@casa.example.org", pin, "ana", "pw"));
+        assertNull(AppLinks.credentialBinding("https://casa.example.org", null, "ana", "pw"));
+        assertNull(AppLinks.credentialBinding("https://casa.example.org", pin, "", "pw"));
+        assertNull(AppLinks.credentialBinding("https://casa.example.org", pin, "ana", ""));
+    }
 }
