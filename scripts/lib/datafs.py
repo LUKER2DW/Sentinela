@@ -228,7 +228,9 @@ def touch(root, path):
     try:
         created = True
         try:
-            fd = os.open(names[-1], os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o644, dir_fd=dfd)
+            # Empty and only ever stat()ed (by root here, by the recorder
+            # through its bind mount): nobody needs to read it.
+            fd = os.open(names[-1], os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600, dir_fd=dfd)
         except FileExistsError:
             created = False
             try:
