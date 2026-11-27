@@ -97,6 +97,10 @@ type Apps struct {
 	// BootDelaySeconds: after a host boot, services wait until the host has
 	// been up this long, so the NVR starts first.
 	BootDelaySeconds int `yaml:"boot_delay_seconds"`
+	// DiskReservePercent of the system disk (the filesystem of StateDir) is
+	// kept free for the NVR and the system, at least 1 GiB: below it no
+	// service starts, deploys, builds or pulls, and running ones stop.
+	DiskReservePercent int `yaml:"disk_reserve_percent"`
 	// Runtimes are the base images of "script" services, by name. Entries
 	// here override or add to the defaults (pin digests here if wanted).
 	Runtimes map[string]string `yaml:"runtimes"`
@@ -398,6 +402,7 @@ func (c *Config) applyDefaults() {
 	defInt(&c.Apps.TotalMemoryMB, 1024)
 	defInt(&c.Apps.BuildMemoryMB, 1024)
 	defInt(&c.Apps.BootDelaySeconds, 120)
+	defInt(&c.Apps.DiskReservePercent, 10)
 	defFloat := func(v *float64, d float64) {
 		if *v == 0 {
 			*v = d
@@ -595,6 +600,9 @@ func (a *Apps) validate() []error {
 	}
 	if a.MaxApps < 1 || a.MaxApps > 50 {
 		errs = append(errs, errors.New("apps.max_apps must be 1..50"))
+	}
+	if a.DiskReservePercent < 5 || a.DiskReservePercent > 50 {
+		errs = append(errs, errors.New("apps.disk_reserve_percent must be 5..50"))
 	}
 	if a.MemoryMB < 32 || a.MemoryMB > a.MaxMemoryMB || a.MaxMemoryMB > a.TotalMemoryMB || a.TotalMemoryMB > 8192 || a.BuildMemoryMB < 128 {
 		errs = append(errs, errors.New("apps memory: 32 <= memory_mb <= max_memory_mb <= total_memory_mb <= 8192, build_memory_mb >= 128"))

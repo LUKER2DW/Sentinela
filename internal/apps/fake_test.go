@@ -311,6 +311,7 @@ func newTestAgent(t *testing.T) (*Agent, *fakeEngine, *fakeSource) {
 	a := NewAgent(testAppsCfg(t), eng, map[string]Source{SourceGitHub: src}, quiet)
 	a.settleTime = 0
 	a.memFreeMB = func() int { return 2000 }
+	a.diskSpace = roomyDisk
 	a.bootID = func() string { return "boot-1" }
 	a.uptime = func() time.Duration { return time.Hour }
 	a.portFree = func(int, string) bool { return true }

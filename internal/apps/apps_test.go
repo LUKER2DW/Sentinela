@@ -372,6 +372,7 @@ func TestRebootRule(t *testing.T) {
 	b.bootID = func() string { return "boot-2" }
 	b.uptime = func() time.Duration { return 30 * time.Second }
 	b.memFreeMB = func() int { return 2000 }
+	b.diskSpace = roomyDisk
 	if err := b.Load(); err != nil {
 		t.Fatal(err)
 	}

@@ -64,6 +64,7 @@ type Agent struct {
 	// Host facts, injectable for tests.
 	now        func() time.Time
 	memFreeMB  func() int
+	diskSpace  func(dir string) (free, total uint64, err error)
 	bootID     func() string
 	uptime     func() time.Duration
 	portFree   func(port int, proto string) bool
@@ -87,6 +88,9 @@ type Agent struct {
 	startAfter time.Time
 	lastPublic string
 	fwAsked    time.Time // last request to apply the firewall again
+	// diskLow: the system disk went below its reserve and services are held
+	// until it is back above the reserve and its margin (diskreserve.go).
+	diskLow bool
 }
 
 // svcState holds live container data and the persisted diagnostic history.
@@ -128,7 +132,7 @@ type Job struct {
 
 // NewAgent prepares an agent; call Load, then Run.
 func NewAgent(cfg config.Apps, eng Engine, sources map[string]Source, log *slog.Logger) *Agent {
-	return &Agent{Cfg: cfg, Eng: eng, Sources: sources, Log: log, now: time.Now, memFreeMB: memAvailableMB,
+	return &Agent{Cfg: cfg, Eng: eng, Sources: sources, Log: log, now: time.Now, memFreeMB: memAvailableMB, diskSpace: fsSpace,
 		bootID: hostBootID, uptime: hostUptime, portFree: portFree, tailnetIP: tailnetIPv4, lanIP: lanIPv4, settleTime: 10 * time.Second,
 		firewall: func() (firewallState, error) { return readFirewallMarker(firewallMarker) }, fwWait: firewallWait,
 		run: map[string]*svcState{}, jobs: make(chan string, 64), vaults: map[string]secretVault{},
@@ -503,6 +507,10 @@ func (a *Agent) deploy(ctx context.Context, id string, job *Job, logf func(strin
 	}
 	if free := a.memFreeMB(); free > 0 && free < minFreeMB {
 		return fmt.Errorf("little free memory on the server (%d MB): deploy postponed to protect the recordings", free)
+	}
+	// A deploy writes sources, layers and images to the system disk.
+	if err := a.diskGate(a.holdingForDisk()); err != nil {
+		return err
 	}
 	if app.Managed {
 		logf("Reading the protected project of %s", app.Name)
@@ -959,6 +967,9 @@ func (a *Agent) canStart(app *App) error {
 	if free := a.memFreeMB(); free > 0 && free < minFreeMB {
 		return fmt.Errorf("little free memory on the server (%d MB): the service was not started", free)
 	}
+	if err := a.diskGate(a.holdingForDisk()); err != nil {
+		return err
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	total := 0
@@ -1125,6 +1136,11 @@ func (a *Agent) envFor(app *App, dep *Deployment, script bool) []string {
 func (a *Agent) Reconcile(ctx context.Context) {
 	// The list first: a start below waits until the host applied it.
 	a.writePublicPorts(false)
+	// Below the system disk's reserve every service stops and none starts
+	// (not counted as crashes) until it has room again.
+	if a.enforceDiskReserve(ctx) {
+		return
+	}
 	a.mu.Lock()
 	ids := make([]string, 0, len(a.apps))
 	for _, app := range a.apps {

@@ -112,6 +112,19 @@ and starts are refused under 400 MB free RAM; one deploy at a time;
 setup/build ≤ 20 min, 1 core, 1 GB. Everything lives on the system disk
 (`/var/lib/sentinela-apps`, Docker's root), never on `/data`.
 
+**System disk reserve (2026-11-27).** Image layers, named volumes and the
+folders a service binds each grow on their own, and the default ext4 has
+no project quotas to cap them per service (overlay2's `size=` needs XFS
+with `pquota`). Decision: no per-service disk quota; a host reserve
+instead. `apps.disk_reserve_percent` (default 10, at least 1 GiB) of the
+filesystem holding `apps.state_dir` stays free: below it no service
+starts, deploys, builds or pulls, and the agent stops every running one
+(they stay *Running* as desired, with the reason shown). They start again
+once the free space is above the reserve plus a margin (2 % of the disk,
+at least 512 MB), so a disk at the edge does not make them flap. An
+unreadable filesystem applies no reserve. Keep Docker's data root on that
+filesystem (the default); a host that moves it elsewhere is not covered.
+
 **Supervision.** No Docker restart policies: the agent restarts crashed
 services every 15 s check, pausing 5 min after 5 stops in 10 min. After a
 host boot (new `boot_id`), only services marked to start automatically

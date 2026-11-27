@@ -210,7 +210,7 @@ func TestPublicPortsKeptAcrossAgentRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := NewAgent(a.Cfg, a.Eng, a.Sources, quiet)
-	r.bootID, r.uptime, r.memFreeMB = a.bootID, a.uptime, a.memFreeMB
+	r.bootID, r.uptime, r.memFreeMB, r.diskSpace = a.bootID, a.uptime, a.memFreeMB, a.diskSpace
 	r.firewall = a.firewall
 	if err := r.Load(); err != nil {
 		t.Fatal(err)
