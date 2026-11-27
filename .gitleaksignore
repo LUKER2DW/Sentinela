@@ -7,6 +7,8 @@ internal\publiccert\ipcert.go:generic-api-key:222
 # HMAC keys of the Android app's unit tests.
 deploy/secrets.env.example:generic-api-key:12
 deploy\secrets.env.example:generic-api-key:12
+deploy/secrets.env.example:generic-api-key:13
+deploy\secrets.env.example:generic-api-key:13
 mobile/android/app/src/test/java/casa/sentinela/app/AppLinksTest.java:generic-api-key:17
 mobile\android\app\src\test\java\casa\sentinela\app\AppLinksTest.java:generic-api-key:17
 mobile/android/app/src/test/java/casa/sentinela/app/AppLinksTest.java:generic-api-key:18
