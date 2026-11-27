@@ -171,6 +171,52 @@ jobs:
           echo "tunnel loopback firewall: ok (IPv6 checked: $v6)"
           SH
           sudo unshare --net bash "$RUNNER_TEMP/check.sh" "$RUNNER_TEMP/on.nft" "$RUNNER_TEMP/off.nft"
+      # The services firewall (scripts/apps-firewall.sh) in a network namespace
+      # of its own: only the host's private DNS servers are reachable on port
+      # 53, by rules ahead of the private-range drops; a rule slipped in ahead
+      # of them, or a change of DNS servers, makes the check take the marker
+      # away until the next apply.
+      - name: services firewall rule order
+        run: |
+          cat > "$RUNNER_TEMP/fw.sh" <<'SH'
+          set -euo pipefail
+          t="$1"; cd "$2"
+          mkdir -p "$t/apps"
+          export SENTINELA_APPS_RUN="$t/run" SENTINELA_APPS_PUBLIC="$t/apps/public-ports" SENTINELA_APPS_RESOLV="$t/resolv"
+          marker="$t/run/firewall-ready"
+          fail() { echo "::error::$*"; iptables -S SENTINELA-APPS || true; exit 1; }
+          printf 'nameserver 127.0.0.53\nnameserver 192.168.1.1\nnameserver 1.1.1.1\n' > "$t/resolv"
+          iptables -N DOCKER-USER
+          iptables -A DOCKER-USER -j RETURN
+          iptables -A FORWARD -j DOCKER-USER
+          scripts/apps-firewall.sh apply
+          [ -f "$marker" ] || fail "apply wrote no marker"
+          rules="$(iptables -S SENTINELA-APPS)"
+          first_drop=$(awk '/-j DROP/ { print NR; exit }' <<<"$rules")
+          dns=$(grep -n -- '--dport 53' <<<"$rules" || true)
+          [ "$(wc -l <<<"$dns")" = 2 ] || fail "want 2 DNS rules, got: $dns"
+          while IFS=: read -r n rule; do
+            [[ "$rule" == *"-d 192.168.1.1/32 "* ]] || fail "DNS rule for another address: $rule"
+            (( n < first_drop )) || fail "DNS rule after the private-range drops: $rule"
+          done <<<"$dns"
+          scripts/apps-firewall.sh check
+          [ -f "$marker" ] || fail "check took the marker of a good chain"
+          # Any port 53 ahead of the drops: the check refuses the chain.
+          iptables -I SENTINELA-APPS 3 -i sn-+ -p udp --dport 53 -j RETURN
+          scripts/apps-firewall.sh check
+          [ ! -f "$marker" ] || fail "check kept the marker with DNS open to every private address"
+          scripts/apps-firewall.sh apply
+          [ -f "$marker" ] || fail "re-apply wrote no marker"
+          # The host's DNS server changed: the old rule no longer counts.
+          printf 'nameserver 192.168.1.2\n' > "$t/resolv"
+          scripts/apps-firewall.sh check
+          [ ! -f "$marker" ] || fail "check kept the marker after the DNS servers changed"
+          scripts/apps-firewall.sh apply
+          grep -q -- '-d 192.168.1.2/32 ' <<<"$(iptables -S SENTINELA-APPS)" || fail "apply did not follow the new DNS server"
+          scripts/apps-firewall.sh remove
+          echo "services firewall order: ok"
+          SH
+          sudo unshare --net bash "$RUNNER_TEMP/fw.sh" "$RUNNER_TEMP/fw" "$PWD"
       - name: docker compose file is valid (with the optional services profile)
         working-directory: deploy
         run: |

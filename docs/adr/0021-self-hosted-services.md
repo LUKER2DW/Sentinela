@@ -139,8 +139,11 @@ or one per Compose network). Ports come from `apps.port_first..last`
 tailnet), *tailnet* (bound to the Tailscale address), *public* (the
 router forwards the port; needs `apps.public_host`). Because Docker's
 published ports bypass ufw, `scripts/apps-firewall.sh` keeps a
-`DOCKER-USER` chain: services may reach the internet and DNS but no
-private range (camera, router, LAN, tailnet); their ports answer private
+`DOCKER-USER` chain: services may reach the internet but no private
+range (camera, router, LAN, tailnet), except port 53 of the host's own
+private DNS servers (Docker's embedded DNS forwards lookups from the
+service's namespace), allowed by rules ahead of the drops (the check
+refuses any other rule there, and a change of DNS servers); their ports answer private
 addresses, and the internet only on ports the agent lists in
 `/var/lib/sentinela-apps/public-ports` (re-applied by a systemd path unit).
 Services reaching the host itself meet ufw's default deny. Runs of the

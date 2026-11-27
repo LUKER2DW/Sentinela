@@ -7,8 +7,12 @@
 #
 # Docker publishes ports ahead of ufw, so these rules live in DOCKER-USER
 # (a chain Docker leaves alone), in our own chain SENTINELA-APPS:
-#  - services (bridges "sn-*") may reach the internet and DNS, but no
-#    private range: not the camera, the router, other LAN hosts, the tailnet;
+#  - services (bridges "sn-*") may reach the internet, but no private
+#    range: not the camera, the router, other LAN hosts, the tailnet. The
+#    one exception is port 53 of the host's own DNS servers when they are
+#    private (the router, usually): Docker's embedded DNS forwards a
+#    service's lookups from the service's network namespace. Those rules
+#    come before the drops; nothing else that lets a service out may;
 #  - published service ports answer private addresses (LAN, tailnet), and
 #    the internet only on the ports listed in the agent's public-ports file.
 # Services reaching this host itself go through INPUT, where ufw's default
@@ -29,6 +33,9 @@ PUBLIC=${SENTINELA_APPS_PUBLIC:-/var/lib/sentinela-apps/public-ports}
 RUN_DIR=${SENTINELA_APPS_RUN:-/run/sentinela-apps}
 READY="$RUN_DIR/firewall-ready"
 PRIVATE=(10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 100.64.0.0/10 169.254.0.0/16 127.0.0.0/8)
+# Where Docker's embedded DNS finds the upstream servers (systemd-resolved's
+# list when /etc/resolv.conf names only its stub).
+RESOLV=${SENTINELA_APPS_RESOLV:-/run/systemd/resolve/resolv.conf /etc/resolv.conf}
 APPLIED=0
 
 # lock: one run at a time (the boot unit and the path unit can overlap).
@@ -60,8 +67,33 @@ public_ports() {
   done <<<"$body"
 }
 
+# resolvers prints the host's IPv4 DNS servers in a private range (public
+# ones need no rule; loopback ones are reached from the host's namespace),
+# at most 4. Always succeeds (it runs under set -e and pipefail).
+resolvers() {
+  local f key ip
+  for f in $RESOLV; do
+    [[ -f "$f" && -r "$f" ]] || continue
+    while read -r key ip _; do
+      if [[ "$key" == nameserver ]] && private_v4 "$ip"; then echo "$ip"; fi
+    done < <(head -c 65536 "$f")
+  done | awk '!seen[$0]++ && n++ < 4'
+}
+
+# private_v4 IP: IP is a plain dotted IPv4 address in one of PRIVATE's
+# ranges other than loopback.
+private_v4() {
+  local o='(0|[1-9][0-9]{0,2})' a b c d
+  [[ "$1" =~ ^$o\.$o\.$o\.$o$ ]] || return 1
+  a=${BASH_REMATCH[1]} b=${BASH_REMATCH[2]} c=${BASH_REMATCH[3]} d=${BASH_REMATCH[4]}
+  (( a <= 255 && b <= 255 && c <= 255 && d <= 255 )) || return 1
+  (( a == 10 )) || (( a == 172 && b >= 16 && b <= 31 )) || (( a == 192 && b == 168 )) ||
+    (( a == 100 && b >= 64 && b <= 127 )) || (( a == 169 && b == 254 ))
+}
+
 # verify: DOCKER-USER's first rule jumps to the chain, which holds every
-# private-range drop and ends with the drop of new inbound connections.
+# private-range drop, lets nothing from a service out before them but DNS
+# to the host's resolvers, and ends with the drop of new inbound connections.
 verify() {
   local first
   iptables -C FORWARD -j DOCKER-USER >/dev/null 2>&1 || { echo "FORWARD does not jump to DOCKER-USER" >&2; return 1; }
@@ -72,6 +104,24 @@ verify() {
   done
   [[ "$(iptables -S "$CHAIN" | tail -1)" == "-A $CHAIN -o sn-+ -m conntrack --ctstate NEW -j DROP" ]] ||
     { echo "$CHAIN does not end with the drop of new connections" >&2; return 1; }
+  # Rule order: up to the first private-range drop, only replies, traffic
+  # between services and DNS to a current resolver of the host.
+  local line dns re
+  dns=" $(resolvers | tr '\n' ' ')"
+  re="^-A $CHAIN -d ([0-9.]+)/32 -i sn-\+ -p (udp|tcp) -m (udp|tcp) --dport 53 -j RETURN\$"
+  while IFS= read -r line; do
+    case "$line" in
+      "-N $CHAIN" | "-A $CHAIN -m conntrack --ctstate RELATED,ESTABLISHED -j RETURN" | "-A $CHAIN -i sn-+ -o sn-+ -j RETURN") continue ;;
+      "-A $CHAIN -d "*" -i sn-+ -j DROP") return 0 ;;
+    esac
+    if [[ "$line" =~ $re && "$dns" == *" ${BASH_REMATCH[1]} "* ]]; then
+      continue
+    fi
+    echo "$CHAIN lets services out before the private-range drops: $line" >&2
+    return 1
+  done < <(iptables -S "$CHAIN")
+  echo "$CHAIN has no private-range drop" >&2
+  return 1
 }
 
 apply() {
@@ -85,8 +135,9 @@ apply() {
   # The rules may be gone (a Docker or iptables reset) while a marker of
   # this boot remains: until they are back, there is no marker.
   iptables -C DOCKER-USER -j "$CHAIN" >/dev/null 2>&1 || unready
-  local opened
+  local opened dns
   mapfile -t opened < <(public_ports)
+  mapfile -t dns < <(resolvers)
   # Build the new rules in a fresh chain, then swap it in, so there is no
   # moment without them.
   local next="${CHAIN}-N"
@@ -94,8 +145,11 @@ apply() {
   iptables -N "$next" 2>/dev/null || iptables -F "$next"
   iptables -A "$next" -m conntrack --ctstate RELATED,ESTABLISHED -j RETURN
   iptables -A "$next" -i sn-+ -o sn-+ -j RETURN
-  iptables -A "$next" -i sn-+ -p udp --dport 53 -j RETURN
-  iptables -A "$next" -i sn-+ -p tcp --dport 53 -j RETURN
+  local r
+  for r in "${dns[@]}"; do
+    iptables -A "$next" -i sn-+ -d "$r/32" -p udp --dport 53 -j RETURN
+    iptables -A "$next" -i sn-+ -d "$r/32" -p tcp --dport 53 -j RETURN
+  done
   for net in "${PRIVATE[@]}"; do
     iptables -A "$next" -i sn-+ -d "$net" -j DROP
   done
@@ -126,7 +180,7 @@ apply() {
   chmod 0644 "$READY.tmp"
   mv -f "$READY.tmp" "$READY"
   APPLIED=1
-  echo "services firewall applied (${#opened[@]} public port(s))"
+  echo "services firewall applied (${#opened[@]} public port(s), ${#dns[@]} private DNS server(s))"
 }
 
 remove() {
