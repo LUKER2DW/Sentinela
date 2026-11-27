@@ -7,6 +7,12 @@ import { CardHead } from "./CardHead";
 import { Icon } from "./Icon";
 
 import { t } from "../lib/i18n";
+
+/** The first 80 bits of a certificate fingerprint, as XXXX-XXXX-XXXX-XXXX-XXXX. */
+function keyCode(sha256: string): string {
+  return (sha256.slice(0, 20).toUpperCase().match(/.{4}/g) ?? []).join("-");
+}
+
 /** Runs the download + install, with progress and the one-time permission step. */
 function useInstall() {
   const toast = useToast();
@@ -106,6 +112,11 @@ export function AppCard() {
             <Icon name="download" />{" "}{t("Download the app")}{" "}{release?.version_name} ({fmtBytes(release?.size ?? 0)})
           </a>
         </div>
+      )}
+      {(!inApp || !info) && apk && release?.signer_sha256 && (
+        <p className="muted small">
+          {t("Signed with the app's key {key}: the server checked it before offering this file.", { key: keyCode(release.signer_sha256) })}
+        </p>
       )}
       {!apk && !inApp && <p className="muted small">{t("No app version has been published on this server yet.")}</p>}
       <p className="muted small card-foot">

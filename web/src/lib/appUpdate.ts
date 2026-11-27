@@ -12,6 +12,8 @@ export interface AppRelease {
   size?: number;
   sha256?: string;
   notes?: string;
+  /** SHA-256 of the signing certificate, checked by the server's mirror. */
+  signer_sha256?: string;
 }
 
 export interface AppInfo {

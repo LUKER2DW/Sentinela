@@ -8,9 +8,13 @@ go2rtc_api: http://127.0.0.1:1984
 secure_cookies: false
 
 # Android app updates: the server offers the newest APK of this repository's
-# releases to the phones (checked every 6 h). "none" = publish-apk.sh only.
+# releases to the phones (checked daily). "none" = publish-apk.sh only.
+# signer_sha256: the certificate fingerprints an APK may be signed with; it
+# defaults to the project's release key for LUKER2DW/Sentinela, and another
+# repository needs its own (apksigner verify --print-certs sentinela.apk).
 app_updates:
   github: LUKER2DW/Sentinela
+  # signer_sha256: [de3f782bd96cc8b6d8de2b3284ecff6e34c1a6fcbc0b2c7404a7e0b91e604439]
 
 timezone: UTC                       # IANA zone for schedules shown to people, e.g. Europe/Lisbon
 

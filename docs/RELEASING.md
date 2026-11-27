@@ -28,8 +28,13 @@ and are made on the public repository (ADR-0022).
 ## One-time setup: the app signing key
 
 Android only installs an update signed with the same key as the installed
-app, so the release job needs the existing key. On the maintainer's machine
-(the key never goes into the repository):
+app, so the release job needs the existing key. Servers offer a release's
+APK only when it is signed by a key in `app_updates.signer_sha256`, which
+defaults to this key's certificate SHA-256
+(`de3f782bd96cc8b6d8de2b3284ecff6e34c1a6fcbc0b2c7404a7e0b91e604439`,
+`config.DefaultAppSigner`): a new key needs a new default there, released
+before any APK signed with it. On the maintainer's machine (the key never
+goes into the repository):
 
 ```bash
 gh api -X PUT repos/LUKER2DW/Sentinela/environments/release

@@ -642,6 +642,8 @@ export const ptBR: Record<string, string> = {
   "No position saved yet.": "Nenhuma posição salva ainda.",
   "No subfolders here.": "Nenhuma subpasta aqui.",
   "No app version has been published on this server yet.": "Nenhuma versão do app foi publicada neste servidor ainda.",
+  "Signed with the app's key {key}: the server checked it before offering this file.":
+    "Assinado com a chave do app {key}: o servidor conferiu antes de oferecer este arquivo.",
   "No zones yet. Without zones, the whole picture is watched": "Nenhuma zona ainda. Sem zonas, a imagem inteira vigia",
   "No zones drawn yet: draw them in Detection, Zones.": "Nenhuma zona desenhada ainda: desenhe em Detecção, Zonas.",
   "On this device": "Neste aparelho",

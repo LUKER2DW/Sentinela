@@ -139,10 +139,24 @@ type AppUpdates struct {
 	// app.json) the server offers to the app; "none" turns it off and
 	// leaves only scripts/publish-apk.sh.
 	GitHub string `yaml:"github"`
+	// SignerSHA256 are the SHA-256 fingerprints (hex, colons allowed) of
+	// the certificates an APK from that repository may be signed with. A
+	// release signed with any other key is never offered: a phone that
+	// installs the app for the first time has no earlier signer for Android
+	// to compare. Defaults to the project's release key for DefaultAppRepo;
+	// another repository needs its own. Set only here (config.yaml is
+	// root's; the dashboard cannot change it).
+	SignerSHA256 []string `yaml:"signer_sha256"`
 }
 
 // DefaultAppRepo is the project's public repository.
 const DefaultAppRepo = "LUKER2DW/Sentinela"
+
+// DefaultAppSigner is the SHA-256 of the certificate of the key that signs
+// DefaultAppRepo's releases (ADR-0022; apksigner verify --print-certs).
+const DefaultAppSigner = "de3f782bd96cc8b6d8de2b3284ecff6e34c1a6fcbc0b2c7404a7e0b91e604439"
+
+var hexFingerprint = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 var repoPattern = regexp.MustCompile(`^[A-Za-z0-9-]{1,39}/[A-Za-z0-9._-]{1,100}$`)
 
@@ -431,6 +445,12 @@ func (c *Config) applyDefaults() {
 	defInt(&c.Recording.MaxProtectedCameraPercent, min(5, c.Recording.MaxProtectedPercent))
 	def(&c.Recording.VolumeMarker, DefaultVolumeMarker)
 	def(&c.AppUpdates.GitHub, DefaultAppRepo)
+	for i, s := range c.AppUpdates.SignerSHA256 {
+		c.AppUpdates.SignerSHA256[i] = strings.ToLower(strings.ReplaceAll(strings.TrimSpace(s), ":", ""))
+	}
+	if len(c.AppUpdates.SignerSHA256) == 0 && c.AppUpdates.GitHub == DefaultAppRepo {
+		c.AppUpdates.SignerSHA256 = []string{DefaultAppSigner}
+	}
 	for i := range c.Cameras {
 		cam := &c.Cameras[i]
 		def(&cam.Name, cam.ID)
@@ -464,6 +484,12 @@ func (c *Config) validate() error {
 	}
 	if r := c.AppUpdates.GitHub; r != "none" && !repoPattern.MatchString(r) {
 		errs = append(errs, errors.New(`app_updates.github must be "owner/repo" or "none"`))
+	}
+	for _, s := range c.AppUpdates.SignerSHA256 {
+		if !hexFingerprint.MatchString(s) {
+			errs = append(errs, errors.New("app_updates.signer_sha256 entries must be SHA-256 fingerprints (64 hex digits)"))
+			break
+		}
 	}
 	if m := c.Recording.VolumeMarker; m != "none" && (filepath.IsAbs(m) || !filepath.IsLocal(filepath.FromSlash(m))) {
 		errs = append(errs, errors.New(`recording.volume_marker must be a file inside data_dir, or "none"`))

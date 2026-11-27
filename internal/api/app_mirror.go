@@ -11,7 +11,10 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
+
+	"github.com/LUKER2DW/sentinela/internal/apk"
 )
 
 // Android app updates from the project's GitHub releases (ADR-0022). Two
@@ -152,6 +155,15 @@ func (s *Server) mirrorGet(ctx context.Context, url string, limit int64) (io.Rea
 // mirrorAppOnce returns the newly offered release, or nil when there was
 // nothing newer.
 func (s *Server) mirrorAppOnce(ctx context.Context, repo string) (*AppRelease, error) {
+	pins := s.Cfg.AppUpdates.SignerSHA256
+	if len(pins) == 0 {
+		return nil, fmt.Errorf("app_updates.signer_sha256 is not set for %s: add the SHA-256 of its signing certificate (apksigner verify --print-certs) to config.yaml", repo)
+	}
+	// What an earlier release left on offer must also carry a pinned signer
+	// (it was mirrored before the pin existed, or published by hand).
+	if err := s.checkOfferedSigner(pins); err != nil {
+		s.Log.Warn("app on offer withdrawn", "err", err)
+	}
 	body, err := s.mirrorGet(ctx, githubAPI+"/repos/"+repo+"/releases/latest", maxReleaseJSON)
 	if err != nil {
 		return nil, err
@@ -216,6 +228,13 @@ func (s *Server) mirrorAppOnce(ctx context.Context, repo string) (*AppRelease, e
 	if n != rel.Size || hex.EncodeToString(h.Sum(nil)) != rel.SHA256 {
 		return nil, fmt.Errorf("APK of %s does not match its app.json (size or SHA-256)", gh.TagName)
 	}
+	// app.json and the APK come from the same release, so their match proves
+	// nothing about who made them: the APK must be signed with a pinned key.
+	signer, err := pinnedSigner(tmp.Name(), pins)
+	if err != nil {
+		return nil, fmt.Errorf("APK of %s: %w", gh.TagName, err)
+	}
+	rel.Signer = signer
 	if err := os.Chmod(tmp.Name(), 0o644); err != nil {
 		return nil, err
 	}
@@ -233,4 +252,54 @@ func (s *Server) mirrorAppOnce(ctx context.Context, repo string) (*AppRelease, e
 		return nil, err
 	}
 	return &rel, nil
+}
+
+// pinnedSigner returns the APK's signer when every signer certificate in
+// its v2/v3 blocks is one of pins; an error otherwise.
+func pinnedSigner(path string, pins []string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil {
+		return "", err
+	}
+	signers, err := apk.Signers(f, st.Size())
+	if err != nil {
+		return "", err
+	}
+	for _, sg := range signers {
+		if !slices.Contains(pins, sg) {
+			return "", fmt.Errorf("signed with a key that is not app_updates.signer_sha256 (certificate SHA-256 %s): not offered", sg)
+		}
+	}
+	return signers[0], nil
+}
+
+// checkOfferedSigner looks at the APK on offer once: when its app.json
+// records no signer (mirrored by an older version, or published by hand),
+// it records the signer if it is pinned, and stops offering the APK
+// otherwise.
+func (s *Server) checkOfferedSigner(pins []string) error {
+	rel := s.appRelease()
+	if rel == nil || rel.Signer != "" {
+		return nil
+	}
+	dir := s.appDir()
+	signer, err := pinnedSigner(filepath.Join(dir, "sentinela.apk"), pins)
+	if err != nil {
+		if rerr := os.Remove(filepath.Join(dir, "app.json")); rerr != nil {
+			return fmt.Errorf("%w (and app.json could not be removed: %v)", err, rerr)
+		}
+		return fmt.Errorf("the APK on offer (%s): %w", rel.VersionName, err)
+	}
+	rel.Signer = signer
+	js, _ := json.Marshal(rel)
+	jtmp := filepath.Join(dir, ".app.json.tmp")
+	if err := os.WriteFile(jtmp, js, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(jtmp, filepath.Join(dir, "app.json"))
 }

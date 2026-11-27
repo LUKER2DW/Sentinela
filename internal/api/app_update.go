@@ -18,6 +18,10 @@ type AppRelease struct {
 	Size        int64  `json:"size"`
 	SHA256      string `json:"sha256"`
 	Notes       string `json:"notes,omitempty"`
+	// Signer is the SHA-256 of the APK's signing certificate, recorded by
+	// the mirror once it matched app_updates.signer_sha256 ("" for an APK
+	// published by hand and not checked yet).
+	Signer string `json:"signer_sha256,omitempty"`
 }
 
 var hexSHA256 = regexp.MustCompile(`^[0-9a-f]{64}$`)
