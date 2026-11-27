@@ -141,10 +141,10 @@ func (a *Agent) stateFile() string { return filepath.Join(a.Cfg.StateDir, "state
 // created and looked up in the registry before use; the pattern is checked
 // again here so a bad id can never name a path outside the apps folder.
 func (a *Agent) appDir(id string) string {
-	if !idPattern.MatchString(id) {
-		id = "invalid"
+	if idPattern.MatchString(id) {
+		return filepath.Join(a.Cfg.StateDir, "apps", id)
 	}
-	return filepath.Join(a.Cfg.StateDir, "apps", id)
+	return filepath.Join(a.Cfg.StateDir, "apps", "invalid")
 }
 func (a *Agent) tokenFile() string   { return filepath.Join(a.Cfg.StateDir, "github-token") }
 func containerName(id string) string { return "sapp-" + id }
@@ -377,8 +377,12 @@ func (a *Agent) Run(ctx context.Context) {
 var errBusy = errors.New("a deploy of this service is already queued or running")
 
 // Enqueue asks for a deploy ("deploy": fetch, build, start) or a recreate
-// (the current build with new settings).
+// (the current build with new settings). Only a well-formed id reaches the
+// queue: the worker builds paths and container names from it.
 func (a *Agent) Enqueue(id, kind string) error {
+	if !idPattern.MatchString(id) {
+		return errNoApp
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	app := a.find(id)

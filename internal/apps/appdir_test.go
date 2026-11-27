@@ -21,3 +21,14 @@ func TestAppDirStaysInsideTheAppsFolder(t *testing.T) {
 		t.Errorf("a valid id must keep its own folder, got %q", got)
 	}
 }
+
+// A malformed id never reaches the deploy queue, whose worker builds paths
+// and container names from it.
+func TestEnqueueRefusesMalformedIDs(t *testing.T) {
+	a, _, _ := newTestAgent(t)
+	for _, id := range []string{"../../etc", "a/b", "", "UPPER", "x\ny"} {
+		if err := a.Enqueue(id, "deploy"); err != errNoApp {
+			t.Errorf("Enqueue(%q) = %v, want errNoApp", id, err)
+		}
+	}
+}
