@@ -59,7 +59,12 @@ func (s *Server) streamTicket(w http.ResponseWriter, r *http.Request) {
 	if s.refuseCooledDown(w, userFrom(r).ID) {
 		return
 	}
-	tok, exp := s.tickets.Issue(userFrom(r).ID, cam.ID, stream)
+	tok, exp, err := s.tickets.Issue(userFrom(r).ID, cam.ID, stream)
+	if err != nil {
+		w.Header().Set("Retry-After", "10")
+		writeErr(w, http.StatusTooManyRequests, err.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"url":     "/stream/ws?ticket=" + tok,
 		"expires": exp.UTC(),

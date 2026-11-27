@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"errors"
 	"testing"
 	"time"
 )
@@ -64,7 +65,7 @@ func TestTicketsSingleUseAndExpiry(t *testing.T) {
 	tk := NewTickets(time.Minute)
 	now := time.Unix(0, 0)
 	tk.now = func() time.Time { return now }
-	tok, _ := tk.Issue(1, "cam1", "main")
+	tok, _, _ := tk.Issue(1, "cam1", "main")
 	got, ok := tk.Redeem(tok)
 	if !ok || got.CameraID != "cam1" || got.UserID != 1 {
 		t.Fatalf("redeem failed: %+v", got)
@@ -72,10 +73,68 @@ func TestTicketsSingleUseAndExpiry(t *testing.T) {
 	if _, ok := tk.Redeem(tok); ok {
 		t.Fatal("ticket reused")
 	}
-	tok2, _ := tk.Issue(1, "cam1", "sub")
+	tok2, _, _ := tk.Issue(1, "cam1", "sub")
 	now = now.Add(2 * time.Minute)
 	if _, ok := tk.Redeem(tok2); ok {
 		t.Fatal("expired ticket accepted")
+	}
+	if len(tk.m) != 0 || len(tk.order) != 0 || len(tk.issued) != 0 || len(tk.outstanding) != 0 {
+		t.Fatalf("expired tickets kept: %d %d %v %v", len(tk.m), len(tk.order), tk.issued, tk.outstanding)
+	}
+}
+
+// One account cannot hold or issue tickets without end, nor all accounts
+// together; the limits lift as tickets expire.
+func TestTicketsBounded(t *testing.T) {
+	tk := NewTickets(time.Minute)
+	now := time.Unix(0, 0)
+	tk.now = func() time.Time { return now }
+	var toks []string
+	for range maxTicketsOutstandingPerUser {
+		tok, _, err := tk.Issue(1, "cam1", "main")
+		if err != nil {
+			t.Fatal(err)
+		}
+		toks = append(toks, tok)
+	}
+	if _, _, err := tk.Issue(1, "cam1", "main"); !errors.Is(err, ErrTooManyTickets) {
+		t.Fatalf("outstanding limit: %v", err)
+	}
+	if _, _, err := tk.Issue(2, "cam1", "main"); err != nil {
+		t.Fatalf("another account is refused: %v", err)
+	}
+	// Redeeming frees an outstanding place, but the issue budget still counts.
+	for _, tok := range toks {
+		if _, ok := tk.Redeem(tok); !ok {
+			t.Fatal("redeem")
+		}
+	}
+	issued := maxTicketsOutstandingPerUser
+	for issued < maxTicketsIssuedPerUser {
+		tok, _, err := tk.Issue(1, "cam1", "main")
+		if err != nil {
+			t.Fatalf("after %d: %v", issued, err)
+		}
+		tk.Redeem(tok)
+		issued++
+	}
+	if _, _, err := tk.Issue(1, "cam1", "main"); !errors.Is(err, ErrTooManyTickets) {
+		t.Fatalf("issue limit: %v", err)
+	}
+	now = now.Add(61 * time.Second)
+	if _, _, err := tk.Issue(1, "cam1", "main"); err != nil {
+		t.Fatalf("after expiry: %v", err)
+	}
+	// All accounts together.
+	tk = NewTickets(time.Minute)
+	tk.now = func() time.Time { return now }
+	for i := 0; len(tk.order) < maxTicketsIssued; i++ {
+		if _, _, err := tk.Issue(int64(i/10), "cam1", "main"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, _, err := tk.Issue(-1, "cam1", "main"); !errors.Is(err, ErrTooManyTickets) {
+		t.Fatalf("global limit: %v", err)
 	}
 }
 

@@ -500,31 +500,88 @@ type Ticket struct {
 }
 
 // Tickets is an in-memory, single-use ticket store (lives in the API process).
+//
+// It is bounded: per account, tickets issued in the last TTL (redeemed or
+// not) and tickets still unredeemed, and across accounts, tickets issued in
+// the last TTL. A request beyond a limit gets ErrTooManyTickets until older
+// tickets expire. Tickets expire in issue order (one TTL), so pruning pops
+// from the front of a queue instead of scanning the map.
 type Tickets struct {
-	mu  sync.Mutex
-	ttl time.Duration
-	m   map[string]Ticket // key: hex of token hash
-	now func() time.Time
+	mu          sync.Mutex
+	ttl         time.Duration
+	m           map[string]Ticket // key: hex of token hash
+	order       []ticketRef       // every ticket issued in the last TTL, oldest first
+	issued      map[int64]int     // per user: entries in order
+	outstanding map[int64]int     // per user: entries in m
+	now         func() time.Time
 }
+
+type ticketRef struct {
+	key    string
+	userID int64
+	exp    time.Time
+}
+
+// Ticket limits. A live wall opens one stream per camera and reconnects
+// with a backoff; these leave room for several devices of one account.
+const (
+	maxTicketsIssuedPerUser      = 240 // per TTL
+	maxTicketsOutstandingPerUser = 64
+	maxTicketsIssued             = 4096 // per TTL, all accounts
+)
+
+// ErrTooManyTickets is returned by Issue when a limit is reached.
+var ErrTooManyTickets = errors.New("too many stream tickets; try again shortly")
 
 // NewTickets creates a store with the given TTL.
 func NewTickets(ttl time.Duration) *Tickets {
-	return &Tickets{ttl: ttl, m: map[string]Ticket{}, now: time.Now}
+	return &Tickets{ttl: ttl, m: map[string]Ticket{}, issued: map[int64]int{}, outstanding: map[int64]int{}, now: time.Now}
 }
 
-// Issue creates a ticket and returns the token to hand to the browser.
-func (t *Tickets) Issue(userID int64, cameraID, stream string) (string, time.Time) {
-	tok := NewToken()
-	exp := t.now().Add(t.ttl)
+// Issue creates a ticket and returns the token to hand to the browser, or
+// ErrTooManyTickets.
+func (t *Tickets) Issue(userID int64, cameraID, stream string) (string, time.Time, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	for k, v := range t.m {
-		if t.now().After(v.Expires) {
-			delete(t.m, k)
-		}
+	now := t.now()
+	t.prune(now)
+	if len(t.order) >= maxTicketsIssued || t.issued[userID] >= maxTicketsIssuedPerUser ||
+		t.outstanding[userID] >= maxTicketsOutstandingPerUser {
+		return "", time.Time{}, ErrTooManyTickets
 	}
-	t.m[string(HashToken(tok))] = Ticket{UserID: userID, CameraID: cameraID, Stream: stream, Expires: exp}
-	return tok, exp
+	tok := NewToken()
+	exp := now.Add(t.ttl)
+	key := string(HashToken(tok))
+	t.m[key] = Ticket{UserID: userID, CameraID: cameraID, Stream: stream, Expires: exp}
+	t.order = append(t.order, ticketRef{key: key, userID: userID, exp: exp})
+	t.issued[userID]++
+	t.outstanding[userID]++
+	return tok, exp, nil
+}
+
+// prune forgets the tickets issued more than a TTL ago. t.mu is held.
+func (t *Tickets) prune(now time.Time) {
+	n := 0
+	for n < len(t.order) && now.After(t.order[n].exp) {
+		ref := t.order[n]
+		if _, ok := t.m[ref.key]; ok {
+			delete(t.m, ref.key)
+			decr(t.outstanding, ref.userID)
+		}
+		decr(t.issued, ref.userID)
+		n++
+	}
+	if n > 0 {
+		t.order = append(t.order[:0:0], t.order[n:]...)
+	}
+}
+
+func decr(m map[int64]int, k int64) {
+	if m[k] <= 1 {
+		delete(m, k)
+	} else {
+		m[k]--
+	}
 }
 
 // Redeem consumes a ticket. It fails if unknown, expired or already used.
@@ -532,9 +589,14 @@ func (t *Tickets) Redeem(tok string) (Ticket, bool) {
 	key := string(HashToken(tok))
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	t.prune(t.now())
 	tk, ok := t.m[key]
+	if !ok {
+		return Ticket{}, false
+	}
 	delete(t.m, key)
-	if !ok || t.now().After(tk.Expires) {
+	decr(t.outstanding, tk.UserID)
+	if t.now().After(tk.Expires) {
 		return Ticket{}, false
 	}
 	return tk, true
