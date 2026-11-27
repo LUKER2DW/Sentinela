@@ -610,21 +610,22 @@ func (s *Server) notifyStream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Accel-Buffering", "no")
-	sess := sessionFrom(r)
 	c := s.push.subscribe(userFrom(r).ID)
 	defer s.push.unsubscribe(c)
 	fmt.Fprint(w, "retry: 10000\n\n: ready\n\n")
 	fl.Flush()
-	ping := time.NewTicker(45 * time.Second)
+	ping := time.NewTicker(streamRecheckEvery())
 	defer ping.Stop()
 	for {
 		select {
 		case <-r.Context().Done():
 			return
 		case <-ping.C:
-			// Signed out, revoked or disabled meanwhile: close, so the app
-			// learns it on its next connect.
-			if _, _, err := s.Store.SessionByHash(r.Context(), sess.IDHash); err != nil {
+			// Signed out, revoked or disabled meanwhile, or (outside) the
+			// account turned two-step login on and this session was made
+			// without a code: close, so the app learns it on its next
+			// connect. The same rules as every other long-lived stream.
+			if _, ok := s.reloadUser(r.Context(), r); !ok {
 				return
 			}
 			fmt.Fprint(w, ": ping\n\n")
