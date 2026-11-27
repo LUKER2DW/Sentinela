@@ -568,3 +568,12 @@ func TestIndexerKeepsArchivedSegments(t *testing.T) {
 		t.Fatalf("row of a deleted archived file kept: %v", ids)
 	}
 }
+
+// ffmpeg gets the cameras' variables but never go2rtc's API password.
+func TestFFmpegEnvDropsGo2RTCPassword(t *testing.T) {
+	got := ffmpegEnv([]string{"FRONT_PASS=x", config.Go2RTCPasswordEnv + "=secret", "PATH=/usr/bin", config.Go2RTCPasswordEnv + "X=keep"})
+	want := []string{"FRONT_PASS=x", "PATH=/usr/bin", config.Go2RTCPasswordEnv + "X=keep"}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("got %q", got)
+	}
+}

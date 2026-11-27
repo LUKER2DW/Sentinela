@@ -211,7 +211,7 @@ func (r *Recorder) runOnce(ctx context.Context) error {
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	cmd := exec.CommandContext(runCtx, r.FFmpeg, Args(r.Cam, r.Rec, r.Dir)...)
-	cmd.Env = append(os.Environ(), "TZ=UTC")
+	cmd.Env = append(ffmpegEnv(os.Environ()), "TZ=UTC")
 	// Ask ffmpeg to finish the segment cleanly; kill after 5 s.
 	cmd.Cancel = func() error { return interrupt(cmd.Process) }
 	cmd.WaitDelay = 5 * time.Second
@@ -347,4 +347,18 @@ func (t *tail) String() string {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return strings.Join(t.lines, " | ")
+}
+
+// ffmpegEnv is the recorder's environment without go2rtc's API password,
+// which ffmpeg (it parses what the camera sends) has no use for. Compose
+// already blanks it for the recorder; this also covers a host that runs an
+// older compose file.
+func ffmpegEnv(env []string) []string {
+	out := make([]string, 0, len(env))
+	for _, kv := range env {
+		if !strings.HasPrefix(kv, config.Go2RTCPasswordEnv+"=") {
+			out = append(out, kv)
+		}
+	}
+	return out
 }

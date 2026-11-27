@@ -120,9 +120,14 @@ services:
         target: /data/.sentinela-volume
         read_only: true
         bind: { create_host_path: false }
+    # secrets.env also holds go2rtc's API password, which only go2rtc and
+    # serve may know: blanked here (environment wins over env_file), so the
+    # process that parses camera data cannot drive go2rtc. The cameras'
+    # credentials stay: the recorder pulls RTSP with them.
     environment:
       TZ: UTC
       GOMEMLIMIT: 48MiB
+      GO2RTC_API_PASSWORD: ""
     restart: unless-stopped
     stop_grace_period: 15s
     mem_limit: 256m

@@ -178,6 +178,14 @@ jobs:
           # holds no real secret, so it may be world-readable here).
           sudo install -D -m 0644 secrets.env.example /etc/sentinela/secrets.env
           docker compose --profile apps config --quiet
+          # go2rtc's API password reaches go2rtc and serve, never the recorder
+          # (which keeps the cameras' credentials).
+          docker compose --profile apps config --format json | jq -e '
+            (.services.recorder.environment.GO2RTC_API_PASSWORD == "")
+            and (.services.recorder.environment.FRONT_PASS | length > 0)
+            and (.services.sentinela.environment.GO2RTC_API_PASSWORD | length >= 20)
+            and (.services.detector.environment.GO2RTC_API_PASSWORD == null)
+            and (.services.apps.environment.GO2RTC_API_PASSWORD == null)'
 
   image:
     name: image (docker build)
