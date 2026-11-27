@@ -31,11 +31,16 @@ func (s *Server) discoverCameras(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer s.wizardMu.Unlock()
-	devs, err := onvif.Discover(r.Context(), 3*time.Second)
+	devs, truncated, err := onvif.Discover(r.Context(), 3*time.Second)
 	if err != nil {
 		s.Log.Warn("camera discovery", "err", err)
 		writeErr(w, http.StatusBadGateway, "camera search failed on this network")
 		return
+	}
+	if truncated {
+		// Same list shape; the header tells a client that more answered.
+		s.Log.Warn("camera discovery: too many answers, some left out", "kept", len(devs))
+		w.Header().Set("X-Sentinela-Truncated", "1")
 	}
 	type found struct {
 		onvif.Device

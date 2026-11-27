@@ -13,9 +13,12 @@ import (
 )
 
 func TestDiscoverLAN(t *testing.T) {
-	devs, err := Discover(context.Background(), 3*time.Second)
+	devs, truncated, err := Discover(context.Background(), 3*time.Second)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if truncated {
+		t.Log("some answers were left out (limits)")
 	}
 	for _, d := range devs {
 		t.Logf("%s:%d name=%q hardware=%q", d.Host, d.Port, d.Name, d.Hardware)

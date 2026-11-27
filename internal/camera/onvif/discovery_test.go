@@ -2,8 +2,12 @@ package onvif
 
 import (
 	"encoding/xml"
+	"fmt"
+	"net"
 	"reflect"
+	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 // Shape of an XMEye ProbeMatches answer (addresses and ids made up).
@@ -28,6 +32,66 @@ func TestParseProbeMatches(t *testing.T) {
 	}
 	if ParseProbeMatches([]byte("not xml")) != nil {
 		t.Fatal("garbage parsed")
+	}
+}
+
+// An answer lists the device at the address it came from, whatever host its
+// XAddr names; floods of answers and devices are capped and reported.
+func TestDiscoveredBoundToSenderAndBounded(t *testing.T) {
+	var c discovered
+	c.add([]byte(probeMatch), net.ParseIP("192.168.1.30"))
+	got, truncated := c.result()
+	want := []Device{
+		{Host: "192.168.1.30", Port: 80, Name: "Other"},
+		{Host: "192.168.1.30", Port: 8899, Name: "IPC Fundo", Hardware: "IPC_NT98566"},
+	}
+	if truncated || !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %+v (truncated %v)\nwant %+v", got, truncated, want)
+	}
+
+	// Many matches in one datagram: only the first few count.
+	var many strings.Builder
+	many.WriteString(`<e:Envelope xmlns:e="x" xmlns:d="y"><e:Body><d:ProbeMatches>`)
+	for i := range 50 {
+		fmt.Fprintf(&many, `<d:ProbeMatch><d:XAddrs>http://10.0.0.1:%d/onvif/device_service</d:XAddrs></d:ProbeMatch>`, 1000+i)
+	}
+	many.WriteString(`</d:ProbeMatches></e:Body></e:Envelope>`)
+	c = discovered{}
+	c.add([]byte(many.String()), net.ParseIP("192.168.1.31"))
+	if got, _ := c.result(); len(got) != maxMatchesPerReply {
+		t.Fatalf("kept %d matches of one datagram", len(got))
+	}
+
+	// Many senders: the device list stops at its cap and says so.
+	c = discovered{}
+	for i := range maxDiscovered + 10 {
+		c.add([]byte(probeMatch), net.IPv4(10, 1, byte(i/250), byte(i%250+1)))
+	}
+	if got, truncated := c.result(); len(got) > maxDiscovered || !truncated {
+		t.Fatalf("kept %d devices, truncated %v", len(got), truncated)
+	}
+
+	// Many datagrams: parsing stops at its cap; oversized ones are ignored.
+	c = discovered{}
+	c.add(append([]byte(probeMatch), make([]byte, maxDiscoveryDatagram)...), net.ParseIP("192.168.1.32"))
+	for range maxDiscoveryReplies {
+		c.add([]byte("not xml"), net.ParseIP("192.168.1.33"))
+	}
+	c.add([]byte(probeMatch), net.ParseIP("192.168.1.34"))
+	if got, truncated := c.result(); len(got) != 0 || !truncated {
+		t.Fatalf("got %+v truncated %v", got, truncated)
+	}
+}
+
+// Scope text is cut to a readable length; ports outside 1–65535 become 80.
+func TestParseProbeMatchesLimits(t *testing.T) {
+	long := strings.Repeat("é", 200)
+	data := `<e:Envelope xmlns:e="x" xmlns:d="y"><e:Body><d:ProbeMatches><d:ProbeMatch>` +
+		`<d:Scopes>onvif://www.onvif.org/name/` + long + `</d:Scopes>` +
+		`<d:XAddrs>http://192.168.1.40:99999/onvif/device_service</d:XAddrs></d:ProbeMatch></d:ProbeMatches></e:Body></e:Envelope>`
+	got := ParseProbeMatches([]byte(data))
+	if len(got) != 1 || len(got[0].Name) > maxScopeText || !utf8.ValidString(got[0].Name) || got[0].Port != 80 {
+		t.Fatalf("%+v", got)
 	}
 }
 
