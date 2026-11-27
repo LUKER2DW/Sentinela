@@ -96,6 +96,7 @@ public class MainActivity extends BridgeActivity {
         // This launch's server (or the bundled start screen), before the bridge loads.
         config = Connection.capConfig(this);
         super.onCreate(savedInstanceState);
+        hardenWebView();
         tuneWebView();
         installBackButton();
         installDownloads();
@@ -229,7 +230,7 @@ public class MainActivity extends BridgeActivity {
         if (path == null || !AppLinks.isAppRoute(path) || rendererGone) return;
         String server = getBridge().getServerUrl();
         if (server == null) return; // start screen: no server chosen yet
-        web().loadUrl(Connection.trimSlashes(server) + path);
+        webView.loadUrl(Connection.trimSlashes(server) + path);
     }
 
     @Override
@@ -270,20 +271,23 @@ public class MainActivity extends BridgeActivity {
     // ---------- WebView as an app ----------
 
     /**
-     * The app's WebView. It loads only the paired house and the app's own
-     * pages, so content:// and file:// URLs are off (uploads go through the
-     * file chooser, which still works). Set on every use: cheap and idempotent.
+     * The app's WebView, set by hardenWebView() as soon as the bridge exists
+     * and used only through this field. It loads only the paired house and
+     * the app's own pages, so content:// and file:// URLs are off (uploads go
+     * through the file chooser, which still works).
      */
-    private WebView web() {
+    private WebView webView;
+
+    private void hardenWebView() {
         WebView w = getBridge().getWebView();
         WebSettings s = w.getSettings();
         s.setAllowContentAccess(false);
         s.setAllowFileAccess(false);
-        return w;
+        webView = w;
     }
 
     private void tuneWebView() {
-        WebView web = web();
+        WebView web = webView;
         web.setVerticalScrollBarEnabled(false);
         web.setHorizontalScrollBarEnabled(false);
         web.setOverScrollMode(View.OVER_SCROLL_NEVER);
@@ -364,7 +368,7 @@ public class MainActivity extends BridgeActivity {
                     return;
                 }
                 if (rendererGone) return;
-                WebView web = web();
+                WebView web = webView;
                 boolean can = web.canGoBack();
                 web.evaluateJavascript("(window.sentinelaBack ? window.sentinelaBack(" + can + ") : false) === true", v -> {
                     if ("true".equals(v)) return;
@@ -464,7 +468,7 @@ public class MainActivity extends BridgeActivity {
     }
 
     private void installDownloads() {
-        WebView web = web();
+        WebView web = webView;
         final String server = getBridge().getServerUrl();
         web.setDownloadListener((url, userAgent, disposition, mime, length) -> {
             // Only files from the Sentinela server itself, over HTTPS.
