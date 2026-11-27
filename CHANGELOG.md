@@ -7,6 +7,54 @@ All notable changes to Sentinela. The format follows
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-11-27
+
+Security release: the ten findings of an outside review of 1.8.0, fixed.
+Update with the usual `./scripts/deploy.sh`; read **Changed** first.
+
+### Changed
+Read before updating.
+- **Self-hosted services: downloads outside the firewall need consent.**
+  The switch *Allow builds outside the firewall* is now *Allow builds and
+  downloads outside the firewall*. Besides builds, it covers images Docker
+  would pull from a registry other than the well-known public ones (Docker
+  Hub, GitHub, Quay, LinuxServer, GitLab, Google, Microsoft, Amazon), and a
+  Dockerfile's `FROM` from one: Docker pulls on the server's own network.
+  An image already on the server keeps working without it.
+- **Self-hosted services stop when the system disk runs low.** 10 % of it
+  (`apps.disk_reserve_percent`, at least 1 GiB) is kept for the NVR and the
+  system: below that no service starts, deploys, builds or pulls, and the
+  running ones stop; they start again once there is room.
+- **Services firewall:** a service reaches port 53 only of the server's own
+  DNS servers on the home network (the router, usually), no longer of every
+  private address. Run `sudo ./scripts/setup-apps.sh enable` once after the
+  update (or wait for the next firewall check) so the rules are rebuilt.
+- **Android app:** a saved password fills the sign-in only on the house it
+  was saved for. Passwords saved with an earlier version are not offered
+  any more: sign in by hand once and accept *Save password* again.
+- **App updates:** a server offers an APK from its releases only when it is
+  signed with the project's key (`app_updates.signer_sha256`; set it when
+  `app_updates.github` points at another repository). An APK already on
+  offer is checked once at the next update check.
+
+### Security
+- **Timeline previews** have a memory budget: the cached previews are
+  bounded in bytes (8 MB), a preview is built once for every request that
+  wants it, at most two at a time, and a keyframe above 2 MB is served from
+  the file instead of memory.
+- **Live view tickets** are bounded per account (64 open, 240 a minute) and
+  in total; past that the server answers 429 and the player retries.
+- **The Android app's notification stream** from outside closes, like every
+  other long-lived stream, when the account turns on two-step login and the
+  session was made without a code. Two-step login stays optional.
+- **ONVIF camera search** reads at most 256 answers and keeps 64 cameras,
+  lists each camera at the address its answer came from, and cuts long
+  names.
+- **The recorder** no longer receives go2rtc's API password (Compose blanks
+  it; ffmpeg never gets it).
+- **APK signer check** for the update mirror (see Changed); the download
+  card shows the key's code.
+
 ## [1.8.0] - 2026-11-26
 
 A security review of the whole code, fixed: sign-in from the internet, the
